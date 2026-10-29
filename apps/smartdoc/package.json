@@ -1,6 +1,6 @@
 {
-  "name": "short-list-me",
-  "productName": "Short List Me",
+  "name": "employment-short-list-app",
+  "productName": "Employment Short List App",
   "version": "0.1.0",
   "description": "See your CV the way a screener reads it.",
   "license": "UNLICENSED",
@@ -20,8 +20,8 @@
     "vite": "8.3.5"
   },
   "build": {
-    "appId": "com.shortlistme.app",
-    "productName": "Short List Me",
+    "appId": "com.tw050x.employmentshortlistapp",
+    "productName": "Employment Short List App",
     "directories": {
       "output": "dist"
     },

@@ -5,7 +5,7 @@ import { closeLeftSidebar, closeRightSidebar, openLeftSidebar, openRightSidebar 
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
-const { platform, openDroppedFile, onFileOpened, onFileClosed, onFullScreenChange } = window.shortListMe;
+const { platform, openDroppedFile, onFileOpened, onFileClosed, onFullScreenChange } = window.employmentShortList;
 document.body.classList.add(`platform-${platform}`);
 onFullScreenChange((isFullScreen) => document.body.classList.toggle('full-screen', isFullScreen));
 

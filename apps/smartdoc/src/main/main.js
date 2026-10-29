@@ -28,7 +28,7 @@ function createWindow() {
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    title: 'Short List Me',
+    title: 'Employment Short List App',
     backgroundColor: '#ebebef',
     ...frame,
     webPreferences: {

@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
-contextBridge.exposeInMainWorld('shortListMe', {
+contextBridge.exposeInMainWorld('employmentShortList', {
   platform: process.platform,
   // Dropped files are opened by path, so the main process knows which file the window shows.
   openDroppedFile: (file) => ipcRenderer.invoke('open-path', webUtils.getPathForFile(file)),
