@@ -1,0 +1,209 @@
+:root {
+  color-scheme: light;
+  --top-bar-height: 44px;
+  --sidebar-left-width: 260px;
+  --sidebar-right-width: 320px;
+
+  --bg: #ffffff;
+  --border: #e2e2e7;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --button-hover: #e6e6ea;
+  --button-active: #dadadf;
+  --document-bg: #ebebef;
+  --accent: #2f6fde;
+
+  /* Shared by the sidebar cards and the PDF pages so their tops and corners line up. */
+  --card-top: 10px;
+  --card-radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  grid-template-rows: var(--top-bar-height) 1fr;
+  background: var(--document-bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+/* --- Top bar ---------------------------------------------------------------------------
+   The whole bar drags the window; buttons opt out. macOS reserves room on the left for the
+   traffic lights; Windows and Linux reserve room on the right for the system window controls
+   (the env() values come from Electron's title bar overlay). */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  -webkit-app-region: drag;
+}
+.platform-darwin:not(.full-screen) .top-bar { padding-left: 84px; }
+body:not(.platform-darwin) .top-bar {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
+}
+.top-bar-start, .top-bar-end { display: flex; align-items: center; gap: 6px; }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.icon-button:hover { background: var(--button-hover); color: var(--text); }
+.icon-button:active { background: var(--button-active); }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* --- Three columns ----------------------------------------------------------------------- */
+.workspace {
+  display: grid;
+  --sidebar-cap: min(520px, (100vw - 320px) / 2);
+  grid-template-columns: min(var(--sidebar-left-width), var(--sidebar-cap)) 1fr min(var(--sidebar-right-width), var(--sidebar-cap));
+  min-height: 0;
+  transition: grid-template-columns 0.18s ease;
+}
+/* A closed sidebar shrinks to a gutter at the window edge that just holds its drag handle. */
+.workspace { --closed-sidebar-width: 14px; }
+.left-closed .workspace { --sidebar-left-width: var(--closed-sidebar-width); }
+.right-closed .workspace { --sidebar-right-width: var(--closed-sidebar-width); }
+
+.side-panel {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--document-bg);
+}
+
+/* Each sidebar is a floating card. Its spacing is margin rather than panel padding, so a
+   closed (zero-width) panel clips it away completely. The inner margin is wider to leave a
+   gutter for the drag handle. */
+.side-card {
+  position: absolute;
+  inset: var(--card-top) 10px 10px;
+  overflow: hidden auto;
+  background: var(--bg);
+  border-radius: var(--card-radius);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.07);
+}
+.side-panel-left .side-card { right: 14px; }
+.side-panel-right .side-card { left: 14px; }
+/* Hide the card once the closing animation has finished; show it straight away on opening. */
+.left-closed .side-panel-left .side-card,
+.right-closed .side-panel-right .side-card { visibility: hidden; transition: visibility 0s 0.18s; }
+
+/* Drag handles: a small grip on each sidebar's inner edge, vertically centred, with empty
+   space above and below. It's the only thing separating a sidebar from the PDF view. The
+   handle sits inside the panel, which clips overflow, so it hides when the sidebar closes. */
+.resizer {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 56px;
+  margin-top: -28px;
+  display: grid;
+  place-items: center;
+  z-index: 1;
+  cursor: col-resize;
+}
+.side-panel-left .resizer { right: 0; }
+.side-panel-right .resizer { left: 0; }
+.resizer::after {
+  content: "";
+  width: 4px;
+  height: 36px;
+  border-radius: 2px;
+  background: #c4c4cb;
+  transition: background-color 0.15s;
+}
+.resizer:hover::after, .resizing .resizer.active::after { background: var(--accent); }
+
+/* While dragging, the edge follows the pointer directly (no animation, and no CSS cap so it
+   can rubber-band past the maximum). Snapping closed, reopening and springing back animate. */
+.resizing:not(.snapping) .workspace { transition: none; }
+.resizing .workspace {
+  grid-template-columns: var(--sidebar-left-width) 1fr var(--sidebar-right-width);
+}
+.resizing, .resizing * { cursor: col-resize !important; user-select: none !important; }
+
+/* --- PDF view ---------------------------------------------------------------------------- */
+.document {
+  position: relative;
+  overflow: auto;
+  background: var(--document-bg);
+}
+/* Drop indicator: the page outlines turn to the accent colour. With a file already open,
+   its pages get the same dashed outline. */
+.document.dragging .ghost-page { border-color: var(--accent); }
+.document.dragging .page { outline: 2px dashed var(--accent); outline-offset: 4px; }
+
+/* Empty window: dashed outlines of pages laid out exactly as loaded pages are (same margins,
+   gap and maximum width, see .pages and RENDER_SCALE), with the instructions on the first.
+   The pages run off the bottom; this decoration never scrolls. */
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: var(--card-top) 24px 24px;
+  overflow: hidden;
+}
+.has-document .empty-state { display: none; }
+
+.ghost-page {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 893px; /* A4 at the render scale of 1.5 */
+  aspect-ratio: 210 / 297;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  border: 2px dashed #c4c4cb;
+  border-radius: var(--card-radius);
+}
+.ghost-page p {
+  margin: 0;
+  max-width: 26ch;
+  color: var(--muted);
+  text-align: center;
+}
+
+.pages {
+  display: grid;
+  justify-content: center;
+  gap: 16px;
+  padding: var(--card-top) 24px 24px;
+}
+.page {
+  position: relative;
+  overflow: hidden; /* clips the drawn page to the rounded corners */
+  border-radius: var(--card-radius);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06);
+  user-select: text;
+}
+.page-content {
+  position: relative;
+  transform-origin: 0 0;
+}
+.page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

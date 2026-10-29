@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:">
+  <title>Short List Me</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="top-bar">
+    <div class="top-bar-start">
+      <button class="icon-button" id="toggle-left" type="button" aria-controls="left-sidebar"></button>
+    </div>
+    <div class="top-bar-end">
+      <button class="icon-button" id="toggle-right" type="button" aria-controls="right-sidebar"></button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="side-panel side-panel-left" id="left-sidebar">
+      <div class="side-card"></div>
+      <div class="resizer" data-side="left" role="separator" aria-orientation="vertical" aria-label="Resize left sidebar"></div>
+    </aside>
+
+    <section class="document" id="document">
+      <div class="empty-state" id="empty-state">
+        <div class="ghost-page">
+          <p>Drop a PDF of your CV or résumé here, or use the File menu to open one or pick a recent file.</p>
+        </div>
+        <div class="ghost-page"></div>
+      </div>
+      <div class="pages" id="pages"></div>
+    </section>
+
+    <aside class="side-panel side-panel-right" id="right-sidebar">
+      <div class="side-card"></div>
+      <div class="resizer" data-side="right" role="separator" aria-orientation="vertical" aria-label="Resize right sidebar"></div>
+    </aside>
+  </main>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

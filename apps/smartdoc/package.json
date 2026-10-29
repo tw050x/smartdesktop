@@ -1,0 +1,51 @@
+{
+  "name": "short-list-me",
+  "productName": "Short List Me",
+  "version": "0.1.0",
+  "description": "See your CV the way a screener reads it.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "dist": "vite build && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0",
+    "pdfjs-dist": "6.4.299",
+    "vite": "8.3.5"
+  },
+  "build": {
+    "appId": "com.shortlistme.app",
+    "productName": "Short List Me",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/main/**/*",
+      "build/renderer/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    }
+  }
+}
