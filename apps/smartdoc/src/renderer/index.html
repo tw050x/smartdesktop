@@ -24,13 +24,27 @@
 
     <section class="document" id="document">
       <div class="empty-state" id="empty-state">
+        <div class="ghost-stack">
         <div class="ghost-page">
-          <p>Drop a PDF of your CV or résumé here, or use the File menu to open one or pick a recent file.</p>
+          <div class="empty-message">
+            <p>Drop a PDF of your CV or résumé here, or use the File menu to open one or pick a recent file.</p>
+            <section class="recent-files">
+              <h2>Recently opened</h2>
+              <ul class="recent-cards" id="recent-list"></ul>
+              <p class="recent-none" id="recent-none">No recently opened files.</p>
+            </section>
+          </div>
         </div>
-        <div class="ghost-page"></div>
+        <div class="ghost-more">
+          <div class="ghost-page"></div>
+          <div class="ghost-page"></div>
+        </div>
+        </div>
       </div>
       <div class="pages" id="pages"></div>
     </section>
+    <div class="scroll-shadow" aria-hidden="true"></div>
+    <div class="scrollbar" id="scrollbar" aria-hidden="true"><div class="scrollbar-thumb" id="scrollbar-thumb"></div></div>
 
     <aside class="side-panel side-panel-right" id="right-sidebar">
       <div class="side-card"></div>

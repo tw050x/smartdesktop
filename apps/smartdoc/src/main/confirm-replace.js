@@ -1,0 +1,64 @@
+import { BrowserWindow, ipcMain } from 'electron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const dirname = path.dirname(fileURLToPath(import.meta.url));
+const pending = new Map(); // confirmation window's webContents id → resolve
+const WIDTH = 440;
+
+ipcMain.on('confirm-replace-response', (event, choice) => {
+  pending.get(event.sender.id)?.(choice);
+});
+
+// The window sizes itself to its content (long file names wrap), then shows.
+ipcMain.on('confirm-replace-fit', (event, height) => {
+  const dialog = BrowserWindow.fromWebContents(event.sender);
+  if (!dialog || !pending.has(event.sender.id)) return;
+  const wanted = Math.ceil(height);
+  if (!dialog.isVisible()) dialog.show();
+  dialog.setContentSize(WIDTH, wanted);
+  // Once attached as a sheet, macOS gives a frameless window less height than asked for,
+  // so make up any shortfall.
+  const [, actual] = dialog.getContentSize();
+  if (actual < wanted) dialog.setContentSize(WIDTH, wanted + (wanted - actual));
+});
+
+// Asks, in a window of its own, whether to replace the open file with another. Attached to the
+// parent (a sheet on macOS, a modal window elsewhere). Resolves with 'replace', 'save' (save
+// the current file's changes, then replace) or 'cancel'.
+export function confirmReplace(parent, { current, next, unsaved }) {
+  const dialog = new BrowserWindow({
+    parent,
+    modal: true,
+    show: false,
+    frame: false,
+    useContentSize: true,
+    width: WIDTH,
+    height: 160,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      preload: path.join(dirname, 'confirm-replace-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  return new Promise((resolve) => {
+    const id = dialog.webContents.id;
+    const finish = (choice) => {
+      pending.delete(id);
+      if (!dialog.isDestroyed()) dialog.close();
+      resolve(choice);
+    };
+    pending.set(id, finish);
+    dialog.on('closed', () => pending.has(id) && finish('cancel'));
+    dialog.loadFile(path.join(dirname, '../../build/renderer/confirm-replace.html'), {
+      query: { current: path.basename(current), next: path.basename(next), unsaved: unsaved ? '1' : '' },
+    });
+  });
+}

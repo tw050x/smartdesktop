@@ -13,8 +13,8 @@
   --document-bg: #ebebef;
   --accent: #2f6fde;
 
-  /* Shared by the sidebar cards and the PDF pages so their tops and corners line up. */
-  --card-top: 10px;
+  /* Shared by the sidebar cards and the PDF pages so their tops, bottoms and corners line up. */
+  --card-gap: 10px;
   --card-radius: 12px;
 }
 
@@ -79,6 +79,10 @@ body:not(.platform-darwin) .top-bar {
 }
 /* A closed sidebar shrinks to a gutter at the window edge that just holds its drag handle. */
 .workspace { --closed-sidebar-width: 14px; }
+/* Fixed positions, so the scroll shadow can share the middle cell. */
+.side-panel-left { grid-area: 1 / 1; }
+.document { grid-area: 1 / 2; }
+.side-panel-right { grid-area: 1 / 3; }
 .left-closed .workspace { --sidebar-left-width: var(--closed-sidebar-width); }
 .right-closed .workspace { --sidebar-right-width: var(--closed-sidebar-width); }
 
@@ -94,7 +98,7 @@ body:not(.platform-darwin) .top-bar {
    gutter for the drag handle. */
 .side-card {
   position: absolute;
-  inset: var(--card-top) 10px 10px;
+  inset: var(--card-gap) 10px;
   overflow: hidden auto;
   background: var(--bg);
   border-radius: var(--card-radius);
@@ -111,10 +115,11 @@ body:not(.platform-darwin) .top-bar {
    handle sits inside the panel, which clips overflow, so it hides when the sidebar closes. */
 .resizer {
   position: absolute;
-  top: 50%;
+  /* Centred on the window rather than the panel, which starts below the top bar. */
+  top: calc(50% - var(--top-bar-height) / 2);
   width: 14px;
-  height: 56px;
-  margin-top: -28px;
+  height: 128px;
+  margin-top: -64px;
   display: grid;
   place-items: center;
   z-index: 1;
@@ -125,7 +130,7 @@ body:not(.platform-darwin) .top-bar {
 .resizer::after {
   content: "";
   width: 4px;
-  height: 36px;
+  height: 108px;
   border-radius: 2px;
   background: #c4c4cb;
   transition: background-color 0.15s;
@@ -140,6 +145,56 @@ body:not(.platform-darwin) .top-bar {
 }
 .resizing, .resizing * { cursor: col-resize !important; user-select: none !important; }
 
+/* An inner shadow along the top of the middle column once a page has scrolled under it. It
+   sits in the grid over the PDF view (not inside the scrolling area), so it stays put. */
+.scroll-shadow {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  height: 12px;
+  background: linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0));
+  /* Fade the ends so the shadow has no hard edge at the left and right. */
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+  z-index: 2;
+}
+.scrolled .scroll-shadow { opacity: 1; }
+
+/* Custom scrollbar for the middle column (see main.js). No track is drawn: just a thin thumb
+   on the right edge, shown only when there's something to scroll. Hovering its strip for a
+   moment widens the thumb; it narrows straight away on leaving, and stays wide while dragged. */
+.document, .empty-state { scrollbar-width: none; }
+.scrollbar {
+  grid-area: 1 / 2;
+  justify-self: end;
+  position: relative;
+  width: 14px;
+  margin: var(--card-gap) 2px;
+  z-index: 3;
+  visibility: hidden;
+}
+.scrollbar.scrollable { visibility: visible; }
+.scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  right: 3px;
+  width: 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  transition: width 0.15s ease, background-color 0.15s ease;
+}
+.scrollbar:hover .scrollbar-thumb {
+  width: 8px;
+  transition-delay: 0.35s;
+}
+.scrollbar.dragging .scrollbar-thumb {
+  width: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  transition-delay: 0s;
+}
+
 /* --- PDF view ---------------------------------------------------------------------------- */
 .document {
   position: relative;
@@ -153,42 +208,161 @@ body:not(.platform-darwin) .top-bar {
 
 /* Empty window: dashed outlines of pages laid out exactly as loaded pages are (same margins,
    gap and maximum width, see .pages and RENDER_SCALE), with the instructions on the first.
-   The pages run off the bottom; this decoration never scrolls. */
+   Only the first page scrolls. The others sit in a zero-height box below it, so they never
+   add to the scroll height: they show only in space left over when the first page is shorter
+   than the view, and the stack clips them at the bottom. */
 .empty-state {
   position: absolute;
   inset: 0;
+  overflow: hidden auto;
+}
+.has-document .empty-state { display: none; }
+
+.ghost-stack {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: var(--card-top) 24px 24px;
-  overflow: hidden;
+  min-height: 100%;
+  padding: var(--card-gap) 24px;
+  overflow: clip;
 }
-.has-document .empty-state { display: none; }
+.ghost-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 0;
+}
+.ghost-more .ghost-page { margin-top: 16px; }
 
 .ghost-page {
   flex-shrink: 0;
   width: 100%;
   max-width: 893px; /* A4 at the render scale of 1.5 */
   aspect-ratio: 210 / 297;
-  display: grid;
-  place-items: center;
   padding: 24px;
   border: 2px dashed #c4c4cb;
   border-radius: var(--card-radius);
 }
-.ghost-page p {
+/* The first page holds the instructions and recent files, top-aligned with some headroom.
+   It grows taller than A4 if the recent cards need the room. */
+.ghost-stack > .ghost-page { padding-top: 56px; }
+
+.empty-message {
+  display: grid;
+  justify-items: center;
+  gap: 40px;
+}
+.empty-message > p {
   margin: 0;
   max-width: 26ch;
   color: var(--muted);
   text-align: center;
 }
 
+.recent-files { width: 100%; max-width: 720px; }
+.recent-files h2 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+.recent-none { margin: 0; color: var(--muted); text-align: center; }
+.recent-none[hidden] { display: none; }
+
+/* Recent file cards. Each card is the page preview itself (taking the page's shape), with the
+   page controls on a translucent strip along its bottom edge; the file name sits underneath. */
+.recent-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 20px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recent-cards:empty { display: none; }
+.recent-item { display: grid; gap: 8px; min-width: 0; }
+
+.recent-card {
+  position: relative;
+  aspect-ratio: 210 / 297; /* until the preview sets the file's own shape */
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.15s;
+}
+.recent-item:has(.recent-open:hover) .recent-card {
+  box-shadow: 0 0 0 2px var(--accent), 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+.recent-item.missing .recent-card { background: #f6f6f8; box-shadow: inset 0 0 0 1px var(--border); }
+
+.recent-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.recent-preview {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.recent-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.recent-status { color: var(--muted); font-size: 12px; }
+.recent-status[hidden] { display: none; }
+
+.recent-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-weight: 500;
+}
+.recent-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.recent-item.missing .recent-name { color: var(--muted); }
+
+.recent-pager {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.recent-pager[hidden] { display: none; }
+.recent-page { color: var(--muted); font-size: 12px; }
+.recent-step {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.recent-step:hover { background: rgba(0, 0, 0, 0.06); color: var(--text); }
+.recent-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .pages {
   display: grid;
   justify-content: center;
   gap: 16px;
-  padding: var(--card-top) 24px 24px;
+  padding: var(--card-gap) 24px;
 }
 .page {
   position: relative;

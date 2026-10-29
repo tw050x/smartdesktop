@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --border: #d8d8de;
+  --button-hover: #f0f0f3;
+  --accent: #2f6fde;
+  --accent-hover: #2862c8;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  padding: 22px 24px 20px;
+  background: #fff;
+  color: var(--text);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+p {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.buttons .push-left { margin-right: auto; }
+
+button {
+  min-width: 84px;
+  padding: 6px 14px;
+  border-radius: 7px;
+  font: inherit;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+button.secondary { border: 1px solid var(--border); background: #fff; color: var(--text); }
+button.secondary:hover { background: var(--button-hover); }
+button.primary { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+button.primary:hover { background: var(--accent-hover); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

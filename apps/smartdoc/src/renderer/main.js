@@ -2,10 +2,11 @@ import { GlobalWorkerOptions, TextLayer, getDocument } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { closeLeftSidebar, closeRightSidebar, openLeftSidebar, openRightSidebar } from './icons.js';
+import { renderRecentCards } from './recent-cards.js';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
-const { platform, openDroppedFile, onFileOpened, onFileClosed, onFullScreenChange } = window.employmentShortList;
+const { platform, openDroppedFile, openRecent, readRecent, onRecentFiles, onFileOpened, onFileClosed, onFullScreenChange } = window.employmentShortList;
 document.body.classList.add(`platform-${platform}`);
 onFullScreenChange((isFullScreen) => document.body.classList.toggle('full-screen', isFullScreen));
 
@@ -175,14 +176,91 @@ function fitPage(pageEl) {
 
 new ResizeObserver(() => pagesEl.querySelectorAll('.page').forEach(fitPage)).observe(documentEl);
 
+// --- Scrolling the middle column ---------------------------------------------------------
+// Loaded pages scroll the PDF view itself; the empty view's dashed page scrolls inside it.
+// Both share the top inner shadow (shown while a page is scrolled under the top edge) and a
+// custom scrollbar: the native one is hidden, and this one is drawn over the column's right
+// edge with no visible track.
+
+const emptyEl = document.getElementById('empty-state');
+const scrollbarEl = document.getElementById('scrollbar');
+const thumbEl = document.getElementById('scrollbar-thumb');
+const THUMB_MIN = 32;
+const activeScroller = () => (document.body.classList.contains('has-document') ? documentEl : emptyEl);
+
+function thumbGeometry(scroller) {
+  const track = scrollbarEl.clientHeight;
+  const height = Math.max(THUMB_MIN, (scroller.clientHeight / scroller.scrollHeight) * track);
+  const range = scroller.scrollHeight - scroller.clientHeight;
+  return { track, height, range, top: range > 0 ? (scroller.scrollTop / range) * (track - height) : 0 };
+}
+
+function updateScrollUi() {
+  const scroller = activeScroller();
+  document.body.classList.toggle('scrolled', scroller.scrollTop > 0);
+  const { height, range, top } = thumbGeometry(scroller);
+  scrollbarEl.classList.toggle('scrollable', range > 0);
+  thumbEl.style.height = `${height}px`;
+  thumbEl.style.transform = `translateY(${top}px)`;
+}
+
+for (const el of [documentEl, emptyEl]) el.addEventListener('scroll', updateScrollUi, { passive: true });
+const scrollObserver = new ResizeObserver(updateScrollUi);
+for (const el of [documentEl, emptyEl, pagesEl, emptyEl.firstElementChild]) scrollObserver.observe(el);
+
+// Dragging the thumb scrolls proportionally; clicking the track jumps so the thumb centres on
+// the click; the wheel over the scrollbar scrolls the column as usual.
+thumbEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const scroller = activeScroller();
+  const { track, height, range } = thumbGeometry(scroller);
+  const startY = e.clientY;
+  const startScroll = scroller.scrollTop;
+  thumbEl.setPointerCapture(e.pointerId);
+  scrollbarEl.classList.add('dragging');
+  const onMove = (m) => {
+    scroller.scrollTop = startScroll + ((m.clientY - startY) * range) / Math.max(1, track - height);
+  };
+  const onEnd = () => {
+    scrollbarEl.classList.remove('dragging');
+    thumbEl.removeEventListener('pointermove', onMove);
+    thumbEl.removeEventListener('lostpointercapture', onEnd);
+  };
+  thumbEl.addEventListener('pointermove', onMove);
+  thumbEl.addEventListener('lostpointercapture', onEnd);
+});
+scrollbarEl.addEventListener('pointerdown', (e) => {
+  const scroller = activeScroller();
+  const { track, height, range } = thumbGeometry(scroller);
+  const y = e.clientY - scrollbarEl.getBoundingClientRect().top - height / 2;
+  scroller.scrollTo({ top: (y / Math.max(1, track - height)) * range, behavior: 'smooth' });
+});
+scrollbarEl.addEventListener('wheel', (e) => activeScroller().scrollBy(e.deltaX, e.deltaY), { passive: true });
+
+// The empty view shows the most recent files as cards with page previews.
+onRecentFiles((files) => renderRecentCards({
+  files,
+  list: document.getElementById('recent-list'),
+  none: document.getElementById('recent-none'),
+  readRecent,
+  openRecent,
+}));
+
 function clearPdf() {
   pagesEl.replaceChildren();
   document.body.classList.remove('has-document');
 }
 
 // The main process owns the open file (it drives the File menu); the window just shows it.
-onFileOpened((file) => showPdf(file.data));
-onFileClosed(clearPdf);
+onFileOpened(async (file) => {
+  await showPdf(file.data);
+  updateScrollUi();
+});
+onFileClosed(() => {
+  clearPdf();
+  updateScrollUi();
+});
 
 documentEl.addEventListener('dragover', (e) => {
   e.preventDefault();

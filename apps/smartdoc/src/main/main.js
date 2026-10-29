@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'e
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { confirmReplace } from './confirm-replace.js';
 import { buildMenu } from './menu.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -9,11 +10,19 @@ const TOP_BAR_HEIGHT = 44;
 // Height of the area macOS reserves for the traffic lights (the circles sit centred in it).
 const TRAFFIC_LIGHTS_HEIGHT = 16;
 const MAX_RECENT = 10;
+const RECENT_IN_EMPTY_VIEW = 3;
 
 let win = null;
 let winReady = null; // resolves once the window's interface has loaded
 let currentFile = null; // absolute path of the PDF shown in the window, or null when empty
 let recent = [];
+// Development and automated tests can point the app at a separate data folder, so they never
+// read or overwrite the user's real data (recent files and anything stored later). Set before
+// the app is ready so Chromium's own storage moves too. Ignored in packaged builds.
+if (!app.isPackaged && process.env.EMPLOYMENT_SHORT_LIST_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.EMPLOYMENT_SHORT_LIST_USER_DATA));
+}
+
 const recentPath = () => path.join(app.getPath('userData'), 'recent.json');
 
 // Frameless window: the interface draws its own top bar. macOS keeps its traffic lights,
@@ -39,6 +48,7 @@ function createWindow() {
     },
   });
   winReady = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
+  winReady.then(updateMenu);
   win.loadFile(path.join(dirname, '../../build/renderer/index.html'));
 
   // In full screen macOS moves the traffic lights out of the top bar, so the interface
@@ -70,6 +80,22 @@ async function open(filePath) {
   win.setRepresentedFilename?.(filePath);
   win.webContents.send('file-opened', { name: path.basename(filePath), data: new Uint8Array(data) });
   updateMenu();
+}
+
+// Nothing in the app can be edited yet, so there's never anything to save. Once there is
+// (e.g. review notes), report it here and save it in saveChanges().
+const hasUnsavedChanges = () => false;
+async function saveChanges() {}
+
+// A PDF dropped while another is open replaces it only after the user confirms in a separate
+// window, which also offers to save any unsaved changes first.
+async function replaceWith(filePath) {
+  if (currentFile && currentFile !== filePath) {
+    const choice = await confirmReplace(win, { current: currentFile, next: filePath, unsaved: hasUnsavedChanges() });
+    if (choice === 'cancel') return;
+    if (choice === 'save') await saveChanges();
+  }
+  await open(filePath);
 }
 
 async function showOpenDialog() {
@@ -120,7 +146,10 @@ function clearRecent() {
 
 // --- Menu --------------------------------------------------------------------------------
 
+// The menu and the empty view's recent files both follow the app's state; call this whenever
+// the open file or the recent list changes.
 function updateMenu() {
+  win?.webContents.send('recent-files', recent.slice(0, RECENT_IN_EMPTY_VIEW).map((p) => ({ path: p, name: path.basename(p) })));
   Menu.setApplicationMenu(buildMenu({
     file: currentFile,
     recent,
@@ -137,7 +166,19 @@ function updateMenu() {
 
 // --- Renderer requests -------------------------------------------------------------------
 
-ipcMain.handle('open-path', (_event, filePath) => open(filePath));
+ipcMain.handle('open-path', (_event, filePath) => replaceWith(filePath));
+// Only paths from the recent list can be opened this way.
+ipcMain.handle('open-recent', (_event, filePath) => recent.includes(filePath) && replaceWith(filePath));
+// The empty view's previews read recent files directly (again, only files in the list).
+// Resolves with the file's bytes, or null if it can't be read (moved or deleted).
+ipcMain.handle('read-recent', async (_event, filePath) => {
+  if (!recent.includes(filePath)) return null;
+  try {
+    return new Uint8Array(await readFile(filePath));
+  } catch {
+    return null;
+  }
+});
 
 // --- App lifecycle -----------------------------------------------------------------------
 
