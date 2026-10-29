@@ -1,13 +1,18 @@
 name: Release
 
-# Push a version tag (e.g. v0.1.0) to release that commit. The release only goes ahead once
-# the Prerequisites workflow has passed on the same commit; if it's still running, this waits.
+# Run by hand (Actions → Release → Run workflow) on the branch to release. The release only
+# goes ahead once the Prerequisites workflow has passed on the same commit; if it's still
+# running, this waits.
+#
+# DRY RUN: releases must be signed and notarised before they're published, and signing isn't
+# set up yet. Until it is, this builds unsigned packages (attached to the run for testing) and
+# reports what it would release, but creates no tag and no release. The publish step is added
+# together with signing, so unsigned builds can't be published by accident.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 jobs:
@@ -59,7 +64,7 @@ jobs:
       - run: npm ci
       - run: npm run dist
         env:
-          # Unsigned builds for now: don't look for a signing certificate.
+          # Unsigned until signing and notarisation are set up.
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
@@ -71,18 +76,35 @@ jobs:
             dist/*.AppImage
           if-no-files-found: error
 
-  release:
-    name: Create draft release
+  dry-run:
+    name: Dry run (no release)
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-      - name: Create the release as a draft
+      - name: Report what would be released
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" artifacts/* \
-            --repo "$GITHUB_REPOSITORY" --draft --generate-notes --title "Short List Me $GITHUB_REF_NAME"
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent 2>/dev/null; then
+            tag_note="⚠️ Tag $tag already exists: bump the version in package.json before a real release."
+          else
+            tag_note="Tag $tag is free."
+          fi
+          {
+            echo "## Dry run: nothing was released"
+            echo
+            echo "Releases must be signed and notarised first, and signing isn't set up yet."
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Would release version **$version** as tag **$tag**. $tag_note"
+            echo "- Unsigned packages (download from this run's artifacts):"
+            for f in artifacts/*; do echo "  - $(basename "$f")"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
