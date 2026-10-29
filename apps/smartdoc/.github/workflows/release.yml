@@ -1,0 +1,88 @@
+name: Release
+
+# Push a version tag (e.g. v0.1.0) to release that commit. The release only goes ahead once
+# the Prerequisites workflow has passed on the same commit; if it's still running, this waits.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  prerequisites:
+    name: Wait for Prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check for a successful Prerequisites run on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          while true; do
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow prerequisites.yml --commit "$GITHUB_SHA" \
+              --limit 1 --json status,conclusion,url --jq '.[0] // empty')
+            if [ -z "$run" ]; then
+              echo "No Prerequisites run for $GITHUB_SHA yet. Waiting…"
+            else
+              status=$(jq -r .status <<<"$run")
+              conclusion=$(jq -r .conclusion <<<"$run")
+              url=$(jq -r .url <<<"$run")
+              if [ "$status" = completed ]; then
+                if [ "$conclusion" = success ]; then
+                  echo "Prerequisites passed: $url"
+                  exit 0
+                fi
+                echo "::error::Prerequisites did not pass ($conclusion): $url"
+                exit 1
+              fi
+              echo "Prerequisites is $status: $url. Waiting…"
+            fi
+            sleep 20
+          done
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: prerequisites
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist
+        env:
+          # Unsigned builds for now: don't look for a signing certificate.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: short-list-me-${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.AppImage
+          if-no-files-found: error
+
+  release:
+    name: Create draft release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create the release as a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --repo "$GITHUB_REPOSITORY" --draft --generate-notes --title "Short List Me $GITHUB_REF_NAME"

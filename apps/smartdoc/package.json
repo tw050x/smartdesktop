@@ -10,6 +10,7 @@
   "scripts": {
     "build": "vite build",
     "start": "vite build && electron .",
+    "test": "node --test",
     "dist": "vite build && electron-builder --publish never"
   },
   "devDependencies": {
