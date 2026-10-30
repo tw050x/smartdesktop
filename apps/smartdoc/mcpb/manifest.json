@@ -1,0 +1,45 @@
+{
+  "manifest_version": "0.3",
+  "name": "shortlist-dock",
+  "display_name": "Shortlist Dock",
+  "version": "0.1.0",
+  "description": "Review your CV with Claude in the Shortlist Dock app, and decide on each suggestion yourself.",
+  "long_description": "Shortlist Dock shows your CV (a PDF) in a desktop app on your computer. Claude reads it, marks up the text and writes findings for you to accept, reject or answer in the app, then writes the next draft from your decisions. The app opens automatically when Claude needs it; it's downloaded from the project's GitHub release the first time. Your CV stays on your computer: only what Claude reads through these tools goes to Claude.",
+  "author": {
+    "name": "tw050x",
+    "url": "https://github.com/tw050x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tw050x/shortlist-dock"
+  },
+  "homepage": "https://tw050x.github.io/shortlist-dock/",
+  "support": "https://github.com/tw050x/shortlist-dock/issues",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"]
+    }
+  },
+  "tools": [
+    { "name": "get_document", "description": "The open CV: its name, which draft is showing, and the text of each page." },
+    { "name": "get_review", "description": "The current draft's review: your requests, the findings with your decisions, annotations and history." },
+    { "name": "get_history", "description": "Earlier reviews of your CV and what you decided on each finding, so a new review doesn't ask again." },
+    { "name": "start_review", "description": "Starts a new review of the current draft." },
+    { "name": "add_annotation", "description": "Highlights, underlines or strikes through text in the CV." },
+    { "name": "add_finding", "description": "Adds a finding for you to decide on: a change, a choice of options, a question, a structural or design change, or a note." },
+    { "name": "remove_finding", "description": "Removes a finding from the open review." },
+    { "name": "commit_review", "description": "Hands the review to you to make your decisions in the app." },
+    { "name": "get_decisions", "description": "Your decisions on the current review." },
+    { "name": "apply_review", "description": "Writes the next draft of the CV from the changes you accepted." }
+  ],
+  "compatibility": {
+    "platforms": ["darwin"],
+    "runtimes": {
+      "node": ">=18"
+    }
+  },
+  "keywords": ["cv", "resume", "job search", "review"]
+}

@@ -1,43 +1,78 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
-import { readFile, writeFile } from 'node:fs/promises';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
+import { startMcpServer } from './mcp-server.js';
 import { buildMenu } from './menu.js';
+import { createWorkspace } from './workspace.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOP_BAR_HEIGHT = 44;
 // Height of the area macOS reserves for the traffic lights (the circles sit centred in it).
 const TRAFFIC_LIGHTS_HEIGHT = 16;
-const MAX_RECENT = 10;
 const RECENT_IN_EMPTY_VIEW = 3;
+
+// Development and automated tests can point the app at a separate data folder, so they never
+// read or overwrite the user's real data (documents, recent files and anything stored later),
+// and at a separate port for its MCP server (SHORTLIST_DOCK_PORT, see mcp-server.js), so a test
+// copy can run beside the real one. Set before the app is ready so Chromium's own storage moves
+// too. Ignored in packaged builds.
+if (!app.isPackaged && process.env.SHORTLIST_DOCK_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.SHORTLIST_DOCK_USER_DATA));
+} else {
+  moveLegacyUserData();
+}
+
+// The app used to be called Employment Short List App, and its data lived in a folder of that
+// name. The first time it runs as Shortlist Dock, everything in the old folder moves across
+// (anything already in the new folder is left alone), so documents, drafts, recent files and
+// the AI connection's token carry over. The old folder is removed once it's empty.
+function moveLegacyUserData() {
+  const legacy = path.join(app.getPath('appData'), 'Employment Short List App');
+  const current = app.getPath('userData');
+  if (legacy === current || !fs.existsSync(legacy)) return;
+  try {
+    fs.mkdirSync(current, { recursive: true });
+    for (const entry of fs.readdirSync(legacy)) {
+      const target = path.join(current, entry);
+      if (!fs.existsSync(target)) fs.renameSync(path.join(legacy, entry), target);
+    }
+    if (!fs.readdirSync(legacy).length) fs.rmdirSync(legacy);
+  } catch (error) {
+    console.error('Couldn’t move the data from Employment Short List App:', error);
+  }
+}
+
+// One copy of the app runs at a time (per data folder). Every AI app connects to it, and opening
+// it again just brings its window forward.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => {
+  if (!app.isReady()) return;
+  if (!win) return createWindow();
+  if (win.isMinimized()) win.restore();
+  win.focus();
+});
 
 let win = null;
 let winReady = null; // resolves once the window's interface has loaded
-let currentFile = null; // absolute path of the PDF shown in the window, or null when empty
-let recent = [];
-// Development and automated tests can point the app at a separate data folder, so they never
-// read or overwrite the user's real data (recent files and anything stored later). Set before
-// the app is ready so Chromium's own storage moves too. Ignored in packaged builds.
-if (!app.isPackaged && process.env.EMPLOYMENT_SHORT_LIST_USER_DATA) {
-  app.setPath('userData', path.resolve(process.env.EMPLOYMENT_SHORT_LIST_USER_DATA));
-}
-
-const recentPath = () => path.join(app.getPath('userData'), 'recent.json');
+let mcp = null; // { url, token } once the MCP server is listening
+let mcpStarting = true;
+const workspace = createWorkspace(app.getPath('userData'));
 
 // Frameless window: the interface draws its own top bar. macOS keeps its traffic lights,
 // placed in the top bar; Windows and Linux get the system window controls drawn over it.
 function createWindow() {
   const frame = process.platform === 'darwin'
     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
-    : { titleBarStyle: 'hidden', titleBarOverlay: { color: '#ebebef', symbolColor: '#3c3c43', height: TOP_BAR_HEIGHT } };
+    : { titleBarStyle: 'hidden', titleBarOverlay: { color: '#dcdce1', symbolColor: '#3c3c43', height: TOP_BAR_HEIGHT } };
 
   win = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    title: 'Employment Short List App',
+    title: 'Shortlist Dock',
     backgroundColor: '#ebebef',
     ...frame,
     webPreferences: {
@@ -48,7 +83,7 @@ function createWindow() {
     },
   });
   winReady = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
-  winReady.then(updateMenu);
+  winReady.then(sendEverything);
   win.loadFile(path.join(dirname, '../../build/renderer/index.html'));
 
   // In full screen macOS moves the traffic lights out of the top bar, so the interface
@@ -57,45 +92,100 @@ function createWindow() {
   win.on('leave-full-screen', () => win.webContents.send('full-screen', false));
   win.on('closed', () => {
     win = null;
-    currentFile = null;
-    updateMenu();
+    workspace.close();
   });
 }
 
-// --- The open file -------------------------------------------------------------------------
+// --- Keeping the window and menu in step with the workspace -----------------------------
 
-async function open(filePath) {
-  if (!win) createWindow();
-  await winReady;
-  let data;
-  try {
-    data = await readFile(filePath);
-  } catch {
-    dialog.showErrorBox('Couldn’t open the file', `${filePath} could not be read. It may have been moved or deleted.`);
-    removeRecent(filePath);
-    return;
-  }
-  currentFile = filePath;
-  await rememberRecent(filePath);
-  win.setRepresentedFilename?.(filePath);
-  win.webContents.send('file-opened', { name: path.basename(filePath), data: new Uint8Array(data) });
+const send = (channel, value) => win?.webContents.send(channel, value);
+const recentForWindow = () => workspace.recent.slice(0, RECENT_IN_EMPTY_VIEW);
+
+async function sendDraft() {
+  const view = await workspace.draftView();
+  // The draft's review comes with it, so the window never shows a draft with another draft's review.
+  send(view ? 'draft-opened' : 'document-closed', view && { ...view, review: workspace.review });
+  win?.setRepresentedFilename?.(view ? workspace.currentDraftPdfPath() : '');
   updateMenu();
 }
 
-// Nothing in the app can be edited yet, so there's never anything to save. Once there is
-// (e.g. review notes), report it here and save it in saveChanges().
+const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url, clients: mcp.clients() } : { state: mcpStarting ? 'starting' : 'off', clients: [] });
+
+async function sendEverything() {
+  send('recent-documents', recentForWindow());
+  send('mcp-status', mcpStatus());
+  if (workspace.document) {
+    await sendDraft();
+    send('review', workspace.review);
+  }
+  updateMenu();
+}
+
+workspace.events.on('draft', () => sendDraft());
+workspace.events.on('review', (review) => send('review', review));
+workspace.events.on('recent', () => {
+  send('recent-documents', recentForWindow());
+  updateMenu();
+});
+
+function updateMenu() {
+  const doc = workspace.document;
+  const at = doc ? doc.line.indexOf(doc.currentDraftId) : -1;
+  Menu.setApplicationMenu(buildMenu({
+    hasDocument: Boolean(doc),
+    canStepBack: at > 0,
+    canStepForward: doc ? at < doc.line.length - 1 : false,
+    recent: workspace.recent,
+    actions: {
+      showOpenDialog,
+      openDocument: (id) => openDocument(id),
+      clearRecent: () => workspace.clearRecent(),
+      saveDraftAs,
+      close: () => workspace.close(),
+      stepDraft: (delta) => workspace.stepDraft(delta),
+      showConnectAi,
+    },
+  }));
+}
+
+// --- Documents ---------------------------------------------------------------------------
+
+async function ensureWindow() {
+  if (!win) createWindow();
+  await winReady;
+}
+
+// Everything is saved as it happens, so switching documents never loses work. The confirmation
+// still asks first, and its save option stays for anything that one day isn't saved instantly.
 const hasUnsavedChanges = () => false;
 async function saveChanges() {}
 
-// A PDF dropped while another is open replaces it only after the user confirms in a separate
-// window, which also offers to save any unsaved changes first.
-async function replaceWith(filePath) {
-  if (currentFile && currentFile !== filePath) {
-    const choice = await confirmReplace(win, { current: currentFile, next: filePath, unsaved: hasUnsavedChanges() });
-    if (choice === 'cancel') return;
-    if (choice === 'save') await saveChanges();
+async function confirmSwitch(nextName) {
+  const doc = workspace.document;
+  if (!doc) return true;
+  const choice = await confirmReplace(win, { current: doc.name, next: nextName, unsaved: hasUnsavedChanges() });
+  if (choice === 'cancel') return false;
+  if (choice === 'save') await saveChanges();
+  return true;
+}
+
+// Opening a file (menu, drop or Finder) always imports it as a new document.
+async function importFile(filePath) {
+  await ensureWindow();
+  if (!(await confirmSwitch(path.basename(filePath)))) return;
+  try {
+    await workspace.importAndOpen(filePath);
+  } catch {
+    dialog.showErrorBox('Couldn’t open the file', `${filePath} could not be read.`);
   }
-  await open(filePath);
+}
+
+async function openDocument(docId) {
+  await ensureWindow();
+  if (workspace.document?.id === docId) return;
+  const entry = workspace.recent.find((r) => r.id === docId);
+  if (!(await confirmSwitch(entry?.name ?? 'the document'))) return;
+  await workspace.openDocument(docId);
 }
 
 async function showOpenDialog() {
@@ -103,100 +193,130 @@ async function showOpenDialog() {
     properties: ['openFile'],
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
-  if (!canceled && filePaths.length) await open(filePaths[0]);
+  if (!canceled && filePaths.length) await importFile(filePaths[0]);
 }
 
-function close() {
-  currentFile = null;
-  win?.setRepresentedFilename?.('');
-  win?.webContents.send('file-closed');
-  updateMenu();
+// Writes the current draft anywhere, including over the file it was imported from.
+async function saveDraftAs() {
+  const doc = workspace.document;
+  if (!doc) return;
+  const number = doc.line.indexOf(doc.currentDraftId);
+  const base = doc.name.replace(/\.pdf$/i, '');
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: number === 0 ? `${base}.pdf` : `${base} – Draft ${number}.pdf`,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (!canceled && filePath) await workspace.saveDraftAs(filePath);
 }
 
-// --- Recent files ------------------------------------------------------------------------
+// --- Connecting an AI --------------------------------------------------------------------
+// AI apps start Shortlist Dock's MCP server themselves: Claude Code runs the npm package with npx,
+// and Claude Desktop installs the .mcpb bundle from the website. Either one opens this app and
+// talks to its server, so there's nothing to copy from here but the Claude Code command.
 
-async function loadRecent() {
+const WEBSITE = 'https://tw050x.github.io/shortlist-dock/';
+const CLAUDE_CODE_COMMAND = 'claude mcp add --scope user shortlist-dock -- npx -y shortlist-dock';
+
+async function showConnectAi() {
+  const { response } = await dialog.showMessageBox(win ?? undefined, {
+    type: 'info',
+    message: 'Connect an AI',
+    detail: 'Claude Desktop: install Shortlist Dock from the website (download the file and open it).\n\nClaude Code: run this command in a terminal, then start a new session:\n' + CLAUDE_CODE_COMMAND + '\n\nThe AI then opens this app whenever it needs it.',
+    buttons: ['Open the Website', 'Copy the Claude Code Command', 'Close'],
+    defaultId: 0,
+    cancelId: 2,
+  });
+  if (response === 0) shell.openExternal(WEBSITE);
+  if (response === 1) clipboard.writeText(CLAUDE_CODE_COMMAND);
+}
+
+// --- Window requests ---------------------------------------------------------------------
+
+const handle = (channel, fn) => ipcMain.handle(channel, async (_event, ...args) => {
   try {
-    recent = JSON.parse(await readFile(recentPath(), 'utf8')).filter((p) => typeof p === 'string');
-  } catch {
-    recent = [];
-  }
-}
-
-const saveRecent = () => writeFile(recentPath(), JSON.stringify(recent)).catch(() => {});
-
-async function rememberRecent(filePath) {
-  recent = [filePath, ...recent.filter((p) => p !== filePath)].slice(0, MAX_RECENT);
-  app.addRecentDocument(filePath);
-  await saveRecent();
-}
-
-function removeRecent(filePath) {
-  recent = recent.filter((p) => p !== filePath);
-  saveRecent();
-  updateMenu();
-}
-
-function clearRecent() {
-  recent = [];
-  app.clearRecentDocuments();
-  saveRecent();
-  updateMenu();
-}
-
-// --- Menu --------------------------------------------------------------------------------
-
-// The menu and the empty view's recent files both follow the app's state; call this whenever
-// the open file or the recent list changes.
-function updateMenu() {
-  win?.webContents.send('recent-files', recent.slice(0, RECENT_IN_EMPTY_VIEW).map((p) => ({ path: p, name: path.basename(p) })));
-  Menu.setApplicationMenu(buildMenu({
-    file: currentFile,
-    recent,
-    actions: {
-      showOpenDialog,
-      open,
-      clearRecent,
-      reload: () => currentFile && open(currentFile),
-      showInFolder: () => currentFile && shell.showItemInFolder(currentFile),
-      close,
-    },
-  }));
-}
-
-// --- Renderer requests -------------------------------------------------------------------
-
-ipcMain.handle('open-path', (_event, filePath) => replaceWith(filePath));
-// Only paths from the recent list can be opened this way.
-ipcMain.handle('open-recent', (_event, filePath) => recent.includes(filePath) && replaceWith(filePath));
-// The empty view's previews read recent files directly (again, only files in the list).
-// Resolves with the file's bytes, or null if it can't be read (moved or deleted).
-ipcMain.handle('read-recent', async (_event, filePath) => {
-  if (!recent.includes(filePath)) return null;
-  try {
-    return new Uint8Array(await readFile(filePath));
-  } catch {
-    return null;
+    return { ok: true, value: await fn(...args) };
+  } catch (error) {
+    return { ok: false, error: error.message };
   }
 });
+
+handle('open-path', (filePath) => importFile(filePath));
+// Only documents in the recent list can be opened or previewed from the empty view.
+handle('open-recent', (docId) => workspace.isRecent(docId) && openDocument(docId));
+handle('read-recent', async (docId) => (workspace.isRecent(docId) ? new Uint8Array(await workspace.readCurrentDraftOf(docId)) : null));
+handle('step-draft', (delta) => workspace.stepDraft(delta));
+handle('page-texts', (docId, draftId, texts) => workspace.setPageTexts(docId, draftId, texts));
+handle('add-request', (request) => workspace.addRequest(request));
+handle('update-request', (id, changes) => workspace.updateRequest(id, changes));
+handle('remove-request', (id) => workspace.removeRequest(id));
+handle('decide', (itemId, decision) => workspace.decide(itemId, decision));
+handle('add-change', (text) => workspace.addChange(text));
+handle('update-change', (id, text) => workspace.updateChange(id, text));
+handle('remove-change', (id) => workspace.removeChange(id));
+// Resetting the review to the start of a step asks first, since what's cleared can't be got back
+// in the app.
+const RESETS = {
+  1: {
+    message: 'Start the review again?',
+    detail: 'This clears the AI’s findings and notes, your decisions and the changes you added, leaving an empty review for your AI to fill.',
+    run: () => workspace.resetToReview(),
+  },
+  2: {
+    message: 'Clear your decisions?',
+    detail: 'All your decisions, answers, edits and comments are cleared, and the changes you added are removed. The AI’s findings stay, ready to decide again.',
+    run: () => workspace.resetDecisions(),
+  },
+};
+handle('reset-to-step', async (step) => {
+  const reset = RESETS[step];
+  if (!reset) throw new Error(`Step ${step} can't be reset.`);
+  const { response } = await dialog.showMessageBox(win ?? undefined, {
+    type: 'warning',
+    message: reset.message,
+    detail: reset.detail,
+    buttons: ['Cancel', 'Reset'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response !== 1) return false;
+  await reset.run();
+  return true;
+});
+handle('copy-text', (text) => clipboard.writeText(String(text)));
+// Setup for each AI app, shown and copied for pasting: Claude Code's terminal command.
+const MCP_SETUPS = { 'claude-code': () => CLAUDE_CODE_COMMAND };
+function mcpSetup(target) {
+  if (!MCP_SETUPS[target]) throw new Error(`Unknown AI app: ${target}`);
+  return MCP_SETUPS[target]();
+}
+handle('mcp-setup', (target) => mcpSetup(target));
+handle('copy-mcp-setup', (target) => clipboard.writeText(mcpSetup(target)));
+handle('open-website', () => shell.openExternal(WEBSITE));
 
 // --- App lifecycle -----------------------------------------------------------------------
 
 nativeTheme.themeSource = 'light';
 
-// macOS: files opened from Finder, the Dock or the Dock's recent documents.
+// macOS: files opened from Finder or the Dock.
 let pendingOpen = null;
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
-  if (app.isReady()) open(filePath);
+  if (app.isReady()) importFile(filePath);
   else pendingOpen = filePath;
 });
 
 app.whenReady().then(async () => {
-  await loadRecent();
+  await workspace.loadRecent();
   updateMenu();
   createWindow();
-  if (pendingOpen) open(pendingOpen);
+  try {
+    mcp = await startMcpServer(workspace, app.getPath('userData'), { onClients: () => send('mcp-status', mcpStatus()) });
+  } catch {
+    mcp = null; // e.g. the port is taken by another copy of the app
+  }
+  mcpStarting = false;
+  send('mcp-status', mcpStatus());
+  if (pendingOpen) importFile(pendingOpen);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

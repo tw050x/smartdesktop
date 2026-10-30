@@ -1,6 +1,6 @@
 {
-  "name": "employment-short-list-app",
-  "productName": "Employment Short List App",
+  "name": "shortlist-dock-app",
+  "productName": "Shortlist Dock",
   "version": "0.1.0",
   "description": "See your CV the way a screener reads it.",
   "license": "UNLICENSED",
@@ -11,17 +11,19 @@
     "build": "vite build",
     "start": "vite build && electron .",
     "test": "node --test",
-    "dist": "vite build && electron-builder --publish never"
+    "dist": "vite build && electron-builder --publish never",
+    "mcpb": "node scripts/pack-mcpb.mjs"
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
     "electron": "45.1.0",
     "electron-builder": "26.18.0",
     "pdfjs-dist": "6.4.299",
     "vite": "8.3.5"
   },
   "build": {
-    "appId": "com.tw050x.employmentshortlistapp",
-    "productName": "Employment Short List App",
+    "appId": "com.tw050x.shortlistdock",
+    "productName": "Shortlist Dock",
     "directories": {
       "output": "dist"
     },
@@ -32,8 +34,20 @@
     ],
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.productivity"
     },
@@ -47,6 +61,11 @@
         "AppImage"
       ],
       "category": "Office"
-    }
+    },
+    "artifactName": "shortlist-dock-${version}-${os}-${arch}.${ext}"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "zod": "4.6.7"
   }
 }

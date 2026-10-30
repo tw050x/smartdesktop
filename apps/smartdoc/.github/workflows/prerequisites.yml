@@ -20,3 +20,5 @@ jobs:
         run: npm test
       - name: Build the interface
         run: npm run build
+      - name: Pack the Claude Desktop bundle
+        run: npm run mcpb

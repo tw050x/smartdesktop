@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shortlist Dock</title>
+  <meta name="description" content="Review your CV with your own AI. Shortlist Dock shows your CV, your AI suggests changes, and you decide on each one.">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ebebef;
+      --card: #ffffff;
+      --text: #1d1d1f;
+      --muted: #6e6e73;
+      --border: #e2e2e7;
+      --accent: #2f6fde;
+      --accent-text: #ffffff;
+      --code-bg: #f3f3f6;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #161618;
+        --card: #232326;
+        --text: #f2f2f4;
+        --muted: #a1a1a8;
+        --border: #3a3a3f;
+        --accent: #5b8ff0;
+        --code-bg: #1b1b1e;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
+    header { margin-bottom: 32px; }
+    h1 { margin: 0 0 8px; font-size: clamp(32px, 6vw, 44px); letter-spacing: -0.02em; }
+    .lede { margin: 0; font-size: 19px; color: var(--muted); max-width: 36em; }
+    .card {
+      margin-top: 16px;
+      padding: 24px;
+      border-radius: 12px;
+      background: var(--card);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.07);
+    }
+    h2 { margin: 0 0 4px; font-size: 20px; }
+    .card > p { margin: 0 0 16px; color: var(--muted); }
+    ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+    .button {
+      display: inline-block;
+      padding: 10px 18px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--accent-text);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .button:hover { filter: brightness(1.08); }
+    .button:focus-visible, .copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .command { position: relative; margin: 4px 0 0; }
+    .command pre {
+      margin: 0;
+      padding: 12px 84px 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--code-bg);
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .copy {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .note { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+    code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .facts { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+    footer { margin-top: 40px; font-size: 14px; color: var(--muted); }
+    footer a, .card a:not(.button) { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Shortlist Dock</h1>
+      <p class="lede">Review your CV with your own AI. Shortlist Dock shows your CV in an app on your computer: the AI marks up the text and suggests changes, you accept, reject or answer each one, and it writes the next draft from your decisions.</p>
+    </header>
+
+    <section class="card" aria-labelledby="desktop">
+      <h2 id="desktop">Claude Desktop</h2>
+      <p>Install it as an extension.</p>
+      <ol>
+        <li><a class="button" href="https://github.com/tw050x/shortlist-dock/releases/latest/download/shortlist-dock.mcpb">Download for Claude Desktop</a></li>
+        <li>Open the downloaded file. Claude Desktop shows what it installs; choose Install.</li>
+        <li>Start a new chat and ask Claude to review your CV. The Shortlist Dock app opens when Claude needs it.</li>
+      </ol>
+    </section>
+
+    <section class="card" aria-labelledby="code">
+      <h2 id="code">Claude Code</h2>
+      <p>Add it with one command.</p>
+      <ol>
+        <li>Run this in a terminal:
+          <div class="command">
+            <pre><code id="claude-code-command">claude mcp add --scope user shortlist-dock -- npx -y shortlist-dock</code></pre>
+            <button class="copy" type="button" data-copy="claude-code-command">Copy</button>
+          </div>
+        </li>
+        <li>Start a new Claude Code session and ask Claude to review your CV. The Shortlist Dock app opens when Claude needs it.</li>
+      </ol>
+      <p class="note">Needs <a href="https://nodejs.org/">Node.js</a> 18 or later. Other AI apps that run MCP servers can use the same command: <code>npx -y shortlist-dock</code>.</p>
+    </section>
+
+    <section class="card" aria-labelledby="good-to-know">
+      <h2 id="good-to-know">Good to know</h2>
+      <ul class="facts">
+        <li>Runs on macOS (Apple silicon or Intel). Windows is planned.</li>
+        <li>The first time it starts, it downloads the app from the project’s <a href="https://github.com/tw050x/shortlist-dock/releases">GitHub releases</a> and checks it against the release’s checksums.</li>
+        <li>Your CV stays on your computer. Your AI only sees what it reads through Shortlist Dock, and the app only accepts connections from your own computer.</li>
+        <li>Free, with no account. The AI is your own, under your own subscription.</li>
+      </ul>
+    </section>
+
+    <footer>
+      <a href="https://github.com/tw050x/shortlist-dock">Source on GitHub</a>
+    </footer>
+  </main>
+  <script>
+    for (const button of document.querySelectorAll('[data-copy]')) {
+      button.addEventListener('click', async () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = 'Copied';
+        } catch {
+          button.textContent = 'Select and copy';
+        }
+        setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>

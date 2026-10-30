@@ -1,13 +1,10 @@
 import { Menu } from 'electron';
-import path from 'node:path';
 
-const isMac = process.platform === 'darwin';
-const showInFolderLabel = { darwin: 'Show in Finder', win32: 'Show in File Explorer' }[process.platform] ?? 'Show in File Manager';
-
-// The application menu. The File menu always lists every entry and disables the ones that
-// don't apply: the window shows at most one file, so "the open file" is the window's state.
-export function buildMenu({ file, recent, actions }) {
-  const hasFile = Boolean(file);
+// The application menu. Entries that don't apply to the window's state are disabled rather than
+// hidden. The window shows at most one document, so "the document" is the window's state.
+export function buildMenu({ hasDocument, canStepBack, canStepForward, recent, actions }) {
+  const isMac = process.platform === 'darwin';
+  const imported = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
   const fileMenu = {
     label: 'File',
@@ -17,16 +14,25 @@ export function buildMenu({ file, recent, actions }) {
         label: 'Open Recent',
         enabled: recent.length > 0,
         submenu: [
-          ...recent.map((p) => ({ label: path.basename(p), toolTip: p, click: () => actions.open(p) })),
+          ...recent.map((d) => ({ label: `${d.name} (imported ${imported(d.importedAt)})`, click: () => actions.openDocument(d.id) })),
           { type: 'separator' },
           { label: 'Clear Menu', enabled: recent.length > 0, click: actions.clearRecent },
         ],
       },
       { type: 'separator' },
-      { label: 'Reload', accelerator: 'CmdOrCtrl+R', enabled: hasFile, click: actions.reload },
-      { label: showInFolderLabel, enabled: hasFile, click: actions.showInFolder },
+      { label: 'Save Draft As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasDocument, click: actions.saveDraftAs },
       { type: 'separator' },
-      { label: 'Close File', accelerator: 'CmdOrCtrl+W', enabled: hasFile, click: actions.close },
+      { label: 'Close Document', accelerator: 'CmdOrCtrl+W', enabled: hasDocument, click: actions.close },
+    ],
+  };
+
+  const reviewMenu = {
+    label: 'Review',
+    submenu: [
+      { label: 'Previous Draft', accelerator: 'CmdOrCtrl+[', enabled: canStepBack, click: () => actions.stepDraft(-1) },
+      { label: 'Next Draft', accelerator: 'CmdOrCtrl+]', enabled: canStepForward, click: () => actions.stepDraft(1) },
+      { type: 'separator' },
+      { label: 'Connect an AI…', click: actions.showConnectAi },
     ],
   };
 
@@ -34,6 +40,7 @@ export function buildMenu({ file, recent, actions }) {
     ...(isMac ? [{ role: 'appMenu' }] : []),
     fileMenu,
     { role: 'editMenu' },
+    reviewMenu,
     { role: 'windowMenu' },
   ]);
 }

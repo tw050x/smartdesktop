@@ -1,24 +1,34 @@
 import { getDocument } from 'pdfjs-dist';
 
-// Cards for the recently opened files in the empty view. Each card is a preview of the file's
-// first page, with previous/next buttons inside it at the bottom to cycle through its pages
-// (wrapping round), and the file name underneath. Clicking the card or the name opens it.
+// Cards for the recently opened documents in the empty view. Each card is a preview of the document’s current draft
+// (first page), with previous/next buttons inside it at the bottom to cycle through its pages
+// (wrapping round), and the document name underneath. Clicking the card or the name opens it.
 
 const THUMB_WIDTH = 220; // CSS pixels the preview is drawn for (scaled to fit the card)
+const SLOTS = 4; // the empty view shows this many cards; unused slots are skeletons
 const chevron = (d) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="${d}"/></svg>`;
 const previousIcon = chevron('M14.7 6.3a1 1 0 0 1 0 1.4L10.4 12l4.3 4.3a1 1 0 0 1-1.4 1.4l-5-5a1 1 0 0 1 0-1.4l5-5a1 1 0 0 1 1.4 0Z');
 const nextIcon = chevron('M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4l4.3-4.3-4.3-4.3a1 1 0 0 1 0-1.4Z');
 
 let current = []; // loading tasks for the cards on screen, destroyed (closing their documents) when the list changes
 
-export function renderRecentCards({ files, list, none, readRecent, openRecent }) {
+export function renderRecentCards({ documents, list, none, readRecent, openRecent }) {
   for (const task of current) task.destroy();
   current = [];
-  none.hidden = files.length > 0;
-  list.replaceChildren(...files.map((file) => card(file, { readRecent, openRecent })));
+  none.hidden = documents.length > 0;
+  const skeletons = Array.from({ length: Math.max(0, SLOTS - documents.length) }, skeleton);
+  list.replaceChildren(...documents.map((doc) => card(doc, { readRecent, openRecent })), ...skeletons);
 }
 
-function card(file, { readRecent, openRecent }) {
+function skeleton() {
+  const item = document.createElement('li');
+  item.className = 'recent-item recent-skeleton';
+  item.setAttribute('aria-hidden', 'true');
+  item.innerHTML = '<div class="recent-card"></div><div class="recent-name-placeholder"></div>';
+  return item;
+}
+
+function card(doc, { readRecent, openRecent }) {
   const item = document.createElement('li');
   item.className = 'recent-item';
   item.innerHTML = `
@@ -34,29 +44,29 @@ function card(file, { readRecent, openRecent }) {
     </div>
     <button class="recent-open recent-name" type="button"></button>`;
 
-  // The card (the preview) and the name below it both open the file; the name is the
+  // The card (the preview) and the name below it both open the document; the name is the
   // keyboard stop.
   for (const open of item.querySelectorAll('.recent-open')) {
-    open.title = file.path;
-    open.addEventListener('click', () => openRecent(file.path));
+    open.title = doc.name;
+    open.addEventListener('click', () => openRecent(doc.id));
   }
-  item.querySelector('.recent-name').textContent = file.name;
+  item.querySelector('.recent-name').textContent = doc.name;
 
-  loadPreview(item, file, readRecent);
+  loadPreview(item, doc, readRecent);
   return item;
 }
 
-async function loadPreview(item, file, readRecent) {
+async function loadPreview(item, doc, readRecent) {
   const thumb = item.querySelector('.recent-card');
   const canvas = thumb.querySelector('canvas');
   const status = thumb.querySelector('.recent-status');
   const pager = item.querySelector('.recent-pager');
   const pageLabel = item.querySelector('.recent-page');
 
-  const data = await readRecent(file.path);
+  const data = await readRecent(doc.id).catch(() => null);
   if (!item.isConnected) return; // the list changed while the file was being read
   if (!data) {
-    status.textContent = 'File not found';
+    status.textContent = 'Can’t preview this document';
     item.classList.add('missing');
     return;
   }

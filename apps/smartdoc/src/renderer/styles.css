@@ -1,8 +1,7 @@
 :root {
   color-scheme: light;
   --top-bar-height: 44px;
-  --sidebar-left-width: 260px;
-  --sidebar-right-width: 320px;
+  --review-width: 33vw;
 
   --bg: #ffffff;
   --border: #e2e2e7;
@@ -11,9 +10,10 @@
   --button-hover: #e6e6ea;
   --button-active: #dadadf;
   --document-bg: #ebebef;
+  --top-bar-bg: #dcdce1; /* a shade darker than the background below it (and main.js's title bar overlay) */
   --accent: #2f6fde;
 
-  /* Shared by the sidebar cards and the PDF pages so their tops, bottoms and corners line up. */
+  /* Shared by the review card and the PDF pages so their tops, bottoms and corners line up. */
   --card-gap: 10px;
   --card-radius: 12px;
 }
@@ -44,7 +44,11 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 8px;
+  background: var(--top-bar-bg);
   -webkit-app-region: drag;
+  /* Hover and press shades darker than the bar itself. */
+  --button-hover: #cdcdd3;
+  --button-active: #c2c2c8;
 }
 .platform-darwin:not(.full-screen) .top-bar { padding-left: 84px; }
 body:not(.platform-darwin) .top-bar {
@@ -69,22 +73,161 @@ body:not(.platform-darwin) .top-bar {
 .icon-button:active { background: var(--button-active); }
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* --- Three columns ----------------------------------------------------------------------- */
+/* MCP server status: a pill in the top bar, and the popover it opens. */
+.server-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.server-pill:hover, .server-pill[aria-expanded="true"] { background: #f6f6f9; }
+.server-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.server-dot { width: 7px; height: 7px; border-radius: 50%; background: #a1a1a6; }
+.server-pill[data-state="running"] .server-dot { background: #1f9d55; }
+.server-pill[data-state="off"] .server-dot { background: #d64545; }
+
+.server-pill { position: relative; z-index: 33; } /* stays on top of the mask and the MCP panel */
+
+/* The mask dulls the whole window, top bar included; clicking it closes the card. */
+.mcp-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
+
+/* A full-height panel on the right, top bar included, laid over the content (which stays where
+   it is) rather than pushing it aside. Its own top bar lines up with the window's and holds the
+   close button on the left; the window's server pill stays on top of it on the right. Only the
+   content below scrolls. It slides in from past the window's right edge, and hides once it has
+   slid back out. */
+.mcp-card {
+  position: fixed;
+  z-index: 32;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(var(--mcp-width, 380px), 100vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12);
+  transform: translateX(calc(100% + 28px)); /* past the edge, shadow included */
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
+/* Dragging the handle below the minimum slides the panel out (and lifts the mask) while the
+   handle keeps following the pointer; letting go there closes it. */
+.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(100% + 28px)); }
+.mcp-open.mcp-closing .mcp-mask { opacity: 0; }
+.mcp-card-bar { flex: none; display: flex; align-items: center; height: var(--top-bar-height); padding: 0 8px; }
+.mcp-card > .panel { flex: 1; overflow: hidden auto; padding-top: 4px; }
+
+/* The panel's drag handle sits just outside its left edge, vertically centred on the window,
+   and slides in and out with it. Same grip as the review's. */
+.mcp-resizer {
+  position: fixed;
+  z-index: 32;
+  top: 50%;
+  right: min(var(--mcp-width, 380px), 100vw);
+  width: 14px;
+  height: 128px;
+  margin-top: -64px;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  transform: translateX(calc(min(var(--mcp-width, 380px), 100vw) + 28px));
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-resizer { transform: none; visibility: visible; transition: transform 0.2s ease; }
+.mcp-resizing .mcp-resizer { transition: none; }
+.mcp-resizer::after {
+  content: "";
+  width: 4px;
+  height: 108px;
+  border-radius: 2px;
+  background: #c4c4cb;
+  transition: background-color 0.15s;
+}
+.mcp-resizer:hover::after, .mcp-resizing .mcp-resizer::after { background: var(--accent); }
+.mcp-resizing, .mcp-resizing * { cursor: col-resize !important; user-select: none !important; }
+.server-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 12px; }
+.server-details dt { color: var(--muted); }
+.server-details dd { margin: 0; overflow-wrap: anywhere; }
+.server-clients { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.server-clients li { display: flex; flex-wrap: wrap; gap: 0 6px; }
+.server-clients time, .server-clients-none { color: var(--muted); }
+.mcp-setup[hidden] { display: none; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+.tab {
+  margin-bottom: -1px;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
+.tab-panel[hidden] { display: none; }
+.tab-panel { padding-top: 14px; }
+.setup-steps { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 12px; }
+.setup-steps li { padding-left: 2px; }
+.code-block { position: relative; margin-top: 6px; }
+.code-block pre {
+  margin: 0;
+  padding: 10px 44px 10px 12px; /* room on the right for the copy button */
+  min-height: 36px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: #f3f3f6;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.setup-steps .code-block code { padding: 0; background: none; font-size: inherit; }
+.code-copy { position: absolute; right: 3px; bottom: 3px; }
+.code-copy:hover { background: #e6e6ea; }
+.setup-steps code { padding: 1px 4px; border-radius: 4px; background: #f3f3f6; font-size: 11px; }
+
+/* --- Two columns: the PDF view and the review --------------------------------------------- */
 .workspace {
   display: grid;
-  --sidebar-cap: min(520px, (100vw - 320px) / 2);
-  grid-template-columns: min(var(--sidebar-left-width), var(--sidebar-cap)) 1fr min(var(--sidebar-right-width), var(--sidebar-cap));
+  /* The review takes 33% to 66% of the window, leaving the PDF view its minimum (see main.js). */
+  --review-cap: min(66vw, 100vw - 320px);
+  grid-template-columns: min(max(var(--review-width), 33vw), var(--review-cap)) 1fr;
   min-height: 0;
   transition: grid-template-columns 0.18s ease;
 }
-/* A closed sidebar shrinks to a gutter at the window edge that just holds its drag handle. */
-.workspace { --closed-sidebar-width: 14px; }
-/* Fixed positions, so the scroll shadow can share the middle cell. */
-.side-panel-left { grid-area: 1 / 1; }
+/* Fixed positions, so the scroll shadow can share the PDF view's cell. */
+.side-panel { grid-area: 1 / 1; }
 .document { grid-area: 1 / 2; }
-.side-panel-right { grid-area: 1 / 3; }
-.left-closed .workspace { --sidebar-left-width: var(--closed-sidebar-width); }
-.right-closed .workspace { --sidebar-right-width: var(--closed-sidebar-width); }
 
 .side-panel {
   position: relative;
@@ -93,26 +236,33 @@ body:not(.platform-darwin) .top-bar {
   background: var(--document-bg);
 }
 
-/* Each sidebar is a floating card. Its spacing is margin rather than panel padding, so a
-   closed (zero-width) panel clips it away completely. The inner margin is wider to leave a
-   gutter for the drag handle. */
-.side-card {
+/* The review is a stack of floating cards, one per step, that grows with its content and
+   scrolls as a whole, running on below the window's bottom edge like the PDF pages. Its spacing
+   is margin rather than panel padding, so a closed (zero-width) panel clips it away completely.
+   The inner margin is wider to leave a gutter for the drag handle. */
+.side-scroll {
   position: absolute;
-  inset: var(--card-gap) 10px;
+  inset: 0;
   overflow: hidden auto;
+}
+.side-card { margin: var(--card-gap) 14px var(--card-gap) 10px; }
+.panel.review-steps { display: grid; gap: var(--card-gap); padding: 0; }
+.review-step {
+  padding: 14px 16px 16px;
   background: var(--bg);
   border-radius: var(--card-radius);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.07);
 }
-.side-panel-left .side-card { right: 14px; }
-.side-panel-right .side-card { left: 14px; }
-/* Hide the card once the closing animation has finished; show it straight away on opening. */
-.left-closed .side-panel-left .side-card,
-.right-closed .side-panel-right .side-card { visibility: hidden; transition: visibility 0s 0.18s; }
+/* Dragging below the minimum slides the card out past the window edge while the column keeps
+   following the pointer. Once closed, the card stays out and hides when the closing animation
+   has finished; it shows straight away on opening. */
+.side-card { transition: transform 0.18s ease; }
+.review-closing .side-card,
+.review-closed .side-card { transform: translateX(calc(-100% - var(--card-gap) - 4px)); }
+.review-closed .side-card { visibility: hidden; transition: transform 0.18s ease, visibility 0s 0.18s; }
 
-/* Drag handles: a small grip on each sidebar's inner edge, vertically centred, with empty
-   space above and below. It's the only thing separating a sidebar from the PDF view. The
-   handle sits inside the panel, which clips overflow, so it hides when the sidebar closes. */
+/* Drag handle: a small grip on the review's inner edge, vertically centred, with empty space
+   above and below. It's the only thing separating the review from the PDF view. */
 .resizer {
   position: absolute;
   /* Centred on the window rather than the panel, which starts below the top bar. */
@@ -124,9 +274,8 @@ body:not(.platform-darwin) .top-bar {
   place-items: center;
   z-index: 1;
   cursor: col-resize;
+  right: 0;
 }
-.side-panel-left .resizer { right: 0; }
-.side-panel-right .resizer { left: 0; }
 .resizer::after {
   content: "";
   width: 4px;
@@ -137,35 +286,75 @@ body:not(.platform-darwin) .top-bar {
 }
 .resizer:hover::after, .resizing .resizer.active::after { background: var(--accent); }
 
+/* While a drag is set to close the review, an arrow points from the handle to where it will
+   end up at the window edge. It slides out from behind the handle into place, and back again
+   if the drag returns above the minimum. It spans the gap between the closed handle's position
+   and the handle, so it shrinks and grows as the handle moves. */
+.close-arrow {
+  position: absolute;
+  top: calc(50% - var(--top-bar-height) / 2);
+  left: 14px;
+  right: 14px;
+  height: 12px;
+  margin-top: -6px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.close-arrow-line {
+  position: absolute;
+  inset: 0;
+  transform: translateX(100%);
+  transition: transform 0.18s ease;
+}
+.review-closing .close-arrow-line { transform: none; }
+/* The shaft, then the head at the window-edge end: an open chevron, drawn as two sides of a
+   square turned 45°, whose point meets the shaft's end. */
+.close-arrow-line::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 1px;
+  right: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.close-arrow-line::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  border-radius: 1px;
+  transform: rotate(45deg);
+  box-sizing: border-box;
+}
+
 /* While dragging, the edge follows the pointer directly (no animation, and no CSS cap so it
    can rubber-band past the maximum). Snapping closed, reopening and springing back animate. */
 .resizing:not(.snapping) .workspace { transition: none; }
 .resizing .workspace {
-  grid-template-columns: var(--sidebar-left-width) 1fr var(--sidebar-right-width);
+  grid-template-columns: var(--review-width) 1fr;
 }
+/* A closed review shrinks to a gutter at the window edge that just holds its drag handle. It
+   comes after the dragging rule, so dragging below the minimum closes the review straight away. */
+.review-closed .workspace { grid-template-columns: 14px 1fr; }
+/* With no file open there's nothing to review: the review column and its button are hidden,
+   and the empty pages take the whole width (with the gutter the handle would have left). */
+body:not(.has-document) .workspace { grid-template-columns: 0 1fr; }
+body:not(.has-document) .side-panel { visibility: hidden; }
+body:not(.has-document) #toggle-review { visibility: hidden; }
+body:not(.has-document) .ghost-stack { padding-left: var(--card-gap); }
+.switching-document .workspace { transition: none; }
 .resizing, .resizing * { cursor: col-resize !important; user-select: none !important; }
 
-/* An inner shadow along the top of the middle column once a page has scrolled under it. It
-   sits in the grid over the PDF view (not inside the scrolling area), so it stays put. */
-.scroll-shadow {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: start;
-  height: 12px;
-  background: linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0));
-  /* Fade the ends so the shadow has no hard edge at the left and right. */
-  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
-  opacity: 0;
-  transition: opacity 0.15s;
-  pointer-events: none;
-  z-index: 2;
-}
-.scrolled .scroll-shadow { opacity: 1; }
-
-/* Custom scrollbar for the middle column (see main.js). No track is drawn: just a thin thumb
+/* Custom scrollbar for the PDF view and the review (see main.js). No track is drawn: just a thin thumb
    on the right edge, shown only when there's something to scroll. Hovering its strip for a
    moment widens the thumb; it narrows straight away on leaving, and stays wide while dragged. */
-.document, .empty-state { scrollbar-width: none; }
+.document, .empty-state, .side-scroll { scrollbar-width: none; }
 .scrollbar {
   grid-area: 1 / 2;
   justify-self: end;
@@ -176,6 +365,16 @@ body:not(.platform-darwin) .top-bar {
   visibility: hidden;
 }
 .scrollbar.scrollable { visibility: visible; }
+/* In the review it lies over the card's right edge, kept clear of the rounded corners. */
+.side-panel .scrollbar {
+  position: absolute;
+  top: calc(var(--card-gap) + 6px);
+  bottom: calc(var(--card-gap) + 6px);
+  margin: 0;
+  right: 14px;
+}
+.review-closing .side-panel .scrollbar,
+.review-closed .side-panel .scrollbar { visibility: hidden; }
 .scrollbar-thumb {
   position: absolute;
   top: 0;
@@ -201,20 +400,30 @@ body:not(.platform-darwin) .top-bar {
   overflow: auto;
   background: var(--document-bg);
 }
-/* Drop indicator: the page outlines turn to the accent colour. With a file already open,
-   its pages get the same dashed outline. */
+/* Drop indicator: the empty window's pages show a dashed outline in the accent colour. With a
+   file already open, its pages get the same dashed outline. */
 .document.dragging .ghost-page { border-color: var(--accent); }
 .document.dragging .page { outline: 2px dashed var(--accent); outline-offset: 4px; }
 
-/* Empty window: dashed outlines of pages laid out exactly as loaded pages are (same margins,
+/* Empty window: unoutlined pages laid out exactly as loaded pages are (same margins,
    gap and maximum width, see .pages and RENDER_SCALE), with the instructions on the first.
-   Only the first page scrolls. The others sit in a zero-height box below it, so they never
+   The others sit in a zero-height box below it, so they never
    add to the scroll height: they show only in space left over when the first page is shorter
    than the view, and the stack clips them at the bottom. */
 .empty-state {
   position: absolute;
   inset: 0;
-  overflow: hidden auto;
+  overflow: hidden; /* nothing to scroll with no document open */
+}
+/* The empty pages, with the recent files, rise into place from the bottom whenever they
+   appear: on launch and when a document is closed. */
+.ghost-stack { animation: ghost-rise 0.28s ease-out; }
+@keyframes ghost-rise {
+  from { transform: translateY(48px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ghost-stack { animation: none; }
 }
 .has-document .empty-state { display: none; }
 
@@ -223,7 +432,9 @@ body:not(.platform-darwin) .top-bar {
   flex-direction: column;
   align-items: center;
   min-height: 100%;
-  padding: var(--card-gap) 24px;
+  /* No left padding: the review column's 14px handle gutter already separates the pages from
+     the card (or the window edge), so the gaps match the card's own spacing. */
+  padding: var(--card-gap) var(--card-gap) var(--card-gap) 0;
   overflow: clip;
 }
 .ghost-more {
@@ -241,7 +452,7 @@ body:not(.platform-darwin) .top-bar {
   max-width: 893px; /* A4 at the render scale of 1.5 */
   aspect-ratio: 210 / 297;
   padding: 24px;
-  border: 2px dashed #c4c4cb;
+  border: 2px dashed transparent; /* shows only as the drop indicator */
   border-radius: var(--card-radius);
 }
 /* The first page holds the instructions and recent files, top-aligned with some headroom.
@@ -251,7 +462,7 @@ body:not(.platform-darwin) .top-bar {
 .empty-message {
   display: grid;
   justify-items: center;
-  gap: 40px;
+  gap: 72px;
 }
 .empty-message > p {
   margin: 0;
@@ -270,7 +481,7 @@ body:not(.platform-darwin) .top-bar {
   color: var(--muted);
   text-align: center;
 }
-.recent-none { margin: 0; color: var(--muted); text-align: center; }
+.recent-none { margin: 16px 0 0; color: var(--muted); text-align: center; }
 .recent-none[hidden] { display: none; }
 
 /* Recent file cards. Each card is the page preview itself (taking the page's shape), with the
@@ -299,6 +510,15 @@ body:not(.platform-darwin) .top-bar {
   box-shadow: 0 0 0 2px var(--accent), 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 .recent-item.missing .recent-card { background: #f6f6f8; box-shadow: inset 0 0 0 1px var(--border); }
+.recent-skeleton .recent-card { background: rgba(0, 0, 0, 0.04); box-shadow: none; }
+.recent-name-placeholder {
+  justify-self: center;
+  width: 60%;
+  height: 10px;
+  margin: 5px 0;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.05);
+}
 
 .recent-open {
   padding: 0;
@@ -362,7 +582,9 @@ body:not(.platform-darwin) .top-bar {
   display: grid;
   justify-content: center;
   gap: 16px;
-  padding: var(--card-gap) 24px;
+  /* No left padding: the review column's 14px handle gutter already separates the pages from
+     the card (or the window edge), so the gaps match the card's own spacing. */
+  padding: var(--card-gap) var(--card-gap) var(--card-gap) 0;
 }
 .page {
   position: relative;
@@ -381,3 +603,273 @@ body:not(.platform-darwin) .top-bar {
   width: 100%;
   height: 100%;
 }
+
+/* --- Draft history in the top bar --------------------------------------------------------- */
+.draft-nav {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+.draft-nav[hidden], .draft-nav.collapsed { display: none; }
+/* Too little room for the label: just the arrows (see main.js). */
+.draft-nav.compact .draft-label { display: none; }
+.top-bar { position: relative; }
+.draft-nav .icon-button { font-size: 18px; line-height: 1; }
+/* Same hover square and cursor as the review button; only the arrow fades when there's no draft that way. */
+.draft-nav .icon-button:disabled { opacity: 1; cursor: pointer; color: #aeaeb4; }
+.draft-label { min-width: 110px; text-align: center; font-weight: 500; color: var(--text); }
+
+/* --- Panels ------------------------------------------------------------------------------- */
+.panel { padding: 16px 16px 24px; user-select: none; }
+.panel h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600; }
+.panel h3 { margin: 20px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.panel-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.panel-hint[hidden], .panel-note[hidden] { display: none; }
+.panel-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; background: #f3f3f6; color: var(--muted); font-size: 12px; }
+.panel textarea, .panel input[type="number"] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+  user-select: text;
+}
+/* Text boxes grow (and shrink) with what's typed, wrapping lines included, so they don't
+   need resizing by hand. Each keeps its starting size as a minimum: n lines plus the 6px top
+   and bottom padding and the 1px borders. */
+.panel textarea { field-sizing: content; resize: none; }
+.decision-comment { min-height: calc(1lh + 14px); }
+.decision-answer { min-height: calc(2lh + 14px); }
+.decision-edit { min-height: calc(3lh + 14px); }
+.panel textarea:focus, .panel input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.primary-button, .secondary-button {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.primary-button { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.secondary-button { border: 1px solid var(--border); background: #fff; color: var(--text); }
+.secondary-button:hover { background: #f3f3f6; }
+.panel > .secondary-button { margin-top: 14px; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* Colours for requests the user marked on the page. */
+.mark-rewrite { --request-color: #2f6fde; }
+.mark-comment { --request-color: #8a5cf6; }
+.mark-keep { --request-color: #1f9d55; }
+.mark-remove { --request-color: #d64545; }
+.mark-add { --request-color: #e08a00; }
+.mark-ask { --request-color: #0f9bb5; }
+/* pdf.js's text pieces can overlap (e.g. a space between two words), and its see-through
+   selection colour then shows darker where they do. A solid colour, multiplied onto the page so
+   the text still shows through, looks the same however many pieces overlap. */
+.textLayer { mix-blend-mode: multiply; }
+.page-content .textLayer ::selection { background: color-mix(in srgb, AccentColor 45%, white); }
+/* pdf.js's line breaks sit at the page's left edge; it hides their selection, and so must this. */
+.page-content .textLayer br::selection { background: transparent; }
+
+.finding-order { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+/* The native arrow sits hard against the edge, so the select draws its own chevron with room
+   either side. */
+.finding-order select {
+  appearance: none;
+  padding: 3px 24px 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center / 11px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.finding-order select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.finding-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.finding-quote {
+  margin: 6px 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: #3c3c43;
+  font-size: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- Marks on the page -------------------------------------------------------------------- */
+.page-content { position: relative; }
+.marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.mark { position: absolute; border-radius: 2px; }
+.mark-request { background: color-mix(in srgb, var(--request-color) 18%, transparent); box-shadow: inset 0 -2px 0 var(--request-color); }
+.mark-annotation.mark-highlight { background: rgba(255, 214, 10, 0.35); }
+/* The text of the finding hovered in the review. */
+.mark-hover { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.mark-annotation.mark-underline { box-shadow: inset 0 -2px 0 #e08a00; }
+.mark-annotation.mark-strike { background: linear-gradient(transparent 45%, rgba(214, 69, 69, 0.8) 45%, rgba(214, 69, 69, 0.8) 58%, transparent 58%); }
+
+/* --- Review ------------------------------------------------------------------------------- */
+.review-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+/* Step headings: a numbered badge (a tick once done), the title, and details on the right. */
+.panel .step-head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; }
+.step-number {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.step-current .step-number { border-color: var(--accent); background: var(--accent); color: #fff; }
+.step-done .step-number { border-color: #1f9d55; background: #1f9d55; color: #fff; }
+.step-number svg { width: 12px; height: 12px; stroke-width: 3; }
+.step-meta { flex: 1; text-align: right; font-size: 12px; font-weight: 400; color: var(--muted); }
+.step-upcoming .step-title { color: var(--muted); }
+.step-body:not(:empty) { margin-top: 10px; }
+.step-body > :first-child { margin-top: 0; }
+.step-body > :last-child { margin-bottom: 0; }
+.review-date { font-size: 12px; font-weight: 400; color: var(--muted); }
+.review-status { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+.review-summary { margin: 0 0 12px; font-size: 12px; }
+.finding {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: default;
+}
+.finding:hover { border-color: #c4c4cb; }
+.finding-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); }
+.finding-head-end { display: flex; align-items: center; gap: 4px; }
+.finding-toggle {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -2px -4px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.finding-toggle:hover { background: var(--button-hover); color: var(--text); }
+.finding-toggle svg { transition: transform 0.15s ease; }
+.step-reset { margin: -2px 0 -2px -4px; } /* sits close after the title */
+/* A minimised finding shows only its heading and title; the arrow points right. */
+.finding.minimised > :not(.finding-head, .finding-title) { display: none; }
+.finding.minimised .finding-toggle svg { transform: rotate(-90deg); }
+.finding-kind { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.severity-high .finding-kind { color: #d64545; }
+.severity-medium .finding-kind { color: #e08a00; }
+/* A note's label starts with a sample of how it marks the page. */
+.finding-note .finding-kind::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.note-highlight .finding-kind::before { background: rgba(255, 214, 10, 0.6); }
+.note-underline .finding-kind::before { box-shadow: inset 0 -2px 0 #e08a00; }
+.note-strike .finding-kind::before { background: linear-gradient(transparent 40%, rgba(214, 69, 69, 0.8) 40%, rgba(214, 69, 69, 0.8) 62%, transparent 62%); }
+.decision-accepted .finding-state, .decision-answered .finding-state, .decision-acknowledged .finding-state { color: #1f9d55; }
+.decision-rejected { opacity: 0.7; }
+/* The next step after deciding, with an editable prompt to copy for the AI. */
+.next-step-text { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+/* The apply prompt closes step 2, after the cards. */
+.apply-prompt { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.panel .apply-title { margin: 0 0 4px; }
+.prompt-block { position: relative; }
+.panel .prompt-text {
+  display: block;
+  min-height: calc(2lh + 14px);
+  padding-right: 34px;
+  background: #f3f3f6;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.prompt-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.prompt-copy:hover { background: var(--button-hover); color: var(--text); }
+.prompt-copy.copied { color: #1f9d55; }
+.panel .finding-title { margin: 4px 0 4px; font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: normal; color: var(--text); }
+.finding-reply { margin: 0 0 4px; font-size: 11px; color: var(--accent); }
+.finding-body, .finding-proposal, .finding-question { margin: 0 0 6px; font-size: 12px; color: #3c3c43; }
+.finding-question { font-weight: 500; }
+.diff { display: grid; gap: 4px; margin: 6px 0; font-size: 12px; }
+.diff del { padding: 4px 6px; border-radius: 6px; background: #fdecec; color: #8a1f1f; }
+.diff ins { padding: 4px 6px; border-radius: 6px; background: #e8f6ee; color: #155c34; text-decoration: none; }
+.option-list { display: grid; gap: 6px; margin: 6px 0; }
+.option { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; cursor: pointer; }
+.option-text { display: grid; gap: 2px; }
+.decision { display: grid; gap: 6px; margin-top: 8px; }
+.decision-buttons { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* The user's own changes: a dashed card to add one, the changes added, and the editor. */
+.finding.add-change {
+  display: grid;
+  gap: 2px;
+  border: 1.5px dashed #c4c4cb;
+  background: none;
+  cursor: pointer;
+}
+.finding.add-change:hover, .finding.add-change:focus-visible { border-color: var(--accent); outline: none; }
+.add-change-title { font-size: 12px; font-weight: 600; color: var(--accent); }
+.add-change-hint { font-size: 12px; color: var(--muted); }
+.user-change-text { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; cursor: text; border-radius: 4px; }
+.user-change-text:hover { background: #f3f3f6; }
+.user-change-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.change-editor .change-text { margin: 6px 0 8px; min-height: calc(2lh + 14px); }
+.change-delete { margin-right: auto; }
+.decision textarea[hidden] { display: none; }
+/* While changing a decision, Cancel sits at the start of the button row. */
+.decision-cancel { margin-right: auto; }
+
+/* Stands in for the buttons once a finding is decided; clicking it brings them back. Green for
+   a yes, grey for a no. */
+.decision-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #cdebd9;
+  border-radius: 7px;
+  background: #f1faf4;
+  font-size: 12px;
+  cursor: pointer;
+}
+.decision-card-rejected { border-color: var(--border); background: #f6f6f9; }
+.decision-card:hover { border-color: #9fd5b5; }
+.decision-card-rejected:hover { border-color: #c4c4cb; }
+.decision-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.decision-card-title { font-weight: 600; color: #155c34; }
+.decision-card-rejected .decision-card-title { color: var(--text); }
+.decision-card-hint { color: var(--muted); font-size: 11px; }
+.decision-card:hover .decision-card-hint { color: var(--accent); }

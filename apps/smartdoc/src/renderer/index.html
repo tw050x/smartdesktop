@@ -3,23 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:">
-  <title>Employment Short List App</title>
+  <title>Shortlist Dock</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <header class="top-bar">
     <div class="top-bar-start">
-      <button class="icon-button" id="toggle-left" type="button" aria-controls="left-sidebar"></button>
+      <button class="icon-button" id="toggle-review" type="button" aria-controls="review-sidebar"></button>
     </div>
+    <nav class="draft-nav" id="draft-nav" aria-label="Draft history" hidden>
+      <button class="icon-button" id="draft-prev" type="button" aria-label="Previous draft" title="Previous draft">‹</button>
+      <span class="draft-label" id="draft-label"></span>
+      <button class="icon-button" id="draft-next" type="button" aria-label="Next draft" title="Next draft">›</button>
+    </nav>
     <div class="top-bar-end">
-      <button class="icon-button" id="toggle-right" type="button" aria-controls="right-sidebar"></button>
+      <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
+        <span class="server-dot" aria-hidden="true"></span><span id="server-pill-label">MCP server</span>
+      </button>
     </div>
   </header>
 
   <main class="workspace">
-    <aside class="side-panel side-panel-left" id="left-sidebar">
-      <div class="side-card"></div>
-      <div class="resizer" data-side="left" role="separator" aria-orientation="vertical" aria-label="Resize left sidebar"></div>
+    <aside class="side-panel" id="review-sidebar">
+      <div class="side-scroll" id="review-scroll"><div class="side-card" id="review-panel"></div></div>
+      <div class="scrollbar" aria-hidden="true"><div class="scrollbar-thumb"></div></div>
+      <div class="close-arrow" aria-hidden="true"><div class="close-arrow-line"></div></div>
+      <div class="resizer" role="separator" aria-orientation="vertical" aria-label="Resize review"></div>
     </aside>
 
     <section class="document" id="document">
@@ -27,12 +36,12 @@
         <div class="ghost-stack">
         <div class="ghost-page">
           <div class="empty-message">
-            <p>Drop a PDF of your CV or résumé here, or use the File menu to open one or pick a recent file.</p>
             <section class="recent-files">
               <h2>Recently opened</h2>
               <ul class="recent-cards" id="recent-list"></ul>
               <p class="recent-none" id="recent-none">No recently opened files.</p>
             </section>
+            <p>Drop a PDF of your CV or résumé here, or use the File menu to open one or pick a recent document.</p>
           </div>
         </div>
         <div class="ghost-more">
@@ -43,14 +52,52 @@
       </div>
       <div class="pages" id="pages"></div>
     </section>
-    <div class="scroll-shadow" aria-hidden="true"></div>
     <div class="scrollbar" id="scrollbar" aria-hidden="true"><div class="scrollbar-thumb" id="scrollbar-thumb"></div></div>
-
-    <aside class="side-panel side-panel-right" id="right-sidebar">
-      <div class="side-card"></div>
-      <div class="resizer" data-side="right" role="separator" aria-orientation="vertical" aria-label="Resize right sidebar"></div>
-    </aside>
   </main>
+
+  <!-- MCP server details: a full-height panel that slides in over the right of the window, above a mask that dulls the rest. -->
+  <div class="mcp-mask" id="mcp-mask"></div>
+  <aside class="mcp-card" id="mcp-card" role="dialog" aria-modal="true" aria-labelledby="mcp-card-title" inert>
+    <div class="mcp-card-bar">
+      <button class="icon-button" id="mcp-close" type="button" aria-label="Close" title="Close">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="panel">
+      <h2 id="mcp-card-title">MCP server</h2>
+      <dl class="server-details">
+        <dt>Status</dt><dd id="server-state"></dd>
+        <dt>Address</dt><dd id="server-url"></dd>
+        <dt>Access</dt><dd>This computer only, with the app’s token</dd>
+        <dt>AI apps</dt><dd><ul class="server-clients" id="server-clients"></ul></dd>
+      </dl>
+      <p class="panel-note" id="server-off" hidden>The server couldn’t start. Another copy of the app may be running.</p>
+
+      <section class="mcp-setup" id="mcp-setup">
+        <h3>Set up an AI app</h3>
+        <div class="tabs" role="tablist" aria-label="AI apps">
+          <button class="tab" role="tab" id="tab-claude-code" aria-controls="tabpanel-claude-code" aria-selected="true" type="button">Claude Code</button>
+          <button class="tab" role="tab" id="tab-claude-desktop" aria-controls="tabpanel-claude-desktop" aria-selected="false" type="button">Claude Desktop</button>
+        </div>
+        <div class="tab-panel" role="tabpanel" id="tabpanel-claude-code" aria-labelledby="tab-claude-code">
+          <ol class="setup-steps">
+            <li>Copy the setup command:<div class="code-block"><pre><code data-setup="claude-code"></code></pre><button class="icon-button code-copy" type="button" data-target="claude-code" aria-label="Copy command" title="Copy command"></button></div></li>
+            <li>Paste it into a terminal and press Return. Or paste it into a Claude Code chat and ask Claude to add the server.</li>
+            <li>Start a new Claude Code session. Type <code>/mcp</code> to check it’s connected. Claude opens this app whenever it needs it.</li>
+          </ol>
+        </div>
+        <div class="tab-panel" role="tabpanel" id="tabpanel-claude-desktop" aria-labelledby="tab-claude-desktop" hidden>
+          <ol class="setup-steps">
+            <li>Download Shortlist Dock for Claude Desktop from the website: <button class="secondary-button" id="open-website" type="button">Open the website</button></li>
+            <li>Open the downloaded file. Claude Desktop shows what it installs; choose Install.</li>
+            <li>Start a new chat and ask Claude to review your CV. It opens this app whenever it needs it.</li>
+          </ol>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <div class="mcp-resizer" id="mcp-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the MCP server panel" aria-controls="mcp-card"></div>
 
   <script type="module" src="./main.js"></script>
 </body>

@@ -4,12 +4,29 @@ name: Release
 # goes ahead once the Prerequisites workflow has passed on the same commit; if it's still
 # running, this waits.
 #
-# DRY RUN: releases must be signed and notarised before they're published, and signing isn't
-# set up yet. Until it is, this builds unsigned packages (attached to the run for testing) and
-# reports what it would release, but creates no tag and no release. The publish step is added
-# together with signing, so unsigned builds can't be published by accident.
+# One version is released everywhere at once (package.json, launcher/package.json and
+# mcpb/manifest.json must match; the tests check):
+#   - the macOS app, signed and notarised, as a zip per architecture (what the launcher
+#     downloads) and a dmg per architecture (for installing by hand)
+#   - shortlist-dock.mcpb, the bundle Claude Desktop installs (linked from the website)
+#   - SHA256SUMS.txt, which the launcher checks downloads against
+#   - the launcher on npm as shortlist-dock (what Claude Code runs with npx)
+# Windows and Linux builds follow once they're signed too; the launcher says so meanwhile.
+#
+# Without "publish" ticked this is a dry run: it builds everything and reports what it would
+# release, but creates no tag, release or npm version. Publishing refuses to run unless the
+# app is signed and notarised, so an unsigned build can't be released by accident.
+#
+# Secrets: CSC_LINK (the Developer ID Application certificate as base64 .p12) and
+# CSC_KEY_PASSWORD; APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID for notarising;
+# NPM_TOKEN for publishing to npm.
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release (unticked is a dry run)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,13 +65,11 @@ jobs:
           done
 
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (macOS)
     needs: prerequisites
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,49 +77,129 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run dist
+
+      - name: Check signing
+        id: signing
         env:
-          # Unsigned until signing and notarisation are set up.
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          if [ -n "$CSC_LINK" ] && [ -n "$APPLE_ID" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            if [ "$PUBLISH" = true ]; then
+              echo "::error::Publishing needs the app signed and notarised: set the signing and notarising secrets first."
+              exit 1
+            fi
+            echo "::warning::Signing secrets aren't set, so this dry run builds the app unsigned."
+          fi
+
+      # electron-builder signs with CSC_LINK and notarises when the APPLE_* variables are set.
+      - name: Build the app
+        run: npm run dist
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.signed }}
+
+      - name: Check the signature and notarisation
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          for zip in dist/shortlist-dock-*-mac-*.zip; do
+            dir=$(mktemp -d)
+            ditto -x -k "$zip" "$dir"
+            codesign --verify --deep --strict --verbose=2 "$dir/Shortlist Dock.app"
+            spctl --assess --type execute --verbose "$dir/Shortlist Dock.app"
+            xcrun stapler validate "$dir/Shortlist Dock.app"
+          done
+
+      - name: Pack the Claude Desktop bundle
+        run: npm run mcpb
+
       - uses: actions/upload-artifact@v4
         with:
-          name: employment-short-list-app-${{ matrix.os }}
+          name: release
           path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.exe
-            dist/*.AppImage
+            dist/shortlist-dock-*-mac-*.zip
+            dist/shortlist-dock-*.dmg
+            dist/shortlist-dock.mcpb
           if-no-files-found: error
 
-  dry-run:
-    name: Dry run (no release)
+  release:
+    name: ${{ inputs.publish && 'Publish' || 'Dry run (no release)' }}
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # npm provenance
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
       - uses: actions/download-artifact@v4
         with:
+          name: release
           path: artifacts
-          merge-multiple: true
-      - name: Report what would be released
+
+      - name: Write the checksums
+        working-directory: artifacts
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Check the version is free
+        id: version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          tag="v$version"
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent 2>/dev/null; then
-            tag_note="⚠️ Tag $tag already exists: bump the version in package.json before a real release."
-          else
-            tag_note="Tag $tag is free."
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          problems=""
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --silent 2>/dev/null; then
+            problems="$problems Tag v$version already exists."
           fi
+          if npm view "shortlist-dock@$version" version >/dev/null 2>&1; then
+            problems="$problems shortlist-dock@$version is already on npm."
+          fi
+          echo "problems=$problems" >> "$GITHUB_OUTPUT"
+
+      - name: Report
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PROBLEMS: ${{ steps.version.outputs.problems }}
+          SIGNED: ${{ needs.build.outputs.signed }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
           {
-            echo "## Dry run: nothing was released"
-            echo
-            echo "Releases must be signed and notarised first, and signing isn't set up yet."
+            if [ "$PUBLISH" = true ]; then echo "## Releasing $VERSION"; else echo "## Dry run: nothing was released"; fi
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- Would release version **$version** as tag **$tag**. $tag_note"
-            echo "- Unsigned packages (download from this run's artifacts):"
+            echo "- Version **$VERSION** as tag **v$VERSION** and npm shortlist-dock@$VERSION."
+            echo "- Signed and notarised: $SIGNED"
+            if [ -n "$PROBLEMS" ]; then
+              echo "- ⚠️$PROBLEMS Bump the version in package.json, launcher/package.json and mcpb/manifest.json."
+            fi
+            echo "- Files:"
             for f in artifacts/*; do echo "  - $(basename "$f")"; done
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$GITHUB_STEP_SUMMARY"
+          if [ "$PUBLISH" = true ] && [ -n "$PROBLEMS" ]; then exit 1; fi
+
+      # The GitHub release comes first: the npm package downloads the app from it.
+      - name: Create the GitHub release
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release create "v$VERSION" artifacts/* --target "$GITHUB_SHA" --title "Shortlist Dock $VERSION" --generate-notes
+
+      - name: Publish to npm
+        if: inputs.publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./launcher --provenance --access public
