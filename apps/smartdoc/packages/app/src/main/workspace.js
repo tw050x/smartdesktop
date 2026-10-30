@@ -27,7 +27,7 @@ export function createWorkspace(userData) {
   let recent = []; // [{ id, name, importedAt }], newest first
 
   const requireDoc = () => {
-    if (!doc) throw new Error('No document is open. Ask the user to open their CV in the app.');
+    if (!doc) throw new Error('No document is open. Ask the user to open their document in the app.');
     return doc;
   };
   const requireReview = () => {
@@ -185,9 +185,10 @@ export function createWorkspace(userData) {
       return review;
     },
 
-    // Every earlier review of this CV, across all its drafts, oldest first: what the AI raised and
-    // what the user decided, so a new review doesn't ask again. The current review (get_review) is
-    // left out. Quotes are given as text only; they refer to the draft the review was of.
+    // Every earlier review of this document, across all its drafts, oldest first: what the AI
+    // raised and what the user decided, so a new review doesn't ask again. The current review
+    // (get_review) is left out. Quotes are given as text only; they refer to the draft the review
+    // was of.
     async getHistory() {
       requireDoc();
       const draftName = (id, abandoned) => {

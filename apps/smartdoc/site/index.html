@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Shortlist Dock</title>
-  <meta name="description" content="Review your CV with your own AI. Shortlist Dock shows your CV, your AI suggests changes, and you decide on each one.">
+  <title>SmartDoc</title>
+  <meta name="description" content="Review your documents with your own AI. SmartDoc shows your document, your AI suggests changes, and you decide on each one.">
   <style>
     :root {
       color-scheme: light dark;
@@ -94,17 +94,17 @@
 <body>
   <main>
     <header>
-      <h1>Shortlist Dock</h1>
-      <p class="lede">Review your CV with your own AI. Shortlist Dock shows your CV in an app on your computer: the AI marks up the text and suggests changes, you accept, reject or answer each one, and it writes the next draft from your decisions.</p>
+      <h1>SmartDoc</h1>
+      <p class="lede">Review your documents with your own AI. SmartDoc shows your document (a PDF) in an app on your computer: the AI marks up the text and suggests changes, you accept, reject or answer each one, and it writes the next draft from your decisions.</p>
     </header>
 
     <section class="card" aria-labelledby="desktop">
       <h2 id="desktop">Claude Desktop</h2>
       <p>Install it as an extension.</p>
       <ol>
-        <li><a class="button" href="https://github.com/tw050x/shortlist-dock/releases/latest/download/shortlist-dock.mcpb">Download for Claude Desktop</a></li>
+        <li><a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/smartdoc.mcpb">Download for Claude Desktop</a></li>
         <li>Open the downloaded file. Claude Desktop shows what it installs; choose Install.</li>
-        <li>Start a new chat and ask Claude to review your CV. The Shortlist Dock app opens when Claude needs it.</li>
+        <li>Start a new chat and ask Claude to review your document. The SmartDoc app opens when Claude needs it.</li>
       </ol>
     </section>
 
@@ -114,27 +114,27 @@
       <ol>
         <li>Run this in a terminal:
           <div class="command">
-            <pre><code id="claude-code-command">claude mcp add --scope user shortlist-dock -- npx -y shortlist-dock</code></pre>
+            <pre><code id="claude-code-command">claude mcp add --scope user smartdoc -- npx -y @smartdoc/mcp</code></pre>
             <button class="copy" type="button" data-copy="claude-code-command">Copy</button>
           </div>
         </li>
-        <li>Start a new Claude Code session and ask Claude to review your CV. The Shortlist Dock app opens when Claude needs it.</li>
+        <li>Start a new Claude Code session and ask Claude to review your document. The SmartDoc app opens when Claude needs it.</li>
       </ol>
-      <p class="note">Needs <a href="https://nodejs.org/">Node.js</a> 18 or later. Other AI apps that run MCP servers can use the same command: <code>npx -y shortlist-dock</code>.</p>
+      <p class="note">Needs <a href="https://nodejs.org/">Node.js</a> 18 or later. Other AI apps that run MCP servers can use the same command: <code>npx -y @smartdoc/mcp</code>.</p>
     </section>
 
     <section class="card" aria-labelledby="good-to-know">
       <h2 id="good-to-know">Good to know</h2>
       <ul class="facts">
         <li>Runs on macOS (Apple silicon or Intel). Windows is planned.</li>
-        <li>The first time it starts, it downloads the app from the project’s <a href="https://github.com/tw050x/shortlist-dock/releases">GitHub releases</a> and checks it against the release’s checksums.</li>
-        <li>Your CV stays on your computer. Your AI only sees what it reads through Shortlist Dock, and the app only accepts connections from your own computer.</li>
+        <li>The first time it starts, it downloads the app from the project’s <a href="https://github.com/tw050x/smartdoc/releases">GitHub releases</a> and checks it against the release’s checksums.</li>
+        <li>Your document stays on your computer. Your AI only sees what it reads through SmartDoc, and the app only accepts connections from your own computer.</li>
         <li>Free, with no account. The AI is your own, under your own subscription.</li>
       </ul>
     </section>
 
     <footer>
-      <a href="https://github.com/tw050x/shortlist-dock">Source on GitHub</a>
+      <a href="https://github.com/tw050x/smartdoc">Source on GitHub</a>
     </footer>
   </main>
   <script>

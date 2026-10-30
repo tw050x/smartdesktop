@@ -9,10 +9,11 @@ const requestLabel = (kind) => kind.charAt(0).toUpperCase() + kind.slice(1);
 // text on the page. The step cards are always open; the cards in them start minimised to their
 // heading, and open with the arrow button. Opening a document minimises them all again.
 
-// Each finding is labelled by the part of the CV it's about (questions and notes aren't changes).
+// Each finding is labelled by the part of the document it's about (questions and notes aren't
+// changes).
 const KIND_LABELS = { change: 'Wording', options: 'Content', question: 'Question', move: 'Structure', design: 'Design', flag: 'Note' };
-// Findings can be listed in the order their text appears in the CV, or by priority: high, medium,
-// then low severity, keeping the AI's order within each. Findings with no text come last.
+// Findings can be listed in the order their text appears in the document, or by priority: high,
+// medium, then low severity, keeping the AI's order within each. Findings with no text come last.
 const SEVERITY_RANK = { high: 0, medium: 1, low: 2 };
 const position = (item) => {
   const first = [...item.anchors].sort((a, b) => a.page - b.page || a.start - b.start)[0];
@@ -34,9 +35,9 @@ const MARK_LABELS = { highlight: 'Highlight', underline: 'Underline', strike: 'S
 // they've decided, to apply it (the end of step 2). Each can be edited before copying; edits last
 // until another review is shown.
 const PROMPTS = {
-  review: 'Review my CV in Shortlist Dock.',
-  continue: 'Carry on reviewing my CV in Shortlist Dock, and commit the review when you’re done.',
-  apply: 'I’ve made my decisions in Shortlist Dock. Apply the review and write the next draft of my CV.',
+  review: 'Review my document in SmartDoc.',
+  continue: 'Carry on reviewing my document in SmartDoc, and commit the review when you’re done.',
+  apply: 'I’ve made my decisions in SmartDoc. Apply the review and write the next draft of my document.',
 };
 const CHEVRON_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const RESET_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>';
@@ -66,7 +67,7 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
     if (!hasDocument || !review) onHover(null);
     if (!hasDocument) {
       const card = el('section', 'review-step');
-      card.append(el('h2', 'review-heading', 'Review'), el('p', 'panel-hint', 'Open a CV to see its review.'));
+      card.append(el('h2', 'review-heading', 'Review'), el('p', 'panel-hint', 'Open a document to see its review.'));
       panel.append(card);
       return;
     }
@@ -93,7 +94,7 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
     });
     panel.append(review1.section);
     if (!review) {
-      review1.body.append(el('p', 'next-step-text', 'Ask your AI to review this CV: it reads the CV through the app, marks up the text and writes its findings here for you to decide on.'));
+      review1.body.append(el('p', 'next-step-text', 'Ask your AI to review this document: it reads the document through the app, marks up the text and writes its findings here for you to decide on.'));
       review1.body.append(promptBlock('review', null, PROMPTS.review));
     } else {
       // Dated by when the AI committed it, or when it was started while still in progress.
@@ -279,7 +280,7 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
     head.append(el('span', 'finding-kind', change ? 'Your change' : 'New change'));
     const text = el('textarea', 'change-text');
     text.rows = 2;
-    text.placeholder = 'What should the AI change? For example: “Add my AWS certification to Skills.”';
+    text.placeholder = 'What should the AI change? For example: “Add a short summary at the top.”';
     text.value = changeDraft.text;
     text.addEventListener('input', () => (changeDraft.text = text.value));
     const row = el('div', 'decision-buttons');

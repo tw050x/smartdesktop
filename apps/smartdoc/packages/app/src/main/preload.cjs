@@ -8,7 +8,7 @@ const call = async (channel, ...args) => {
 };
 const on = (channel) => (callback) => ipcRenderer.on(channel, (_event, value) => callback(value));
 
-contextBridge.exposeInMainWorld('shortlistDock', {
+contextBridge.exposeInMainWorld('smartdoc', {
   platform: process.platform,
   // Dropped files are imported by path, as a new document.
   openDroppedFile: (file) => call('open-path', webUtils.getPathForFile(file)),

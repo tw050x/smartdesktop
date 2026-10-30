@@ -47,7 +47,7 @@ export async function ensureRunning({ env = process.env, log = () => {} } = {}) 
 }
 
 async function openApp({ env, log }) {
-  const override = env.SHORTLIST_DOCK_APP;
+  const override = env.SMARTDOC_APP;
   if (override) {
     log(`Opening ${override}…`);
     return start(appCommand(path.resolve(override)), env);

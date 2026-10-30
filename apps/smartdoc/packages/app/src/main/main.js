@@ -15,32 +15,37 @@ const RECENT_IN_EMPTY_VIEW = 3;
 
 // Development and automated tests can point the app at a separate data folder, so they never
 // read or overwrite the user's real data (documents, recent files and anything stored later),
-// and at a separate port for its MCP server (SHORTLIST_DOCK_PORT, see mcp-server.js), so a test
+// and at a separate port for its MCP server (SMARTDOC_PORT, see mcp-server.js), so a test
 // copy can run beside the real one. Set before the app is ready so Chromium's own storage moves
 // too. Ignored in packaged builds.
-if (!app.isPackaged && process.env.SHORTLIST_DOCK_USER_DATA) {
-  app.setPath('userData', path.resolve(process.env.SHORTLIST_DOCK_USER_DATA));
+if (!app.isPackaged && process.env.SMARTDOC_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.SMARTDOC_USER_DATA));
 } else {
   moveLegacyUserData();
 }
 
-// The app used to be called Employment Short List App, and its data lived in a folder of that
-// name. The first time it runs as Shortlist Dock, everything in the old folder moves across
-// (anything already in the new folder is left alone), so documents, drafts, recent files and
-// the AI connection's token carry over. The old folder is removed once it's empty.
+// The app used to be called Shortlist Dock, and before that Employment Short List App, and its
+// data lived in a folder of each name. The first time it runs as SmartDoc, everything in the old
+// folders moves across, newest name first (anything already in the new folder is left alone), so
+// documents, drafts, recent files and the AI connection's token carry over. An old folder is
+// removed once it's empty.
+const LEGACY_NAMES = ['Shortlist Dock', 'Employment Short List App'];
+
 function moveLegacyUserData() {
-  const legacy = path.join(app.getPath('appData'), 'Employment Short List App');
   const current = app.getPath('userData');
-  if (legacy === current || !fs.existsSync(legacy)) return;
-  try {
-    fs.mkdirSync(current, { recursive: true });
-    for (const entry of fs.readdirSync(legacy)) {
-      const target = path.join(current, entry);
-      if (!fs.existsSync(target)) fs.renameSync(path.join(legacy, entry), target);
+  for (const name of LEGACY_NAMES) {
+    const legacy = path.join(app.getPath('appData'), name);
+    if (legacy === current || !fs.existsSync(legacy)) continue;
+    try {
+      fs.mkdirSync(current, { recursive: true });
+      for (const entry of fs.readdirSync(legacy)) {
+        const target = path.join(current, entry);
+        if (!fs.existsSync(target)) fs.renameSync(path.join(legacy, entry), target);
+      }
+      if (!fs.readdirSync(legacy).length) fs.rmdirSync(legacy);
+    } catch (error) {
+      console.error(`Couldn’t move the data from ${name}:`, error);
     }
-    if (!fs.readdirSync(legacy).length) fs.rmdirSync(legacy);
-  } catch (error) {
-    console.error('Couldn’t move the data from Employment Short List App:', error);
   }
 }
 
@@ -72,7 +77,7 @@ function createWindow() {
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    title: 'Shortlist Dock',
+    title: 'SmartDoc',
     backgroundColor: '#ebebef',
     ...frame,
     webPreferences: {
@@ -210,18 +215,18 @@ async function saveDraftAs() {
 }
 
 // --- Connecting an AI --------------------------------------------------------------------
-// AI apps start Shortlist Dock's MCP server themselves: Claude Code runs the npm package with npx,
+// AI apps start SmartDoc's MCP server themselves: Claude Code runs the npm package with npx,
 // and Claude Desktop installs the .mcpb bundle from the website. Either one opens this app and
 // talks to its server, so there's nothing to copy from here but the Claude Code command.
 
-const WEBSITE = 'https://tw050x.github.io/shortlist-dock/';
-const CLAUDE_CODE_COMMAND = 'claude mcp add --scope user shortlist-dock -- npx -y shortlist-dock';
+const WEBSITE = 'https://tw050x.github.io/smartdoc/';
+const CLAUDE_CODE_COMMAND = 'claude mcp add --scope user smartdoc -- npx -y @smartdoc/mcp';
 
 async function showConnectAi() {
   const { response } = await dialog.showMessageBox(win ?? undefined, {
     type: 'info',
     message: 'Connect an AI',
-    detail: 'Claude Desktop: install Shortlist Dock from the website (download the file and open it).\n\nClaude Code: run this command in a terminal, then start a new session:\n' + CLAUDE_CODE_COMMAND + '\n\nThe AI then opens this app whenever it needs it.',
+    detail: 'Claude Desktop: install SmartDoc from the website (download the file and open it).\n\nClaude Code: run this command in a terminal, then start a new session:\n' + CLAUDE_CODE_COMMAND + '\n\nThe AI then opens this app whenever it needs it.',
     buttons: ['Open the Website', 'Copy the Claude Code Command', 'Close'],
     defaultId: 0,
     cancelId: 2,

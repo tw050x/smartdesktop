@@ -9,12 +9,12 @@ import { z } from 'zod';
 
 // Fixed, so AI apps always know where to find it. Development and tests can move it (ignored in
 // packaged builds), so a test copy of the app can run beside the real one.
-export const MCP_PORT = (!app.isPackaged && Number(process.env.SHORTLIST_DOCK_PORT)) || 47815;
+export const MCP_PORT = (!app.isPackaged && Number(process.env.SMARTDOC_PORT)) || 47815;
 
-const INSTRUCTIONS = `This server is Shortlist Dock: a desktop app showing the user's CV (a PDF). You review it with the user in rounds:
-1. Review: read the CV with get_document and the current review with get_review (it may already hold the user's requests: text they marked to rewrite, comment on, keep, remove, add to, or ask about). Read get_history too: what earlier reviews of this CV raised and what the user decided. Don't raise again anything the user rejected or chose to keep, unless that text has changed since or you have a new reason (say so in the finding), and don't ask questions they've already answered: use their answers. Changes they accepted that are still not in the CV can be raised again. If the user asks for a fresh review, ignore the history. Decorate text with add_annotation and add findings with add_finding. Every finding offers the user a decision: a proposed change, a choice of options, a question, a structural move, a design change, or a flag to acknowledge. Respond to each user request with a finding that has in_response_to set. Finish with commit_review; the user then decides in the app.
+const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user in rounds:
+1. Review: read the document with get_document and the current review with get_review (it may already hold the user's requests: text they marked to rewrite, comment on, keep, remove, add to, or ask about). Read get_history too: what earlier reviews of this document raised and what the user decided. Don't raise again anything the user rejected or chose to keep, unless that text has changed since or you have a new reason (say so in the finding), and don't ask questions they've already answered: use their answers. Changes they accepted that are still not in the document can be raised again. If the user asks for a fresh review, ignore the history. Decorate text with add_annotation and add findings with add_finding. Every finding offers the user a decision: a proposed change, a choice of options, a question, a structural move, a design change, or a flag to acknowledge. Respond to each user request with a finding that has in_response_to set. Finish with commit_review; the user then decides in the app.
 2. Decide: the user works through the findings, and may write changes of their own. Read their choices with get_decisions.
-3. Apply: carry out what was accepted and the user's own changes (and use the user's answers and comments) by writing the complete updated CV as HTML and calling apply_review. The app draws it to PDF as the next draft. Never apply anything the user rejected, and leave text marked "keep" unchanged.
+3. Apply: carry out what was accepted and the user's own changes (and use the user's answers and comments) by writing the complete updated document as HTML and calling apply_review. The app draws it to PDF as the next draft. Never apply anything the user rejected, and leave text marked "keep" unchanged.
 Text is referenced by quoting it exactly from get_document (whitespace-insensitive), with the page number.`;
 
 const quote = z.object({
@@ -25,7 +25,7 @@ const quote = z.object({
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
 
 function buildServer(workspace) {
-  const server = new McpServer({ name: 'shortlist-dock', version: '0.1.0' }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: 'smartdoc', version: '0.1.0' }, { instructions: INSTRUCTIONS });
   const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema }, async (args) => {
     try {
       return json(await run(args ?? {}));
@@ -34,15 +34,15 @@ function buildServer(workspace) {
     }
   });
 
-  tool('get_document', 'The open CV: its name, which draft is showing, and the text of each page (quote from this when referencing text).', {}, () => workspace.getDocument());
+  tool('get_document', 'The open document: its name, which draft is showing, and the text of each page (quote from this when referencing text).', {}, () => workspace.getDocument());
 
   tool('get_review', 'The current draft\'s review: status (open or committed), the user\'s requests, findings with their decisions, annotations and history. Null if there is none yet.', {}, () => workspace.getReview());
 
-  tool('get_history', 'Earlier reviews of this CV, across all its drafts, oldest first: each finding with what the user decided (status, chosen option, answer, edit, comment), their requests and their own changes, and what became of each review (applied as which draft, decided but not applied, or never committed). Leaves out the current review.', {}, () => workspace.getHistory());
+  tool('get_history', 'Earlier reviews of this document, across all its drafts, oldest first: each finding with what the user decided (status, chosen option, answer, edit, comment), their requests and their own changes, and what became of each review (applied as which draft, decided but not applied, or never committed). Leaves out the current review.', {}, () => workspace.getHistory());
 
   tool('start_review', 'Starts a new review on the current draft (returns the existing one if it is still open).', {}, () => workspace.startReview('ai'));
 
-  tool('add_annotation', 'Decorates text in the CV (shown on the page; hovering it in the report highlights it).', {
+  tool('add_annotation', 'Decorates text in the document (shown on the page; hovering it in the report highlights it).', {
     quotes: z.array(quote).min(1),
     style: z.enum(['highlight', 'underline', 'strike']).optional(),
     note: z.string().optional(),
@@ -68,7 +68,7 @@ function buildServer(workspace) {
 
   tool('get_decisions', 'The user\'s decisions on the current review: each finding\'s status (pending, accepted, rejected, answered, acknowledged), chosen option, answers, edited wording and comments, plus their requests and the changes they wrote themselves (changes: carry these out too).', {}, () => workspace.getDecisions());
 
-  tool('apply_review', 'Applies the committed review: supply the complete updated CV as a self-contained HTML document (inline CSS, no scripts or external resources; single column keeps the reading order clean for screeners). It becomes the next draft. If the current draft isn\'t the newest, later drafts are set aside.', {
+  tool('apply_review', 'Applies the committed review: supply the complete updated document as self-contained HTML (inline CSS, no scripts or external resources). Keep the current draft\'s look, and lay the content out in reading order without absolute positioning, so the PDF\'s text reads in the right order. It becomes the next draft. If the current draft isn\'t the newest, later drafts are set aside.', {
     html: z.string().min(1),
     summary: z.string().optional().describe('What changed, shown with the draft'),
     applied_item_ids: z.array(z.string()).optional().describe('The findings this draft carries out'),

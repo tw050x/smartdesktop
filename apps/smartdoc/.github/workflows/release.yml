@@ -4,13 +4,13 @@ name: Release
 # goes ahead once the Prerequisites workflow has passed on the same commit; if it's still
 # running, this waits.
 #
-# One version is released everywhere at once (package.json, launcher/package.json and
-# mcpb/manifest.json must match; the tests check):
+# One version is released everywhere at once (packages/app/package.json, packages/mcp/package.json
+# and mcpb/manifest.json must match; the tests check):
 #   - the macOS app, signed and notarised, as a zip per architecture (what the launcher
 #     downloads) and a dmg per architecture (for installing by hand)
-#   - shortlist-dock.mcpb, the bundle Claude Desktop installs (linked from the website)
+#   - smartdoc.mcpb, the bundle Claude Desktop installs (linked from the website)
 #   - SHA256SUMS.txt, which the launcher checks downloads against
-#   - the launcher on npm as shortlist-dock (what Claude Code runs with npx)
+#   - the launcher on npm as @smartdoc/mcp (what Claude Code runs with npx)
 # Windows and Linux builds follow once they're signed too; the launcher says so meanwhile.
 #
 # Without "publish" ticked this is a dry run: it builds everything and reports what it would
@@ -110,12 +110,12 @@ jobs:
       - name: Check the signature and notarisation
         if: steps.signing.outputs.signed == 'true'
         run: |
-          for zip in dist/shortlist-dock-*-mac-*.zip; do
+          for zip in dist/smartdoc-*-mac-*.zip; do
             dir=$(mktemp -d)
             ditto -x -k "$zip" "$dir"
-            codesign --verify --deep --strict --verbose=2 "$dir/Shortlist Dock.app"
-            spctl --assess --type execute --verbose "$dir/Shortlist Dock.app"
-            xcrun stapler validate "$dir/Shortlist Dock.app"
+            codesign --verify --deep --strict --verbose=2 "$dir/SmartDoc.app"
+            spctl --assess --type execute --verbose "$dir/SmartDoc.app"
+            xcrun stapler validate "$dir/SmartDoc.app"
           done
 
       - name: Pack the Claude Desktop bundle
@@ -125,9 +125,9 @@ jobs:
         with:
           name: release
           path: |
-            dist/shortlist-dock-*-mac-*.zip
-            dist/shortlist-dock-*.dmg
-            dist/shortlist-dock.mcpb
+            dist/smartdoc-*-mac-*.zip
+            dist/smartdoc-*.dmg
+            dist/smartdoc.mcpb
           if-no-files-found: error
 
   release:
@@ -157,14 +157,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(node -p "require('./package.json').version")
+          version=$(node -p "require('./packages/app/package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           problems=""
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --silent 2>/dev/null; then
             problems="$problems Tag v$version already exists."
           fi
-          if npm view "shortlist-dock@$version" version >/dev/null 2>&1; then
-            problems="$problems shortlist-dock@$version is already on npm."
+          if npm view "@smartdoc/mcp@$version" version >/dev/null 2>&1; then
+            problems="$problems @smartdoc/mcp@$version is already on npm."
           fi
           echo "problems=$problems" >> "$GITHUB_OUTPUT"
 
@@ -179,10 +179,10 @@ jobs:
             if [ "$PUBLISH" = true ]; then echo "## Releasing $VERSION"; else echo "## Dry run: nothing was released"; fi
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- Version **$VERSION** as tag **v$VERSION** and npm shortlist-dock@$VERSION."
+            echo "- Version **$VERSION** as tag **v$VERSION** and npm @smartdoc/mcp@$VERSION."
             echo "- Signed and notarised: $SIGNED"
             if [ -n "$PROBLEMS" ]; then
-              echo "- ⚠️$PROBLEMS Bump the version in package.json, launcher/package.json and mcpb/manifest.json."
+              echo "- ⚠️$PROBLEMS Bump the version in packages/app/package.json, packages/mcp/package.json and mcpb/manifest.json."
             fi
             echo "- Files:"
             for f in artifacts/*; do echo "  - $(basename "$f")"; done
@@ -196,10 +196,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: gh release create "v$VERSION" artifacts/* --target "$GITHUB_SHA" --title "Shortlist Dock $VERSION" --generate-notes
+        run: gh release create "v$VERSION" artifacts/* --target "$GITHUB_SHA" --title "SmartDoc $VERSION" --generate-notes
 
       - name: Publish to npm
         if: inputs.publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish ./launcher --provenance --access public
+        run: npm publish -w @smartdoc/mcp --provenance --access public

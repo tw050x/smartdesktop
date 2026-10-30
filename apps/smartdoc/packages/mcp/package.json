@@ -1,0 +1,30 @@
+{
+  "name": "@smartdoc/mcp",
+  "version": "0.1.0",
+  "description": "Review documents with your own AI. Opens the SmartDoc app and connects it to Claude Code, Claude Desktop and other MCP clients.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "smartdoc-mcp": "index.js"
+  },
+  "files": [
+    "index.js",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tw050x/smartdoc.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://tw050x.github.io/smartdoc/",
+  "keywords": [
+    "mcp",
+    "document",
+    "review",
+    "pdf",
+    "claude"
+  ]
+}

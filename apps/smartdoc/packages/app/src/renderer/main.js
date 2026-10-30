@@ -10,7 +10,7 @@ import { createReviewPanel } from './review-panel.js';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
-const api = window.shortlistDock;
+const api = window.smartdoc;
 const { platform, openDroppedFile, openRecent, readRecent, onFullScreenChange } = api;
 document.body.classList.add(`platform-${platform}`);
 onFullScreenChange((isFullScreen) => {

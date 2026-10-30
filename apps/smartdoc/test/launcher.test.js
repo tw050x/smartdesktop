@@ -7,14 +7,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { after, describe, test } from 'node:test';
-import { runBridge } from '../launcher/lib/bridge.js';
-import { ensureInstalled, parseChecksums } from '../launcher/lib/install.js';
-import { probe, readToken } from '../launcher/lib/launch.js';
-import { VERSION, assetName, cacheDir, mcpUrl, userDataDir } from '../launcher/lib/platform.js';
+import { runBridge } from '../packages/mcp/lib/bridge.js';
+import { ensureInstalled, parseChecksums } from '../packages/mcp/lib/install.js';
+import { probe, readToken } from '../packages/mcp/lib/launch.js';
+import { VERSION, assetName, cacheDir, mcpUrl, userDataDir } from '../packages/mcp/lib/platform.js';
 
 // Everything here runs against temporary folders and its own ports: never the real app or its data.
 const root = path.join(import.meta.dirname, '..');
-const temp = mkdtempSync(path.join(os.tmpdir(), 'shortlist-dock-test-'));
+const temp = mkdtempSync(path.join(os.tmpdir(), 'smartdoc-test-'));
 after(() => rmSync(temp, { recursive: true, force: true }));
 const tempDir = (name) => {
   const dir = path.join(temp, name);
@@ -37,12 +37,12 @@ async function serve(handler) {
 describe('versions', () => {
   test('the app, the launcher and the bundle are released together, so share one version', () => {
     const read = (file) => JSON.parse(readFileSync(path.join(root, file), 'utf8')).version;
-    assert.equal(read('launcher/package.json'), read('package.json'));
-    assert.equal(read('mcpb/manifest.json'), read('package.json'));
+    assert.equal(read('packages/mcp/package.json'), read('packages/app/package.json'));
+    assert.equal(read('mcpb/manifest.json'), read('packages/app/package.json'));
   });
 
   test('the bundle lists the tools the app serves', () => {
-    const served = [...readFileSync(path.join(root, 'src/main/mcp-server.js'), 'utf8').matchAll(/tool\('([a-z_]+)'/g)].map((m) => m[1]);
+    const served = [...readFileSync(path.join(root, 'packages/app/src/main/mcp-server.js'), 'utf8').matchAll(/tool\('([a-z_]+)'/g)].map((m) => m[1]);
     const listed = JSON.parse(readFileSync(path.join(root, 'mcpb/manifest.json'), 'utf8')).tools.map((t) => t.name);
     assert.deepEqual(listed.sort(), served.sort());
   });
@@ -50,22 +50,22 @@ describe('versions', () => {
 
 describe('platform', () => {
   test('names the build for each Mac, and none elsewhere yet', () => {
-    assert.equal(assetName({ version: '1.2.3', platform: 'darwin', arch: 'arm64' }), 'shortlist-dock-1.2.3-mac-arm64.zip');
-    assert.equal(assetName({ version: '1.2.3', platform: 'darwin', arch: 'x64' }), 'shortlist-dock-1.2.3-mac-x64.zip');
+    assert.equal(assetName({ version: '1.2.3', platform: 'darwin', arch: 'arm64' }), 'smartdoc-1.2.3-mac-arm64.zip');
+    assert.equal(assetName({ version: '1.2.3', platform: 'darwin', arch: 'x64' }), 'smartdoc-1.2.3-mac-x64.zip');
     assert.equal(assetName({ platform: 'win32', arch: 'x64' }), null);
     assert.equal(assetName({ platform: 'linux', arch: 'x64' }), null);
   });
 
   test('finds the data folder Electron gives the app', () => {
-    assert.equal(userDataDir({ env: {}, platform: 'darwin', home: '/Users/a' }), '/Users/a/Library/Application Support/Shortlist Dock');
-    assert.equal(userDataDir({ env: { XDG_CONFIG_HOME: '/c' }, platform: 'linux', home: '/home/a' }), '/c/Shortlist Dock');
-    assert.equal(userDataDir({ env: { SHORTLIST_DOCK_USER_DATA: '/tmp/x' } }), '/tmp/x');
-    assert.equal(cacheDir({ env: {}, platform: 'darwin', home: '/Users/a' }), '/Users/a/Library/Caches/shortlist-dock');
+    assert.equal(userDataDir({ env: {}, platform: 'darwin', home: '/Users/a' }), '/Users/a/Library/Application Support/SmartDoc');
+    assert.equal(userDataDir({ env: { XDG_CONFIG_HOME: '/c' }, platform: 'linux', home: '/home/a' }), '/c/SmartDoc');
+    assert.equal(userDataDir({ env: { SMARTDOC_USER_DATA: '/tmp/x' } }), '/tmp/x');
+    assert.equal(cacheDir({ env: {}, platform: 'darwin', home: '/Users/a' }), '/Users/a/Library/Caches/smartdoc');
   });
 
   test('uses the standard port unless told otherwise', () => {
     assert.equal(mcpUrl({}), 'http://127.0.0.1:47815/mcp');
-    assert.equal(mcpUrl({ SHORTLIST_DOCK_PORT: '50000' }), 'http://127.0.0.1:50000/mcp');
+    assert.equal(mcpUrl({ SMARTDOC_PORT: '50000' }), 'http://127.0.0.1:50000/mcp');
   });
 });
 
@@ -84,11 +84,11 @@ describe('install', () => {
   // A release with a fake app zipped the way the release build zips it.
   async function fakeRelease({ corrupt = false } = {}) {
     const work = tempDir(`release-${Math.random().toString(36).slice(2)}`);
-    const bundle = path.join(work, 'Shortlist Dock.app', 'Contents');
+    const bundle = path.join(work, 'SmartDoc.app', 'Contents');
     mkdirSync(bundle, { recursive: true });
     writeFileSync(path.join(bundle, 'Info.plist'), '<plist/>');
     const zip = path.join(work, assetName());
-    execFileSync('ditto', ['-c', '-k', '--keepParent', path.join(work, 'Shortlist Dock.app'), zip]);
+    execFileSync('ditto', ['-c', '-k', '--keepParent', path.join(work, 'SmartDoc.app'), zip]);
     const body = readFileSync(zip);
     const sum = createHash('sha256').update(corrupt ? 'something else' : body).digest('hex');
     return serve((req, res) => {
@@ -100,10 +100,10 @@ describe('install', () => {
 
   test('downloads, checks and unpacks the build once, even when asked twice at once', onMac, async () => {
     const release = await fakeRelease();
-    const env = { SHORTLIST_DOCK_CACHE: tempDir('cache-ok'), SHORTLIST_DOCK_DOWNLOADS: release.url };
+    const env = { SMARTDOC_CACHE: tempDir('cache-ok'), SMARTDOC_DOWNLOADS: release.url };
     const [a, b] = await Promise.all([ensureInstalled({ env }), ensureInstalled({ env })]);
     assert.equal(a, b);
-    assert.equal(a, path.join(env.SHORTLIST_DOCK_CACHE, VERSION, 'Shortlist Dock.app'));
+    assert.equal(a, path.join(env.SMARTDOC_CACHE, VERSION, 'SmartDoc.app'));
     assert.ok(existsSync(path.join(a, 'Contents', 'Info.plist')));
     assert.equal(release.requests.filter((u) => u.endsWith('.zip')).length, 1);
     assert.equal(await ensureInstalled({ env }), a); // cached: no further download
@@ -113,9 +113,9 @@ describe('install', () => {
 
   test('refuses a download that doesn’t match its checksum', onMac, async () => {
     const release = await fakeRelease({ corrupt: true });
-    const env = { SHORTLIST_DOCK_CACHE: tempDir('cache-bad'), SHORTLIST_DOCK_DOWNLOADS: release.url };
+    const env = { SMARTDOC_CACHE: tempDir('cache-bad'), SMARTDOC_DOWNLOADS: release.url };
     await assert.rejects(ensureInstalled({ env }), /didn’t match/);
-    assert.ok(!existsSync(path.join(env.SHORTLIST_DOCK_CACHE, VERSION)));
+    assert.ok(!existsSync(path.join(env.SMARTDOC_CACHE, VERSION)));
     await release.close();
   });
 });
@@ -156,15 +156,15 @@ describe('bridge', () => {
 
   test('probes the app with its token', async () => {
     const app = await fakeApp('secret');
-    assert.equal(await probe({ env: { SHORTLIST_DOCK_PORT: String(app.port), SHORTLIST_DOCK_USER_DATA: withTokenFile('secret') } }), 'up');
-    assert.equal(await probe({ env: { SHORTLIST_DOCK_PORT: String(app.port), SHORTLIST_DOCK_USER_DATA: withTokenFile('wrong') } }), 'locked');
+    assert.equal(await probe({ env: { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('secret') } }), 'up');
+    assert.equal(await probe({ env: { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('wrong') } }), 'locked');
     await app.close();
-    assert.equal(await probe({ env: { SHORTLIST_DOCK_PORT: String(app.port), SHORTLIST_DOCK_USER_DATA: withTokenFile('secret') } }), 'down');
+    assert.equal(await probe({ env: { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('secret') } }), 'down');
   });
 
   test('passes requests to the app and its replies back, once the app is ready', async () => {
     const app = await fakeApp('secret');
-    const env = { SHORTLIST_DOCK_PORT: String(app.port), SHORTLIST_DOCK_USER_DATA: withTokenFile('secret') };
+    const env = { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('secret') };
     let ensured = 0;
     const replies = await exchange({
       env,
@@ -181,15 +181,15 @@ describe('bridge', () => {
 
   test('answers with an error when the app can’t be started', async () => {
     const replies = await exchange({
-      env: { SHORTLIST_DOCK_PORT: '1', SHORTLIST_DOCK_USER_DATA: withTokenFile('secret') },
-      ensure: async () => { throw new Error('Shortlist Dock didn’t start in time.'); },
+      env: { SMARTDOC_PORT: '1', SMARTDOC_USER_DATA: withTokenFile('secret') },
+      ensure: async () => { throw new Error('SmartDoc didn’t start in time.'); },
       messages: [{ jsonrpc: '2.0', id: 7, method: 'tools/list' }, { jsonrpc: '2.0', method: 'notifications/initialized' }],
     });
-    assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 7, error: { code: -32000, message: 'Shortlist Dock didn’t start in time.' } }]);
+    assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 7, error: { code: -32000, message: 'SmartDoc didn’t start in time.' } }]);
   });
 
   test('opens the app again if it was closed since', async () => {
-    const env = { SHORTLIST_DOCK_PORT: '0', SHORTLIST_DOCK_USER_DATA: withTokenFile('secret') };
+    const env = { SMARTDOC_PORT: '0', SMARTDOC_USER_DATA: withTokenFile('secret') };
     let app = null;
     // The first "start" brings up a server that's closed straight away; the second keeps one up.
     let starts = 0;
@@ -197,7 +197,7 @@ describe('bridge', () => {
       starts++;
       if (app) return;
       const server = await fakeApp('secret');
-      env.SHORTLIST_DOCK_PORT = String(server.port);
+      env.SMARTDOC_PORT = String(server.port);
       if (starts === 1) await server.close();
       else app = server;
     };
@@ -210,7 +210,7 @@ describe('bridge', () => {
   test('reports the app refusing the token', async () => {
     const app = await fakeApp('secret');
     const replies = await exchange({
-      env: { SHORTLIST_DOCK_PORT: String(app.port), SHORTLIST_DOCK_USER_DATA: withTokenFile('stale') },
+      env: { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('stale') },
       ensure: async () => {},
       messages: [{ jsonrpc: '2.0', id: 3, method: 'tools/list' }],
     });

@@ -1,0 +1,24 @@
+# SmartDoc
+
+Review your documents with your own AI. SmartDoc is a desktop app that shows your document (a PDF); your AI reads it, marks up the text and writes findings, and you decide on each one in the app. The AI then writes the next draft from your decisions.
+
+This package is SmartDoc's MCP server. AI apps start it, and it opens the SmartDoc app for them (downloading it from the [GitHub release](https://github.com/tw050x/smartdoc/releases) the first time).
+
+## Claude Code
+
+```sh
+claude mcp add --scope user smartdoc -- npx -y @smartdoc/mcp
+```
+
+Then start a new session and ask Claude to review your document.
+
+## Claude Desktop
+
+Download the bundle from the [website](https://tw050x.github.io/smartdoc/) and open it.
+
+## Requirements
+
+- macOS (Apple silicon or Intel). Windows is planned.
+- Node.js 18 or later.
+
+Your document stays on your computer. The AI only sees what it reads through SmartDoc's tools.

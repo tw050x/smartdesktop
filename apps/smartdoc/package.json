@@ -1,71 +1,22 @@
 {
-  "name": "shortlist-dock-app",
-  "productName": "Shortlist Dock",
+  "name": "smartdoc",
   "version": "0.1.0",
-  "description": "See your CV the way a screener reads it.",
+  "description": "Review and redraft documents with your own AI.",
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
-  "main": "src/main/main.js",
+  "workspaces": [
+    "packages/app",
+    "packages/mcp"
+  ],
   "scripts": {
-    "build": "vite build",
-    "start": "vite build && electron .",
+    "build": "npm run build -w @smartdoc/app",
+    "start": "npm start -w @smartdoc/app",
+    "dist": "npm run dist -w @smartdoc/app",
     "test": "node --test",
-    "dist": "vite build && electron-builder --publish never",
     "mcpb": "node scripts/pack-mcpb.mjs"
   },
   "devDependencies": {
-    "@anthropic-ai/mcpb": "2.1.2",
-    "electron": "45.1.0",
-    "electron-builder": "26.18.0",
-    "pdfjs-dist": "6.4.299",
-    "vite": "8.3.5"
-  },
-  "build": {
-    "appId": "com.tw050x.shortlistdock",
-    "productName": "Shortlist Dock",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "src/main/**/*",
-      "build/renderer/**/*",
-      "package.json"
-    ],
-    "mac": {
-      "target": [
-        {
-          "target": "zip",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        },
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
-      ],
-      "category": "public.app-category.productivity"
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Office"
-    },
-    "artifactName": "shortlist-dock-${version}-${os}-${arch}.${ext}"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "zod": "4.6.7"
+    "@anthropic-ai/mcpb": "2.1.2"
   }
 }
