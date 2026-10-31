@@ -211,8 +211,8 @@ async function showOpenDialog() {
 // The AI can open a document from the recent list straight away. A file on disk needs the user:
 // either the AI names a path and the user confirms it in the app (so an AI can't read files
 // without the user knowing), or the user picks the file. Those wait on the user, so open_document
-// returns at once, telling the AI to send the user to the app; get_document then waits for the
-// outcome. Only one such request waits at a time.
+// returns at once, telling the AI to send the user to the app; reading the document then waits
+// for the outcome. Only one such request waits at a time.
 
 const AI_OPEN_WAIT_MS = 45 * 1000;
 let aiOpen = null; // { name, state: 'waiting' | 'opened' | 'cancelled' | 'failed', error, done }
@@ -254,7 +254,7 @@ const documentsForAi = {
 
   async open({ path: filePath, document_id: docId } = {}) {
     if (aiOpen?.state === 'waiting') {
-      throw new Error(`SmartDoc is still waiting for the user to ${aiOpen.name ? `confirm opening ${aiOpen.name}` : 'pick a file'}. Ask them to answer in the app, then call get_document.`);
+      throw new Error(`SmartDoc is still waiting for the user to ${aiOpen.name ? `confirm opening ${aiOpen.name}` : 'pick a file'}. Ask them to answer in the app, then call get_document_info.`);
     }
     if (docId) {
       if (!workspace.isRecent(docId)) throw new Error(`No document ${docId}. list_documents shows the ones that can be opened.`);
@@ -274,7 +274,7 @@ const documentsForAi = {
       });
       return {
         status: 'waiting_for_user',
-        message: `Before anything else, tell the user to switch to the SmartDoc app and confirm opening ${name}: it won't open until they do. Then call get_document, which waits for their answer.`,
+        message: `Before anything else, tell the user to switch to the SmartDoc app and confirm opening ${name}: it won't open until they do. Then call get_document_info, which waits for their answer.`,
       };
     }
     waitOnUser(null, async () => {
@@ -286,11 +286,11 @@ const documentsForAi = {
     });
     return {
       status: 'waiting_for_user',
-      message: 'Before anything else, tell the user to switch to the SmartDoc app and choose the file in the window it has opened: nothing opens until they do. Then call get_document, which waits for their choice.',
+      message: 'Before anything else, tell the user to switch to the SmartDoc app and choose the file in the window it has opened: nothing opens until they do. Then call get_document_info, which waits for their choice.',
     };
   },
 
-  // Called before get_document: waits for the user's answer to an open request, if there is one.
+  // Called before reading the document: waits for the user's answer to an open request, if there is one.
   // An answer is reported once.
   async settle() {
     const request = aiOpen;
@@ -299,7 +299,7 @@ const documentsForAi = {
       await Promise.race([request.done, new Promise((resolve) => setTimeout(resolve, AI_OPEN_WAIT_MS))]);
     }
     const what = request.name ?? 'the file';
-    if (request.state === 'waiting') throw new Error(`Still waiting for the user to ${request.name ? `confirm opening ${request.name}` : 'pick a file'} in SmartDoc. Remind them to switch to the app, then call get_document again.`);
+    if (request.state === 'waiting') throw new Error(`Still waiting for the user to ${request.name ? `confirm opening ${request.name}` : 'pick a file'} in SmartDoc. Remind them to switch to the app, then call get_document_info again.`);
     aiOpen = null;
     if (request.state === 'cancelled') throw new Error(`The user cancelled opening ${what}.`);
     if (request.state === 'failed') throw new Error(`Couldn't open ${what}: ${request.error}`);
@@ -355,11 +355,12 @@ handle('open-path', (filePath) => importFile(filePath));
 handle('open-recent', (docId) => workspace.isRecent(docId) && openDocument(docId));
 handle('read-recent', async (docId) => (workspace.isRecent(docId) ? new Uint8Array(await workspace.readCurrentDraftOf(docId)) : null));
 handle('step-draft', (delta) => workspace.stepDraft(delta));
-handle('page-texts', (docId, draftId, texts) => workspace.setPageTexts(docId, draftId, texts));
+handle('page-texts', (docId, draftId, texts, details) => workspace.setPageTexts(docId, draftId, texts, details));
 handle('add-request', (request) => workspace.addRequest(request));
 handle('update-request', (id, changes) => workspace.updateRequest(id, changes));
 handle('remove-request', (id) => workspace.removeRequest(id));
 handle('decide', (itemId, decision) => workspace.decide(itemId, decision));
+handle('rate-highlight', (id, feedback) => workspace.rateHighlight(id, feedback));
 handle('add-change', (text) => workspace.addChange(text));
 handle('update-change', (id, text) => workspace.updateChange(id, text));
 handle('remove-change', (id) => workspace.removeChange(id));
@@ -377,8 +378,13 @@ const RESETS = {
     run: () => workspace.resetDecisions(),
   },
 };
+const HIGHLIGHTS_RESET = {
+  message: 'Start the highlights again?',
+  detail: 'This clears the AI’s highlights and your feedback on them, leaving an empty review with the same goal for your AI to fill.',
+  run: () => workspace.resetToReview(),
+};
 handle('reset-to-step', async (step) => {
-  const reset = RESETS[step];
+  const reset = workspace.review?.type === 'highlights' ? step === 1 && HIGHLIGHTS_RESET : RESETS[step];
   if (!reset) throw new Error(`Step ${step} can't be reset.`);
   const { response } = await dialog.showMessageBox(win ?? undefined, {
     type: 'warning',

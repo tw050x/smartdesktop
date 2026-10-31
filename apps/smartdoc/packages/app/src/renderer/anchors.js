@@ -80,5 +80,31 @@ export function anchorRects(anchor) {
   return rects;
 }
 
+// The text position nearest a point (client coordinates) on a page, for starting or extending a
+// selection from the space between the text: { node, offset } in a span's text node, or null if
+// the page has no text. Text on the same line as the point wins; otherwise the nearest line. Left
+// of a line's text is its start, right of it its end.
+export function nearestTextPosition(contentEl, x, y) {
+  const page = [...pages.values()].find((p) => p.contentEl === contentEl);
+  let best = null;
+  for (const span of page?.spans ?? []) {
+    const node = span.el.firstChild;
+    if (!span.el.isConnected || node?.nodeType !== Node.TEXT_NODE || !node.length) continue;
+    const r = span.el.getBoundingClientRect();
+    const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+    const score = dy * 1000 + dx; // the line matters more than how far along it
+    if (!best || score < best.score) best = { score, node, r };
+  }
+  if (!best) return null;
+  const { node, r } = best;
+  if (x <= r.left) return { node, offset: 0 };
+  if (x >= r.right) return { node, offset: node.length };
+  const caret = document.caretRangeFromPoint(x, Math.min(Math.max(y, r.top + 1), r.bottom - 1));
+  if (caret?.startContainer === node) return { node, offset: caret.startOffset };
+  // Between characters the caret can land outside the span: estimate from the width instead.
+  return { node, offset: Math.round(((x - r.left) / r.width) * node.length) };
+}
+
 export const pageContent = (pageNumber) => pages.get(pageNumber)?.contentEl;
 export const pageNumbers = () => [...pages.keys()];

@@ -1,7 +1,7 @@
 import { anchorRects, pageContent, pageNumbers } from './anchors.js';
 
-// Marks drawn over the pages: the user's requests and the AI's annotations, plus the text of
-// whichever finding is hovered in the review.
+// Marks drawn over the pages: the user's requests and the AI's annotations (or a highlights
+// review's highlights), plus the text of whichever card is hovered in the review.
 
 let marks = []; // [{ anchors, className, title }]
 let hovered = []; // anchors of the hovered finding
@@ -29,6 +29,8 @@ export function redraw() {
       content.append(layer);
     }
     layer.replaceChildren();
+    // While a card is hovered, the other marks fade so its text stands out.
+    layer.classList.toggle('dimmed', hovered.length > 0);
 
     for (const mark of [...marks, { anchors: hovered, className: 'mark-hover' }]) {
       for (const anchor of mark.anchors.filter((a) => a.page === page)) {

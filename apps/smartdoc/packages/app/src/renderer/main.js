@@ -2,11 +2,11 @@ import { GlobalWorkerOptions, TextLayer, getDocument } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { closeLeftSidebar, openLeftSidebar } from './icons.js';
-import { clearPages, pageTexts, registerPage } from './anchors.js';
+import { clearPages, nearestTextPosition, pageTexts, registerPage, selectionAnchors } from './anchors.js';
 import { redraw, revealAnchors, setHovered, setMarks } from './overlays.js';
 import { renderRecentCards } from './recent-cards.js';
 import { createServerStatus } from './server-status.js';
-import { createReviewPanel } from './review-panel.js';
+import { categoryColours, createReviewPanel, isHighlights } from './review-panel.js';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -186,9 +186,57 @@ async function showPdf(data, { docId, draftId }) {
     keepSelectionSteady(textLayerEl);
     registerPage(n, textContent.items, textLayer.textDivs, contentEl);
   }
-  // The app needs the page texts to place the AI's quotes and to give the AI the document.
-  await api.reportPageTexts(docId, draftId, pageTexts());
+  // The app needs the page texts to place the AI's quotes and to give the AI the document, and
+  // the PDF's details to describe it.
+  const details = await pdfDetails(pdf);
+  if (ticket !== loading) return;
+  await api.reportPageTexts(docId, draftId, pageTexts(), details);
   redraw();
+}
+
+// The PDF's own details (title, author, subject, the app that made it, dates) and its outline
+// (bookmarks) as [{ title, page, level }]. Either can be missing; neither stops the document
+// loading.
+const OUTLINE_LIMIT = 300;
+async function pdfDetails(pdf) {
+  const info = {};
+  try {
+    const { info: raw } = await pdf.getMetadata();
+    for (const [key, name] of [['Title', 'title'], ['Author', 'author'], ['Subject', 'subject'], ['Creator', 'createdWith'], ['Producer', 'producer']]) {
+      if (typeof raw?.[key] === 'string' && raw[key].trim()) info[name] = raw[key].trim();
+    }
+    for (const [key, name] of [['CreationDate', 'created'], ['ModDate', 'modified']]) {
+      const date = pdfDate(raw?.[key]);
+      if (date) info[name] = date;
+    }
+  } catch {}
+  const outline = [];
+  try {
+    const walk = async (items, level) => {
+      for (const item of items ?? []) {
+        if (outline.length >= OUTLINE_LIMIT) return;
+        outline.push({ title: item.title, page: await outlinePage(pdf, item.dest), level });
+        await walk(item.items, level + 1);
+      }
+    };
+    await walk(await pdf.getOutline(), 1);
+  } catch {}
+  return { info, outline };
+}
+
+async function outlinePage(pdf, dest) {
+  try {
+    const explicit = typeof dest === 'string' ? await pdf.getDestination(dest) : dest;
+    return Array.isArray(explicit) ? (await pdf.getPageIndex(explicit[0])) + 1 : null;
+  } catch {
+    return null;
+  }
+}
+
+// PDF dates look like D:20261031142500+00'00'; given back as YYYY-MM-DD.
+function pdfDate(value) {
+  const match = typeof value === 'string' && value.match(/^(?:D:)?(\d{4})(\d{2})?(\d{2})?/);
+  return match ? [match[1], match[2] ?? '01', match[3] ?? '01'].join('-') : null;
 }
 
 function fitPage(pageEl) {
@@ -331,11 +379,67 @@ const reviewPanel = createReviewPanel({
   api,
   onReveal: (anchors) => revealAnchors(anchors, documentEl),
   onHover: setHovered,
+  onClearFilter: () => {
+    getSelection().removeAllRanges();
+    reviewPanel.update({ filter: null });
+  },
 });
 
-// The user's requests and the AI's annotations are drawn on the page.
+// Selecting text on the page filters the review to the cards about it; clicking on the page
+// without selecting shows them all again. Only a press that starts on the page counts, so working
+// in the review (which moves the selection there) keeps the filter.
+let pressedOnPage = false;
+documentEl.addEventListener('mousedown', () => (pressedOnPage = true));
+window.addEventListener('mouseup', () => {
+  if (!pressedOnPage) return;
+  pressedOnPage = false;
+  setTimeout(() => {
+    const anchors = selectionAnchors();
+    reviewPanel.update({ filter: anchors.length ? anchors : null });
+  });
+});
+
+// A selection can start anywhere on a page, not only on the text: a press in the space around it
+// starts from the nearest character, and dragging extends to the character nearest the pointer
+// (across pages too). Presses on the text itself select natively. Shift-click extends the
+// current selection.
+const onText = (target) => target.nodeType === Node.ELEMENT_NODE && target.closest('.textLayer') && [...target.childNodes].some((c) => c.nodeType === Node.TEXT_NODE);
+const contentAt = (x, y) => document.elementsFromPoint(x, y).map((el) => el.closest?.('.page-content')).find(Boolean);
+pagesEl.addEventListener('mousedown', (e) => {
+  const contentEl = e.target.closest?.('.page-content');
+  if (e.button !== 0 || !contentEl || onText(e.target)) return;
+  const start = nearestTextPosition(contentEl, e.clientX, e.clientY);
+  if (!start) return;
+  e.preventDefault();
+  const selection = getSelection();
+  if (e.shiftKey && selection.rangeCount && !selection.isCollapsed) {
+    selection.extend(start.node, start.offset);
+    return;
+  }
+  selection.setBaseAndExtent(start.node, start.offset, start.node, start.offset);
+  let last = contentEl;
+  const move = (m) => {
+    last = contentAt(m.clientX, m.clientY) ?? last;
+    const focus = nearestTextPosition(last, m.clientX, m.clientY);
+    if (focus) selection.setBaseAndExtent(start.node, start.offset, focus.node, focus.offset);
+  };
+  const up = () => {
+    window.removeEventListener('mousemove', move);
+    window.removeEventListener('mouseup', up);
+  };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+});
+
+// The user's requests and the AI's annotations are drawn on the page, or for a highlights review
+// its highlights, in their category's colour.
 function showReview(review) {
   reviewPanel.update({ review });
+  if (isHighlights(review)) {
+    const colours = categoryColours(review);
+    setMarks(review.highlights.map((h) => ({ anchors: h.anchors, className: `mark-key cat-${colours.get(h.category)}`, title: `${h.category}: ${h.title}` })));
+    return;
+  }
   setMarks(review ? [
     ...review.requests.map((r) => ({ anchors: r.anchors, className: `mark-request mark-${r.kind}`, title: r.note })),
     ...review.annotations.map((a) => ({ anchors: a.anchors, className: `mark-annotation mark-${a.style}`, title: a.note })),
@@ -343,13 +447,14 @@ function showReview(review) {
 }
 
 api.onDraftOpened(async ({ document: doc, draft, pdf, review }) => {
-  draftNav.hidden = false;
+  // The draft controls only show once there's another draft to move to.
+  draftNav.hidden = draft.total === 0;
   draftLabel.textContent = draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
   draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : '');
   draftPrev.disabled = draft.number === 0;
   draftNext.disabled = draft.number === draft.total;
   placeDraftNav();
-  reviewPanel.update({ hasDocument: true });
+  reviewPanel.update({ hasDocument: true, document: doc, filter: null });
   showReview(review);
   reviewPanel.minimiseAll();
   documentEl.scrollTop = 0;
@@ -362,7 +467,7 @@ api.onDocumentClosed(() => {
   draftNav.hidden = true;
   clearPdf();
   clearPages();
-  reviewPanel.update({ hasDocument: false, review: null });
+  reviewPanel.update({ hasDocument: false, document: null, review: null, filter: null });
   updateScrollUi();
 });
 

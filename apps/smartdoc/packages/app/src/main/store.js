@@ -63,15 +63,23 @@ export function createStore(root) {
       return reviews.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
 
-    async createReview(docId, draftId, by) {
+    // A review is one of two types. An improvement review ('improve') holds findings for the user
+    // to decide on, then applied as a new draft. A highlights review ('highlights') holds the key
+    // information the AI found for the user's goal; nothing is decided or applied. Reviews from
+    // before types existed have none, and are improvement reviews.
+    async createReview(docId, draftId, by, { type = 'improve', goal = null, context = null } = {}) {
       const review = {
         id: `review-${Date.now().toString(36)}-${newId()}`,
         draftId,
+        type,
+        goal, // what the user wants from the review, agreed with the AI before it started
+        context, // what the AI learned about the document from the user (highlights)
         createdAt: now(),
-        status: 'open', // open: requests and findings are being added; committed: ready for decisions
+        status: 'open', // open: the AI is still adding to it; committed: the AI has finished
         requests: [], // the user's marks from the tools (rewrite, comment, keep, remove, add, ask)
-        items: [], // the AI's findings, each carrying a decision for the user
-        annotations: [], // the AI's decorations on the text
+        items: [], // the AI's findings, each carrying a decision for the user (improve)
+        annotations: [], // the AI's decorations on the text (improve)
+        highlights: [], // the key information the AI found, with the user's feedback (highlights)
         applications: [], // drafts created from this review: { draftId, at, itemIds }
         history: [],
       };

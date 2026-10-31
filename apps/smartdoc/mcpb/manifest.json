@@ -4,7 +4,7 @@
   "display_name": "SmartDoc",
   "version": "0.1.0",
   "description": "Review your documents with Claude in the SmartDoc app, and decide on each suggestion yourself.",
-  "long_description": "SmartDoc shows your document (a PDF) in a desktop app on your computer. Claude reads it, marks up the text and writes findings for you to accept, reject or answer in the app, then writes the next draft from your decisions. The app opens automatically when Claude needs it; it's downloaded from the project's GitHub release the first time. Your document stays on your computer: only what Claude reads through these tools goes to Claude.",
+  "long_description": "SmartDoc shows your document (a PDF) in a desktop app on your computer. Claude reads it and either suggests improvements, which you accept, reject or answer in the app before it writes the next draft from your decisions, or picks out the key information for what you need to know. The app opens automatically when Claude needs it; it's downloaded from the project's GitHub release the first time. Your document stays on your computer: only what Claude reads through these tools goes to Claude.",
   "author": {
     "name": "tw050x",
     "url": "https://github.com/tw050x"
@@ -26,14 +26,18 @@
   "tools": [
     { "name": "list_documents", "description": "Documents you've opened in SmartDoc before, so Claude can open one again." },
     { "name": "open_document", "description": "Opens a document in SmartDoc: one you've opened before, a PDF you confirm in the app, or a file you pick." },
-    { "name": "get_document", "description": "The open document: its name, which draft is showing, and the text of each page." },
+    { "name": "get_document_info", "description": "The open document's size and shape: pages, word and paragraph counts, its outline and details, page by page." },
+    { "name": "get_document", "description": "The text of the open document, whole or a range of pages." },
+    { "name": "find_text", "description": "Finds a word or phrase in the open document, with the page and surrounding text of each match." },
     { "name": "get_review", "description": "The current draft's review: your requests, the findings with your decisions, annotations and history." },
     { "name": "get_history", "description": "Earlier reviews of your document and what you decided on each finding, so a new review doesn't ask again." },
-    { "name": "start_review", "description": "Starts a new review of the current draft." },
+    { "name": "start_review", "description": "Starts a review of the current draft: suggesting improvements, or highlighting the key information for your goal." },
     { "name": "add_annotation", "description": "Highlights, underlines or strikes through text in the document." },
     { "name": "add_finding", "description": "Adds a finding for you to decide on: a change, a choice of options, a question, a structural or design change, or a note." },
+    { "name": "add_highlight", "description": "Picks out a piece of key information for what you're looking for, or something the document doesn't say." },
+    { "name": "remove_highlight", "description": "Removes a highlight from the open highlights review." },
     { "name": "remove_finding", "description": "Removes a finding from the open review." },
-    { "name": "commit_review", "description": "Hands the review to you to make your decisions in the app." },
+    { "name": "commit_review", "description": "Finishes the review, so you can decide on its findings or read its highlights in the app." },
     { "name": "get_decisions", "description": "Your decisions on the current review." },
     { "name": "apply_review", "description": "Writes the next draft of the document from the changes you accepted." }
   ],

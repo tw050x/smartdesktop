@@ -1,13 +1,19 @@
 // Requests the user marked on the page in earlier versions of the app (rewrite, comment, keep, ...).
 const requestLabel = (kind) => kind.charAt(0).toUpperCase() + kind.slice(1);
 
-// The review column: the current draft's review. While the AI is still working (open) its findings
-// show read-only; once committed, each finding carries the user's decision. The AI's notes on the
-// text (its annotations: highlights, underlines and strikes) are listed among the findings, with
-// nothing to decide. After them come changes the user writes themselves for the AI to carry out,
-// and a dashed card to add another. Clicking a card scrolls its text into view, and hovering one highlights its
-// text on the page. The step cards are always open; the cards in them start minimised to their
-// heading, and open with the arrow button. Opening a document minimises them all again.
+// The review column: the current draft's review, which is one of two kinds. With no review yet, it
+// offers the user a prompt for each.
+// An improvement review: while the AI is still working (open) its findings show read-only; once
+// committed, each finding carries the user's decision. The AI's notes on the text (its
+// annotations: highlights, underlines and strikes) are listed among the findings, with nothing to
+// decide. After them come changes the user writes themselves for the AI to carry out, and a
+// dashed card to add another.
+// A highlights review: the user's goal, then the key information the AI found, by category, each
+// with the user's feedback.
+// Clicking a card scrolls its text into view, and hovering one highlights its text on the page.
+// Selecting text on the page shows only the cards about that text (see `filter`).
+// The step cards are always open; the cards in them start minimised to their heading, and open
+// with the arrow button. Opening a document minimises them all again.
 
 // Each finding is labelled by the part of the document it's about (questions and notes aren't
 // changes).
@@ -31,14 +37,32 @@ const ORDERS = {
 // Notes are labelled by how they mark the text.
 const MARK_LABELS = { highlight: 'Highlight', underline: 'Underline', strike: 'Strikethrough' };
 
-// Prompts for the user to send their AI: to start or carry on the review (step 1), and once
-// they've decided, to apply it (the end of step 2). Each can be edited before copying; edits last
-// until another review is shown.
+// Prompts for the user to send their AI: to start a review of either kind, to carry one on, and
+// once they've decided, to apply an improvement review. Each names the open document and gives its
+// id, so the AI knows which one is meant even when several share a name. Each can be edited before
+// copying; edits last until another document or review is shown.
 const PROMPTS = {
-  review: 'Review my document in SmartDoc.',
-  continue: 'Carry on reviewing my document in SmartDoc, and commit the review when you’re done.',
-  apply: 'I’ve made my decisions in SmartDoc. Apply the review and write the next draft of my document.',
+  improve: (doc) => `Review ${doc} in SmartDoc and suggest improvements.`,
+  highlights: (doc) => `Go through ${doc} in SmartDoc and highlight the key information for me.`,
+  continue: (doc) => `Carry on reviewing ${doc} in SmartDoc, and commit the review when you’re done.`,
+  continueHighlights: (doc) => `Carry on with the highlights for ${doc} in SmartDoc, and commit the review when you’re done.`,
+  apply: (doc) => `I’ve made my decisions in SmartDoc. Apply the review and write the next draft of ${doc}.`,
 };
+
+// A highlights review groups its highlights by the categories the AI chose, each with its own
+// colour (on the page too), in the order they first appear. Within a category the most important
+// come first, then in content order; anything the document doesn't say comes last.
+const IMPORTANCE_LABELS = { high: 'Important', medium: 'Worth knowing', low: 'Minor' };
+const IMPORTANCE_RANK = { high: 0, medium: 1, low: 2 };
+const CATEGORY_COLOURS = 6;
+export const isHighlights = (review) => review?.type === 'highlights';
+export function categoryColours(review) {
+  const colours = new Map();
+  for (const h of review?.highlights ?? []) {
+    if (!colours.has(h.category)) colours.set(h.category, colours.size % CATEGORY_COLOURS);
+  }
+  return colours;
+}
 const CHEVRON_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const RESET_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>';
 const COPY_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
@@ -47,8 +71,13 @@ const COPIED_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none"
 const STATUS_LABELS = { pending: 'Undecided', accepted: 'Accepted', rejected: 'Rejected', answered: 'Answered', acknowledged: 'Acknowledged' };
 
 // `container` is the card; `scroller` is what scrolls it (the whole card scrolls in its column).
-export function createReviewPanel({ container, scroller, api, onReveal, onHover }) {
-  let state = { hasDocument: false, review: null };
+// `filter` (set with update) is the text selected on the page, as anchors: while it's set, only the
+// cards whose text overlaps it show. `onClearFilter` is called when the user asks to see them all.
+export function createReviewPanel({ container, scroller, api, onReveal, onHover, onClearFilter }) {
+  let state = { hasDocument: false, document: null, review: null, filter: null };
+  const prompt = (key) => PROMPTS[key](state.document ? `“${state.document.name}” (document ${state.document.id})` : 'my document');
+  const overlaps = (anchors) => anchors.some((a) => state.filter.some((f) => f.page === a.page && a.start < f.end && f.start < a.end));
+  const shown = (anchors) => !state.filter || overlaps(anchors);
   const expanded = new Set(); // ids of opened findings, kept across re-renders
   const editing = new Set(); // ids of decided findings whose decision is being changed
   let order = 'content'; // a key of ORDERS
@@ -72,8 +101,29 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
       return;
     }
 
-    // The review in two steps: the AI reviews, then the user decides and asks the AI to apply
-    // their decisions. Each step can be reset, taking the review back to its start.
+    // No review yet: the user asks their AI for one, of either kind.
+    if (!review) {
+      const card = el('section', 'review-step');
+      card.append(el('h2', 'review-heading', 'Review'));
+      card.append(el('p', 'next-step-text', 'Ask your AI to go through this document. It reads the document through the app, agrees with you what you’re after, and shows its review here.'));
+      card.append(el('h3', 'start-title', 'Improve it'));
+      card.append(el('p', 'next-step-text', 'The AI suggests changes for you to accept, reject or answer, then writes the next draft from your decisions.'));
+      card.append(promptBlock('improve', state.document?.id, prompt('improve')));
+      card.append(el('h3', 'start-title', 'Find the key information'));
+      card.append(el('p', 'next-step-text', 'The AI asks what you’re looking for, then picks out what matters for it, including anything the document doesn’t say.'));
+      card.append(promptBlock('highlights', state.document?.id, prompt('highlights')));
+      panel.append(card);
+      return;
+    }
+    if (state.filter) panel.append(filterBar(review));
+    if (isHighlights(review)) {
+      panel.append(highlightsView(review));
+      scroller.scrollTop = scroll;
+      return;
+    }
+
+    // An improvement review, in two steps: the AI reviews, then the user decides and asks the AI
+    // to apply their decisions. Each step can be reset, taking the review back to its start.
     const committed = review?.status === 'committed';
     const items = review?.items ?? [];
     const decided = items.filter((i) => i.decision.status !== 'pending').length;
@@ -93,24 +143,20 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
       action: reset(1),
     });
     panel.append(review1.section);
-    if (!review) {
-      review1.body.append(el('p', 'next-step-text', 'Ask your AI to review this document: it reads the document through the app, marks up the text and writes its findings here for you to decide on.'));
-      review1.body.append(promptBlock('review', null, PROMPTS.review));
-    } else {
-      // Dated by when the AI committed it, or when it was started while still in progress.
-      const dated = review.committedAt ?? review.createdAt;
-      if (dated) {
-        const time = el('time', 'review-date', formatDate(dated));
-        time.dateTime = dated;
-        time.title = [`Started ${formatDateTime(review.createdAt)}`, review.committedAt && `Committed ${formatDateTime(review.committedAt)}`].filter(Boolean).join('\n');
-        review1.meta.append(time);
-      }
-      if (!committed) {
-        review1.body.append(el('p', 'review-status', `In progress: the AI is still reviewing${items.length ? ` (${items.length} finding${items.length === 1 ? '' : 's'} so far)` : ''}. If it has stopped, ask it to carry on.`));
-        review1.body.append(promptBlock('continue', review.id, PROMPTS.continue));
-      }
-      if (review.summary) review1.body.append(el('p', 'review-summary', review.summary));
+    // Dated by when the AI committed it, or when it was started while still in progress.
+    const dated = review.committedAt ?? review.createdAt;
+    if (dated) {
+      const time = el('time', 'review-date', formatDate(dated));
+      time.dateTime = dated;
+      time.title = [`Started ${formatDateTime(review.createdAt)}`, review.committedAt && `Committed ${formatDateTime(review.committedAt)}`].filter(Boolean).join('\n');
+      review1.meta.append(time);
     }
+    if (review.goal) review1.body.append(goalLine('Goal', review.goal));
+    if (!committed) {
+      review1.body.append(el('p', 'review-status', `In progress: the AI is still reviewing${items.length ? ` (${items.length} finding${items.length === 1 ? '' : 's'} so far)` : ''}. If it has stopped, ask it to carry on.`));
+      review1.body.append(promptBlock('continue', review.id, prompt('continue')));
+    }
+    if (review.summary) review1.body.append(el('p', 'review-summary', review.summary));
 
     const decide = step(2, 'Decide', !committed ? 'upcoming' : applied ? 'done' : 'current', {
       title: 'Clear your decisions and your own changes',
@@ -120,9 +166,7 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
     panel.append(decide.section);
     if (committed && items.length) decide.meta.textContent = `${decided} of ${items.length} decided`;
     const notes = review?.annotations ?? [];
-    if (!review) {
-      decide.body.append(el('p', 'panel-hint', 'The AI’s findings appear here for you to accept, reject or answer.'));
-    } else if (!items.length) {
+    if (!items.length) {
       decide.body.append(el('p', 'panel-hint', committed ? 'The AI found nothing to change.' : 'Findings will appear here as the AI adds them.'));
     }
     if (items.length + notes.length > 1) {
@@ -144,12 +188,13 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
     }
     if (items.length + notes.length || committed) {
       const list = el('ul', 'finding-list');
-      const cards = [...items.map((item) => ({ item })), ...notes.map((note) => ({ note, anchors: note.anchors }))];
-      for (const card of cards.sort((a, b) => ORDERS[order](a.item ?? a, b.item ?? b))) {
+      const cards = [...items.map((item) => ({ item, anchors: item.anchors })), ...notes.map((note) => ({ note, anchors: note.anchors }))];
+      for (const card of cards.filter((c) => shown(c.anchors)).sort((a, b) => ORDERS[order](a.item ?? a, b.item ?? b))) {
         list.append(card.item ? findingCard(card.item, review, committed) : noteCard(card.note));
       }
-      // The user's own changes follow the AI's findings, then the card for adding another.
-      if (committed) {
+      // The user's own changes follow the AI's findings, then the card for adding another. They
+      // aren't about any text, so a filter hides them.
+      if (committed && !state.filter) {
         for (const change of review.changes ?? []) list.append(changeCard(change));
         list.append(changeDraft && !changeDraft.id ? changeEditor() : addChangeCard());
       }
@@ -160,11 +205,121 @@ export function createReviewPanel({ container, scroller, api, onReveal, onHover 
       apply.append(
         el('h3', 'apply-title', 'When you’ve decided'),
         el('p', 'next-step-text', 'Ask your AI to apply your decisions. It writes the next draft from them, and the draft opens here.'),
-        promptBlock('apply', review.id, PROMPTS.apply),
+        promptBlock('apply', review.id, prompt('apply')),
       );
       decide.body.append(apply);
     }
     scroller.scrollTop = scroll;
+  }
+
+  // A highlights review: the goal it was for, the AI's answer (its summary) once it has finished,
+  // then the highlights by category. The user can mark each one useful or not, and comment.
+  function highlightsView(review) {
+    const committed = review.status === 'committed';
+    const highlights = review.highlights ?? [];
+    const section = el('section', 'review-step highlights-view');
+    const head = el('h2', 'step-head');
+    head.append(el('span', 'step-title', 'Key information'));
+    if (committed || highlights.length) {
+      const button = el('button', 'finding-toggle step-reset');
+      button.type = 'button';
+      button.title = 'Start the highlights again, keeping the goal';
+      button.setAttribute('aria-label', button.title);
+      button.innerHTML = RESET_ICON;
+      button.addEventListener('click', async () => {
+        if (await api.resetToStep(1)) render();
+      });
+      head.append(button);
+    }
+    const meta = el('span', 'step-meta');
+    const dated = review.committedAt ?? review.createdAt;
+    const time = el('time', 'review-date', formatDate(dated));
+    time.dateTime = dated;
+    time.title = [`Started ${formatDateTime(review.createdAt)}`, review.committedAt && `Finished ${formatDateTime(review.committedAt)}`].filter(Boolean).join('\n');
+    meta.append(time);
+    head.append(meta);
+    const body = el('div', 'step-body');
+    section.append(head, body);
+
+    if (review.goal) body.append(goalLine('Looking for', review.goal));
+    if (review.context) body.append(el('p', 'review-context', review.context));
+    if (!committed) {
+      body.append(el('p', 'review-status', `In progress: the AI is still going through the document${highlights.length ? ` (${highlights.length} highlight${highlights.length === 1 ? '' : 's'} so far)` : ''}. If it has stopped, ask it to carry on.`));
+      body.append(promptBlock('continueHighlights', review.id, prompt('continueHighlights')));
+    }
+    if (review.summary) body.append(el('p', 'review-summary', review.summary));
+    if (!highlights.length) {
+      body.append(el('p', 'panel-hint', committed ? 'The AI found nothing to highlight.' : 'Highlights will appear here as the AI adds them.'));
+      return section;
+    }
+
+    const colours = categoryColours(review);
+    const rank = (h) => [h.missing ? 1 : 0, IMPORTANCE_RANK[h.importance] ?? 3, ...position(h)];
+    const byRank = (a, b) => {
+      const [x, y] = [rank(a), rank(b)];
+      const i = x.findIndex((v, n) => v !== y[n]);
+      return i === -1 ? 0 : x[i] - y[i];
+    };
+    for (const [category, colour] of colours) {
+      const group = highlights.filter((h) => h.category === category && shown(h.anchors)).sort(byRank);
+      if (!group.length) continue;
+      const heading = el('h3', `highlight-category cat-${colour}`);
+      heading.append(el('span', 'highlight-category-name', category), el('span', 'highlight-category-count', String(group.length)));
+      const list = el('ul', 'finding-list');
+      for (const h of group) list.append(highlightCard(h, colour));
+      body.append(heading, list);
+    }
+    return section;
+  }
+
+  function highlightCard(h, colour) {
+    const feedback = h.feedback ?? { useful: null, comment: '' };
+    const li = el('li', `finding highlight cat-${colour} importance-${h.importance}${h.missing ? ' highlight-missing' : ''}${feedback.useful === false ? ' highlight-not-useful' : ''}`);
+    cardHead(li, h.id, h.missing ? 'Not in the document' : IMPORTANCE_LABELS[h.importance] ?? 'Highlight', feedback.useful === null ? null : feedback.useful ? 'Useful' : 'Not useful');
+    li.append(el('h3', 'finding-title', h.title));
+    if (h.note) li.append(el('p', 'finding-body', h.note));
+    if (h.anchors.length) li.append(el('blockquote', 'finding-quote', h.anchors.map((a) => a.text.replace(/\s+/g, ' ')).join(' … ')));
+
+    const box = el('div', 'decision');
+    const comment = el('textarea', 'decision-comment');
+    comment.rows = 1;
+    comment.placeholder = 'Comment for the AI (optional)';
+    comment.value = feedback.comment ?? '';
+    comment.addEventListener('change', () => api.rateHighlight(h.id, { comment: comment.value }));
+    const row = el('div', 'decision-buttons');
+    for (const [label, useful] of [['Not useful', false], ['Useful', true]]) {
+      const b = el('button', `secondary-button feedback-button${feedback.useful === useful ? ' selected' : ''}`, label);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(feedback.useful === useful));
+      // Pressing the selected one again clears it.
+      b.addEventListener('click', () => api.rateHighlight(h.id, { useful: feedback.useful === useful ? null : useful }));
+      row.append(b);
+    }
+    box.append(comment, row);
+    li.append(box);
+    linkToText(li, h.anchors);
+    return li;
+  }
+
+  // Shown while the page selection filters the cards: how many match, and a button to show all.
+  function filterBar(review) {
+    const cards = isHighlights(review) ? review.highlights ?? [] : [...review.items, ...(review.annotations ?? [])];
+    const count = cards.filter((c) => overlaps(c.anchors)).length;
+    const bar = el('div', 'filter-bar');
+    bar.append(el('span', 'filter-text', count
+      ? `Showing ${count} ${count === 1 ? 'card' : 'cards'} about the selected text`
+      : 'Nothing in the review is about the selected text'));
+    const button = el('button', 'secondary-button', 'Show all');
+    button.type = 'button';
+    button.addEventListener('click', onClearFilter);
+    bar.append(button);
+    return bar;
+  }
+
+  function goalLine(label, text) {
+    const p = el('p', 'review-goal');
+    p.append(el('strong', null, `${label}: `), document.createTextNode(text));
+    return p;
   }
 
   // A numbered step, always open: its heading (number, title, an optional reset button straight

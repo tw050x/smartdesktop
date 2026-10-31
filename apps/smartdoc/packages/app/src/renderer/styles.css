@@ -704,15 +704,24 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 /* --- Marks on the page -------------------------------------------------------------------- */
-.page-content { position: relative; }
+.page-content { position: relative; cursor: text; } /* a selection can start anywhere on the page */
 .marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .mark { position: absolute; border-radius: 2px; }
 .mark-request { background: color-mix(in srgb, var(--request-color) 18%, transparent); box-shadow: inset 0 -2px 0 var(--request-color); }
 .mark-annotation.mark-highlight { background: rgba(255, 214, 10, 0.35); }
-/* The text of the finding hovered in the review. */
+/* The text of the card hovered in the review; the other marks fade meanwhile. */
+.marks.dimmed .mark:not(.mark-hover) { opacity: 0.2; }
 .mark-hover { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
 .mark-annotation.mark-underline { box-shadow: inset 0 -2px 0 #e08a00; }
 .mark-annotation.mark-strike { background: linear-gradient(transparent 45%, rgba(214, 69, 69, 0.8) 45%, rgba(214, 69, 69, 0.8) 58%, transparent 58%); }
+/* Highlights, in their category's colour. */
+.cat-0 { --cat-color: #2f6fde; }
+.cat-1 { --cat-color: #8a5cf6; }
+.cat-2 { --cat-color: #1f9d55; }
+.cat-3 { --cat-color: #e08a00; }
+.cat-4 { --cat-color: #0f9bb5; }
+.cat-5 { --cat-color: #d6457a; }
+.mark-key { background: color-mix(in srgb, var(--cat-color) 20%, transparent); box-shadow: inset 0 -2px 0 var(--cat-color); }
 
 /* --- Review ------------------------------------------------------------------------------- */
 .review-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -741,6 +750,31 @@ button:disabled { opacity: 0.5; cursor: default; }
 .review-date { font-size: 12px; font-weight: 400; color: var(--muted); }
 .review-status { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
 .review-summary { margin: 0 0 12px; font-size: 12px; }
+.review-goal { margin: 0 0 8px; font-size: 12px; }
+/* While text selected on the page filters the cards. */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, #fff);
+  font-size: 12px;
+}
+.filter-text { flex: 1; }
+.review-context { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+/* Starting a review: a prompt for each kind. */
+.panel .start-title { margin: 16px 0 4px; }
+/* Highlights: grouped under their category, each with a swatch of its colour. */
+.panel .highlight-category { display: flex; align-items: center; gap: 6px; margin: 18px 0 8px; }
+.highlight-category::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--cat-color); }
+.highlight-category-count { margin-left: auto; font-weight: 400; letter-spacing: 0; }
+.highlight { border-left: 3px solid var(--cat-color); }
+.highlight.importance-high .finding-kind { color: #d64545; }
+.highlight-missing { border-left-style: dashed; background: #fafafb; }
+.highlight-not-useful { opacity: 0.7; }
+.feedback-button.selected { border-color: var(--accent); color: var(--accent); }
 .finding {
   padding: 10px 12px;
   border: 1px solid var(--border);
