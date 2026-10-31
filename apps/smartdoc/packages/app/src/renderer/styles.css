@@ -808,7 +808,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .review-progress { width: 120px; height: 6px; border-radius: 3px; background: #c4c4ca; overflow: hidden; }
 .review-progress-fill { display: block; height: 100%; background: #1f9d55; }
 .review-bar-nav { display: flex; gap: 6px; }
-.review-bar-end { display: flex; align-items: center; gap: 12px; }
+.review-bar-end { display: flex; align-items: center; gap: 12px; margin-left: auto; } /* ‹ › at the bar's right end */
 /* The tool's icon, in its colour, so the two kinds of review never look alike. */
 .review-bar-tool { display: flex; align-items: center; color: var(--tool-color); }
 .copy-prompt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; } /* at the bar's right end */
