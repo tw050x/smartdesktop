@@ -21,4 +21,4 @@ Download the bundle from the [website](https://tw050x.github.io/smartdoc/) and o
 - macOS (Apple silicon or Intel). Windows is planned.
 - Node.js 18 or later.
 
-Your document stays on your computer. The AI only sees what it reads through SmartDoc's tools.
+SmartDoc keeps your document and its drafts on your computer. Your agent reads the document through SmartDoc's tools, so what it reads goes wherever your agent sends it.

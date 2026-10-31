@@ -351,24 +351,29 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     };
 
     if (item.kind === 'change') {
-      const edit = el('textarea', 'decision-edit');
-      edit.rows = 3;
-      edit.value = item.decision.edited ?? item.proposal?.after ?? '';
-      edit.hidden = true;
-      edit.addEventListener('change', () => decide({ status: 'accepted', edited: edit.value }));
       const row = buttons(['Reject', { status: 'rejected' }], ['Accept', { status: 'accepted' }, true]);
       if (row.classList.contains('decision-buttons')) {
+        // Editing happens in the suggestion itself: its green box becomes a text box, looking the
+        // same, and leaving it accepts the change as edited.
         const editButton = el('button', 'secondary-button', 'Edit');
         editButton.type = 'button';
         editButton.addEventListener('click', () => {
-          edit.hidden = false;
+          const ins = box.closest('.margin-card')?.querySelector('.diff ins');
+          if (!ins) return;
+          const edit = el('textarea', 'diff-edit');
+          edit.value = item.decision.edited ?? item.proposal?.after ?? '';
+          edit.setAttribute('aria-label', 'Your wording');
+          edit.addEventListener('change', () => decide({ status: 'accepted', edited: edit.value }));
+          ins.replaceWith(edit);
           edit.focus();
+          edit.setSelectionRange(edit.value.length, edit.value.length);
+          editButton.disabled = true;
         });
         const cancel = row.querySelector('.decision-cancel');
         if (cancel) cancel.after(editButton);
         else row.prepend(editButton);
       }
-      box.append(edit, row);
+      box.append(row);
     } else if (item.kind === 'options') {
       box.append(optionList(item, true));
     } else if (item.kind === 'question') {

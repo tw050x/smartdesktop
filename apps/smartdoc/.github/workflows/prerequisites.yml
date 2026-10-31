@@ -20,5 +20,7 @@ jobs:
         run: npm test
       - name: Build the interface
         run: npm run build
+      - name: Build the website demo
+        run: npm run demo
       - name: Pack the Claude Desktop bundle
         run: npm run mcpb

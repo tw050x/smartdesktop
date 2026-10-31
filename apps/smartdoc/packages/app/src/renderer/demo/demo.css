@@ -1,0 +1,87 @@
+/* The website demo's own pieces, over the app's styles: the window's traffic lights (drawn by
+   macOS in the app), the scripted cursor, and stand-ins for what the system draws in the app: the
+   right-click menu and a file being dropped. Nothing in it is meant to be clicked. */
+
+/* The app is always light (nativeTheme in main.js); set on the body, as pdf.js's stylesheet sets the root's. */
+.demo { color-scheme: light; }
+.demo { pointer-events: none; }
+.demo .top-bar::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 18px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 20px 0 #febc2e, 40px 0 #28c840;
+  transform: translateY(-50%);
+}
+.demo .top-bar { position: relative; }
+
+.demo-cursor {
+  position: fixed;
+  inset: auto; /* a popover's own placement, undone */
+  top: 0;
+  left: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+  z-index: 100;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.demo-cursor.shown { opacity: 1; }
+.demo-cursor.moving { transition: opacity 0.2s, transform 0.65s cubic-bezier(0.45, 0, 0.2, 1); }
+.demo-cursor svg { display: block; transition: transform 0.12s; transform-origin: 4px 3px; }
+.demo-cursor.pressed svg { transform: scale(0.82); }
+
+/* The right-click menu, as macOS draws it. */
+.demo-menu {
+  position: fixed;
+  z-index: 101;
+  min-width: 230px;
+  padding: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: rgba(246, 246, 246, 0.96);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  font-size: 13px;
+  color: #1d1d1f;
+}
+.demo-menu-item { padding: 3px 10px; border-radius: 4px; }
+.demo-menu-item.active { background: #2f6fde; color: #fff; }
+
+/* A PDF being dragged in from the desktop. */
+.demo-file {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 101;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 140px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1d1d1f;
+  text-align: center;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.25));
+}
+.demo-file.moving { transition: transform 0.9s cubic-bezier(0.45, 0, 0.2, 1); }
+.demo-file-icon {
+  display: grid;
+  place-items: end center;
+  width: 56px;
+  height: 70px;
+  padding-bottom: 8px;
+  border-radius: 4px 14px 4px 4px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  font-size: 11px;
+  font-weight: 800;
+  color: #d64545;
+}

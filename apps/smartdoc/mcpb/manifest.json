@@ -4,7 +4,7 @@
   "display_name": "SmartDoc",
   "version": "0.1.0",
   "description": "Review your documents with Claude in the SmartDoc app, and decide on each suggestion yourself.",
-  "long_description": "SmartDoc shows your document (a PDF) in a desktop app on your computer. Claude reads it and either suggests improvements, which you accept, reject or answer in the app before it writes the next draft from your decisions, or picks out the key information for what you need to know. The app opens automatically when Claude needs it; it's downloaded from the project's GitHub release the first time. Your document stays on your computer: only what Claude reads through these tools goes to Claude.",
+  "long_description": "SmartDoc shows your document (a PDF) in a desktop app on your computer. Claude reads it and either suggests improvements, which you accept, reject or answer in the app before it writes the next draft from your decisions, or picks out the key information for what you need to know. The app opens automatically when Claude needs it; it's downloaded from the project's GitHub release the first time. Your document and its drafts are kept on your computer; what Claude reads through these tools goes to Claude.",
   "author": {
     "name": "tw050x",
     "url": "https://github.com/tw050x"

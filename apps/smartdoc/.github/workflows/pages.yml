@@ -1,11 +1,12 @@
 name: Website
 
-# Publishes site/ to GitHub Pages whenever it changes on master (or by hand). Needs Pages turned
-# on with "GitHub Actions" as its source (Settings → Pages).
+# Publishes site/ to GitHub Pages whenever it or the app's interface changes on master (or by
+# hand), with the hero's demo built from the app's interface into site/demo first. Needs Pages
+# turned on with "GitHub Actions" as its source (Settings → Pages).
 on:
   push:
     branches: [master]
-    paths: [site/**, .github/workflows/pages.yml]
+    paths: [site/**, packages/app/src/renderer/**, packages/app/src/main/anchors.js, packages/app/vite.demo.config.js, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +27,15 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # The demo needs the interface's packages, not Electron itself.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - run: npm run demo
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

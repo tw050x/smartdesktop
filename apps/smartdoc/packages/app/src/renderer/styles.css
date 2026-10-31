@@ -75,7 +75,7 @@ body:not(.platform-darwin) .top-bar {
 .tool-button:hover, .tool-button[aria-expanded="true"] { background: var(--button-hover); }
 .tool-button svg { color: var(--muted); }
 #tool-label { display: flex; align-items: center; gap: 6px; }
-/* Short of room (see main.js): the tool shows just its icon. */
+/* Short of room (see app-shell.js): the tool shows just its icon. */
 .breadcrumb.tight .tool-name { display: none; }
 #tool-label svg { color: var(--tool-color); }
 /* The breadcrumb: home › tool. Only shown with a document open. */
@@ -86,7 +86,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 /* The draft controls, centred in the top bar. */
 .top-bar { position: relative; }
 .draft-nav { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
-/* Pushed along by the breadcrumb (see main.js): no longer centred on its left edge. */
+/* Pushed along by the breadcrumb (see app-shell.js): no longer centred on its left edge. */
 .draft-nav.pushed { transform: none; }
 /* Too little room: the label goes first, then the whole control. */
 .draft-nav.compact .draft-label { display: none; }
@@ -354,7 +354,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 body:not(.has-document) .review-bar { display: none; }
 .switching-document * { transition: none !important; }
 
-/* Custom scrollbar for the PDF view (see main.js). No track is drawn: just a thin thumb
+/* Custom scrollbar for the PDF view (see app-shell.js). No track is drawn: just a thin thumb
    on the right edge, shown only when there's something to scroll. Hovering its strip for a
    moment widens the thumb; it narrows straight away on leaving, and stays wide while dragged. */
 .document, .empty-state { scrollbar-width: none; }
@@ -393,10 +393,13 @@ body:not(.has-document) .review-bar { display: none; }
   overflow: auto;
   background: var(--document-bg);
 }
-/* Drop indicator: the home screen's columns, or an open file's pages, get a dashed outline in
-   the accent colour. */
-.document.dragging .home { outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: var(--card-radius); }
-.document.dragging .page { outline: 2px dashed var(--accent); outline-offset: 4px; }
+/* Drop indicator: while a file is dragged over the window, everything else in the view is hidden
+   and a dashed page shows where the first page would be, at its size (placed by app-shell.js),
+   saying what dropping does. */
+.drop-zone { display: none; position: absolute; left: 50%; z-index: 5; aspect-ratio: 210 / 297; transform: translateX(-50%); flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 2px dashed var(--accent); border-radius: var(--card-radius); background: color-mix(in srgb, var(--accent) 5%, var(--document-bg)); color: var(--accent); font-size: 15px; font-weight: 600; text-align: center; pointer-events: none; }
+.drop-zone p { margin: 0; max-width: 18em; }
+.document.dragging .drop-zone { display: flex; }
+.document.dragging > :not(.drop-zone) { visibility: hidden; }
 
 /* The home screen, with no document open: three columns (documents, variations, drafts) on the
    window's background, each list scrolling on its own. A row is shaded grey while it's hovered or
@@ -701,7 +704,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .margin-card textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .decision-comment { min-height: calc(1lh + 14px); }
 .decision-answer { min-height: calc(2lh + 14px); }
-.decision-edit { min-height: calc(3lh + 14px); }
 .finding-reply { margin: 0; font-size: 11px; color: var(--accent); }
 .finding-body, .finding-proposal, .finding-question { margin: 0; font-size: 12px; line-height: 1.45; color: #3c3c43; }
 .finding-question { font-weight: 500; }
@@ -719,6 +721,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .diff { display: grid; gap: 4px; font-size: 12px; }
 .diff del { padding: 4px 6px; border-radius: 6px; background: #fdecec; color: #8a1f1f; }
 .diff ins { padding: 4px 6px; border-radius: 6px; background: #e8f6ee; color: #155c34; text-decoration: none; }
+/* The suggested wording being edited, in place: the same green box, as a text box. */
+.margin-card .diff-edit { min-height: 0; padding: 4px 6px; border: 0; border-radius: 6px; background: #e8f6ee; color: #155c34; font: inherit; font-size: 12px; line-height: inherit; box-shadow: inset 0 0 0 1px #9fd4b4; }
+.margin-card .diff-edit:focus { outline: 2px solid #1f9d55; outline-offset: -1px; }
 .option-list { display: grid; gap: 6px; }
 .option { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; cursor: pointer; }
 .option-text { display: grid; gap: 2px; }

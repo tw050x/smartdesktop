@@ -13,6 +13,8 @@
     "build": "npm run build -w @smartdoc/app",
     "start": "npm start -w @smartdoc/app",
     "dist": "npm run dist -w @smartdoc/app",
+    "demo": "npm run demo -w @smartdoc/app",
+    "site": "npm run demo && node scripts/serve-site.mjs",
     "test": "node --test",
     "mcpb": "node scripts/pack-mcpb.mjs"
   },
