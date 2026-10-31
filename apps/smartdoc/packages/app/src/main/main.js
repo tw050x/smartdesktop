@@ -12,7 +12,6 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOP_BAR_HEIGHT = 44;
 // Height of the area macOS reserves for the traffic lights (the circles sit centred in it).
 const TRAFFIC_LIGHTS_HEIGHT = 16;
-const RECENT_IN_EMPTY_VIEW = 4;
 
 // The app used to be called Shortlist Dock, and before that Employment Short List App, and its
 // data lived in a folder of each name. The first time it runs as SmartDoc, everything in the old
@@ -106,10 +105,7 @@ function createWindow() {
 
 const send = (channel, value) => win?.webContents.send(channel, value);
 // The home screen's documents, each with where it stands in each tool.
-const recentForWindow = () => Promise.all(workspace.recent.slice(0, RECENT_IN_EMPTY_VIEW).map(async (r) => ({
-  ...r,
-  summary: await workspace.summarise(r.id).catch(() => null),
-})));
+const recentForWindow = async () => workspace.recent;
 
 async function sendDraft() {
   const view = await workspace.draftView();
@@ -164,6 +160,11 @@ function updateMenu() {
       openDocument: (id) => openDocument(id),
       clearRecent: () => workspace.clearRecent(),
       saveDraftAs,
+      newVariation,
+      documentFromDraft: () => {
+        const doc = workspace.document;
+        if (doc) documentFromDraft(doc.id, doc.variationId, doc.currentDraftId);
+      },
       close: () => workspace.close(),
       stepDraft: (delta) => workspace.stepDraft(delta),
       resetReview,
@@ -337,6 +338,25 @@ async function saveDraftAs() {
   if (!canceled && filePath) await workspace.saveDraftAs(filePath);
 }
 
+// A new variation is made by the AI: the window asks what it's for and copies a prompt asking the
+// AI to make it from the draft showing (see variation-card.js).
+function newVariation() {
+  const doc = workspace.document;
+  if (!doc) return;
+  const number = doc.line.indexOf(doc.currentDraftId);
+  const variation = doc.variations.find((v) => v.id === doc.variationId);
+  send('variation-requested', { docId: doc.id, docName: doc.name, variationId: variation.id, variationName: variation.name, draft: number });
+}
+
+// A new document from a draft, from the menu (the draft showing) or the home screen. It goes to
+// the top of the documents list, and the home screen shows it.
+async function documentFromDraft(docId, variationId, draftId) {
+  const made = await workspace.documentFromDraft(docId, variationId, draftId);
+  if (workspace.document) workspace.close();
+  send('document-made', made.id);
+  return made;
+}
+
 // --- Connecting an AI --------------------------------------------------------------------
 // AI apps start SmartDoc's MCP server themselves: Claude Code runs the npm package with npx,
 // and Claude Desktop installs the .mcpb bundle from the website. Either one opens this app and
@@ -369,23 +389,53 @@ const handle = (channel, fn) => ipcMain.handle(channel, async (_event, ...args) 
 });
 
 handle('open-path', (filePath) => importFile(filePath));
-// Only documents in the recent list can be opened or previewed from the empty view.
-// Opens a document from the home screen, in the tool picked on its card (or the one it was last
-// used in).
-handle('open-recent', async (docId, tool) => {
+// The home screen browses the documents in the list: each one's variations and their drafts,
+// opening a draft, and making a document from one.
+handle('variations-of', (docId) => (workspace.isRecent(docId) ? workspace.variationsOf(docId) : null));
+handle('open-draft', async (docId, variationId, draftId, tool) => {
   if (!workspace.isRecent(docId)) return;
-  await openDocument(docId);
-  if (tool && workspace.document?.id === docId) await workspace.setTool(tool);
+  if (workspace.document?.id !== docId && !(await confirmSwitch(workspace.recent.find((r) => r.id === docId)?.name))) return;
+  await workspace.openDraft(docId, variationId, draftId, tool);
+});
+// A draft's right-click menu on the home screen: a new variation from it (the window's variation
+// card), or a new document from it.
+handle('draft-menu', async ({ docId, variationId, draftId, draft }) => {
+  if (!workspace.isRecent(docId)) return;
+  const { name, variations } = await workspace.variationsOf(docId);
+  const variation = variations.find((v) => v.id === variationId);
+  if (!variation) return;
+  Menu.buildFromTemplate([
+    { label: 'New Variation…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
+    { label: 'New Document from Draft', click: () => documentFromDraft(docId, variationId, draftId) },
+  ]).popup({ window: win });
+});
+// A variation's right-click menu on the home screen: a new variation from its latest draft.
+handle('variation-menu', async ({ docId, variationId }) => {
+  if (!workspace.isRecent(docId)) return;
+  const { name, variations } = await workspace.variationsOf(docId);
+  const variation = variations.find((v) => v.id === variationId);
+  if (!variation) return;
+  // Drafts come newest first, numbered from the original (0).
+  const draft = variation.drafts.length - 1;
+  Menu.buildFromTemplate([
+    { label: 'New Variation from Latest Draft…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
+  ]).popup({ window: win });
 });
 // Back to the home screen: the document closes (everything is already saved).
 handle('go-home', () => workspace.close());
-handle('read-recent', async (docId) => (workspace.isRecent(docId) ? new Uint8Array(await workspace.readCurrentDraftOf(docId)) : null));
+// A document's right-click menu on the home screen. Removing it from the list leaves its files in
+// the data folder.
+handle('document-menu', (docId) => {
+  if (!workspace.isRecent(docId)) return;
+  Menu.buildFromTemplate([
+    { label: 'Remove from List', click: () => workspace.removeRecent(docId) },
+  ]).popup({ window: win });
+});
 handle('page-texts', (docId, draftId, texts, details) => workspace.setPageTexts(docId, draftId, texts, details));
 handle('add-request', (request) => workspace.addRequest(request));
 handle('update-request', (id, changes) => workspace.updateRequest(id, changes));
 handle('remove-request', (id) => workspace.removeRequest(id));
 handle('decide', (itemId, decision) => workspace.decide(itemId, decision));
-handle('rate-highlight', (id, feedback) => workspace.rateHighlight(id, feedback));
 // Resetting the review (from the Review menu) asks first, since what's cleared can't be got back
 // in the app. Step 1 starts the review again, empty; step 2 clears the user's decisions.
 const RESETS = {
@@ -402,7 +452,7 @@ const RESETS = {
 };
 const HIGHLIGHTS_RESET = {
   message: 'Start the highlights again?',
-  detail: 'This clears the AI’s highlights and your feedback on them, leaving an empty review with the same goal for your AI to fill.',
+  detail: 'This clears the AI’s highlights, leaving an empty review with the same goal for your AI to fill.',
   run: () => workspace.resetToReview(),
 };
 async function resetReview(step) {

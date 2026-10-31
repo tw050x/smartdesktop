@@ -6,14 +6,15 @@ import { createFocusPicker } from './focus-picker.js';
 import { createHighlightsList } from './highlights-list.js';
 import { createMarginReview } from './margin-review.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
-import { renderRecentCards } from './recent-cards.js';
+import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
 import { createToolSwitcher } from './tool-switcher.js';
+import { createVariationCard } from './variation-card.js';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
 const api = window.smartdoc;
-const { platform, openDroppedFile, openRecent, readRecent, onFullScreenChange } = api;
+const { platform, openDroppedFile, onFullScreenChange } = api;
 document.body.classList.add(`platform-${platform}`);
 onFullScreenChange((isFullScreen) => {
   document.body.classList.toggle('full-screen', isFullScreen);
@@ -246,14 +247,19 @@ const updateScrollUi = customScrollbar({
   watch: [documentEl, pagesEl],
 });
 
-// The empty view shows the most recent documents as cards with page previews.
-api.onRecentDocuments((documents) => renderRecentCards({
-  documents,
-  list: document.getElementById('recent-list'),
-  none: document.getElementById('recent-none'),
-  readRecent,
-  openRecent,
-}));
+// The home screen browses the documents, their variations and drafts. A new variation, from a
+// draft there or from the menu, is made by the AI from the prompt on the variation card.
+const newVariation = createVariationCard({ dialog: document.getElementById('variation-dialog'), api });
+api.onVariationRequested(newVariation);
+const home = createHome({
+  documentsEl: document.getElementById('home-documents'),
+  variationsEl: document.getElementById('home-variations'),
+  draftsEl: document.getElementById('home-drafts'),
+  api,
+});
+api.onRecentDocuments((documents) => home.update(documents));
+// A document made from a draft shows on the home screen.
+api.onDocumentMade((docId) => home.select(docId));
 
 // --- Document, draft and review ----------------------------------------------------------
 // The main process owns the document and its drafts and reviews (it drives the menu and the MCP
@@ -374,7 +380,6 @@ function showView() {
 
 const highlightsList = createHighlightsList({
   container: listViewEl,
-  api,
   onShow: (id) => {
     setView('document');
     // The pages need a frame to come back before the card can be placed.
@@ -450,9 +455,11 @@ const showReview = (review) => {
   showView();
 };
 
-api.onDraftOpened(async ({ document: doc, draft, pdf, review, tool }) => {
+api.onDraftOpened(async ({ document: doc, variation, draft, pdf, review, tool }) => {
   toolSwitcher.update(tool);
-  draftLabel.textContent = draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
+  // A variation other than the original is named before the draft.
+  const which = draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
+  draftLabel.textContent = variation.isOriginal ? which : `${variation.name} · ${which}`;
   draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : doc.name);
   draftPrev.disabled = draft.number === 0;
   draftNext.disabled = draft.number === draft.total;

@@ -56,22 +56,21 @@
 
   <main class="workspace">
     <section class="document" id="document">
+      <!-- The home screen, with no document open: documents › variations › drafts (see home.js). -->
       <div class="empty-state" id="empty-state">
-        <div class="ghost-stack">
-        <div class="ghost-page">
-          <div class="empty-message">
-            <section class="recent-files">
-              <h2>Recently opened</h2>
-              <ul class="recent-cards" id="recent-list"></ul>
-              <p class="recent-none" id="recent-none">No recently opened files.</p>
-            </section>
-            <p>Drop a PDF here, or use the File menu to open one or pick a recent document.</p>
-          </div>
-        </div>
-        <div class="ghost-more">
-          <div class="ghost-page"></div>
-          <div class="ghost-page"></div>
-        </div>
+        <div class="home">
+          <section class="home-column" aria-labelledby="home-documents-title">
+            <div class="home-column-head"><h2 id="home-documents-title">Documents</h2></div>
+            <ul class="home-list" id="home-documents"></ul>
+          </section>
+          <section class="home-column" aria-labelledby="home-variations-title">
+            <div class="home-column-head"><h2 id="home-variations-title">Variations</h2></div>
+            <ul class="home-list" id="home-variations"></ul>
+          </section>
+          <section class="home-column" aria-labelledby="home-drafts-title">
+            <div class="home-column-head"><h2 id="home-drafts-title">Drafts</h2></div>
+            <ul class="home-list" id="home-drafts"></ul>
+          </section>
         </div>
       </div>
       <!-- The pages, with the review laid over them and their margins (see margin-review.js). -->
@@ -135,6 +134,20 @@
   </aside>
 
   <div class="mcp-resizer" id="mcp-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the MCP server panel" aria-controls="mcp-card"></div>
+
+  <!-- A new variation: what it's for, and the prompt asking the AI to make it (see variation-card.js). -->
+  <dialog class="variation-dialog" id="variation-dialog" aria-labelledby="variation-title">
+    <form method="dialog">
+      <h2 id="variation-title">New variation</h2>
+      <p id="variation-message"></p>
+      <label for="variation-purpose">What’s the variation for?</label>
+      <textarea id="variation-purpose" rows="4" placeholder="For example: tailor it to the product lead role at Acme. Paste the job spec here."></textarea>
+      <div class="variation-buttons">
+        <button class="secondary-button" type="button" id="variation-cancel">Cancel</button>
+        <button class="primary-button" type="submit" id="variation-copy">Copy the prompt</button>
+      </div>
+    </form>
+  </dialog>
 
   <script type="module" src="./main.js"></script>
 </body>

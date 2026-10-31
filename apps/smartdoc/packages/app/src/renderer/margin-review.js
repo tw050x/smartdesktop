@@ -24,6 +24,7 @@ const GAP = 8; // the least space between decks
 const LIFT = 7; // a tab's top sits this far above its line, so its title lines up with the text
 const CARD_WIDTH = 264;
 const CARD_INSET = 20; // the space kept between a card and the window edge
+const PAGE_SPACE = 10; // the space between a card and the page's edge
 const LINKED = 10; // a deck further than this from its card's line draws a line back to it
 
 const FINDING_KINDS = {
@@ -54,6 +55,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
   let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null };
   let open = null; // the open deck's key (its first item's id)
   let hover = null; // the hovered deck's key
+  let stepped = null; // the deck Previous/Next last opened: it shows as if hovered while it stays open
   const pages = new Map(); // deck key → the card it shows (an index into its order)
   const editing = new Set(); // ids of decided findings whose decision is being changed
   let decks = [];
@@ -70,15 +72,13 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
       for (const h of review.highlights ?? []) {
         if (!colours.has(h.category)) colours.set(h.category, CATEGORY_COLOURS[colours.size % CATEGORY_COLOURS.length]);
       }
-      return (review.highlights ?? []).map((h) => {
-        const useful = h.feedback?.useful ?? null;
-        return {
-          id: h.id, type: 'highlight', highlight: h, side: 'r', anchors: h.missing ? [] : h.anchors,
-          label: h.category, color: colours.get(h.category), title: h.title,
-          decidable: true, decided: useful !== null,
-          status: useful === true ? '✓ Useful' : useful === false ? 'Not useful' : h.missing ? 'Not in the document' : IMPORTANCE_LABELS[h.importance] ?? 'Highlight',
-        };
-      });
+      // Highlights are to read: nothing to decide.
+      return (review.highlights ?? []).map((h) => ({
+        id: h.id, type: 'highlight', highlight: h, side: 'r', anchors: h.missing ? [] : h.anchors,
+        label: h.category, color: colours.get(h.category), title: h.title,
+        decidable: false, decided: false,
+        status: h.missing ? 'Not in the document' : IMPORTANCE_LABELS[h.importance] ?? 'Highlight',
+      }));
     }
     const findings = review.items.map((item) => {
       const kind = FINDING_KINDS[item.kind] ?? FINDING_KINDS.flag;
@@ -179,7 +179,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     decks = geo ? buildDecks(geo) : [];
     if (open && !decks.some((d) => d.key === open)) open = null;
     if (hover && !decks.some((d) => d.key === hover)) hover = null;
-    const width = geo ? Math.max(140, Math.min(CARD_WIDTH, Math.min(geo.left, geo.width - geo.right) - CARD_INSET)) : CARD_WIDTH;
+    const width = geo ? Math.max(140, Math.min(CARD_WIDTH, Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE)) : CARD_WIDTH;
     for (const deck of decks) layer.append(...deckElements(deck, geo, width));
     renderBar();
     sendMarks();
@@ -210,7 +210,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
 
     const slot = el('div', `margin-slot margin-${right ? 'r' : 'l'}${n > 1 ? ' multi' : ''}${cur.decided ? ' decided' : ''}${deck.matches ? '' : ' filtered-out'}${isOpen ? ' open' : ''}${hover === deck.key ? ' hovered' : ''}`);
     slot.dataset.key = deck.key;
-    Object.assign(slot.style, { top: `${deck.top}px`, width: `${width}px`, left: `${right ? geo.right : geo.left - width}px` });
+    Object.assign(slot.style, { top: `${deck.top}px`, width: `${width}px`, left: `${right ? geo.right + PAGE_SPACE : geo.left - width - PAGE_SPACE}px` });
     slot.style.setProperty('--item-color', cur.color);
     slot.style.setProperty('--item-kind-color', cur.kindColor ?? cur.color);
     slot.style.setProperty('--item-background', cur.background ?? '#fff');
@@ -311,29 +311,11 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     if (note.note && note.anchors.length) card.append(el('blockquote', 'finding-quote', quoteOf(note.anchors)));
   }
 
-  // The user marks a highlight useful or not, and can comment.
+  // A highlight: how important it is, why it matters and the text it quotes.
   function highlightBody(card, h) {
-    const feedback = h.feedback ?? { useful: null, comment: '' };
     card.append(el('p', 'finding-reply', h.missing ? 'Not in the document' : IMPORTANCE_LABELS[h.importance] ?? 'Highlight'));
     if (h.note) card.append(el('p', 'finding-body', h.note));
     if (h.anchors.length) card.append(el('blockquote', 'finding-quote', quoteOf(h.anchors)));
-    const box = el('div', 'decision');
-    const comment = el('textarea', 'decision-comment');
-    comment.rows = 1;
-    comment.placeholder = 'Comment for the AI (optional)';
-    comment.value = feedback.comment ?? '';
-    comment.addEventListener('change', () => api.rateHighlight(h.id, { comment: comment.value }));
-    const row = el('div', 'decision-buttons');
-    for (const [label, useful] of [['Not useful', false], ['Useful', true]]) {
-      const b = el('button', `secondary-button feedback-button${feedback.useful === useful ? ' selected' : ''}`, label);
-      b.type = 'button';
-      b.setAttribute('aria-pressed', String(feedback.useful === useful));
-      // Pressing the selected one again clears it.
-      b.addEventListener('click', () => api.rateHighlight(h.id, { useful: feedback.useful === useful ? null : useful }));
-      row.append(b);
-    }
-    box.append(comment, row);
-    card.append(box);
   }
 
   // The controls stay in place once a finding is decided (the options, the text boxes and the
@@ -497,17 +479,17 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     } else if (!committed) {
       const noun = isHighlights(review) ? 'highlight' : 'finding';
       text.textContent = `${isHighlights(review) ? 'Your AI is picking out the key information' : 'Your AI is reviewing'}…${items.length ? ` ${items.length} ${noun}${items.length === 1 ? '' : 's'} so far` : ''}`;
+    } else if (isHighlights(review)) {
+      text.textContent = items.length ? `${items.length} highlight${items.length === 1 ? '' : 's'}` : 'The AI found nothing to highlight.';
     } else if (!decidable.length) {
-      text.textContent = isHighlights(review) ? 'The AI found nothing to highlight.' : 'The AI found nothing to change.';
-    } else if (!isHighlights(review) && decided === decidable.length && !review.applications?.length) {
+      text.textContent = 'The AI found nothing to change.';
+    } else if (decided === decidable.length && !review.applications?.length) {
       // Everything decided: nothing left to step through, just the prompt to send.
       text.textContent = `All ${decided} decided. Send your AI the prompt to write the next draft.`;
       bar.append(copyPromptButton());
       return;
     } else {
-      text.textContent = isHighlights(review)
-        ? `${decidable.length} highlight${decidable.length === 1 ? '' : 's'} · ${decided} rated`
-        : decided === decidable.length ? `All ${decided} decided` : `${decided} of ${decidable.length} decided`;
+      text.textContent = decided === decidable.length ? `All ${decided} decided` : `${decided} of ${decidable.length} decided`;
       const progress = el('span', 'review-progress');
       const fill = el('span', 'review-progress-fill');
       fill.style.width = `${Math.round((decided / decidable.length) * 100)}%`;
@@ -561,6 +543,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     const from = at === -1 ? (delta > 0 ? -1 : 0) : at;
     const target = placed[(from + delta + placed.length) % placed.length];
     const deck = decks.find((d) => d.ids.includes(target.id));
+    stepped = deck.key;
     openDeck(deck.key, deck.order.indexOf(target));
     if (target.anchors.length) onReveal(target.anchors);
   }
@@ -587,7 +570,9 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
   }
 
   function sendMarks() {
-    const hovered = decks.find((d) => d.key === hover);
+    // A deck reached with Previous/Next counts as hovered until it closes or the pointer is on
+    // another deck.
+    const hovered = decks.find((d) => d.key === hover) ?? (stepped === open ? decks.find((d) => d.key === stepped) : null);
     const opened = decks.find((d) => d.key === open);
     const focus = hovered ? [hovered.cur.id] : opened ? [opened.cur.id] : [];
     onMarks({
@@ -599,6 +584,12 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && open && !e.target.closest?.('textarea, input')) closeDeck();
+  });
+  // Clicking the page lifts the dimming Previous/Next left.
+  pagesEl.addEventListener('pointerdown', () => {
+    if (!stepped) return;
+    stepped = null;
+    sendMarks();
   });
 
   render();
@@ -621,6 +612,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     reset() {
       open = null;
       hover = null;
+      stepped = null;
       pages.clear();
       editing.clear();
       render();

@@ -21,6 +21,9 @@ const IMPORTANCE = ['high', 'medium', 'low'];
 const typeOf = (r) => r.type ?? 'improve'; // reviews from before types existed are improvement reviews
 // A review's name in the focus picker: its title, else its goal cut short; an improvement review
 // with neither is a general one.
+const draftLabel = (number) => (number === 0 ? 'Original' : `Draft ${number}`);
+// A variation's name from its purpose, when the AI doesn't give one.
+const shortName = (purpose) => (purpose.length > 40 ? `${purpose.slice(0, 39).trimEnd()}…` : purpose);
 const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.slice(0, 47).trimEnd()}…` : r.goal) ?? (typeOf(r) === 'improve' ? 'General review' : 'Highlights');
 
 // The open document, its current draft and that draft's current review, plus the list of recent
@@ -96,13 +99,19 @@ export function createWorkspace(userData) {
   // The review the active tool shows on the current draft. In the highlight tool that's the focus
   // the user (or the AI) last chose on this draft, else its newest; a new draft has none of its own.
   async function newestReview() {
-    const reviews = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === tool);
+    const reviews = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === tool && inVariation(r));
     if (tool === 'highlights') {
       const chosen = reviews.find((r) => r.id === doc.focus?.[doc.currentDraftId]);
       if (chosen) return chosen;
     }
     return reviews.at(-1) ?? null;
   }
+
+  // A draft shared by variations shows all its highlights reviews, but only the improvement
+  // reviews of the variation showing: those started in it, or whose drafts are on its line.
+  const inVariation = (r, variationId = doc.variationId, line = doc.line) => typeOf(r) !== 'improve'
+    || (r.variationId ?? store.ORIGINAL) === variationId
+    || r.applications.some((a) => line.includes(a.draftId));
 
   // Remembers the focus showing on the current draft (saved with the document).
   async function rememberFocus(reviewId) {
@@ -148,9 +157,17 @@ export function createWorkspace(userData) {
     if (!pageTexts) throw new Error('The document is still loading in the app. Try again in a moment.');
   }
 
+  const activeVariation = () => doc.variations.find((v) => v.id === doc.variationId);
   const identity = () => {
     const number = doc.line.indexOf(doc.currentDraftId);
-    return { id: doc.id, name: doc.name, draft: number === 0 ? 'Original' : `Draft ${number} of ${doc.line.length - 1}` };
+    const variation = activeVariation();
+    return {
+      id: doc.id,
+      name: doc.name,
+      variation: { id: variation.id, name: variation.name, ...(variation.purpose && { purpose: variation.purpose }) },
+      draft: number === 0 ? 'Original' : `Draft ${number} of ${doc.line.length - 1}`,
+      ...(doc.createdFrom && { createdFrom: { id: doc.createdFrom.id, name: doc.createdFrom.name, draft: doc.createdFrom.draft } }),
+    };
   };
 
   async function saveRecent() {
@@ -174,6 +191,11 @@ export function createWorkspace(userData) {
       events.emit('recent', recent);
     },
 
+    async removeRecent(docId) {
+      recent = recent.filter((r) => r.id !== docId);
+      await saveRecent();
+    },
+
     async clearRecent() {
       recent = [];
       await saveRecent();
@@ -184,6 +206,80 @@ export function createWorkspace(userData) {
       const imported = await store.importDocument(sourcePath);
       await this.openDocument(imported.id);
       return imported;
+    },
+
+    // A new variation of the open document for a purpose (a CV tailored to one job, say), from
+    // one of a variation's drafts: by default the draft showing. It becomes the variation showing,
+    // on that draft, and its next draft follows on from there.
+    async createVariation({ purpose, name, variation: fromId, draft } = {}) {
+      requireDoc();
+      const clean = (text) => (typeof text === 'string' && text.trim() ? text.trim() : null);
+      if (!clean(purpose)) throw new Error('A variation needs a purpose: what it\'s for, such as the job it\'s tailored to.');
+      const from = doc.variations.find((v) => v.id === (fromId ?? doc.variationId));
+      if (!from) throw new Error(`No variation ${fromId}. list_variations shows them.`);
+      const line = from.id === doc.variationId ? doc.line : from.line;
+      const number = draft ?? line.indexOf(from.id === doc.variationId ? doc.currentDraftId : from.currentDraftId);
+      if (!Number.isInteger(number) || number < 0 || number >= line.length) {
+        throw new Error(`No draft ${draft} in ${from.name}: it has the original (0) and drafts 1 to ${line.length - 1}.`);
+      }
+      const variation = await store.createVariation(doc, {
+        name: clean(name) ?? shortName(clean(purpose)),
+        purpose: clean(purpose),
+        fromVariationId: from.id,
+        fromDraftId: line[number],
+      });
+      await showDraft(doc.currentDraftId);
+      events.emit('recent', recent); // the home screen lists variations
+      return { variation: variation.id, name: variation.name, purpose: variation.purpose, from: `${draftLabel(number)} of ${from.name}`, showing: draftLabel(number) };
+    },
+
+    // The open document's variations, the one showing marked.
+    listVariations() {
+      requireDoc();
+      return doc.variations.map((v) => {
+        const line = v.id === doc.variationId ? doc.line : v.line;
+        return { id: v.id, name: v.name, purpose: v.purpose ?? null, drafts: line.length - 1, showing: v.id === doc.variationId };
+      });
+    },
+
+    // Shows one of the open document's variations, on its current draft.
+    async setVariation(variationId) {
+      requireDoc();
+      if (variationId !== doc.variationId) {
+        store.selectVariation(doc, variationId);
+        await showDraft(doc.currentDraftId);
+      }
+      return { variation: variationId, name: doc.variations.find((v) => v.id === variationId).name, showing: identity().draft };
+    },
+
+    // Opens a document on one of its variations' drafts (from the home screen), in the given tool
+    // or the one it was last used in.
+    async openDraft(docId, variationId, draftId, nextTool) {
+      if (doc?.id !== docId) await this.openDocument(docId);
+      if (variationId !== doc.variationId) store.selectVariation(doc, variationId);
+      if (!doc.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      if (REVIEW_TYPES.includes(nextTool) && nextTool !== tool) {
+        tool = nextTool;
+        doc.tool = nextTool;
+        events.emit('tool', tool);
+      }
+      await showDraft(draftId);
+    },
+
+    // A new document from one of a document's drafts (an improved CV, say, to make variations
+    // of). It goes to the top of the documents list.
+    async documentFromDraft(docId, variationId, draftId) {
+      const source = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = source.variations.find((v) => v.id === variationId);
+      const line = variation && (variation.id === source.variationId ? source.line : variation.line);
+      const number = line?.indexOf(draftId) ?? -1;
+      if (number === -1) throw new Error(`No draft ${draftId} in that variation.`);
+      const base = source.name.replace(/\.pdf$/i, '');
+      const label = variation.id === store.ORIGINAL ? draftLabel(number) : `${variation.name}, ${draftLabel(number)}`;
+      const made = await store.documentFromDraft(source, draftId, { name: `${base} (${label})`, draft: label });
+      recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...recent].slice(0, MAX_RECENT);
+      await saveRecent();
+      return { id: made.id, name: made.name };
     },
 
     async openDocument(docId) {
@@ -209,38 +305,59 @@ export function createWorkspace(userData) {
 
     isRecent: (docId) => recent.some((r) => r.id === docId),
 
-    // Where a document stands in each tool, for its card on the home screen: its current draft,
-    // the tool it was last used in, and the current draft's newest review of each kind.
-    async summarise(docId) {
-      const d = await store.loadDocument(docId);
-      const reviews = await store.listReviews(d.id, d.currentDraftId);
-      const newest = (type) => reviews.filter((r) => typeOf(r) === type).at(-1) ?? null;
-      const improve = newest('improve');
-      const focuses = reviews.filter((r) => typeOf(r) === 'highlights');
-      const highlights = focuses.find((r) => r.id === d.focus?.[d.currentDraftId]) ?? newest('highlights');
-      const number = d.line.indexOf(d.currentDraftId);
-      return {
-        draft: number <= 0 ? 'Original' : `Draft ${number}`,
-        tool: REVIEW_TYPES.includes(d.tool) ? d.tool : typeOf(reviews.at(-1) ?? {}),
-        improve: improve && {
-          status: improve.status,
-          findings: improve.items.length,
-          decided: improve.items.filter((i) => i.decision.status !== 'pending').length,
-          applied: improve.applications.length > 0,
-        },
-        highlights: highlights && {
-          focuses: focuses.length,
-          title: focusTitle(highlights),
-          status: highlights.status,
-          count: (highlights.highlights ?? []).length,
-          rated: (highlights.highlights ?? []).filter((h) => h.feedback?.useful != null).length,
-        },
+    // A document's variations and each one's drafts, newest first, for the home screen. The
+    // drafts a variation shares with the one it came from are marked, and each draft says where
+    // its reviews stand: the variation's improvement review, and the highlights focus last shown
+    // (with how many others there are).
+    async variationsOf(docId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const drafts = new Map((await store.listDrafts(d.id)).map((x) => [x.id, x]));
+      const reviewsOf = async (variation, line, draftId) => {
+        const all = await store.listReviews(d.id, draftId);
+        const improve = all.filter((r) => typeOf(r) === 'improve' && inVariation(r, variation.id, line)).at(-1);
+        const focuses = all.filter((r) => typeOf(r) === 'highlights');
+        const highlights = focuses.find((r) => r.id === d.focus?.[draftId]) ?? focuses.at(-1);
+        return {
+          improve: improve && {
+            title: focusTitle(improve),
+            status: improve.status,
+            findings: improve.items.length,
+            decided: improve.items.filter((i) => i.decision.status !== 'pending').length,
+            applied: improve.applications.length > 0,
+          },
+          highlights: highlights && {
+            title: focusTitle(highlights),
+            status: highlights.status,
+            count: (highlights.highlights ?? []).length,
+            others: focuses.length - 1,
+          },
+        };
       };
-    },
-
-    async readCurrentDraftOf(docId) {
-      const d = await store.loadDocument(docId);
-      return readFile(store.draftPdfPath(d.id, d.currentDraftId));
+      return {
+        id: d.id,
+        name: d.name,
+        createdFrom: d.createdFrom ?? null,
+        variations: await Promise.all(d.variations.map(async (v) => {
+          const line = v.id === d.variationId ? d.line : v.line;
+          const shared = v.fromDraftId ? line.indexOf(v.fromDraftId) : -1;
+          const from = d.variations.find((x) => x.id === v.fromVariationId);
+          return {
+            id: v.id,
+            name: v.name,
+            purpose: v.purpose ?? null,
+            from: from ? `${draftLabel(shared)} of ${from.name}` : null,
+            updatedAt: drafts.get(line.at(-1))?.createdAt ?? v.createdAt,
+            drafts: (await Promise.all(line.map(async (id, i) => ({
+              id,
+              label: draftLabel(i),
+              createdAt: drafts.get(id)?.createdAt ?? null,
+              summary: drafts.get(id)?.summary ?? null,
+              shared: i <= shared && Boolean(from) ? from.name : null,
+              reviews: await reviewsOf(v, line, id),
+            })))).reverse(),
+          };
+        })),
+      };
     },
 
     // What the window needs to show the current draft.
@@ -250,6 +367,7 @@ export function createWorkspace(userData) {
       const draft = await store.loadDraft(doc.id, doc.currentDraftId);
       return {
         document: { id: doc.id, name: doc.name, importedAt: doc.importedAt },
+        variation: { id: doc.variationId, name: activeVariation().name, isOriginal: doc.variationId === store.ORIGINAL },
         draft: { id: draft.id, number, total: doc.line.length - 1, isOriginal: draft.id === store.ORIGINAL, summary: draft.summary },
         pdf: new Uint8Array(await readFile(store.draftPdfPath(doc.id, doc.currentDraftId))),
       };
@@ -360,7 +478,6 @@ export function createWorkspace(userData) {
                 importance: h.importance,
                 quotes: quoted(h.anchors),
                 missing: h.missing,
-                feedback: h.feedback,
               })),
             });
             continue;
@@ -435,7 +552,7 @@ export function createWorkspace(userData) {
         if (clean(goal) || clean(context) || clean(title)) await saveReview();
         return review;
       }
-      review = await store.createReview(doc.id, doc.currentDraftId, by, { type, goal: clean(goal), context: clean(context), title: clean(title) });
+      review = await store.createReview(doc.id, doc.currentDraftId, by, { type, goal: clean(goal), context: clean(context), title: clean(title), variationId: doc.variationId });
       if (type === 'highlights') await rememberFocus(review.id);
       events.emit('review', review);
       return review;
@@ -456,10 +573,10 @@ export function createWorkspace(userData) {
         status: r.status,
         createdAt: r.createdAt,
         ...(type === 'highlights'
-          ? { highlights: (r.highlights ?? []).length, rated: (r.highlights ?? []).filter((h) => h.feedback?.useful != null).length }
+          ? { highlights: (r.highlights ?? []).length }
           : { findings: r.items.length, decided: r.items.filter((i) => i.decision.status !== 'pending').length, applied: r.applications.length > 0 }),
       });
-      let here = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === type);
+      let here = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === type && inVariation(r));
       if (type === 'improve') here = here.slice(-1);
       const showing = tool === type ? review?.id : (here.find((r) => r.id === doc.focus?.[doc.currentDraftId]) ?? here.at(-1))?.id;
       const goals = new Set(here.map((r) => r.goal));
@@ -578,7 +695,6 @@ export function createWorkspace(userData) {
         importance,
         anchors,
         missing: !anchors.length,
-        feedback: { useful: null, comment: '' }, // the user's: useful true/false, and a comment
       };
       r.highlights.push(highlight);
       logTo(r, 'ai', `added a highlight: ${highlight.title}`);
@@ -591,17 +707,6 @@ export function createWorkspace(userData) {
       if (!r.highlights.some((h) => h.id === id)) throw new Error(`No highlight ${id}.`);
       r.highlights = r.highlights.filter((h) => h.id !== id);
       logTo(r, 'ai', 'removed a highlight');
-      await saveReview();
-    },
-
-    // The user's feedback on a highlight, at any time: { useful: true | false | null, comment }.
-    async rateHighlight(id, feedback) {
-      const r = requireType(requireReview(), 'highlights');
-      const highlight = r.highlights.find((h) => h.id === id);
-      if (!highlight) throw new Error(`No highlight ${id}.`);
-      if ('useful' in feedback) highlight.feedback.useful = feedback.useful === null ? null : Boolean(feedback.useful);
-      if (typeof feedback.comment === 'string') highlight.feedback.comment = feedback.comment;
-      if ('useful' in feedback) logTo(r, 'user', `marked “${highlight.title}” ${highlight.feedback.useful === null ? 'unrated' : highlight.feedback.useful ? 'useful' : 'not useful'}`);
       await saveReview();
     },
 
@@ -657,7 +762,7 @@ export function createWorkspace(userData) {
     // of the same type and goal. The old review stays in the draft's reviews folder.
     async resetToReview() {
       const old = requireReview();
-      review = await store.createReview(doc.id, doc.currentDraftId, 'user', { type: typeOf(old), goal: old.goal ?? null, context: old.context ?? null, title: old.title ?? null });
+      review = await store.createReview(doc.id, doc.currentDraftId, 'user', { type: typeOf(old), goal: old.goal ?? null, context: old.context ?? null, title: old.title ?? null, variationId: doc.variationId });
       if (typeOf(review) === 'highlights') await rememberFocus(review.id);
       events.emit('review', review);
       return review;

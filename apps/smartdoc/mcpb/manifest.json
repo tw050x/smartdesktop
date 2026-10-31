@@ -26,6 +26,9 @@
   "tools": [
     { "name": "list_documents", "description": "Documents you've opened in SmartDoc before, so Claude can open one again." },
     { "name": "open_document", "description": "Opens a document in SmartDoc: one you've opened before, a PDF you confirm in the app, or a file you pick." },
+    { "name": "list_variations", "description": "Lists the open document's variations, such as a CV tailored to each job, with their purposes." },
+    { "name": "switch_variation", "description": "Shows one of the open document's variations." },
+    { "name": "create_variation", "description": "Makes a variation of the document from one of its drafts, for a purpose such as a job or an audience." },
     { "name": "get_document_info", "description": "The open document's size and shape: pages, word and paragraph counts, its outline and details, page by page." },
     { "name": "get_document", "description": "The text of the open document, whole or a range of pages." },
     { "name": "find_text", "description": "Finds a word or phrase in the open document, with the page and surrounding text of each match." },

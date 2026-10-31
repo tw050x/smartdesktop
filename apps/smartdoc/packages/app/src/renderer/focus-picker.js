@@ -92,7 +92,7 @@ export function createFocusPicker({ button, label, separator, card, api }) {
 
   function progress(f) {
     if (f.status !== 'committed') return 'AI still working';
-    if (!drafting()) return `${f.highlights} highlight${f.highlights === 1 ? '' : 's'} · ${f.rated} rated`;
+    if (!drafting()) return `${f.highlights} highlight${f.highlights === 1 ? '' : 's'}`;
     if (f.applied) return 'Next draft written';
     return `${f.findings} finding${f.findings === 1 ? '' : 's'} · ${f.decided} decided`;
   }

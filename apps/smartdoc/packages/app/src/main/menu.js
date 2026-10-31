@@ -23,6 +23,9 @@ export function buildMenu({ hasDocument, review, canStepBack, canStepForward, re
       { type: 'separator' },
       { label: 'Save Draft As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasDocument, click: actions.saveDraftAs },
       { type: 'separator' },
+      { label: 'New Variation…', enabled: hasDocument, click: actions.newVariation },
+      { label: 'New Document from Draft', enabled: hasDocument, click: actions.documentFromDraft },
+      { type: 'separator' },
       { label: 'Close Document', accelerator: 'CmdOrCtrl+W', enabled: hasDocument, click: actions.close },
     ],
   };

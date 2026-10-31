@@ -393,192 +393,145 @@ body:not(.has-document) .review-bar { display: none; }
   overflow: auto;
   background: var(--document-bg);
 }
-/* Drop indicator: the empty window's pages show a dashed outline in the accent colour. With a
-   file already open, its pages get the same dashed outline. */
-.document.dragging .ghost-page { border-color: var(--accent); }
+/* Drop indicator: the home screen's columns, or an open file's pages, get a dashed outline in
+   the accent colour. */
+.document.dragging .home { outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: var(--card-radius); }
 .document.dragging .page { outline: 2px dashed var(--accent); outline-offset: 4px; }
 
-/* Empty window: unoutlined pages laid out exactly as loaded pages are (same margins,
-   gap and maximum width, see .pages and RENDER_SCALE), with the instructions on the first.
-   The others sit in a zero-height box below it, so they never
-   add to the scroll height: they show only in space left over when the first page is shorter
-   than the view, and the stack clips them at the bottom. */
+/* The home screen, with no document open: three columns (documents, variations, drafts) on the
+   window's background, each list scrolling on its own. A row is shaded grey while it's hovered or
+   selected, the selected one's title in the accent colour. They rise into place when they appear: on launch and when a
+   document is closed. */
 .empty-state {
   position: absolute;
   inset: 0;
-  overflow: hidden; /* nothing to scroll with no document open */
-}
-/* The empty pages, with the recent files, rise into place from the bottom whenever they
-   appear: on launch and when a document is closed. */
-.ghost-stack { animation: ghost-rise 0.28s ease-out; }
-@keyframes ghost-rise {
-  from { transform: translateY(48px); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ghost-stack { animation: none; }
+  overflow: hidden;
 }
 .has-document .empty-state { display: none; }
-
-.ghost-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-height: 100%;
-  padding: var(--card-gap);
-  overflow: clip;
-}
-.ghost-more {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  height: 0;
-}
-.ghost-more .ghost-page { margin-top: 16px; }
-
-.ghost-page {
-  flex-shrink: 0;
-  width: 100%;
-  max-width: 893px; /* A4 at the render scale of 1.5 */
-  aspect-ratio: 210 / 297;
-  padding: 24px;
-  border: 2px dashed transparent; /* shows only as the drop indicator */
-  border-radius: var(--card-radius);
-}
-/* The first page holds the instructions and recent files, top-aligned with some headroom.
-   It grows taller than A4 if the recent cards need the room. */
-.ghost-stack > .ghost-page { padding-top: 56px; }
-
-.empty-message {
+/* With no document open, the (empty) pages would sit over the home screen and catch the pointer. */
+body:not(.has-document) .pages-wrap { display: none; }
+.home {
   display: grid;
-  justify-items: center;
-  gap: 72px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--card-gap);
+  height: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
 }
-.empty-message > p {
+/* The columns rise in one after another, left to right. */
+@keyframes home-rise {
+  from { transform: translateY(32px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.home-column { animation: home-rise 0.28s ease-out both; }
+.home-column:nth-child(2) { animation-delay: 0.06s; }
+.home-column:nth-child(3) { animation-delay: 0.12s; }
+@media (prefers-reduced-motion: reduce) {
+  .home-column { animation: none; }
+}
+.home-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.home-column-head { display: flex; align-items: center; gap: 8px; padding: 14px 10px 10px 16px; }
+.home-column h2 {
+  flex: 1;
   margin: 0;
-  max-width: 26ch;
-  color: var(--muted);
-  text-align: center;
-}
-
-.recent-files { width: 100%; max-width: 720px; }
-.recent-files h2 {
-  margin: 0 0 12px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
-  text-align: center;
 }
-.recent-none { margin: 16px 0 0; color: var(--muted); text-align: center; }
-.recent-none[hidden] { display: none; }
-
-/* Recent file cards. Each card is the page preview itself (taking the page's shape), with the
-   page controls on a translucent strip along its bottom edge; the file name sits underneath. */
-.recent-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 20px 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.recent-cards:empty { display: none; }
-.recent-item { display: grid; gap: 8px; min-width: 0; }
-
-.recent-card {
+.home-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 8px 8px; list-style: none; }
+.home-empty { padding: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.home-item { position: relative; border-radius: 8px; }
+.home-item + .home-item { margin-top: 2px; }
+.home-row {
   position: relative;
-  aspect-ratio: 210 / 297; /* until the preview sets the file's own shape */
-  overflow: hidden;
-  border-radius: 10px;
-  background: var(--bg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.08);
-  transition: box-shadow 0.15s;
-}
-.recent-item:has(.recent-open:hover) .recent-card {
-  box-shadow: 0 0 0 2px var(--accent), 0 4px 14px rgba(0, 0, 0, 0.08);
-}
-.recent-item.missing .recent-card { background: #f6f6f8; box-shadow: inset 0 0 0 1px var(--border); }
-.recent-skeleton .recent-card { background: rgba(0, 0, 0, 0.04); box-shadow: none; }
-.recent-name-placeholder {
-  justify-self: center;
-  width: 60%;
-  height: 10px;
-  margin: 5px 0;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.recent-open {
-  padding: 0;
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 34px 8px 10px; /* room on the right for the arrow */
   border: 0;
+  border-radius: 8px;
   background: none;
-  color: var(--text);
   font: inherit;
+  text-align: left;
+  color: var(--text);
   cursor: pointer;
 }
-.recent-preview {
+.home-item:hover, .home-item:has(.home-row[aria-pressed="true"]) { background: rgba(0, 0, 0, 0.05); }
+.home-row[aria-pressed="true"] .home-title { color: var(--accent); }
+/* An arrow at the row's right slides in while it's hovered, and stays on the selected row. */
+.home-arrow {
   position: absolute;
-  inset: 0;
+  top: 8px; /* level with the title, the row's first line */
+  right: 10px;
   display: grid;
-  place-items: center;
+  color: var(--muted);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.15s, transform 0.15s;
 }
-.recent-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.recent-status { color: var(--muted); font-size: 12px; }
-.recent-status[hidden] { display: none; }
-
-.recent-name {
+/* A draft's open icon just appears, without sliding or fading. */
+.home-draft .home-arrow { transform: none; transition: none; }
+.home-item:hover .home-arrow, .home-row[aria-pressed="true"] .home-arrow { opacity: 1; transform: none; }
+.home-row[aria-pressed="true"] .home-arrow { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .home-arrow { transition: none; }
+}
+.home-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.home-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
+.home-purpose, .home-summary {
+  display: -webkit-box;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  text-align: center;
-  font-weight: 500;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+  opacity: 0.8;
 }
-.recent-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-/* A row per tool under the name: its icon, name and where the document stands in it. The tool it
-   was last used in is marked. */
-.recent-tools { display: grid; gap: 4px; }
-.recent-tool { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: none; font: inherit; text-align: left; color: var(--tool-row-color); cursor: pointer; }
-.recent-tool:hover { border-color: var(--border); background: var(--bg); }
-.recent-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.recent-tool.last-used { background: color-mix(in srgb, var(--tool-row-color) 8%, transparent); }
-.recent-tool svg { flex: none; }
-.recent-tool-text { display: grid; min-width: 0; }
-.recent-tool-name { font-size: 12px; font-weight: 600; }
-.recent-tool-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; color: var(--muted); }
-.recent-item.missing .recent-name { color: var(--muted); }
-
-.recent-pager {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px;
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(6px);
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-.recent-pager[hidden] { display: none; }
-.recent-page { color: var(--muted); font-size: 12px; }
-.recent-step {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
+.home-meta { font-size: 11.5px; color: var(--muted); }
+/* A column's sort: the icon, then a select with no background or border. */
+.home-sort { display: flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
+.home-sort svg { flex: none; }
+.home-sort select {
+  appearance: none;
+  padding: 2px 0;
   border: 0;
-  border-radius: 7px;
-  background: transparent;
+  background: none;
+  font: inherit;
+  font-size: 12px;
   color: var(--muted);
   cursor: pointer;
 }
-.recent-step:hover { background: rgba(0, 0, 0, 0.06); color: var(--text); }
-.recent-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.home-sort:hover, .home-sort:hover select { color: var(--text); }
+.home-sort select:focus, .home-sort select:focus-visible { outline: none; }
+/* A draft's reviews, a line each under it in its tool's icon and colour. */
+.home-reviews { display: grid; gap: 2px; padding: 0 6px 8px; }
+.home-review {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--review-color);
+  cursor: pointer;
+}
+.home-review svg { flex: none; }
+.home-review:hover { background: color-mix(in srgb, var(--review-color) 8%, transparent); }
+.home-review:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.home-review-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* The pages and the review's margin layer over them, which scrolls with them. */
 .pages-wrap { position: relative; }
@@ -627,6 +580,15 @@ body:not(.has-document) .review-bar { display: none; }
 .panel > .secondary-button { margin-top: 14px; }
 button:disabled { opacity: 0.5; cursor: default; }
 
+.variation-dialog { width: 480px; padding: 20px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); font-size: 13px; }
+.variation-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.variation-dialog h2 { margin: 0 0 6px; font-size: 15px; }
+.variation-dialog p { margin: 0 0 14px; color: var(--muted); line-height: 1.4; }
+.variation-dialog label { display: block; margin-bottom: 4px; font-weight: 500; }
+.variation-dialog textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; font: inherit; field-sizing: content; min-height: calc(4lh + 14px); max-height: 50vh; resize: none; user-select: text; }
+.variation-dialog textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.variation-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
 /* pdf.js's text pieces can overlap (e.g. a space between two words), and its see-through
    selection colour then shows darker where they do. A solid colour, multiplied onto the page so
    the text still shows through, looks the same however many pieces overlap. */
@@ -651,8 +613,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .margin-slot.open { z-index: 6; }
 .margin-slot.filtered-out { opacity: 0.35; }
 .margin-tab, .margin-card, .margin-peek { box-sizing: border-box; background: var(--item-background); }
-.margin-r .margin-tab, .margin-r .margin-card, .margin-r .margin-peek { border-left: 4px solid var(--item-color); border-radius: 0 8px 8px 0; }
-.margin-l .margin-tab, .margin-l .margin-card, .margin-l .margin-peek { border-right: 4px solid var(--item-color); border-radius: 8px 0 0 8px; }
+.margin-tab, .margin-card, .margin-peek { border-radius: 8px; }
+.margin-r .margin-tab, .margin-r .margin-card, .margin-r .margin-peek { border-left: 4px solid var(--item-color); }
+.margin-l .margin-tab, .margin-l .margin-card, .margin-l .margin-peek { border-right: 4px solid var(--item-color); }
 .margin-peek { position: absolute; inset: 0; z-index: 0; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.05); }
 /* A closed tab: three rows, every tab the same height (TAB_HEIGHT in margin-review.js), plus a
    row for the pager on a deck's (PAGER_HEIGHT). */
@@ -764,7 +727,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .decision textarea[hidden] { display: none; }
 /* While changing a decision, Cancel sits at the start of the button row. */
 .decision-cancel { margin-right: auto; }
-.feedback-button.selected { border-color: var(--accent); color: var(--accent); }
 /* Stands in for the buttons once a finding is decided; clicking it brings them back. Green for
    a yes, grey for a no. */
 .decision-card {
@@ -812,11 +774,27 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* The tool's icon, in its colour, so the two kinds of review never look alike. */
 .review-bar-tool { display: flex; align-items: center; color: var(--tool-color); }
 .copy-prompt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; } /* at the bar's right end */
-/* Document | List, a two-part switch. */
-.view-switch { display: flex; margin-right: 6px; padding: 2px; border-radius: 8px; background: #c9c9cf; -webkit-app-region: no-drag; }
+/* Document | List, a two-part switch. The two parts are the same width, and the white thumb
+   behind them slides to the chosen one. */
+.view-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; margin-right: 6px; padding: 2px; border-radius: 8px; background: #c9c9cf; -webkit-app-region: no-drag; }
 .view-switch[hidden] { display: none; }
-.view-switch button { padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: #3c3c43; cursor: pointer; }
-.view-switch button[aria-pressed="true"] { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.view-switch::before {
+  content: '';
+  position: absolute;
+  top: 2px; bottom: 2px; left: 2px;
+  width: calc(50% - 2px);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition: transform 0.2s ease-out;
+}
+.view-switch:has(button:last-child[aria-pressed="true"])::before { transform: translateX(100%); }
+.view-switch:not(:has(button[aria-pressed="true"]))::before { opacity: 0; }
+.view-switch button { position: relative; padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: #3c3c43; cursor: pointer; transition: color 0.2s; }
+.view-switch button[aria-pressed="true"] { color: var(--text); }
+@media (prefers-reduced-motion: reduce) {
+  .view-switch::before, .view-switch button { transition: none; }
+}
 
 /* --- A highlights review as a list (see highlights-list.js) ------------------------------- */
 .list-view { grid-area: 1 / 1; display: none; overflow: auto; background: var(--document-bg); }
@@ -833,14 +811,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .list-section-title::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--section-color); }
 .list-count { margin-left: auto; font-weight: 400; letter-spacing: 0; color: var(--muted); }
 .list-item { display: grid; gap: 6px; margin-bottom: 10px; padding: 14px 16px; border-left: 4px solid var(--item-color); border-radius: 0 10px 10px 0; background: var(--bg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.05); }
-.list-item.not-useful { opacity: 0.6; }
 .list-meta { margin: 0; font-size: 11px; color: var(--muted); }
 .list-title { margin: 0; font-size: 15px; }
 .list-note { margin: 0; font-size: 13px; line-height: 1.5; color: #3c3c43; }
 .list-quote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border); font-size: 12.5px; color: #3c3c43; }
-.list-actions { display: grid; gap: 8px; margin-top: 4px; user-select: none; }
-.list-comment { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; font: inherit; font-size: 12px; field-sizing: content; resize: none; min-height: calc(1lh + 14px); }
-.list-comment:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
-.list-buttons { display: flex; justify-content: flex-end; gap: 6px; }
-.list-show { margin-right: auto; padding: 5px 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; }
+.list-show { justify-self: start; padding: 5px 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; }
 .list-show:hover { text-decoration: underline; }

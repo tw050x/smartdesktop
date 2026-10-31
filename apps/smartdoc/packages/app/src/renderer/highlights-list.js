@@ -1,14 +1,13 @@
 // The highlights review as a list, without the document: for when the user knows the document and
 // just wants the review. At the top, what they were looking for and the AI's answer; then each
-// category as a section, most important first, each highlight with why it matters, the text it
-// quotes, and the user's feedback (useful or not, and a comment). What the document doesn't say
-// comes last. "Show in document" switches to the document view with that highlight open.
+// category as a section, most important first, each highlight with why it matters and the text it
+// quotes. What the document doesn't say comes last. "Show in document" switches to the document view with that highlight open.
 
 const IMPORTANCE_LABELS = { high: 'Important', medium: 'Worth knowing', low: 'Minor' };
 const IMPORTANCE_RANK = { high: 0, medium: 1, low: 2 };
 const CATEGORY_COLOURS = ['#2f6fde', '#7c4ddb', '#1f7a45', '#a65a00', '#08778d', '#c2417a']; // as margin-review.js
 
-export function createHighlightsList({ container, api, onShow }) {
+export function createHighlightsList({ container, onShow }) {
   let review = null;
 
   function render() {
@@ -55,8 +54,7 @@ export function createHighlightsList({ container, api, onShow }) {
   }
 
   function item(h, colour, showCategory) {
-    const feedback = h.feedback ?? { useful: null, comment: '' };
-    const card = el('article', `list-item${feedback.useful === false ? ' not-useful' : ''}`);
+    const card = el('article', 'list-item');
     card.style.setProperty('--item-color', colour);
     const meta = el('p', 'list-meta', [showCategory ? h.category : null, IMPORTANCE_LABELS[h.importance] ?? null].filter(Boolean).join(' · '));
     card.append(meta, el('h3', 'list-title', h.title));
@@ -65,30 +63,12 @@ export function createHighlightsList({ container, api, onShow }) {
       const quote = el('blockquote', 'list-quote', h.anchors.map((a) => a.text.replace(/\s+/g, ' ')).join(' … '));
       card.append(quote);
     }
-
-    const actions = el('div', 'list-actions');
-    const comment = el('textarea', 'list-comment');
-    comment.rows = 1;
-    comment.placeholder = 'Comment for the AI (optional)';
-    comment.value = feedback.comment ?? '';
-    comment.addEventListener('change', () => api.rateHighlight(h.id, { comment: comment.value }));
-    const row = el('div', 'list-buttons');
     if (h.anchors?.length) {
       const show = el('button', 'list-show', 'Show in document');
       show.type = 'button';
       show.addEventListener('click', () => onShow(h.id));
-      row.append(show);
+      card.append(show);
     }
-    for (const [label, useful] of [['Not useful', false], ['Useful', true]]) {
-      const b = el('button', `secondary-button feedback-button${feedback.useful === useful ? ' selected' : ''}`, label);
-      b.type = 'button';
-      b.setAttribute('aria-pressed', String(feedback.useful === useful));
-      // Pressing the selected one again clears it.
-      b.addEventListener('click', () => api.rateHighlight(h.id, { useful: feedback.useful === useful ? null : useful }));
-      row.append(b);
-    }
-    actions.append(comment, row);
-    card.append(actions);
     return card;
   }
 

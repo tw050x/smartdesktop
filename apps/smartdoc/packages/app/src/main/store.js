@@ -7,16 +7,21 @@ import path from 'node:path';
 // documents. Nothing links back to where the file came from.
 //
 //   documents/<document id>/
-//     document.json                 name, import time, the active line of drafts, the current draft
+//     document.json                 name, import time, its variations (each a line of drafts and
+//                                   its current draft), the active one, and for a document made
+//                                   from another's draft, which
 //     drafts/<draft id>/
 //       draft.json                  parent, the review it was applied from, abandoned or not
 //       draft.pdf                   the original is the draft with id "original"
 //       content.html                the source a generated draft was drawn from
 //       reviews/<review id>.json    one review: requests, findings, decisions and history
 //
-// Drafts form a tree; the active line runs from the original to the current tip, and only it is
-// walked by the draft controls. Applying a review from an earlier draft starts a new branch and
-// marks the drafts after it on the old line abandoned (kept on disk, just no longer on the line).
+// Drafts form a tree. Each variation is a line through it, from the original to its tip: the
+// "Original" variation is the document's own, and the others (one per purpose, such as a job)
+// branch off at a draft of their choosing, sharing the drafts before it. The active variation's
+// line is walked by the draft controls. Applying a review from an earlier draft starts a new
+// branch and marks the drafts after it on the old line abandoned (kept on disk, just no longer
+// on the line).
 
 const ORIGINAL = 'original';
 const now = () => new Date().toISOString();
@@ -27,24 +32,70 @@ export function createStore(root) {
   const draftDir = (docId, draftId) => path.join(docDir(docId), 'drafts', safe(draftId));
   const reviewPath = (docId, draftId, reviewId) => path.join(draftDir(docId, draftId), 'reviews', `${safe(reviewId)}.json`);
 
+  // The active variation's line is kept on the document (doc.line, doc.currentDraftId), where
+  // everything else reads it; saving copies it back into the variation.
+  const saveDocument = (doc) => {
+    const active = doc.variations.find((v) => v.id === doc.variationId);
+    active.line = doc.line;
+    active.currentDraftId = doc.currentDraftId;
+    return writeJson(path.join(docDir(doc.id), 'document.json'), doc);
+  };
+
+  async function newDocument(name, copyOriginal, extra = {}) {
+    const id = `${Date.now().toString(36)}-${newId()}`;
+    const doc = withVariations({ id, name, importedAt: now(), ...extra, line: [ORIGINAL], currentDraftId: ORIGINAL });
+    const to = draftDir(id, ORIGINAL);
+    await mkdir(path.join(to, 'reviews'), { recursive: true });
+    await copyOriginal(to);
+    await writeJson(path.join(to, 'draft.json'), {
+      id: ORIGINAL, parentId: null, fromReviewId: null, createdAt: doc.importedAt, abandoned: false, summary: null, appliedItemIds: [],
+    });
+    await saveDocument(doc);
+    return doc;
+  }
+
   return {
     ORIGINAL,
     draftPdfPath: (docId, draftId) => path.join(draftDir(docId, draftId), 'draft.pdf'),
 
     async importDocument(sourcePath) {
-      const id = `${Date.now().toString(36)}-${newId()}`;
-      const doc = { id, name: path.basename(sourcePath), importedAt: now(), line: [ORIGINAL], currentDraftId: ORIGINAL };
-      await mkdir(path.join(draftDir(id, ORIGINAL), 'reviews'), { recursive: true });
-      await copyFile(sourcePath, path.join(draftDir(id, ORIGINAL), 'draft.pdf'));
-      await writeJson(path.join(draftDir(id, ORIGINAL), 'draft.json'), {
-        id: ORIGINAL, parentId: null, fromReviewId: null, createdAt: doc.importedAt, abandoned: false, summary: null, appliedItemIds: [],
-      });
-      await writeJson(path.join(docDir(id), 'document.json'), doc);
-      return doc;
+      return newDocument(path.basename(sourcePath), (to) => copyFile(sourcePath, path.join(to, 'draft.pdf')));
     },
 
-    loadDocument: (docId) => readJson(path.join(docDir(docId), 'document.json')),
-    saveDocument: (doc) => writeJson(path.join(docDir(doc.id), 'document.json'), doc),
+    // A new document from one of another document's drafts (an improved CV, say, to make
+    // variations of): that draft, its PDF and the HTML it was drawn from, becomes the new
+    // document's original. The other document is left as it is.
+    async documentFromDraft(source, draftId, { name, draft }) {
+      const from = draftDir(source.id, draftId);
+      return newDocument(name, async (to) => {
+        await copyFile(path.join(from, 'draft.pdf'), path.join(to, 'draft.pdf'));
+        await copyFile(path.join(from, 'content.html'), path.join(to, 'content.html')).catch(() => {}); // an imported original has none
+      }, { createdFrom: { id: source.id, name: source.name, draftId, draft } });
+    },
+
+    // A variation of the document for a purpose of its own (a CV tailored to one job, say),
+    // starting from one of a variation's drafts: its line is that variation's up to the draft,
+    // and its own drafts follow on from there. It becomes the active variation.
+    async createVariation(doc, { name, purpose, fromVariationId, fromDraftId }) {
+      const from = doc.variations.find((v) => v.id === fromVariationId);
+      if (!from) throw new Error(`No variation ${fromVariationId}.`);
+      const at = lineOf(doc, from).indexOf(fromDraftId);
+      if (at === -1) throw new Error(`No draft ${fromDraftId} in ${from.name}.`);
+      const variation = {
+        id: `variation-${Date.now().toString(36)}-${newId()}`,
+        name, purpose, fromVariationId, fromDraftId, createdAt: now(),
+        line: lineOf(doc, from).slice(0, at + 1), currentDraftId: fromDraftId,
+      };
+      doc.variations.push(variation);
+      selectVariation(doc, variation.id);
+      await saveDocument(doc);
+      return variation;
+    },
+
+    selectVariation,
+
+    loadDocument: async (docId) => withVariations(await readJson(path.join(docDir(docId), 'document.json'))),
+    saveDocument,
     loadDraft: (docId, draftId) => readJson(path.join(draftDir(docId, draftId), 'draft.json')),
 
     // Every draft of a document, abandoned ones included, oldest first.
@@ -67,10 +118,11 @@ export function createStore(root) {
     // to decide on, then applied as a new draft. A highlights review ('highlights') holds the key
     // information the AI found for the user's goal; nothing is decided or applied. Reviews from
     // before types existed have none, and are improvement reviews.
-    async createReview(docId, draftId, by, { type = 'improve', goal = null, context = null, title = null } = {}) {
+    async createReview(docId, draftId, by, { type = 'improve', goal = null, context = null, title = null, variationId = ORIGINAL } = {}) {
       const review = {
         id: `review-${Date.now().toString(36)}-${newId()}`,
         draftId,
+        variationId, // the variation it was started in: an improvement review's drafts are that variation's
         type,
         goal, // what the user wants from the review, agreed with the AI before it started
         title, // a highlights review's short name, its focus (e.g. "Recruiter skim")
@@ -80,7 +132,7 @@ export function createStore(root) {
         requests: [], // the user's marks from the tools (rewrite, comment, keep, remove, add, ask)
         items: [], // the AI's findings, each carrying a decision for the user (improve)
         annotations: [], // the AI's decorations on the text (improve)
-        highlights: [], // the key information the AI found, with the user's feedback (highlights)
+        highlights: [], // the key information the AI found (highlights)
         applications: [], // drafts created from this review: { draftId, at, itemIds }
         history: [],
       };
@@ -94,7 +146,8 @@ export function createStore(root) {
     saveReview: (docId, review) => writeJson(reviewPath(docId, review.draftId, review.id), review),
 
     // Applies a review: stores the new draft as a child of the review's draft, makes it the tip
-    // of the active line (abandoning any drafts after the review's draft) and the current draft.
+    // of the active line (abandoning any drafts after the review's draft, unless another
+    // variation's line has them) and the current draft.
     async createDraft(doc, review, { pdf, html, summary, appliedItemIds }) {
       const draftId = `draft-${Date.now().toString(36)}-${newId()}`;
       const dir = draftDir(doc.id, draftId);
@@ -106,17 +159,43 @@ export function createStore(root) {
       });
 
       const at = doc.line.indexOf(review.draftId);
-      const abandoned = at === -1 ? [] : doc.line.slice(at + 1);
+      const elsewhere = new Set(doc.variations.filter((v) => v.id !== doc.variationId).flatMap((v) => v.line));
+      const abandoned = (at === -1 ? [] : doc.line.slice(at + 1)).filter((id) => !elsewhere.has(id));
       for (const id of abandoned) {
         const meta = await readJson(path.join(draftDir(doc.id, id), 'draft.json'));
         await writeJson(path.join(draftDir(doc.id, id), 'draft.json'), { ...meta, abandoned: true, abandonedAt: now() });
       }
       doc.line = [...(at === -1 ? doc.line : doc.line.slice(0, at + 1)), draftId];
       doc.currentDraftId = draftId;
-      await writeJson(path.join(docDir(doc.id), 'document.json'), doc);
+      await saveDocument(doc);
       return { draftId, abandoned };
     },
   };
+}
+
+// Every document has variations, the first its original line ("Original"). Documents from before
+// variations get that one, from their line.
+function withVariations(doc) {
+  if (!doc.variations?.length) {
+    doc.variations = [{ id: ORIGINAL, name: 'Original', purpose: null, createdAt: doc.importedAt, line: doc.line, currentDraftId: doc.currentDraftId }];
+    doc.variationId = ORIGINAL;
+  }
+  return doc;
+}
+
+// A variation's line: the active one's is the document's own (it may have moved on since saving).
+const lineOf = (doc, variation) => (variation.id === doc.variationId ? doc.line : variation.line);
+
+// Makes a variation the active one (without saving): its line becomes the document's.
+function selectVariation(doc, variationId) {
+  const next = doc.variations.find((v) => v.id === variationId);
+  if (!next) throw new Error(`No variation ${variationId}.`);
+  const active = doc.variations.find((v) => v.id === doc.variationId);
+  active.line = doc.line;
+  active.currentDraftId = doc.currentDraftId;
+  doc.variationId = next.id;
+  doc.line = next.line;
+  doc.currentDraftId = next.currentDraftId;
 }
 
 export function logTo(review, who, what) {
