@@ -12,7 +12,14 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOP_BAR_HEIGHT = 44;
 // Height of the area macOS reserves for the traffic lights (the circles sit centred in it).
 const TRAFFIC_LIGHTS_HEIGHT = 16;
-const RECENT_IN_EMPTY_VIEW = 3;
+const RECENT_IN_EMPTY_VIEW = 4;
+
+// The app used to be called Shortlist Dock, and before that Employment Short List App, and its
+// data lived in a folder of each name. The first time it runs as SmartDoc, everything in the old
+// folders moves across, newest name first (anything already in the new folder is left alone), so
+// documents, drafts, recent files and the AI connection's token carry over. An old folder is
+// removed once it's empty. (Defined before the move below runs.)
+const LEGACY_NAMES = ['Shortlist Dock', 'Employment Short List App'];
 
 // Development and automated tests can point the app at a separate data folder, so they never
 // read or overwrite the user's real data (documents, recent files and anything stored later),
@@ -24,13 +31,6 @@ if (!app.isPackaged && process.env.SMARTDOC_USER_DATA) {
 } else {
   moveLegacyUserData();
 }
-
-// The app used to be called Shortlist Dock, and before that Employment Short List App, and its
-// data lived in a folder of each name. The first time it runs as SmartDoc, everything in the old
-// folders moves across, newest name first (anything already in the new folder is left alone), so
-// documents, drafts, recent files and the AI connection's token carry over. An old folder is
-// removed once it's empty.
-const LEGACY_NAMES = ['Shortlist Dock', 'Employment Short List App'];
 
 function moveLegacyUserData() {
   const current = app.getPath('userData');
@@ -105,20 +105,26 @@ function createWindow() {
 // --- Keeping the window and menu in step with the workspace -----------------------------
 
 const send = (channel, value) => win?.webContents.send(channel, value);
-const recentForWindow = () => workspace.recent.slice(0, RECENT_IN_EMPTY_VIEW);
+// The home screen's documents, each with where it stands in each tool.
+const recentForWindow = () => Promise.all(workspace.recent.slice(0, RECENT_IN_EMPTY_VIEW).map(async (r) => ({
+  ...r,
+  summary: await workspace.summarise(r.id).catch(() => null),
+})));
 
 async function sendDraft() {
   const view = await workspace.draftView();
   // The draft's review comes with it, so the window never shows a draft with another draft's review.
-  send(view ? 'draft-opened' : 'document-closed', view && { ...view, review: workspace.review });
+  send(view ? 'draft-opened' : 'document-closed', view && { ...view, review: workspace.review, tool: workspace.tool });
+  // Back on the home screen, its cards show where each document now stands.
+  if (!view) send('recent-documents', await recentForWindow());
   win?.setRepresentedFilename?.(view ? workspace.currentDraftPdfPath() : '');
   updateMenu();
 }
 
-const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url, clients: mcp.clients() } : { state: mcpStarting ? 'starting' : 'off', clients: [] });
+const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : { state: mcpStarting ? 'starting' : 'off' });
 
 async function sendEverything() {
-  send('recent-documents', recentForWindow());
+  send('recent-documents', await recentForWindow());
   send('mcp-status', mcpStatus());
   if (workspace.document) {
     await sendDraft();
@@ -128,17 +134,28 @@ async function sendEverything() {
 }
 
 workspace.events.on('draft', () => sendDraft());
-workspace.events.on('review', (review) => send('review', review));
-workspace.events.on('recent', () => {
-  send('recent-documents', recentForWindow());
+workspace.events.on('tool', (tool) => send('tool', tool));
+workspace.events.on('review', (review) => {
+  send('review', review);
+  updateMenu();
+});
+workspace.events.on('recent', async () => {
+  send('recent-documents', await recentForWindow());
   updateMenu();
 });
 
 function updateMenu() {
   const doc = workspace.document;
   const at = doc ? doc.line.indexOf(doc.currentDraftId) : -1;
+  const review = doc ? workspace.review : null;
   Menu.setApplicationMenu(buildMenu({
     hasDocument: Boolean(doc),
+    review: review && {
+      highlights: review.type === 'highlights',
+      canStartAgain: review.status === 'committed' || Boolean(review.items?.length || review.highlights?.length || review.annotations?.length),
+      canClearDecisions: review.type !== 'highlights' && review.status === 'committed'
+        && Boolean(review.items.some((i) => i.decision.status !== 'pending' || i.decision.comment) || review.changes?.length),
+    },
     canStepBack: at > 0,
     canStepForward: doc ? at < doc.line.length - 1 : false,
     recent: workspace.recent,
@@ -149,6 +166,7 @@ function updateMenu() {
       saveDraftAs,
       close: () => workspace.close(),
       stepDraft: (delta) => workspace.stepDraft(delta),
+      resetReview,
       showConnectAi,
     },
   }));
@@ -352,20 +370,24 @@ const handle = (channel, fn) => ipcMain.handle(channel, async (_event, ...args) 
 
 handle('open-path', (filePath) => importFile(filePath));
 // Only documents in the recent list can be opened or previewed from the empty view.
-handle('open-recent', (docId) => workspace.isRecent(docId) && openDocument(docId));
+// Opens a document from the home screen, in the tool picked on its card (or the one it was last
+// used in).
+handle('open-recent', async (docId, tool) => {
+  if (!workspace.isRecent(docId)) return;
+  await openDocument(docId);
+  if (tool && workspace.document?.id === docId) await workspace.setTool(tool);
+});
+// Back to the home screen: the document closes (everything is already saved).
+handle('go-home', () => workspace.close());
 handle('read-recent', async (docId) => (workspace.isRecent(docId) ? new Uint8Array(await workspace.readCurrentDraftOf(docId)) : null));
-handle('step-draft', (delta) => workspace.stepDraft(delta));
 handle('page-texts', (docId, draftId, texts, details) => workspace.setPageTexts(docId, draftId, texts, details));
 handle('add-request', (request) => workspace.addRequest(request));
 handle('update-request', (id, changes) => workspace.updateRequest(id, changes));
 handle('remove-request', (id) => workspace.removeRequest(id));
 handle('decide', (itemId, decision) => workspace.decide(itemId, decision));
 handle('rate-highlight', (id, feedback) => workspace.rateHighlight(id, feedback));
-handle('add-change', (text) => workspace.addChange(text));
-handle('update-change', (id, text) => workspace.updateChange(id, text));
-handle('remove-change', (id) => workspace.removeChange(id));
-// Resetting the review to the start of a step asks first, since what's cleared can't be got back
-// in the app.
+// Resetting the review (from the Review menu) asks first, since what's cleared can't be got back
+// in the app. Step 1 starts the review again, empty; step 2 clears the user's decisions.
 const RESETS = {
   1: {
     message: 'Start the review again?',
@@ -383,9 +405,9 @@ const HIGHLIGHTS_RESET = {
   detail: 'This clears the AI’s highlights and your feedback on them, leaving an empty review with the same goal for your AI to fill.',
   run: () => workspace.resetToReview(),
 };
-handle('reset-to-step', async (step) => {
+async function resetReview(step) {
   const reset = workspace.review?.type === 'highlights' ? step === 1 && HIGHLIGHTS_RESET : RESETS[step];
-  if (!reset) throw new Error(`Step ${step} can't be reset.`);
+  if (!reset) return false;
   const { response } = await dialog.showMessageBox(win ?? undefined, {
     type: 'warning',
     message: reset.message,
@@ -397,8 +419,7 @@ handle('reset-to-step', async (step) => {
   if (response !== 1) return false;
   await reset.run();
   return true;
-});
-handle('copy-text', (text) => clipboard.writeText(String(text)));
+}
 // Setup for each AI app, shown and copied for pasting: Claude Code's terminal command.
 const MCP_SETUPS = { 'claude-code': () => CLAUDE_CODE_COMMAND };
 function mcpSetup(target) {
@@ -406,6 +427,11 @@ function mcpSetup(target) {
   return MCP_SETUPS[target]();
 }
 handle('mcp-setup', (target) => mcpSetup(target));
+handle('step-draft', (delta) => workspace.stepDraft(delta));
+handle('list-focuses', (type) => workspace.listFocuses(type));
+handle('set-focus', (reviewId) => workspace.setFocus(reviewId));
+handle('set-tool', (tool) => workspace.setTool(tool));
+handle('copy-text', (text) => clipboard.writeText(String(text)));
 handle('copy-mcp-setup', (target) => clipboard.writeText(mcpSetup(target)));
 handle('open-website', () => shell.openExternal(WEBSITE));
 
@@ -426,7 +452,7 @@ app.whenReady().then(async () => {
   updateMenu();
   createWindow();
   try {
-    mcp = await startMcpServer(workspace, app.getPath('userData'), { documents: documentsForAi, onClients: () => send('mcp-status', mcpStatus()) });
+    mcp = await startMcpServer(workspace, app.getPath('userData'), { documents: documentsForAi });
   } catch {
     mcp = null; // e.g. the port is taken by another copy of the app
   }

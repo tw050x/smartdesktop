@@ -67,12 +67,13 @@ export function createStore(root) {
     // to decide on, then applied as a new draft. A highlights review ('highlights') holds the key
     // information the AI found for the user's goal; nothing is decided or applied. Reviews from
     // before types existed have none, and are improvement reviews.
-    async createReview(docId, draftId, by, { type = 'improve', goal = null, context = null } = {}) {
+    async createReview(docId, draftId, by, { type = 'improve', goal = null, context = null, title = null } = {}) {
       const review = {
         id: `review-${Date.now().toString(36)}-${newId()}`,
         draftId,
         type,
         goal, // what the user wants from the review, agreed with the AI before it started
+        title, // a highlights review's short name, its focus (e.g. "Recruiter skim")
         context, // what the AI learned about the document from the user (highlights)
         createdAt: now(),
         status: 'open', // open: the AI is still adding to it; committed: the AI has finished

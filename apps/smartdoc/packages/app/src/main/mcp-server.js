@@ -11,7 +11,7 @@ import { z } from 'zod';
 // packaged builds), so a test copy of the app can run beside the real one.
 export const MCP_PORT = (!app.isPackaged && Number(process.env.SMARTDOC_PORT)) || 47815;
 
-const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user, in one of two kinds of review, and the app shows the current review beside the document.
+const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user, in one of two kinds of review, and the app shows the current review beside the document. The app has a tool for each kind: "Review and draft" (improve) and "Review and highlight" (highlights). Only the active tool's review shows, and get_review returns it; start_review switches to its kind's tool, and switch_tool switches without starting one (for example to show the user an earlier review of the other kind). A draft can have several highlights reviews, one per goal, called focuses (e.g. "Recruiter skim", "The career gap"): list_focuses shows them, with earlier drafts' goals not yet run on this draft, and switch_focus shows one. A new draft starts with none. An improvement review can have a focus too: a goal, and a short name for it (title); the user may send one from the app ("…suggest improvements, focusing on: …"). Without one it's a general review.
 Open: get_document_info and get_document read the document open in the app. If none is open, or the user means a different one (the user may name it with its document id), open it with open_document: by document_id from list_documents (documents the user has opened before), by path (a PDF on the user's computer, which the user confirms in the app), or with neither so the user picks the file in the app. When open_document reports waiting_for_user, tell the user straight away to switch to the SmartDoc app and answer there, then call get_document_info, which waits for them.
 Read: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything.
 Settle the goal first: read the document, get_review and get_history, then decide with the user what the review is for before calling start_review. Either they want the document improved (type "improve"), or they want to understand it: the key information in it for their purpose (type "highlights"). If it isn't clear which, or what they're after, ask. Pass the agreed goal to start_review in their terms.
@@ -19,7 +19,7 @@ An improvement review, in rounds:
 1. Review: the current review may already hold the user's requests: text they marked to rewrite, comment on, keep, remove, add to, or ask about. The history shows what earlier reviews raised and what the user decided. Don't raise again anything the user rejected or chose to keep, unless that text has changed since or you have a new reason (say so in the finding), and don't ask questions they've already answered: use their answers. Changes they accepted that are still not in the document can be raised again. If the user asks for a fresh review, ignore the history. Decorate text with add_annotation and add findings with add_finding. Every finding offers the user a decision: a proposed change, a choice of options, a question, a structural move, a design change, or a flag to acknowledge. Respond to each user request with a finding that has in_response_to set. Finish with commit_review; the user then decides in the app.
 2. Decide: the user works through the findings, and may write changes of their own. Read their choices with get_decisions.
 3. Apply: carry out what was accepted and the user's own changes (and use the user's answers and comments) by writing the complete updated document as HTML and calling apply_review. The app draws it to PDF as the next draft. Never apply anything the user rejected, and leave text marked "keep" unchanged.
-A highlights review: you decide what's key, for the user's goal. Before starting, having read the document, ask the user what they're looking for and anything about the document that changes what matters (for example which party they are in a contract, or what decision they're making); keep it to the few questions that count. Start the review with the goal and what you learned (context). Then add_highlight for each piece of key information: quote its text, put it in a category you choose for this document (a handful, named in the user's terms, such as "Payment", "Deadlines", "Your obligations", "Risks"), say in the note why it matters for their goal, and rate its importance. Also add what the user would expect but the document doesn't say, as a highlight without quotes. Be selective: what matters for the goal, not a summary of everything. Finish with commit_review, with a summary that answers their goal in a few sentences. The user can mark each highlight useful or not and comment; get_review shows that feedback, and get_history shows it for earlier reviews, so a later review can build on it. Nothing is decided or applied, and the document doesn't change.
+A highlights review: you decide what's key, for the user's goal. Before starting, having read the document, ask the user what they're looking for and anything about the document that changes what matters (for example which party they are in a contract, or what decision they're making); keep it to the few questions that count. Check list_focuses first: if a focus already has this goal, carry it on or switch to it rather than starting a near-duplicate; if the user wants an earlier draft's focus run again, reuse its goal and name. Start the review with the goal, a short name for it as a focus (title, a few words in the user's terms), and what you learned (context). Then add_highlight for each piece of key information: quote its text, put it in a category you choose for this document (a handful, named in the user's terms, such as "Payment", "Deadlines", "Your obligations", "Risks"), say in the note why it matters for their goal, and rate its importance. Also add what the user would expect but the document doesn't say, as a highlight without quotes. Be selective: what matters for the goal, not a summary of everything. Finish with commit_review, with a summary that answers their goal in a few sentences. The user can mark each highlight useful or not and comment; get_review shows that feedback, and get_history shows it for earlier reviews, so a later review can build on it. Nothing is decided or applied, and the document doesn't change.
 Text is referenced by quoting it exactly from get_document or find_text (whitespace-insensitive), with the page number.`;
 
 const quote = z.object({
@@ -63,13 +63,24 @@ function buildServer(workspace, documents) {
     limit: z.number().int().min(1).max(50).optional().describe('Most matches to return (default and maximum 50)'),
   }, (a) => workspace.findText(a));
 
-  tool('get_review', 'The current draft\'s review: its type (improve or highlights), goal and status (open or committed), then for an improvement review the user\'s requests, findings with their decisions and annotations, or for a highlights review the highlights with the user\'s feedback. Null if there is none yet.', {}, () => workspace.getReview());
+  tool('list_focuses', 'The highlight tool\'s focuses on the current draft (one highlights review per goal), newest first, with the one showing marked; and the goals of earlier drafts\' focuses not yet run on this draft.', {}, () => workspace.listFocuses('highlights'));
+
+  tool('switch_focus', 'Shows one of the current draft\'s highlights reviews (a focus from list_focuses), switching the app to the highlight tool.', {
+    review_id: z.string(),
+  }, ({ review_id }) => workspace.setFocus(review_id));
+
+  tool('switch_tool', 'Switches the app to one of its two tools, showing the current draft\'s newest review of that kind (or none): "improve" (Review and draft) or "highlights" (Review and highlight). start_review switches by itself.', {
+    tool: z.enum(['improve', 'highlights']),
+  }, ({ tool: next }) => workspace.setTool(next));
+
+  tool('get_review', 'The current draft\'s review in the active tool: its type (improve or highlights), goal and status (open or committed), then for an improvement review the user\'s requests, findings with their decisions and annotations, or for a highlights review the highlights with the user\'s feedback. Null if there is none yet.', {}, () => workspace.getReview());
 
   tool('get_history', 'Earlier reviews of this document, across all its drafts, oldest first, of both types: for highlights reviews, the goal and each highlight with the user\'s feedback; for improvement reviews, each finding with what the user decided (status, chosen option, answer, edit, comment), their requests and their own changes, and what became of each review (applied as which draft, decided but not applied, or never committed). Leaves out the current review.', {}, () => workspace.getHistory());
 
   tool('start_review', 'Starts a review of the current draft, once you and the user have agreed what it\'s for. type "improve" suggests changes for the user to decide on; "highlights" picks out the key information for the user\'s goal (goal required). An open review of the same type carries on (taking any new goal); one of the other type is left unfinished.', {
     type: z.enum(['improve', 'highlights']),
-    goal: z.string().optional().describe('What the user wants from the review, in their terms. Required for highlights.'),
+    goal: z.string().optional().describe('What the user wants from the review, in their terms. Required for highlights, where a new goal starts a new focus.'),
+    title: z.string().optional().describe('The focus\'s short name, a few words (e.g. "Recruiter skim"); give one whenever there\'s a goal'),
     context: z.string().optional().describe('What you learned about the document from the user, e.g. which party they are (highlights)'),
   }, (a) => workspace.startReview('ai', a));
 
@@ -158,39 +169,11 @@ export async function mcpToken(userData) {
   }
 }
 
-// The AI apps that have connected, one entry per app (its name from the MCP handshake) with when
-// it last connected. Kept with the app's data so it outlasts a restart. The server is stateless,
-// so there's no telling when an app disconnects: only when it last connected.
-const CLIENT_LABELS = { 'claude-code': 'Claude Code', 'claude-ai': 'Claude Desktop', 'codex-mcp-client': 'Codex', 'cursor-vscode': 'Cursor' };
-async function clientLog(userData, onChange) {
-  const file = path.join(userData, 'mcp-clients.json');
-  let clients = {};
-  try {
-    clients = JSON.parse(await readFile(file, 'utf8'));
-  } catch {}
-  return {
-    list: () => Object.values(clients).sort((a, b) => b.connectedAt.localeCompare(a.connectedAt)),
-    async connected(info) {
-      const name = typeof info?.name === 'string' && info.name.trim() ? info.name.trim().slice(0, 100) : 'unknown';
-      clients[name] = {
-        name,
-        label: CLIENT_LABELS[name] ?? (typeof info?.title === 'string' && info.title.trim() ? info.title.trim().slice(0, 100) : name),
-        version: typeof info?.version === 'string' ? info.version.slice(0, 50) : null,
-        connectedAt: new Date().toISOString(),
-      };
-      await writeFile(file, JSON.stringify(clients, null, 2)).catch(() => {});
-      onChange?.();
-    },
-  };
-}
-
 // Streamable HTTP on 127.0.0.1 only, stateless (a fresh server per request), JSON responses.
 // Requests carrying an Origin header come from a web page and are refused, as are requests
-// without the token. `documents` lists and opens documents for the AI (it needs the window);
-// `onClients` is called whenever an AI app connects.
-export async function startMcpServer(workspace, userData, { documents, onClients } = {}) {
+// without the token. `documents` lists and opens documents for the AI (it needs the window).
+export async function startMcpServer(workspace, userData, { documents } = {}) {
   const token = await mcpToken(userData);
-  const clients = await clientLog(userData, onClients);
   const http = createServer(async (req, res) => {
     const deny = (code, message) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify({ error: message }));
     if (req.headers.origin) return deny(403, 'Browser requests are not allowed.');
@@ -206,9 +189,6 @@ export async function startMcpServer(workspace, userData, { documents, onClients
     } catch {
       return deny(400, 'Invalid JSON.');
     }
-    for (const message of [body].flat()) {
-      if (message?.method === 'initialize') clients.connected(message.params?.clientInfo);
-    }
     const server = buildServer(workspace, documents);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
@@ -222,5 +202,5 @@ export async function startMcpServer(workspace, userData, { documents, onClients
     http.once('error', reject);
     http.listen(MCP_PORT, '127.0.0.1', resolve);
   });
-  return { url: `http://127.0.0.1:${MCP_PORT}/mcp`, token, clients: clients.list, close: () => http.close() };
+  return { url: `http://127.0.0.1:${MCP_PORT}/mcp`, token, close: () => http.close() };
 }

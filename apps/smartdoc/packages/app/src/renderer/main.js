@@ -1,12 +1,14 @@
 import { GlobalWorkerOptions, TextLayer, getDocument } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
-import { closeLeftSidebar, openLeftSidebar } from './icons.js';
 import { clearPages, nearestTextPosition, pageTexts, registerPage, selectionAnchors } from './anchors.js';
-import { redraw, revealAnchors, setHovered, setMarks } from './overlays.js';
+import { createFocusPicker } from './focus-picker.js';
+import { createHighlightsList } from './highlights-list.js';
+import { createMarginReview } from './margin-review.js';
+import { redraw, revealAnchors, setMarks } from './overlays.js';
 import { renderRecentCards } from './recent-cards.js';
 import { createServerStatus } from './server-status.js';
-import { categoryColours, createReviewPanel, isHighlights } from './review-panel.js';
+import { createToolSwitcher } from './tool-switcher.js';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -15,127 +17,30 @@ const { platform, openDroppedFile, openRecent, readRecent, onFullScreenChange } 
 document.body.classList.add(`platform-${platform}`);
 onFullScreenChange((isFullScreen) => {
   document.body.classList.toggle('full-screen', isFullScreen);
-  placeDraftNav();
 });
 createServerStatus({ api });
-
-// --- Review column -------------------------------------------------------------------------
-
-const toggleReview = document.getElementById('toggle-review');
-let reviewOpen = true;
-
-function renderToggle() {
-  document.body.classList.toggle('review-closed', !reviewOpen);
-  toggleReview.innerHTML = reviewOpen ? closeLeftSidebar : openLeftSidebar;
-  toggleReview.title = `${reviewOpen ? 'Close' : 'Open'} review`;
-  toggleReview.setAttribute('aria-label', toggleReview.title);
-  toggleReview.setAttribute('aria-expanded', String(reviewOpen));
-}
-
-function setReviewOpen(open) {
-  reviewOpen = open;
-  // A dragged width only lasts until the review is closed; it reopens at the default.
-  if (!open) document.documentElement.style.removeProperty('--review-width');
-  renderToggle();
-}
-
-toggleReview.addEventListener('click', () => setReviewOpen(!reviewOpen));
-renderToggle();
-
-// Dragging the review's inner edge sets its width, between 33% and 66% of the window (or
-// less in a narrow window, where it leaves the PDF view its minimum; the same limits are
-// applied in CSS when the window resizes). Past the maximum the edge rubber-bands and springs
-// back on release. Below the minimum the edge (and the PDF view) still follows the pointer,
-// but the card slides out straight away, so it's clear that letting go there closes the
-// review; dragging back above the minimum slides it back in. A closed review keeps its
-// handle at the window edge, so it can be dragged back out the same way. Double-clicking the
-// handle splits the window evenly between the review and the PDF view, opening it if closed.
-const REVIEW_MIN_SHARE = 0.33;
-const REVIEW_MAX_SHARE = 0.66;
-const DOCUMENT_MIN = 320;
-const RUBBER_BAND = 48; // the most the edge can stretch past the maximum
-const SNAP_MS = 180; // matches the .workspace transition
-const reviewMax = () => Math.min(window.innerWidth * REVIEW_MAX_SHARE, window.innerWidth - DOCUMENT_MIN);
-const reviewMin = () => Math.min(window.innerWidth * REVIEW_MIN_SHARE, reviewMax());
-// Resistance that grows with distance: the edge follows less and less, approaching RUBBER_BAND.
-const rubberBand = (overshoot) => RUBBER_BAND * (1 - 1 / (overshoot / RUBBER_BAND + 1));
-
-function snap() {
-  document.body.classList.add('snapping');
-  clearTimeout(snap.timer);
-  snap.timer = setTimeout(() => document.body.classList.remove('snapping'), SNAP_MS);
-}
-
-{
-  const handle = document.querySelector('.resizer');
-  const panel = handle.parentElement;
-  const setWidth = (w) => document.documentElement.style.setProperty('--review-width', `${Math.round(w)}px`);
-  const CLOSED_WIDTH = 14; // matches .review-closed .workspace
-
-  handle.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    handle.setPointerCapture(e.pointerId);
-    handle.classList.add('active');
-    const startX = e.clientX;
-    const wasOpen = reviewOpen;
-    const startWidth = panel.getBoundingClientRect().width;
-    // A closed review is dragged out from the window edge with its card still out of view.
-    setWidth(startWidth);
-    document.body.classList.add('resizing');
-    let collapsed = !wasOpen;
-    document.body.classList.toggle('review-closing', collapsed);
-    document.body.classList.remove('review-closed');
-    let raw = startWidth;
-
-    const onMove = (m) => {
-      raw = startWidth + m.clientX - startX;
-      const max = reviewMax();
-      const shouldCollapse = raw < reviewMin();
-      if (shouldCollapse !== collapsed) {
-        collapsed = shouldCollapse;
-        document.body.classList.toggle('review-closing', collapsed);
-      }
-      setWidth(raw > max ? max + rubberBand(raw - max) : Math.max(CLOSED_WIDTH, raw));
-    };
-    // Ends on release, or whenever the handle loses the pointer (e.g. released outside the
-    // window), so a drag can never be left half-finished.
-    let ended = false;
-    const onUp = () => {
-      if (ended) return;
-      ended = true;
-      handle.classList.remove('active');
-      document.body.classList.remove('resizing', 'review-closing');
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
-      handle.removeEventListener('pointercancel', onUp);
-      handle.removeEventListener('lostpointercapture', onUp);
-      snap();
-      if (collapsed) {
-        setReviewOpen(false);
-      } else {
-        setWidth(Math.min(reviewMax(), raw));
-        if (!wasOpen) setReviewOpen(true);
-      }
-    };
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
-    handle.addEventListener('pointercancel', onUp);
-    handle.addEventListener('lostpointercapture', onUp);
-  });
-
-  handle.addEventListener('dblclick', () => {
-    setWidth(Math.min(reviewMax(), window.innerWidth / 2));
-    setReviewOpen(true);
-  });
-}
+const toolSwitcher = createToolSwitcher({
+  button: document.getElementById('tool-button'),
+  label: document.getElementById('tool-label'),
+  card: document.getElementById('tool-card'),
+  api,
+});
+const focusPicker = createFocusPicker({
+  button: document.getElementById('focus-button'),
+  label: document.getElementById('focus-label'),
+  separator: document.getElementById('focus-sep'),
+  card: document.getElementById('focus-card'),
+  api,
+});
 
 // --- PDF view ----------------------------------------------------------------------------
 
 const documentEl = document.getElementById('document');
 const pagesEl = document.getElementById('pages');
-const PAGE_GUTTER = 10; // the .pages side padding (var(--card-gap) on the right only)
+// The pages take the middle 60% of the view, leaving a fifth either side for the review's margins.
+const PAGE_SHARE = 0.6;
 // Pages are drawn once at this scale, then shrunk with CSS to fit the space available, so
-// resizing the window or the review never needs a redraw.
+// resizing the window never needs a redraw.
 const RENDER_SCALE = 1.5;
 
 let loading = 0; // newest draft wins if drafts are switched quickly
@@ -185,6 +90,8 @@ async function showPdf(data, { docId, draftId }) {
     if (ticket !== loading) return;
     keepSelectionSteady(textLayerEl);
     registerPage(n, textContent.items, textLayer.textDivs, contentEl);
+    // Each page's review cards can be placed once its text is known.
+    relayout();
   }
   // The app needs the page texts to place the AI's quotes and to give the AI the document, and
   // the PDF's details to describe it.
@@ -240,18 +147,35 @@ function pdfDate(value) {
 }
 
 function fitPage(pageEl) {
-  const available = documentEl.clientWidth - PAGE_GUTTER;
+  const available = documentEl.clientWidth * PAGE_SHARE;
   const k = Math.max(0, Math.min(1, available / Number(pageEl.dataset.width)));
   pageEl.style.width = `${Number(pageEl.dataset.width) * k}px`;
   pageEl.style.height = `${Number(pageEl.dataset.height) * k}px`;
   pageEl.firstElementChild.style.transform = `scale(${k})`;
+  // The bar under the pages matches their width.
+  documentEl.style.setProperty('--page-width', pageEl.style.width);
 }
 
-new ResizeObserver(() => pagesEl.querySelectorAll('.page').forEach(fitPage)).observe(documentEl);
+new ResizeObserver(() => {
+  pagesEl.querySelectorAll('.page').forEach(fitPage);
+  relayout();
+}).observe(documentEl);
+
+// The review's cards and marks follow the pages: placed again (once per frame at most) whenever
+// a page is drawn or the pages change size.
+let relayoutQueued = false;
+function relayout() {
+  if (relayoutQueued) return;
+  relayoutQueued = true;
+  requestAnimationFrame(() => {
+    relayoutQueued = false;
+    marginReview.layout();
+  });
+}
 
 // --- Scrolling ---------------------------------------------------------------------------
-// The PDF view and the review use a custom scrollbar: the native one is hidden, and this
-// one is drawn over the scrolling area's right edge with no visible track. In the PDF view,
+// The PDF view uses a custom scrollbar: the native one is hidden, and this one is drawn over
+// the scrolling area's right edge with no visible track. In the PDF view,
 // loaded pages scroll the PDF view itself; the empty view doesn't scroll.
 
 const THUMB_MIN = 32;
@@ -321,13 +245,6 @@ const updateScrollUi = customScrollbar({
   scroller: () => documentEl,
   watch: [documentEl, pagesEl],
 });
-const reviewScroll = document.getElementById('review-scroll');
-customScrollbar({
-  scrollbarEl: reviewScroll.parentElement.querySelector('.scrollbar'),
-  scrollers: [reviewScroll],
-  scroller: () => reviewScroll,
-  watch: [reviewScroll, reviewScroll.firstElementChild],
-});
 
 // The empty view shows the most recent documents as cards with page previews.
 api.onRecentDocuments((documents) => renderRecentCards({
@@ -342,6 +259,8 @@ api.onRecentDocuments((documents) => renderRecentCards({
 // The main process owns the document and its drafts and reviews (it drives the menu and the MCP
 // server); the window shows them and sends the user's decisions back.
 
+// The draft controls, centred in the top bar: the draft showing ("Original" before there are any)
+// with arrows to the ones either side; hovering the label gives the draft's summary.
 const draftNav = document.getElementById('draft-nav');
 const draftLabel = document.getElementById('draft-label');
 const draftPrev = document.getElementById('draft-prev');
@@ -349,53 +268,146 @@ const draftNext = document.getElementById('draft-next');
 draftPrev.addEventListener('click', () => api.stepDraft(-1));
 draftNext.addEventListener('click', () => api.stepDraft(1));
 
-// The draft controls are centred over the PDF view rather than the window. When there isn't
-// room for them there, within the PDF view and clear of the other top-bar items, the label is
-// hidden first, then the arrows too.
+// They're centred in the top bar while there's room. When the breadcrumb reaches them they move
+// along to sit just after it; when that leaves no room before the right-hand controls, the
+// breadcrumb's tool shrinks to its icon, then the draft label goes, then the controls too. Each
+// time starts from everything shown, so the result only depends on the room there is.
 const topBar = document.querySelector('.top-bar');
 const topBarStart = document.querySelector('.top-bar-start');
 const topBarEnd = document.querySelector('.top-bar-end');
-const DRAFT_NAV_GAP = 8; // the least space kept between the controls and their neighbours
-
+const DRAFT_NAV_GAP = 12; // the least space kept either side of the controls
 function placeDraftNav() {
   if (draftNav.hidden) return;
-  const view = documentEl.getBoundingClientRect();
-  const left = Math.max(view.left, topBarStart.getBoundingClientRect().right + DRAFT_NAV_GAP);
-  const right = Math.min(view.right, topBarEnd.getBoundingClientRect().left - DRAFT_NAV_GAP);
-  const centre = view.left + view.width / 2;
-  const room = 2 * Math.min(centre - left, right - centre);
-  draftNav.style.left = `${centre - topBar.getBoundingClientRect().left}px`;
   draftNav.classList.remove('compact', 'collapsed');
-  if (draftNav.offsetWidth > room) draftNav.classList.add('compact');
-  if (draftNav.offsetWidth > room) draftNav.classList.add('collapsed');
+  topBarStart.classList.remove('tight');
+  const bar = topBar.getBoundingClientRect();
+  const end = topBarEnd.getBoundingClientRect().left - DRAFT_NAV_GAP - bar.left;
+  const fits = () => {
+    draftNav.classList.remove('pushed');
+    draftNav.style.left = '';
+    const start = topBarStart.getBoundingClientRect().right + DRAFT_NAV_GAP - bar.left;
+    const width = draftNav.offsetWidth;
+    if (bar.width / 2 - width / 2 >= start) return bar.width / 2 + width / 2 <= end; // centred
+    draftNav.classList.add('pushed');
+    draftNav.style.left = `${start}px`;
+    return start + width <= end;
+  };
+  if (fits()) return;
+  topBarStart.classList.add('tight');
+  if (fits()) return;
+  draftNav.classList.add('compact');
+  if (fits()) return;
+  draftNav.classList.add('collapsed');
 }
-
-new ResizeObserver(placeDraftNav).observe(documentEl);
+new ResizeObserver(placeDraftNav).observe(topBar);
+new ResizeObserver(placeDraftNav).observe(topBarStart);
 new ResizeObserver(placeDraftNav).observe(topBarEnd);
 
-const reviewPanel = createReviewPanel({
-  container: document.getElementById('review-panel'),
-  scroller: reviewScroll,
+
+// --- Views: the document, or a highlights review as a list -------------------------------
+// The list view only applies to a highlights review. Which view a document was last left in is
+// remembered for it on this computer.
+const listViewEl = document.getElementById('list-view');
+let current = { doc: null, review: null, tool: 'improve' };
+const viewKey = (docId) => `smartdoc.view.${docId}`;
+function storedView(docId) {
+  try {
+    return localStorage.getItem(viewKey(docId)) === 'list' ? 'list' : 'document';
+  } catch {
+    return 'document';
+  }
+}
+function setView(view) {
+  try {
+    if (current.doc) localStorage.setItem(viewKey(current.doc.id), view);
+  } catch {}
+  showView();
+}
+// In Review and draft, all the findings or only those still to decide: also remembered per
+// document.
+const showKey = (docId) => `smartdoc.show.${docId}`;
+function storedHideDone(docId) {
+  try {
+    return localStorage.getItem(showKey(docId)) === 'todo';
+  } catch {
+    return false;
+  }
+}
+function setShow(show) {
+  try {
+    if (current.doc) localStorage.setItem(showKey(current.doc.id), show);
+  } catch {}
+  showView();
+}
+const doneSwitch = document.getElementById('done-switch');
+for (const button of doneSwitch.querySelectorAll('button')) {
+  button.addEventListener('click', () => setShow(button.dataset.show));
+}
+// The list shows when it's chosen and there's a highlights review to list. The switch between the
+// two sits at the right of the top bar whenever there's a highlights review.
+const viewSwitch = document.getElementById('view-switch');
+for (const button of viewSwitch.querySelectorAll('button')) {
+  button.addEventListener('click', () => setView(button.dataset.view));
+}
+function showView() {
+  const listable = Boolean(current.doc && current.tool === 'highlights' && current.review?.type === 'highlights');
+  const list = listable && storedView(current.doc.id) === 'list';
+  viewSwitch.hidden = !listable;
+  draftNav.hidden = !current.doc;
+  focusPicker.update({ doc: current.doc, tool: current.tool, review: current.review });
+  // The breadcrumb may have grown or shrunk with the tool and focus.
+  requestAnimationFrame(placeDraftNav);
+  // All | To do, in Review and draft once there's a finished review to work through.
+  const decidable = Boolean(current.doc && current.tool === 'improve' && current.review?.status === 'committed');
+  const hideDone = decidable && storedHideDone(current.doc.id);
+  doneSwitch.hidden = !decidable;
+  for (const button of doneSwitch.querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.show === (hideDone ? 'todo' : 'all')));
+  }
+  for (const button of viewSwitch.querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.view === (list ? 'list' : 'document')));
+  }
+  document.body.classList.toggle('list-view-open', Boolean(list));
+  highlightsList.update(list ? current.review : null);
+  marginReview.update({ view: list ? 'list' : 'document', hideDone });
+}
+
+const highlightsList = createHighlightsList({
+  container: listViewEl,
   api,
-  onReveal: (anchors) => revealAnchors(anchors, documentEl),
-  onHover: setHovered,
-  onClearFilter: () => {
-    getSelection().removeAllRanges();
-    reviewPanel.update({ filter: null });
+  onShow: (id) => {
+    setView('document');
+    // The pages need a frame to come back before the card can be placed.
+    requestAnimationFrame(() => marginReview.openItem(id));
   },
 });
 
-// Selecting text on the page filters the review to the cards about it; clicking on the page
-// without selecting shows them all again. Only a press that starts on the page counts, so working
-// in the review (which moves the selection there) keeps the filter.
+document.getElementById('go-home').addEventListener('click', () => api.goHome());
+
+const marginReview = createMarginReview({
+  layer: document.getElementById('margin-layer'),
+  pagesEl,
+  bar: document.getElementById('review-bar'),
+  api,
+  onMarks: setMarks,
+  onReveal: (anchors) => revealAnchors(anchors, documentEl),
+  onClearFilter: () => {
+    getSelection().removeAllRanges();
+    marginReview.update({ filter: null });
+  },
+});
+
+// Selecting text on the page fades the review's cards that aren't about it; clicking on the page
+// without selecting brings them all back. Only a press that starts on a page counts, so working
+// in a card (which moves the selection there) keeps the filter.
 let pressedOnPage = false;
-documentEl.addEventListener('mousedown', () => (pressedOnPage = true));
+pagesEl.addEventListener('mousedown', () => (pressedOnPage = true));
 window.addEventListener('mouseup', () => {
   if (!pressedOnPage) return;
   pressedOnPage = false;
   setTimeout(() => {
     const anchors = selectionAnchors();
-    reviewPanel.update({ filter: anchors.length ? anchors : null });
+    marginReview.update({ filter: anchors.length ? anchors : null });
   });
 });
 
@@ -431,32 +443,24 @@ pagesEl.addEventListener('mousedown', (e) => {
   window.addEventListener('mouseup', up);
 });
 
-// The user's requests and the AI's annotations are drawn on the page, or for a highlights review
-// its highlights, in their category's colour.
-function showReview(review) {
-  reviewPanel.update({ review });
-  if (isHighlights(review)) {
-    const colours = categoryColours(review);
-    setMarks(review.highlights.map((h) => ({ anchors: h.anchors, className: `mark-key cat-${colours.get(h.category)}`, title: `${h.category}: ${h.title}` })));
-    return;
-  }
-  setMarks(review ? [
-    ...review.requests.map((r) => ({ anchors: r.anchors, className: `mark-request mark-${r.kind}`, title: r.note })),
-    ...review.annotations.map((a) => ({ anchors: a.anchors, className: `mark-annotation mark-${a.style}`, title: a.note })),
-  ] : []);
-}
+// The review's cards go in the margins and its marks on the page (the margin review sends them).
+const showReview = (review) => {
+  current.review = review;
+  marginReview.update({ review });
+  showView();
+};
 
-api.onDraftOpened(async ({ document: doc, draft, pdf, review }) => {
-  // The draft controls only show once there's another draft to move to.
-  draftNav.hidden = draft.total === 0;
+api.onDraftOpened(async ({ document: doc, draft, pdf, review, tool }) => {
+  toolSwitcher.update(tool);
   draftLabel.textContent = draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
-  draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : '');
+  draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : doc.name);
   draftPrev.disabled = draft.number === 0;
   draftNext.disabled = draft.number === draft.total;
-  placeDraftNav();
-  reviewPanel.update({ hasDocument: true, document: doc, filter: null });
-  showReview(review);
-  reviewPanel.minimiseAll();
+  requestAnimationFrame(placeDraftNav);
+  current = { doc, review, tool };
+  marginReview.update({ document: doc, review, tool, filter: null });
+  showView();
+  marginReview.reset();
   documentEl.scrollTop = 0;
   await showPdf(pdf, { docId: doc.id, draftId: draft.id });
   updateScrollUi();
@@ -464,14 +468,23 @@ api.onDraftOpened(async ({ document: doc, draft, pdf, review }) => {
 
 api.onDocumentClosed(() => {
   loading++;
-  draftNav.hidden = true;
   clearPdf();
   clearPages();
-  reviewPanel.update({ hasDocument: false, document: null, review: null, filter: null });
+  toolSwitcher.close();
+  current = { doc: null, review: null, tool: current.tool };
+  marginReview.update({ document: null, review: null, filter: null });
+  showView();
   updateScrollUi();
 });
 
 api.onReview(showReview);
+// The active tool, switched by the user or the AI.
+api.onTool((tool) => {
+  toolSwitcher.update(tool);
+  current.tool = tool;
+  marginReview.update({ tool });
+  showView();
+});
 
 // As in pdf.js's own viewer: while selecting, an unselectable layer fills the gaps between the
 // text, so a cursor between lines doesn't make the selection jump to text further down the page
@@ -512,8 +525,7 @@ function clearPdf() {
   setHasDocument(false);
 }
 
-// The review column appears and disappears with the document in one step, without the
-// column's resize animation (which would slide the view sideways).
+// Switching between the empty view and a document happens in one step, with no transitions.
 function setHasDocument(on) {
   if (document.body.classList.contains('has-document') === on) return;
   document.body.classList.add('switching-document');

@@ -8,29 +8,53 @@
 </head>
 <body>
   <header class="top-bar">
-    <div class="top-bar-start">
-      <button class="icon-button" id="toggle-review" type="button" aria-controls="review-sidebar"></button>
-    </div>
-    <nav class="draft-nav" id="draft-nav" aria-label="Draft history" hidden>
+    <!-- Where you are: home, the open document's tool and, in the highlight tool, its focus (see
+         main.js, tool-switcher.js and focus-picker.js). -->
+    <nav class="top-bar-start breadcrumb" aria-label="Location">
+      <button class="icon-button crumb-home" id="go-home" type="button" aria-label="Home" title="Home">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>
+      </button>
+      <span class="crumb-sep" aria-hidden="true">›</span>
+      <button class="tool-button" id="tool-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="tool-card">
+        <span id="tool-label"></span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <span class="crumb-sep" id="focus-sep" aria-hidden="true" hidden>›</span>
+      <button class="tool-button focus-button" id="focus-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="focus-card" hidden>
+        <span id="focus-label"></span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </nav>
+    <!-- The open document's drafts, centred in the top bar: which one is showing, and the ones
+         either side. -->
+    <div class="draft-nav" id="draft-nav" role="group" aria-label="Drafts" hidden>
       <button class="icon-button" id="draft-prev" type="button" aria-label="Previous draft" title="Previous draft">‹</button>
       <span class="draft-label" id="draft-label"></span>
       <button class="icon-button" id="draft-next" type="button" aria-label="Next draft" title="Next draft">›</button>
-    </nav>
+    </div>
     <div class="top-bar-end">
+      <!-- All | To do, in Review and draft: with To do, decided findings are hidden (see main.js). -->
+      <div class="view-switch" id="done-switch" role="group" aria-label="Show" hidden>
+        <button type="button" data-show="all">All</button>
+        <button type="button" data-show="todo">To do</button>
+      </div>
+      <!-- Document | List, for a highlights review (see main.js). -->
+      <div class="view-switch" id="view-switch" role="group" aria-label="View" hidden>
+        <button type="button" data-view="document">Document</button>
+        <button type="button" data-view="list">List</button>
+      </div>
       <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
         <span class="server-dot" aria-hidden="true"></span><span id="server-pill-label">MCP server</span>
       </button>
     </div>
   </header>
 
-  <main class="workspace">
-    <aside class="side-panel" id="review-sidebar">
-      <div class="side-scroll" id="review-scroll"><div class="side-card" id="review-panel"></div></div>
-      <div class="scrollbar" aria-hidden="true"><div class="scrollbar-thumb"></div></div>
-      <div class="close-arrow" aria-hidden="true"><div class="close-arrow-line"></div></div>
-      <div class="resizer" role="separator" aria-orientation="vertical" aria-label="Resize review"></div>
-    </aside>
+  <!-- The tools to switch between, opened from the top bar's tool button (see tool-switcher.js). -->
+  <div class="tool-card" id="tool-card" role="menu" aria-label="Tools" hidden></div>
+  <!-- The highlight tool's focuses, opened from the breadcrumb's focus (see focus-picker.js). -->
+  <div class="tool-card focus-card" id="focus-card" role="dialog" aria-label="Focuses" hidden></div>
 
+  <main class="workspace">
     <section class="document" id="document">
       <div class="empty-state" id="empty-state">
         <div class="ghost-stack">
@@ -50,9 +74,16 @@
         </div>
         </div>
       </div>
-      <div class="pages" id="pages"></div>
+      <!-- The pages, with the review laid over them and their margins (see margin-review.js). -->
+      <div class="pages-wrap">
+        <div class="pages" id="pages"></div>
+        <div class="margin-layer" id="margin-layer"></div>
+      </div>
     </section>
+    <!-- A highlights review as a list, in place of the document (see highlights-list.js). -->
+    <section class="list-view" id="list-view" aria-label="Highlights"></section>
     <div class="scrollbar" id="scrollbar" aria-hidden="true"><div class="scrollbar-thumb" id="scrollbar-thumb"></div></div>
+    <footer class="review-bar" id="review-bar" aria-label="Review"></footer>
   </main>
 
   <!-- MCP server details: a full-height panel that slides in over the right of the window, above a mask that dulls the rest. -->
@@ -64,29 +95,35 @@
       </button>
     </div>
     <div class="panel">
-      <h2 id="mcp-card-title">MCP server</h2>
+      <h3 id="mcp-card-title">MCP server</h3>
       <dl class="server-details">
         <dt>Status</dt><dd id="server-state"></dd>
         <dt>Address</dt><dd id="server-url"></dd>
         <dt>Access</dt><dd>This computer only, with the app’s token</dd>
-        <dt>AI apps</dt><dd><ul class="server-clients" id="server-clients"></ul></dd>
       </dl>
       <p class="panel-note" id="server-off" hidden>The server couldn’t start. Another copy of the app may be running.</p>
 
       <section class="mcp-setup" id="mcp-setup">
         <h3>Set up an AI app</h3>
-        <div class="tabs" role="tablist" aria-label="AI apps">
-          <button class="tab" role="tab" id="tab-claude-code" aria-controls="tabpanel-claude-code" aria-selected="true" type="button">Claude Code</button>
-          <button class="tab" role="tab" id="tab-claude-desktop" aria-controls="tabpanel-claude-desktop" aria-selected="false" type="button">Claude Desktop</button>
+        <!-- The AI app to set up: a button naming it, opening a menu of the apps (see server-status.js). -->
+        <div class="app-picker">
+          <button class="app-picker-button" id="app-picker-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="app-picker-menu">
+            <span id="app-picker-label">Claude Code</span>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="app-picker-menu" id="app-picker-menu" role="menu" hidden>
+            <button type="button" role="menuitemradio" data-app="claude-code" aria-checked="true">Claude Code</button>
+            <button type="button" role="menuitemradio" data-app="claude-desktop" aria-checked="false">Claude Desktop</button>
+          </div>
         </div>
-        <div class="tab-panel" role="tabpanel" id="tabpanel-claude-code" aria-labelledby="tab-claude-code">
+        <div class="tab-panel" id="setup-claude-code">
           <ol class="setup-steps">
             <li>Copy the setup command:<div class="code-block"><pre><code data-setup="claude-code"></code></pre><button class="icon-button code-copy" type="button" data-target="claude-code" aria-label="Copy command" title="Copy command"></button></div></li>
             <li>Paste it into a terminal and press Return. Or paste it into a Claude Code chat and ask Claude to add the server.</li>
             <li>Start a new Claude Code session. Type <code>/mcp</code> to check it’s connected. Claude opens this app whenever it needs it.</li>
           </ol>
         </div>
-        <div class="tab-panel" role="tabpanel" id="tabpanel-claude-desktop" aria-labelledby="tab-claude-desktop" hidden>
+        <div class="tab-panel" id="setup-claude-desktop" hidden>
           <ol class="setup-steps">
             <li>Download SmartDoc for Claude Desktop from the website: <button class="secondary-button" id="open-website" type="button">Open the website</button></li>
             <li>Open the downloaded file. Claude Desktop shows what it installs; choose Install.</li>

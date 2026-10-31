@@ -19,6 +19,9 @@ const ITEM_KINDS = ['change', 'options', 'question', 'move', 'design', 'flag'];
 const REVIEW_TYPES = ['improve', 'highlights'];
 const IMPORTANCE = ['high', 'medium', 'low'];
 const typeOf = (r) => r.type ?? 'improve'; // reviews from before types existed are improvement reviews
+// A review's name in the focus picker: its title, else its goal cut short; an improvement review
+// with neither is a general one.
+const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.slice(0, 47).trimEnd()}…` : r.goal) ?? (typeOf(r) === 'improve' ? 'General review' : 'Highlights');
 
 // The open document, its current draft and that draft's current review, plus the list of recent
 // documents. The window, the menu and the MCP server all act through this, and it emits:
@@ -34,7 +37,11 @@ export function createWorkspace(userData) {
   const recentFile = path.join(userData, 'recent-documents.json');
 
   let doc = null; // the open document's record
-  let review = null; // the current draft's current review, or null if it has none
+  // The app has two tools, one per kind of review: improve ("Review and draft") and highlights
+  // ("Review and highlight"). The active one, chosen by the user or the AI and kept with the
+  // document, decides which review shows: the current draft's newest review of that kind.
+  let tool = 'improve';
+  let review = null; // the current draft's current review of the active tool's kind, or null if it has none
   let pageTexts = null; // the current draft's page texts, reported by the window once drawn
   let pdfDetails = null; // and the PDF's own details: { info, outline }
   let recent = []; // [{ id, name, importedAt }], newest first
@@ -81,10 +88,26 @@ export function createWorkspace(userData) {
     await store.saveDocument(doc);
     pageTexts = null;
     pdfDetails = null;
-    const reviews = await store.listReviews(doc.id, draftId);
-    review = reviews.at(-1) ?? null;
+    review = await newestReview();
     events.emit('draft');
     events.emit('review', review);
+  }
+
+  // The review the active tool shows on the current draft. In the highlight tool that's the focus
+  // the user (or the AI) last chose on this draft, else its newest; a new draft has none of its own.
+  async function newestReview() {
+    const reviews = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === tool);
+    if (tool === 'highlights') {
+      const chosen = reviews.find((r) => r.id === doc.focus?.[doc.currentDraftId]);
+      if (chosen) return chosen;
+    }
+    return reviews.at(-1) ?? null;
+  }
+
+  // Remembers the focus showing on the current draft (saved with the document).
+  async function rememberFocus(reviewId) {
+    doc.focus = { ...doc.focus, [doc.currentDraftId]: reviewId };
+    await store.saveDocument(doc);
   }
 
   // Before documents existed the app kept a list of file paths (recent.json). The first time this
@@ -165,6 +188,11 @@ export function createWorkspace(userData) {
 
     async openDocument(docId) {
       doc = await store.loadDocument(docId);
+      // A document opens in the tool it was last used with; older ones in the kind of their newest
+      // review.
+      if (REVIEW_TYPES.includes(doc.tool)) tool = doc.tool;
+      else tool = typeOf((await store.listReviews(doc.id, doc.currentDraftId)).at(-1) ?? {});
+      events.emit('tool', tool);
       recent = [{ id: doc.id, name: doc.name, importedAt: doc.importedAt }, ...recent.filter((r) => r.id !== doc.id)].slice(0, MAX_RECENT);
       await saveRecent();
       await showDraft(doc.currentDraftId);
@@ -180,6 +208,35 @@ export function createWorkspace(userData) {
     },
 
     isRecent: (docId) => recent.some((r) => r.id === docId),
+
+    // Where a document stands in each tool, for its card on the home screen: its current draft,
+    // the tool it was last used in, and the current draft's newest review of each kind.
+    async summarise(docId) {
+      const d = await store.loadDocument(docId);
+      const reviews = await store.listReviews(d.id, d.currentDraftId);
+      const newest = (type) => reviews.filter((r) => typeOf(r) === type).at(-1) ?? null;
+      const improve = newest('improve');
+      const focuses = reviews.filter((r) => typeOf(r) === 'highlights');
+      const highlights = focuses.find((r) => r.id === d.focus?.[d.currentDraftId]) ?? newest('highlights');
+      const number = d.line.indexOf(d.currentDraftId);
+      return {
+        draft: number <= 0 ? 'Original' : `Draft ${number}`,
+        tool: REVIEW_TYPES.includes(d.tool) ? d.tool : typeOf(reviews.at(-1) ?? {}),
+        improve: improve && {
+          status: improve.status,
+          findings: improve.items.length,
+          decided: improve.items.filter((i) => i.decision.status !== 'pending').length,
+          applied: improve.applications.length > 0,
+        },
+        highlights: highlights && {
+          focuses: focuses.length,
+          title: focusTitle(highlights),
+          status: highlights.status,
+          count: (highlights.highlights ?? []).length,
+          rated: (highlights.highlights ?? []).filter((h) => h.feedback?.useful != null).length,
+        },
+      };
+    },
 
     async readCurrentDraftOf(docId) {
       const d = await store.loadDocument(docId);
@@ -343,22 +400,100 @@ export function createWorkspace(userData) {
     // Starts a review of the given type, with the goal agreed with the user (required for a
     // highlights review). An open review of the same type carries on, taking any new goal; one
     // of the other type is left as it is, unfinished, and a new review becomes current.
-    async startReview(by, { type = 'improve', goal, context } = {}) {
+    get tool() { return tool; },
+
+    // Switches the active tool, showing the current draft's newest review of its kind.
+    async setTool(next) {
+      requireDoc();
+      if (!REVIEW_TYPES.includes(next)) throw new Error(`Unknown tool: ${next}. Use "improve" or "highlights".`);
+      if (next === tool) return { tool };
+      tool = next;
+      doc.tool = next;
+      await store.saveDocument(doc);
+      review = await newestReview();
+      events.emit('tool', tool);
+      events.emit('review', review);
+      return { tool, review: review ? { id: review.id, status: review.status } : null };
+    },
+
+    async startReview(by, { type = 'improve', goal, context, title } = {}) {
       requireDoc();
       if (!REVIEW_TYPES.includes(type)) throw new Error(`Unknown review type: ${type}. Use "improve" or "highlights".`);
+      // Starting a review of the other kind switches the app to that tool first.
+      if (type !== tool) await this.setTool(type);
       const clean = (text) => (typeof text === 'string' && text.trim() ? text.trim() : null);
       if (type === 'highlights' && !clean(goal) && !(review?.status === 'open' && typeOf(review) === type)) {
         throw new Error('A highlights review needs a goal: what the user is looking for in the document. Ask them first.');
       }
-      if (review?.status === 'open' && typeOf(review) === type) {
+      // An open review carries on, unless it's a highlights review and the goal is a new one: each
+      // goal is its own focus, and the others are kept.
+      const sameFocus = type !== 'highlights' || !clean(goal) || clean(goal) === review?.goal;
+      if (review?.status === 'open' && typeOf(review) === type && sameFocus) {
         if (clean(goal)) review.goal = clean(goal);
         if (clean(context)) review.context = clean(context);
-        if (clean(goal) || clean(context)) await saveReview();
+        if (clean(title)) review.title = clean(title);
+        if (clean(goal) || clean(context) || clean(title)) await saveReview();
         return review;
       }
-      review = await store.createReview(doc.id, doc.currentDraftId, by, { type, goal: clean(goal), context: clean(context) });
+      review = await store.createReview(doc.id, doc.currentDraftId, by, { type, goal: clean(goal), context: clean(context), title: clean(title) });
+      if (type === 'highlights') await rememberFocus(review.id);
       events.emit('review', review);
       return review;
+    },
+
+    // A tool's focuses (highlights by default). In the highlight tool: this draft's highlights
+    // reviews, newest first, the one showing marked. In the draft tool, the draft's one review that
+    // counts, its newest, with how far its decisions have got. And for either, the goals of
+    // earlier drafts' reviews of that kind that haven't been run on this one, offered to run again
+    // (a new draft shows none of them until then).
+    async listFocuses(type = 'highlights') {
+      requireDoc();
+      if (!REVIEW_TYPES.includes(type)) throw new Error(`Unknown review type: ${type}. Use "improve" or "highlights".`);
+      const summary = (r) => ({
+        id: r.id,
+        title: focusTitle(r),
+        goal: r.goal,
+        status: r.status,
+        createdAt: r.createdAt,
+        ...(type === 'highlights'
+          ? { highlights: (r.highlights ?? []).length, rated: (r.highlights ?? []).filter((h) => h.feedback?.useful != null).length }
+          : { findings: r.items.length, decided: r.items.filter((i) => i.decision.status !== 'pending').length, applied: r.applications.length > 0 }),
+      });
+      let here = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === type);
+      if (type === 'improve') here = here.slice(-1);
+      const showing = tool === type ? review?.id : (here.find((r) => r.id === doc.focus?.[doc.currentDraftId]) ?? here.at(-1))?.id;
+      const goals = new Set(here.map((r) => r.goal));
+      const earlier = [];
+      const at = doc.line.indexOf(doc.currentDraftId);
+      for (let i = at - 1; i >= 0; i--) {
+        const number = i;
+        for (const r of (await store.listReviews(doc.id, doc.line[i])).filter((x) => typeOf(x) === type).reverse()) {
+          if (!r.goal || goals.has(r.goal)) continue;
+          goals.add(r.goal);
+          earlier.push({ title: focusTitle(r), goal: r.goal, context: r.context ?? null, draft: number === 0 ? 'Original' : `Draft ${number}` });
+        }
+      }
+      return {
+        current: here.reverse().map((r) => ({ ...summary(r), showing: r.id === showing })),
+        earlier,
+      };
+    },
+
+    // Shows one of this draft's focuses, switching to the highlight tool if need be.
+    async setFocus(reviewId) {
+      requireDoc();
+      const chosen = (await store.listReviews(doc.id, doc.currentDraftId)).find((r) => r.id === reviewId && typeOf(r) === 'highlights');
+      if (!chosen) throw new Error(`No highlights review ${reviewId} on the current draft. list_focuses shows them.`);
+      await rememberFocus(chosen.id);
+      if (tool !== 'highlights') {
+        tool = 'highlights';
+        doc.tool = tool;
+        await store.saveDocument(doc);
+        events.emit('tool', tool);
+      }
+      review = chosen;
+      events.emit('review', review);
+      return { focus: focusTitle(chosen), review: chosen.id };
     },
 
     // The user's requests marked on the page. A committed review takes no more requests.
@@ -522,7 +657,8 @@ export function createWorkspace(userData) {
     // of the same type and goal. The old review stays in the draft's reviews folder.
     async resetToReview() {
       const old = requireReview();
-      review = await store.createReview(doc.id, doc.currentDraftId, 'user', { type: typeOf(old), goal: old.goal ?? null, context: old.context ?? null });
+      review = await store.createReview(doc.id, doc.currentDraftId, 'user', { type: typeOf(old), goal: old.goal ?? null, context: old.context ?? null, title: old.title ?? null });
+      if (typeOf(review) === 'highlights') await rememberFocus(review.id);
       events.emit('review', review);
       return review;
     },

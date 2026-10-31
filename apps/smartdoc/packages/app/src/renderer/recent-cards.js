@@ -1,8 +1,11 @@
 import { getDocument } from 'pdfjs-dist';
+import { TOOLS } from './tool-switcher.js';
 
 // Cards for the recently opened documents in the empty view. Each card is a preview of the document’s current draft
 // (first page), with previous/next buttons inside it at the bottom to cycle through its pages
-// (wrapping round), and the document name underneath. Clicking the card or the name opens it.
+// (wrapping round), and the document name underneath. Clicking the card or the name opens it in
+// the tool it was last used in. Under the name, a row for each tool says where the document stands
+// in it (from `doc.summary`, see workspace.summarise), and clicking a row opens it in that tool.
 
 const THUMB_WIDTH = 220; // CSS pixels the preview is drawn for (scaled to fit the card)
 const SLOTS = 4; // the empty view shows this many cards; unused slots are skeletons
@@ -42,7 +45,8 @@ function card(doc, { readRecent, openRecent }) {
         <button class="recent-step" type="button" data-step="1" aria-label="Next page">${nextIcon}</button>
       </div>
     </div>
-    <button class="recent-open recent-name" type="button"></button>`;
+    <button class="recent-open recent-name" type="button"></button>
+    <div class="recent-tools"></div>`;
 
   // The card (the preview) and the name below it both open the document; the name is the
   // keyboard stop.
@@ -51,9 +55,49 @@ function card(doc, { readRecent, openRecent }) {
     open.addEventListener('click', () => openRecent(doc.id));
   }
   item.querySelector('.recent-name').textContent = doc.name;
+  item.querySelector('.recent-tools').append(...TOOLS.map((tool) => toolRow(doc, tool, openRecent)));
 
   loadPreview(item, doc, readRecent);
   return item;
+}
+
+function toolRow(doc, tool, openRecent) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = `recent-tool${doc.summary?.tool === tool.id ? ' last-used' : ''}`;
+  row.style.setProperty('--tool-row-color', tool.color);
+  row.innerHTML = tool.icon;
+  const text = document.createElement('span');
+  text.className = 'recent-tool-text';
+  const name = document.createElement('span');
+  name.className = 'recent-tool-name';
+  name.textContent = tool.label;
+  const status = document.createElement('span');
+  status.className = 'recent-tool-status';
+  status.textContent = toolStatus(doc.summary, tool.id);
+  text.append(name, status);
+  row.append(text);
+  row.title = `Open in ${tool.label}`;
+  row.addEventListener('click', () => openRecent(doc.id, tool.id));
+  return row;
+}
+
+// Where the document stands in a tool, in a few words.
+function toolStatus(summary, tool) {
+  if (!summary) return '';
+  if (tool === 'improve') {
+    const r = summary.improve;
+    if (!r) return `${summary.draft} · no review yet`;
+    if (r.status !== 'committed') return `${summary.draft} · AI reviewing`;
+    if (r.applied) return `${summary.draft} · applied`;
+    return `${summary.draft} · ${r.decided} of ${r.findings} decided`;
+  }
+  // The focus it opens on (the one last shown), and how many others there are.
+  const r = summary.highlights;
+  if (!r) return 'No highlights yet';
+  const others = r.focuses > 1 ? ` · +${r.focuses - 1} more` : '';
+  if (r.status !== 'committed') return `${r.title} · AI highlighting${others}`;
+  return `${r.title} · ${r.count} highlight${r.count === 1 ? '' : 's'}${others}`;
 }
 
 async function loadPreview(item, doc, readRecent) {
