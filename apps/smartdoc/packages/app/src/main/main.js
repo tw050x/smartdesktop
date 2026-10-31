@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
@@ -193,13 +194,117 @@ async function openDocument(docId) {
   await workspace.openDocument(docId);
 }
 
-async function showOpenDialog() {
+async function pickPdf() {
   const { canceled, filePaths } = await dialog.showOpenDialog(win ?? undefined, {
     properties: ['openFile'],
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
-  if (!canceled && filePaths.length) await importFile(filePaths[0]);
+  return canceled ? null : filePaths[0] ?? null;
 }
+
+async function showOpenDialog() {
+  const filePath = await pickPdf();
+  if (filePath) await importFile(filePath);
+}
+
+// --- Documents opened by the AI ----------------------------------------------------------
+// The AI can open a document from the recent list straight away. A file on disk needs the user:
+// either the AI names a path and the user confirms it in the app (so an AI can't read files
+// without the user knowing), or the user picks the file. Those wait on the user, so open_document
+// returns at once, telling the AI to send the user to the app; get_document then waits for the
+// outcome. Only one such request waits at a time.
+
+const AI_OPEN_WAIT_MS = 45 * 1000;
+let aiOpen = null; // { name, state: 'waiting' | 'opened' | 'cancelled' | 'failed', error, done }
+
+async function bringToFront() {
+  await ensureWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  app.focus({ steal: true });
+}
+
+function waitOnUser(name, task) {
+  const request = { name, state: 'waiting', error: null };
+  request.done = task().then(
+    (opened) => { request.state = opened ? 'opened' : 'cancelled'; },
+    (error) => { request.state = 'failed'; request.error = error.message; },
+  );
+  aiOpen = request;
+}
+
+const expandHome = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
+
+async function checkPdf(filePath) {
+  const resolved = path.resolve(expandHome(filePath));
+  const stats = await fs.promises.stat(resolved).catch(() => null);
+  if (!stats?.isFile()) throw new Error(`There's no file at ${resolved}.`);
+  const handle = await fs.promises.open(resolved, 'r');
+  try {
+    const { buffer } = await handle.read(Buffer.alloc(5), 0, 5, 0);
+    if (buffer.toString('latin1') !== '%PDF-') throw new Error(`${path.basename(resolved)} isn't a PDF. SmartDoc opens PDFs only.`);
+  } finally {
+    await handle.close();
+  }
+  return resolved;
+}
+
+const documentsForAi = {
+  list: () => workspace.recent.map((r) => ({ id: r.id, name: r.name, importedAt: r.importedAt, open: workspace.document?.id === r.id })),
+
+  async open({ path: filePath, document_id: docId } = {}) {
+    if (aiOpen?.state === 'waiting') {
+      throw new Error(`SmartDoc is still waiting for the user to ${aiOpen.name ? `confirm opening ${aiOpen.name}` : 'pick a file'}. Ask them to answer in the app, then call get_document.`);
+    }
+    if (docId) {
+      if (!workspace.isRecent(docId)) throw new Error(`No document ${docId}. list_documents shows the ones that can be opened.`);
+      await ensureWindow();
+      if (workspace.document?.id !== docId) await workspace.openDocument(docId);
+      return { status: 'opened', document: workspace.document.name };
+    }
+    if (filePath) {
+      const resolved = await checkPdf(filePath);
+      const name = path.basename(resolved);
+      waitOnUser(name, async () => {
+        await bringToFront();
+        const choice = await confirmReplace(win, { current: workspace.document?.name, next: name, unsaved: false, source: path.dirname(resolved) });
+        if (choice === 'cancel') return false;
+        await workspace.importAndOpen(resolved);
+        return true;
+      });
+      return {
+        status: 'waiting_for_user',
+        message: `Before anything else, tell the user to switch to the SmartDoc app and confirm opening ${name}: it won't open until they do. Then call get_document, which waits for their answer.`,
+      };
+    }
+    waitOnUser(null, async () => {
+      await bringToFront();
+      const picked = await pickPdf();
+      if (!picked) return false;
+      await workspace.importAndOpen(picked);
+      return true;
+    });
+    return {
+      status: 'waiting_for_user',
+      message: 'Before anything else, tell the user to switch to the SmartDoc app and choose the file in the window it has opened: nothing opens until they do. Then call get_document, which waits for their choice.',
+    };
+  },
+
+  // Called before get_document: waits for the user's answer to an open request, if there is one.
+  // An answer is reported once.
+  async settle() {
+    const request = aiOpen;
+    if (!request) return;
+    if (request.state === 'waiting') {
+      await Promise.race([request.done, new Promise((resolve) => setTimeout(resolve, AI_OPEN_WAIT_MS))]);
+    }
+    const what = request.name ?? 'the file';
+    if (request.state === 'waiting') throw new Error(`Still waiting for the user to ${request.name ? `confirm opening ${request.name}` : 'pick a file'} in SmartDoc. Remind them to switch to the app, then call get_document again.`);
+    aiOpen = null;
+    if (request.state === 'cancelled') throw new Error(`The user cancelled opening ${what}.`);
+    if (request.state === 'failed') throw new Error(`Couldn't open ${what}: ${request.error}`);
+  },
+};
 
 // Writes the current draft anywhere, including over the file it was imported from.
 async function saveDraftAs() {
@@ -315,7 +420,7 @@ app.whenReady().then(async () => {
   updateMenu();
   createWindow();
   try {
-    mcp = await startMcpServer(workspace, app.getPath('userData'), { onClients: () => send('mcp-status', mcpStatus()) });
+    mcp = await startMcpServer(workspace, app.getPath('userData'), { documents: documentsForAi, onClients: () => send('mcp-status', mcpStatus()) });
   } catch {
     mcp = null; // e.g. the port is taken by another copy of the app
   }

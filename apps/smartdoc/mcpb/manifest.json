@@ -24,6 +24,8 @@
     }
   },
   "tools": [
+    { "name": "list_documents", "description": "Documents you've opened in SmartDoc before, so Claude can open one again." },
+    { "name": "open_document", "description": "Opens a document in SmartDoc: one you've opened before, a PDF you confirm in the app, or a file you pick." },
     { "name": "get_document", "description": "The open document: its name, which draft is showing, and the text of each page." },
     { "name": "get_review", "description": "The current draft's review: your requests, the findings with your decisions, annotations and history." },
     { "name": "get_history", "description": "Earlier reviews of your document and what you decided on each finding, so a new review doesn't ask again." },

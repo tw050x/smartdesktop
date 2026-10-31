@@ -23,10 +23,11 @@ ipcMain.on('confirm-replace-fit', (event, height) => {
   if (actual < wanted) dialog.setContentSize(WIDTH, wanted + (wanted - actual));
 });
 
-// Asks, in a window of its own, whether to replace the open file with another. Attached to the
+// Asks, in a window of its own, whether to replace the open file with another, or (with `source`,
+// the folder of a file the AI asked to open) whether to let the AI open it. Attached to the
 // parent (a sheet on macOS, a modal window elsewhere). Resolves with 'replace', 'save' (save
 // the current file's changes, then replace) or 'cancel'.
-export function confirmReplace(parent, { current, next, unsaved }) {
+export function confirmReplace(parent, { current, next, unsaved, source }) {
   const dialog = new BrowserWindow({
     parent,
     modal: true,
@@ -58,7 +59,7 @@ export function confirmReplace(parent, { current, next, unsaved }) {
     pending.set(id, finish);
     dialog.on('closed', () => pending.has(id) && finish('cancel'));
     dialog.loadFile(path.join(dirname, '../../build/renderer/confirm-replace.html'), {
-      query: { current: path.basename(current), next: path.basename(next), unsaved: unsaved ? '1' : '' },
+      query: { current: current ? path.basename(current) : '', next: path.basename(next), unsaved: unsaved ? '1' : '', source: source ?? '' },
     });
   });
 }

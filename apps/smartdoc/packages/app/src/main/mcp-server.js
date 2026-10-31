@@ -12,6 +12,7 @@ import { z } from 'zod';
 export const MCP_PORT = (!app.isPackaged && Number(process.env.SMARTDOC_PORT)) || 47815;
 
 const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user in rounds:
+0. Open: get_document reads the document open in the app. If none is open, or the user means a different one, open it with open_document: by document_id from list_documents (documents the user has opened before), by path (a PDF on the user's computer, which the user confirms in the app), or with neither so the user picks the file in the app. When open_document reports waiting_for_user, tell the user straight away to switch to the SmartDoc app and answer there, then call get_document, which waits for them.
 1. Review: read the document with get_document and the current review with get_review (it may already hold the user's requests: text they marked to rewrite, comment on, keep, remove, add to, or ask about). Read get_history too: what earlier reviews of this document raised and what the user decided. Don't raise again anything the user rejected or chose to keep, unless that text has changed since or you have a new reason (say so in the finding), and don't ask questions they've already answered: use their answers. Changes they accepted that are still not in the document can be raised again. If the user asks for a fresh review, ignore the history. Decorate text with add_annotation and add findings with add_finding. Every finding offers the user a decision: a proposed change, a choice of options, a question, a structural move, a design change, or a flag to acknowledge. Respond to each user request with a finding that has in_response_to set. Finish with commit_review; the user then decides in the app.
 2. Decide: the user works through the findings, and may write changes of their own. Read their choices with get_decisions.
 3. Apply: carry out what was accepted and the user's own changes (and use the user's answers and comments) by writing the complete updated document as HTML and calling apply_review. The app draws it to PDF as the next draft. Never apply anything the user rejected, and leave text marked "keep" unchanged.
@@ -24,7 +25,7 @@ const quote = z.object({
 });
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
 
-function buildServer(workspace) {
+function buildServer(workspace, documents) {
   const server = new McpServer({ name: 'smartdoc', version: '0.1.0' }, { instructions: INSTRUCTIONS });
   const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema }, async (args) => {
     try {
@@ -34,7 +35,17 @@ function buildServer(workspace) {
     }
   });
 
-  tool('get_document', 'The open document: its name, which draft is showing, and the text of each page (quote from this when referencing text).', {}, () => workspace.getDocument());
+  tool('list_documents', 'Documents the user has opened in the app before, newest first, with the one that is open now marked. Open one with open_document and its id.', {}, () => documents.list());
+
+  tool('open_document', 'Opens a document in the app. With document_id: one from list_documents, opened straight away. With path: a PDF on the user\'s computer, which the user must confirm in the app first. With neither: the app asks the user to pick a file. The last two return waiting_for_user: tell the user to switch to the SmartDoc app and answer, then call get_document, which waits for them.', {
+    document_id: z.string().optional(),
+    path: z.string().optional().describe('Absolute path to a PDF (~ is allowed)'),
+  }, (a) => documents.open(a));
+
+  tool('get_document', 'The open document: its name, which draft is showing, and the text of each page (quote from this when referencing text). If the user is still answering an open_document request, this waits for them first.', {}, async () => {
+    await documents.settle();
+    return workspace.getDocument();
+  });
 
   tool('get_review', 'The current draft\'s review: status (open or committed), the user\'s requests, findings with their decisions, annotations and history. Null if there is none yet.', {}, () => workspace.getReview());
 
@@ -118,8 +129,9 @@ async function clientLog(userData, onChange) {
 
 // Streamable HTTP on 127.0.0.1 only, stateless (a fresh server per request), JSON responses.
 // Requests carrying an Origin header come from a web page and are refused, as are requests
-// without the token. `onClients` is called whenever an AI app connects.
-export async function startMcpServer(workspace, userData, { onClients } = {}) {
+// without the token. `documents` lists and opens documents for the AI (it needs the window);
+// `onClients` is called whenever an AI app connects.
+export async function startMcpServer(workspace, userData, { documents, onClients } = {}) {
   const token = await mcpToken(userData);
   const clients = await clientLog(userData, onClients);
   const http = createServer(async (req, res) => {
@@ -140,7 +152,7 @@ export async function startMcpServer(workspace, userData, { onClients } = {}) {
     for (const message of [body].flat()) {
       if (message?.method === 'initialize') clients.connected(message.params?.clientInfo);
     }
-    const server = buildServer(workspace);
+    const server = buildServer(workspace, documents);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       transport.close();

@@ -1,16 +1,19 @@
-// Confirmation shown when a PDF is dropped while another is open. The file names and whether
-// there are unsaved changes come in the query string; the choice goes back to the main process.
+// Confirmation shown when a PDF is dropped while another is open, or when the AI asks to open a
+// file (then `source` is the file's folder). The file names and whether there are unsaved
+// changes come in the query string; the choice goes back to the main process.
 const params = new URLSearchParams(location.search);
 const current = params.get('current');
 const next = params.get('next');
 const unsaved = params.get('unsaved') === '1';
+const source = params.get('source');
 
+const closing = current ? ` “${current}” will be closed.` : '';
 document.getElementById('title').textContent = unsaved
   ? `Save changes to “${current}” before opening “${next}”?`
-  : `Open “${next}”?`;
+  : source ? `Let your AI open “${next}”?` : `Open “${next}”?`;
 document.getElementById('message').textContent = unsaved
   ? 'Your changes will be lost if you don’t save them.'
-  : `“${current}” will be closed.`;
+  : source ? `Your AI asked to open this file from ${source}. It will be able to read the file’s text.${closing}` : closing.trim();
 
 // [label, choice, kind]; the last button is the default (Return), Cancel answers Escape.
 const buttons = unsaved

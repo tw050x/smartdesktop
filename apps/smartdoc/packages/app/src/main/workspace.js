@@ -6,14 +6,16 @@ import { renderHtmlToPdf } from './render-draft.js';
 import { createStore, logTo } from './store.js';
 
 const MAX_RECENT = 10;
+const PAGE_TEXT_WAIT_MS = 15 * 1000;
 const REQUEST_KINDS = ['rewrite', 'comment', 'keep', 'remove', 'add', 'ask'];
 const ITEM_KINDS = ['change', 'options', 'question', 'move', 'design', 'flag'];
 
 // The open document, its current draft and that draft's current review, plus the list of recent
 // documents. The window, the menu and the MCP server all act through this, and it emits:
-//   'draft'   the document or draft changed (the window reloads the PDF)
-//   'review'  the current review changed
-//   'recent'  the recent documents changed
+//   'draft'       the document or draft changed (the window reloads the PDF)
+//   'review'      the current review changed
+//   'recent'      the recent documents changed
+//   'page-texts'  the window reported the current draft's page texts
 // A draft's current review is its newest one. Reviews are single records: the user's requests, the
 // AI's findings and annotations, the user's decisions and the history all live in one file.
 export function createWorkspace(userData) {
@@ -27,7 +29,7 @@ export function createWorkspace(userData) {
   let recent = []; // [{ id, name, importedAt }], newest first
 
   const requireDoc = () => {
-    if (!doc) throw new Error('No document is open. Ask the user to open their document in the app.');
+    if (!doc) throw new Error('No document is open. Open one with open_document (list_documents shows the ones opened before).');
     return doc;
   };
   const requireReview = () => {
@@ -164,12 +166,27 @@ export function createWorkspace(userData) {
 
     // The window reports each draft's page texts once it has drawn the text layer.
     setPageTexts(docId, draftId, texts) {
-      if (doc?.id === docId && doc.currentDraftId === draftId) pageTexts = texts;
+      if (doc?.id !== docId || doc.currentDraftId !== draftId) return;
+      pageTexts = texts;
+      events.emit('page-texts');
     },
 
     // --- Reading (for the AI) ------------------------------------------------------------
 
-    getDocument() {
+    // Waits a little for a document that's just been opened to finish loading in the window.
+    async getDocument() {
+      requireDoc();
+      if (!pageTexts) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(done, PAGE_TEXT_WAIT_MS);
+          function done() {
+            clearTimeout(timer);
+            events.off('page-texts', done);
+            resolve();
+          }
+          events.on('page-texts', done);
+        });
+      }
       requireDoc();
       if (!pageTexts) throw new Error('The document is still loading in the app. Try again in a moment.');
       const number = doc.line.indexOf(doc.currentDraftId);
