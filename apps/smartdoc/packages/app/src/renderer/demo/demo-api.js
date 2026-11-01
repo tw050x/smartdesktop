@@ -194,6 +194,8 @@ export function createDemoApi() {
     onDocumentMade: on('made'),
     onVariationRequested: on('variation'),
     variationsOf: async () => variationsOf(),
+    focusesFor: async () => ({ current: [], earlier: [] }),
+    prepareDraft: async () => {},
     openDraft: async () => {},
     showDraftMenu: async () => {},
     showDocumentMenu: async () => {},

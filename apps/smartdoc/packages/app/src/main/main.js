@@ -392,6 +392,10 @@ handle('open-path', (filePath) => importFile(filePath));
 // The home screen browses the documents in the list: each one's variations and their drafts,
 // opening a draft, and making a document from one.
 handle('variations-of', (docId) => (workspace.isRecent(docId) ? workspace.variationsOf(docId) : null));
+// Starting a review from the home screen: the focuses to offer, and the draft made current when
+// the prompt is copied.
+handle('focuses-for', (docId, variationId, draftId, type) => (workspace.isRecent(docId) ? workspace.focusesFor(docId, variationId, draftId, type) : null));
+handle('prepare-draft', (docId, variationId, draftId, tool) => (workspace.isRecent(docId) ? workspace.prepareDraft(docId, variationId, draftId, tool) : null));
 handle('open-draft', async (docId, variationId, draftId, tool) => {
   if (!workspace.isRecent(docId)) return;
   if (workspace.document?.id !== docId && !(await confirmSwitch(workspace.recent.find((r) => r.id === docId)?.name))) return;

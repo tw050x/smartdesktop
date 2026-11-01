@@ -7,6 +7,7 @@
 // Right-clicking a document gives a menu to remove it from the list (its files stay in the app's
 // data folder).
 
+import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 
 const icon = (paths, size = 14) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -42,6 +43,45 @@ const remembered = (column) => {
 const formatDate = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
+  // The card for starting a review on a draft, as the top bar's focus menu has it, under the
+  // draft's line: its earlier drafts' focuses to run again, or a new one. Copying a prompt makes
+  // that draft its document's current place (prepare-draft), where the agent then finds it.
+  const startCard = Object.assign(document.createElement('div'), { className: 'tool-card focus-card home-start-card', hidden: true });
+  startCard.setAttribute('role', 'dialog');
+  startCard.setAttribute('aria-label', 'Start a review');
+  document.body.append(startCard);
+  let startFrom = null; // the line that opened it
+  async function openStartCard(line, doc, variationId, draftId, tool) {
+    startFrom = line;
+    const r = line.getBoundingClientRect();
+    startCard.style.left = `${Math.min(r.left, innerWidth - 376)}px`;
+    startCard.style.top = `${r.bottom + 6}px`;
+    startCard.hidden = false;
+    startCard.replaceChildren(Object.assign(document.createElement('p'), { className: 'focus-loading', textContent: 'Loading…' }));
+    let focuses;
+    try {
+      focuses = await api.focusesFor(doc.id, variationId, draftId, tool);
+    } catch {
+      focuses = { current: [], earlier: [] };
+    }
+    if (startFrom !== line) return;
+    fillFocusCard(startCard, { tool, doc, focuses, copyText: api.copyText, onCopy: () => api.prepareDraft(doc.id, variationId, draftId, tool) });
+    // Above the line instead if it would run off the bottom of the window.
+    const h = startCard.offsetHeight;
+    if (r.bottom + 6 + h > innerHeight - 8) startCard.style.top = `${Math.max(8, r.top - 6 - h)}px`;
+    startCard.querySelector('.focus-goal-input')?.focus();
+  }
+  function closeStartCard() {
+    startCard.hidden = true;
+    startFrom = null;
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (!startCard.hidden && !startCard.contains(e.target) && !startFrom?.contains(e.target)) closeStartCard();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !startCard.hidden) closeStartCard();
+  });
+
   let documents = [];
   let selected = { doc: null, variation: null };
   let tree = null; // the selected document's variations and drafts
@@ -127,21 +167,25 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
         api.showDraftMenu({ docId: tree.id, variationId: variation.id, draftId: d.id, draft: number });
       });
       item.append(row);
-      const reviews = TOOLS.filter((t) => d.reviews?.[t.id]);
-      if (reviews.length) {
-        const list = el('div', 'home-reviews');
-        for (const t of reviews) {
-          const line = el('button', 'home-review');
-          line.type = 'button';
-          line.style.setProperty('--review-color', t.color);
-          line.innerHTML = t.icon;
-          line.append(el('span', 'home-review-text', reviewStatus(t.id, d.reviews[t.id])));
-          line.title = `Open ${d.label} in ${t.label}`;
-          line.addEventListener('click', () => api.openDraft(tree.id, variation.id, d.id, t.id));
-          list.append(line);
-        }
-        item.append(list);
+      // A line per tool: where its review stands, or, with none yet, a way to start one (a card
+      // saying what it's for, see openStartCard).
+      const list = el('div', 'home-reviews');
+      for (const t of TOOLS) {
+        const r = d.reviews?.[t.id];
+        const line = el('button', r ? 'home-review' : 'home-review start');
+        line.type = 'button';
+        line.style.setProperty('--review-color', t.color);
+        line.innerHTML = t.icon;
+        line.append(el('span', 'home-review-text', r ? reviewStatus(t.id, r) : START[t.id]));
+        line.title = r ? `Open ${d.label} in ${t.label}` : `Start ${t.label} on ${d.label}`;
+        line.addEventListener('click', () => {
+          if (r) return api.openDraft(tree.id, variation.id, d.id, t.id);
+          if (startFrom === line) return closeStartCard();
+          openStartCard(line, { id: tree.id, name: tree.name }, variation.id, d.id, t.id);
+        });
+        list.append(line);
       }
+      item.append(list);
       draftsEl.append(item);
     }
   }
@@ -173,6 +217,9 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     select: choose,
   };
 }
+
+// A tool's line on a draft with no review of its kind yet.
+const START = { improve: 'Start a review', highlights: 'Find the key information' };
 
 // Where a draft's review stands, in a few words.
 function reviewStatus(tool, r) {

@@ -113,6 +113,20 @@ export function createWorkspace(userData) {
     || (r.variationId ?? store.ORIGINAL) === variationId
     || r.applications.some((a) => line.includes(a.draftId));
 
+  // The goals of reviews of a kind on the drafts before `draftId` on a line, newest first, leaving
+  // out those in `goals` (already run): a draft's earlier focuses, offered to run again.
+  async function earlierFocuses(docId, line, draftId, type, goals) {
+    const earlier = [];
+    for (let i = line.indexOf(draftId) - 1; i >= 0; i--) {
+      for (const r of (await store.listReviews(docId, line[i])).filter((x) => typeOf(x) === type).reverse()) {
+        if (!r.goal || goals.has(r.goal)) continue;
+        goals.add(r.goal);
+        earlier.push({ title: focusTitle(r), goal: r.goal, context: r.context ?? null, draft: i === 0 ? 'Original' : `Draft ${i}` });
+      }
+    }
+    return earlier;
+  }
+
   // Remembers the focus showing on the current draft (saved with the document).
   async function rememberFocus(reviewId) {
     doc.focus = { ...doc.focus, [doc.currentDraftId]: reviewId };
@@ -579,21 +593,34 @@ export function createWorkspace(userData) {
       let here = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === type && inVariation(r));
       if (type === 'improve') here = here.slice(-1);
       const showing = tool === type ? review?.id : (here.find((r) => r.id === doc.focus?.[doc.currentDraftId]) ?? here.at(-1))?.id;
-      const goals = new Set(here.map((r) => r.goal));
-      const earlier = [];
-      const at = doc.line.indexOf(doc.currentDraftId);
-      for (let i = at - 1; i >= 0; i--) {
-        const number = i;
-        for (const r of (await store.listReviews(doc.id, doc.line[i])).filter((x) => typeOf(x) === type).reverse()) {
-          if (!r.goal || goals.has(r.goal)) continue;
-          goals.add(r.goal);
-          earlier.push({ title: focusTitle(r), goal: r.goal, context: r.context ?? null, draft: number === 0 ? 'Original' : `Draft ${number}` });
-        }
-      }
       return {
-        current: here.reverse().map((r) => ({ ...summary(r), showing: r.id === showing })),
-        earlier,
+        current: [...here].reverse().map((r) => ({ ...summary(r), showing: r.id === showing })),
+        earlier: await earlierFocuses(doc.id, doc.line, doc.currentDraftId, type, new Set(here.map((r) => r.goal))),
       };
+    },
+
+    // The focuses to start a review of a kind on a draft the home screen lists (one with no review
+    // of that kind yet): the goals of the drafts before it on its variation's line, to run again.
+    async focusesFor(docId, variationId, draftId, type) {
+      if (!REVIEW_TYPES.includes(type)) throw new Error(`Unknown review type: ${type}. Use "improve" or "highlights".`);
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = d.variations.find((v) => v.id === variationId);
+      const line = variation && (variation.id === d.variationId ? d.line : variation.line);
+      if (!line?.includes(draftId)) throw new Error(`No draft ${draftId} in that variation.`);
+      return { current: [], earlier: await earlierFocuses(d.id, line, draftId, type, new Set()) };
+    },
+
+    // Makes a draft its document's current place (its variation, the draft and the tool) without
+    // opening it, so the agent finds it there when it opens the document: for a review started
+    // from the home screen.
+    async prepareDraft(docId, variationId, draftId, nextTool) {
+      if (doc?.id === docId) return this.openDraft(docId, variationId, draftId, nextTool);
+      const d = await store.loadDocument(docId);
+      if (variationId !== d.variationId) store.selectVariation(d, variationId);
+      if (!d.line.includes(draftId)) throw new Error(`No draft ${draftId} in that variation.`);
+      d.currentDraftId = draftId;
+      if (REVIEW_TYPES.includes(nextTool)) d.tool = nextTool;
+      await store.saveDocument(d);
     },
 
     // Shows one of this draft's focuses, switching to the highlight tool if need be.

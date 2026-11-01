@@ -535,6 +535,9 @@ body:not(.has-document) .pages-wrap { display: none; }
 .home-review:hover { background: color-mix(in srgb, var(--review-color) 8%, transparent); }
 .home-review:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .home-review-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* No review of this kind yet: a quieter line offering to start one. */
+.home-review.start { color: color-mix(in srgb, var(--review-color) 55%, var(--muted)); }
+.home-review.start:hover { color: var(--review-color); }
 
 /* The pages and the review's margin layer over them, which scrolls with them. */
 .pages-wrap { position: relative; }
@@ -591,6 +594,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 .variation-dialog textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; font: inherit; field-sizing: content; min-height: calc(4lh + 14px); max-height: 50vh; resize: none; user-select: text; }
 .variation-dialog textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .variation-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* Settings: a modal in the window, opened from the top bar's gear. */
+.settings-dialog { width: 560px; max-width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; flex-direction: column; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); font-size: 13px; }
+.settings-dialog[open] { display: flex; }
+.settings-dialog:focus { outline: none; }
+.settings-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--border); }
+.settings-head h2 { margin: 0; font-size: 15px; }
+.settings-body { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
 
 /* pdf.js's text pieces can overlap (e.g. a space between two words), and its see-through
    selection colour then shows darker where they do. A solid colour, multiplied onto the page so

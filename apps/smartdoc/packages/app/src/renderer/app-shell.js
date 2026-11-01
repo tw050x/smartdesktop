@@ -8,6 +8,7 @@ import { createMarginReview } from './margin-review.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
 import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
+import { createSettings } from './settings.js';
 import { createToolSwitcher } from './tool-switcher.js';
 import { createVariationCard } from './variation-card.js';
 import { APP_MARKUP } from './app-markup.js';
@@ -25,6 +26,7 @@ export function startApp(api) {
     document.body.classList.toggle('full-screen', isFullScreen);
   });
   createServerStatus({ api });
+  createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog') });
   const toolSwitcher = createToolSwitcher({
     button: document.getElementById('tool-button'),
     label: document.getElementById('tool-label'),

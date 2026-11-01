@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('smartdoc', {
   onVariationRequested: on('variation-requested'),
   onDocumentMade: on('document-made'),
   variationsOf: (docId) => call('variations-of', docId),
+  focusesFor: (docId, variationId, draftId, type) => call('focuses-for', docId, variationId, draftId, type),
+  prepareDraft: (docId, variationId, draftId, tool) => call('prepare-draft', docId, variationId, draftId, tool),
   openDraft: (docId, variationId, draftId, tool) => call('open-draft', docId, variationId, draftId, tool),
   showDraftMenu: (draft) => call('draft-menu', draft),
   showVariationMenu: (variation) => call('variation-menu', variation),
