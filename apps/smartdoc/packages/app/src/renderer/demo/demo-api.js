@@ -188,6 +188,8 @@ export function createDemoApi() {
     copyMcpSetup: async () => {},
     openWebsite: async () => {},
     copyText: async () => {},
+    getAppearance: async () => 'system',
+    setAppearance: async () => {},
 
     onRecentDocuments: on('recent'),
     onDocumentMade: on('made'),

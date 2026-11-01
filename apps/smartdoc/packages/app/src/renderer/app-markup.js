@@ -159,6 +159,17 @@ export const APP_MARKUP = `
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
     </button>
   </div>
-  <div class="settings-body" id="settings-body"></div>
+  <div class="settings-body" id="settings-body">
+    <!-- How the app looks: as the system is, or always light or dark (see settings.js). -->
+    <section class="setting">
+      <h3 class="setting-title" id="appearance-title">Appearance</h3>
+      <div class="segmented" id="appearance" role="radiogroup" aria-labelledby="appearance-title">
+        <button type="button" role="radio" data-appearance="system" aria-checked="true">System</button>
+        <button type="button" role="radio" data-appearance="light" aria-checked="false">Light</button>
+        <button type="button" role="radio" data-appearance="dark" aria-checked="false">Dark</button>
+      </div>
+      <p class="setting-note">System matches your Mac’s appearance. Your documents stay as they are.</p>
+    </section>
+  </div>
 </dialog>
 `;

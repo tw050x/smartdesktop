@@ -2,8 +2,9 @@
    macOS in the app), the scripted cursor, and stand-ins for what the system draws in the app: the
    right-click menu and a file being dropped. Nothing in it is meant to be clicked. */
 
-/* The app is always light (nativeTheme in main.js); set on the body, as pdf.js's stylesheet sets the root's. */
-.demo { color-scheme: light; }
+/* Light or dark as the visitor's system is, as the website is (the app's Appearance set to System);
+   set on the body too, as pdf.js's stylesheet sets the root's. */
+.demo { color-scheme: light dark; }
 .demo { pointer-events: none; }
 .demo .top-bar::before {
   content: "";

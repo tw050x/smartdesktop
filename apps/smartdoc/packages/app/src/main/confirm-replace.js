@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,7 +40,7 @@ export function confirmReplace(parent, { current, next, unsaved, source }) {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    backgroundColor: '#ffffff',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#232326' : '#ffffff', // as its body (confirm-replace.css)
     webPreferences: {
       preload: path.join(dirname, 'confirm-replace-preload.cjs'),
       contextIsolation: true,

@@ -26,7 +26,7 @@ export function startApp(api) {
     document.body.classList.toggle('full-screen', isFullScreen);
   });
   createServerStatus({ api });
-  createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog') });
+  createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog'), api });
   const toolSwitcher = createToolSwitcher({
     button: document.getElementById('tool-button'),
     label: document.getElementById('tool-label'),

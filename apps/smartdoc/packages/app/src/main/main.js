@@ -65,12 +65,47 @@ let mcp = null; // { url, token } once the MCP server is listening
 let mcpStarting = true;
 const workspace = createWorkspace(app.getPath('userData'));
 
+// --- Appearance ----------------------------------------------------------------------------
+
+// Light, dark, or as the system is: chosen in Settings and kept in settings.json, beside the
+// documents. Electron's theme then has the interface's styles follow it (their light-dark()
+// colours, see styles.css), and its native menus and dialogs too.
+const APPEARANCES = ['system', 'light', 'dark'];
+const settingsFile = path.join(app.getPath('userData'), 'settings.json');
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+function setAppearance(appearance) {
+  if (!APPEARANCES.includes(appearance)) return;
+  nativeTheme.themeSource = appearance;
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  fs.writeFileSync(settingsFile, JSON.stringify({ ...readSettings(), appearance }, null, 2));
+}
+nativeTheme.themeSource = APPEARANCES.includes(readSettings().appearance) ? readSettings().appearance : 'system';
+
+// The window's own colours, which the interface can't set: its background (showing as it opens
+// or resizes) and, on Windows and Linux, the title bar's (the top bar's, see styles.css).
+const windowColours = () => (nativeTheme.shouldUseDarkColors
+  ? { background: '#161618', bar: '#1f1f22', symbols: '#d1d1d6' }
+  : { background: '#ebebef', bar: '#dcdce1', symbols: '#3c3c43' });
+nativeTheme.on('updated', () => {
+  if (!win) return;
+  const colours = windowColours();
+  win.setBackgroundColor(colours.background);
+  if (process.platform !== 'darwin') win.setTitleBarOverlay({ color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT });
+});
+
 // Frameless window: the interface draws its own top bar. macOS keeps its traffic lights,
 // placed in the top bar; Windows and Linux get the system window controls drawn over it.
 function createWindow() {
+  const colours = windowColours();
   const frame = process.platform === 'darwin'
     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
-    : { titleBarStyle: 'hidden', titleBarOverlay: { color: '#dcdce1', symbolColor: '#3c3c43', height: TOP_BAR_HEIGHT } };
+    : { titleBarStyle: 'hidden', titleBarOverlay: { color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT } };
 
   win = new BrowserWindow({
     width: 1280,
@@ -78,7 +113,7 @@ function createWindow() {
     minWidth: 760,
     minHeight: 480,
     title: 'SmartDoc',
-    backgroundColor: '#ebebef',
+    backgroundColor: colours.background,
     ...frame,
     webPreferences: {
       preload: path.join(dirname, 'preload.cjs'),
@@ -488,10 +523,10 @@ handle('set-tool', (tool) => workspace.setTool(tool));
 handle('copy-text', (text) => clipboard.writeText(String(text)));
 handle('copy-mcp-setup', (target) => clipboard.writeText(mcpSetup(target)));
 handle('open-website', () => shell.openExternal(WEBSITE));
+handle('get-appearance', () => nativeTheme.themeSource);
+handle('set-appearance', (appearance) => setAppearance(appearance));
 
 // --- App lifecycle -----------------------------------------------------------------------
-
-nativeTheme.themeSource = 'light';
 
 // macOS: files opened from Finder or the Dock.
 let pendingOpen = null;

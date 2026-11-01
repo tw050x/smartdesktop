@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('smartdoc', {
   copyText: (text) => call('copy-text', text),
   copyMcpSetup: (target) => call('copy-mcp-setup', target),
   openWebsite: () => call('open-website'),
+  // Light, dark or as the system is ('light', 'dark' or 'system'), from Settings.
+  getAppearance: () => call('get-appearance'),
+  setAppearance: (appearance) => call('set-appearance', appearance),
   onRecentDocuments: on('recent-documents'),
   onDraftOpened: on('draft-opened'),
   onDocumentClosed: on('document-closed'),

@@ -1,16 +1,36 @@
 :root {
-  color-scheme: light;
+  /* Light or dark, as the app's Appearance setting has it (nativeTheme in main.js), or as the
+     system does; each colour below is light-dark(its light value, its dark value), the dark ones
+     the website's. The PDF pages stay white either way: they're the document. */
+  color-scheme: light dark;
   --top-bar-height: 44px;
 
-  --bg: #ffffff;
-  --border: #e2e2e7;
-  --text: #1d1d1f;
-  --muted: #6e6e73;
-  --button-hover: #e6e6ea;
-  --button-active: #dadadf;
-  --document-bg: #ebebef;
-  --top-bar-bg: #dcdce1; /* a shade darker than the background below it (and main.js's title bar overlay) */
-  --accent: #2f6fde;
+  --bg: light-dark(#ffffff, #232326); /* cards and panels */
+  --border: light-dark(#e2e2e7, #3a3a3f);
+  --border-strong: light-dark(#c4c4cb, #4a4a50);
+  --text: light-dark(#1d1d1f, #f2f2f4);
+  --text-2: light-dark(#3c3c43, #d1d1d6); /* body text on cards, a step softer than --text */
+  --muted: light-dark(#6e6e73, #a1a1a8);
+  --faint: light-dark(#aeaeb4, #5a5a60);
+  --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
+  --hover-tint: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  --button-hover: light-dark(#e6e6ea, #2e2e33);
+  --button-active: light-dark(#dadadf, #38383e);
+  --document-bg: light-dark(#ebebef, #161618);
+  --top-bar-bg: light-dark(#dcdce1, #1f1f22); /* a shade apart from the background below it (and main.js's title bar overlay) */
+  --accent: light-dark(#2f6fde, #4a86ee);
+  --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
+  --thumb: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.28));
+  --thumb-active: light-dark(rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.42));
+  /* Changes: what's removed, what's added, and settled decisions. */
+  --del-bg: light-dark(#fdecec, #3a2224);
+  --del-text: light-dark(#8a1f1f, #f19a9a);
+  --ins-bg: light-dark(#e8f6ee, #1f3328);
+  --ins-text: light-dark(#155c34, #8fdcae);
+  --decided-text: light-dark(#1f7a45, #5cc98a);
+  --decision-bg: light-dark(#f1faf4, #1d2b23);
+  --decision-border: light-dark(#cdebd9, #2c4a38);
+  --decision-border-hover: light-dark(#9fd5b5, #3f7356);
 
   /* Shared by the PDF pages and the panels so their spacing and corners match. */
   --card-gap: 10px;
@@ -46,8 +66,8 @@ body {
   background: var(--top-bar-bg);
   -webkit-app-region: drag;
   /* Hover and press shades darker than the bar itself. */
-  --button-hover: #cdcdd3;
-  --button-active: #c2c2c8;
+  --button-hover: light-dark(#cdcdd3, #2c2c31);
+  --button-active: light-dark(#c2c2c8, #36363c);
 }
 .platform-darwin:not(.full-screen) .top-bar { padding-left: 84px; }
 body:not(.platform-darwin) .top-bar {
@@ -77,7 +97,7 @@ body:not(.platform-darwin) .top-bar {
 #tool-label { display: flex; align-items: center; gap: 6px; }
 /* Short of room (see app-shell.js): the tool shows just its icon. */
 .breadcrumb.tight .tool-name { display: none; }
-#tool-label svg { color: var(--tool-color); }
+#tool-label svg { color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
 /* The breadcrumb: home › tool. Only shown with a document open. */
 .breadcrumb { min-width: 0; gap: 2px; }
 .crumb-home { -webkit-app-region: no-drag; }
@@ -94,7 +114,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .draft-nav[hidden] { display: none; }
 .draft-nav .icon-button { font-size: 18px; line-height: 1; }
 /* Same hover square and cursor as the other buttons; only the arrow fades when there's no draft that way. */
-.draft-nav .icon-button:disabled { opacity: 1; cursor: pointer; color: #aeaeb4; }
+.draft-nav .icon-button:disabled { opacity: 1; cursor: pointer; color: var(--faint); }
 .draft-label { white-space: nowrap; font-weight: 500; color: var(--text); }
 body:not(.has-document) .breadcrumb { visibility: hidden; }
 .tool-card {
@@ -117,11 +137,11 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .focus-heading { margin: 6px 4px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .focus-empty, .focus-loading { margin: 0 4px; font-size: 12px; color: var(--muted); }
 .focus-option[aria-pressed="true"] { border-color: var(--tool-color); background: color-mix(in srgb, var(--tool-color) 8%, var(--bg)); box-shadow: inset 0 0 0 1px var(--tool-color); }
-.focus-option[aria-pressed="true"] strong { color: var(--tool-color); }
+.focus-option[aria-pressed="true"] strong { color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
 .focus-goal { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tool-option-text .focus-meta { font-size: 11px; color: var(--muted); }
 /* Earlier drafts' focuses aren't on this draft: greyed, with the prompt to run them again. */
-.focus-earlier { flex-direction: column; align-items: stretch; gap: 8px; cursor: default; background: #f6f6f8; }
+.focus-earlier { flex-direction: column; align-items: stretch; gap: 8px; cursor: default; background: var(--subtle-bg); }
 .focus-earlier:hover { border-color: var(--border); }
 .focus-earlier strong { color: var(--muted); }
 .focus-copy { align-self: flex-start; }
@@ -145,7 +165,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   color: var(--text);
   cursor: pointer;
 }
-.tool-option:hover { border-color: #c4c4cb; }
+.tool-option:hover { border-color: var(--border-strong); }
 .tool-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tool-option[aria-checked="true"] {
   border-color: var(--accent);
@@ -156,7 +176,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .tool-option-text { display: grid; gap: 2px; flex: 1; }
 .tool-option-text span { font-size: 12px; color: var(--muted); }
 .tool-option { gap: 10px; align-items: flex-start; }
-.tool-option-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: color-mix(in srgb, var(--option-color) 12%, var(--bg)); color: var(--option-color); }
+.tool-option-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: color-mix(in srgb, var(--option-color) 12%, var(--bg)); color: light-dark(var(--option-color), color-mix(in srgb, var(--option-color) 62%, white)); }
 
 .icon-button {
   display: grid;
@@ -191,7 +211,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   cursor: pointer;
   -webkit-app-region: no-drag;
 }
-.server-pill:hover, .server-pill[aria-expanded="true"] { background: #f6f6f9; }
+.server-pill:hover, .server-pill[aria-expanded="true"] { background: var(--subtle-bg); }
 .server-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .server-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0a100; } /* starting */
 .server-pill[data-state="running"] .server-dot { background: #1f9d55; }
@@ -204,7 +224,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--mask);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s, visibility 0s 0.2s;
@@ -273,7 +293,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   width: 4px;
   height: 108px;
   border-radius: 2px;
-  background: #c4c4cb;
+  background: var(--border-strong);
   transition: background-color 0.15s;
 }
 .mcp-resizer:hover::after, .mcp-resizing .mcp-resizer::after { background: var(--accent); }
@@ -302,7 +322,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   color: var(--text);
   cursor: pointer;
 }
-.app-picker-button:hover, .app-picker-button[aria-expanded="true"] { background: #f3f3f6; }
+.app-picker-button:hover, .app-picker-button[aria-expanded="true"] { background: var(--subtle-bg); }
 .app-picker-button svg { color: var(--muted); }
 .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .app-picker-menu {
@@ -319,7 +339,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 }
 .app-picker-menu[hidden] { display: none; }
 .app-picker-menu button { padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; text-align: left; white-space: nowrap; color: var(--text); cursor: pointer; }
-.app-picker-menu button:hover { background: #f3f3f6; }
+.app-picker-menu button:hover { background: var(--subtle-bg); }
 .app-picker-menu button[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent); font-weight: 600; }
 .tab-panel[hidden] { display: none; }
 .tab-panel { padding-top: 14px; }
@@ -332,7 +352,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   min-height: 36px;
   box-sizing: border-box;
   border-radius: 8px;
-  background: #f3f3f6;
+  background: var(--subtle-bg);
   font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -341,8 +361,8 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 }
 .setup-steps .code-block code { padding: 0; background: none; font-size: inherit; }
 .code-copy { position: absolute; right: 3px; bottom: 3px; }
-.code-copy:hover { background: #e6e6ea; }
-.setup-steps code { padding: 1px 4px; border-radius: 4px; background: #f3f3f6; font-size: 11px; }
+.code-copy:hover { background: var(--button-hover); }
+.setup-steps code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 11px; }
 
 /* --- The PDF view and the bar under it ---------------------------------------------------- */
 .workspace {
@@ -374,7 +394,7 @@ body:not(.has-document) .review-bar { display: none; }
   right: 3px;
   width: 4px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--thumb);
   transition: width 0.15s ease, background-color 0.15s ease;
 }
 .scrollbar:hover .scrollbar-thumb {
@@ -383,7 +403,7 @@ body:not(.has-document) .review-bar { display: none; }
 }
 .scrollbar.dragging .scrollbar-thumb {
   width: 8px;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--thumb-active);
   transition-delay: 0s;
 }
 
@@ -466,7 +486,7 @@ body:not(.has-document) .pages-wrap { display: none; }
   color: var(--text);
   cursor: pointer;
 }
-.home-item:hover, .home-item:has(.home-row[aria-pressed="true"]) { background: rgba(0, 0, 0, 0.05); }
+.home-item:hover, .home-item:has(.home-row[aria-pressed="true"]) { background: var(--hover-tint); }
 .home-row[aria-pressed="true"] .home-title { color: var(--accent); }
 /* An arrow at the row's right slides in while it's hovered, and stays on the selected row. */
 .home-arrow {
@@ -528,7 +548,7 @@ body:not(.has-document) .pages-wrap { display: none; }
   font: inherit;
   font-size: 12px;
   text-align: left;
-  color: var(--review-color);
+  color: light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white));
   cursor: pointer;
 }
 .home-review svg { flex: none; }
@@ -536,8 +556,8 @@ body:not(.has-document) .pages-wrap { display: none; }
 .home-review:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .home-review-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* No review of this kind yet: a quieter line offering to start one. */
-.home-review.start { color: color-mix(in srgb, var(--review-color) 55%, var(--muted)); }
-.home-review.start:hover { color: var(--review-color); }
+.home-review.start { color: color-mix(in srgb, light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white)) 55%, var(--muted)); }
+.home-review.start:hover { color: light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white)); }
 
 /* The pages and the review's margin layer over them, which scrolls with them. */
 .pages-wrap { position: relative; }
@@ -551,7 +571,7 @@ body:not(.has-document) .pages-wrap { display: none; }
   position: relative;
   overflow: hidden; /* clips the drawn page to the rounded corners */
   border-radius: var(--card-radius);
-  background: #fff;
+  background: var(--bg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06);
   user-select: text;
 }
@@ -572,7 +592,7 @@ body:not(.has-document) .pages-wrap { display: none; }
 .panel h3 { margin: 20px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .panel-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .panel-hint[hidden], .panel-note[hidden] { display: none; }
-.panel-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; background: #f3f3f6; color: var(--muted); font-size: 12px; }
+.panel-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--subtle-bg); color: var(--muted); font-size: 12px; }
 .primary-button, .secondary-button {
   padding: 5px 12px;
   border-radius: 7px;
@@ -581,8 +601,8 @@ body:not(.has-document) .pages-wrap { display: none; }
   cursor: pointer;
 }
 .primary-button { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
-.secondary-button { border: 1px solid var(--border); background: #fff; color: var(--text); }
-.secondary-button:hover { background: #f3f3f6; }
+.secondary-button { border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.secondary-button:hover { background: var(--subtle-bg); }
 .panel > .secondary-button { margin-top: 14px; }
 button:disabled { opacity: 0.5; cursor: default; }
 
@@ -603,6 +623,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 .settings-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--border); }
 .settings-head h2 { margin: 0; font-size: 15px; }
 .settings-body { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
+.setting + .setting { margin-top: 24px; }
+.setting-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.setting-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+/* A row of choices, the chosen one raised, as macOS draws them. */
+.segmented { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--subtle-bg); border: 1px solid var(--border); }
+.segmented button { padding: 4px 16px; border: 0; border-radius: 6px; background: transparent; font: inherit; color: var(--text-2); cursor: pointer; }
+.segmented button:hover { color: var(--text); }
+.segmented button[aria-checked="true"] { background: light-dark(var(--bg), #46464c); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* pdf.js's text pieces can overlap (e.g. a space between two words), and its see-through
    selection colour then shows darker where they do. A solid colour, multiplied onto the page so
@@ -655,13 +684,13 @@ button:disabled { opacity: 0.5; cursor: default; }
 .margin-r .margin-tab { border-right: 0; }
 .margin-l .margin-tab { border-left: 0; }
 .margin-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.margin-kind { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--item-kind-color); }
+.margin-kind { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: light-dark(var(--item-kind-color), color-mix(in srgb, var(--item-kind-color) 62%, white)); }
 .margin-title, .margin-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .margin-title { font-size: 13px; font-weight: 600; }
 .margin-status { font-size: 11.5px; color: var(--muted); }
-.decided .margin-tab { background: #f4f4f6; }
+.decided .margin-tab { background: var(--subtle-bg); }
 .decided .margin-title { color: var(--muted); }
-.decided .margin-status { color: #1f7a45; }
+.decided .margin-status { color: var(--decided-text); }
 /* A deck's pager is a row of its own across the bottom of the tab or open card, which leave room
    for it: ‹ at the start, "1 of 3" in the middle, › at the end. No divider above it. */
 .margin-pager {
@@ -683,7 +712,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .margin-l .margin-pager { right: 4px; }
 .multi .margin-tab { height: 104px; padding-bottom: 36px; }
 .multi .margin-card { padding-bottom: 36px; }
-.margin-pager button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; font-size: 15px; line-height: 1; color: #3c3c43; cursor: pointer; }
+.margin-pager button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; font-size: 15px; line-height: 1; color: var(--text-2); cursor: pointer; }
 .margin-pager button:hover { background: var(--button-hover); }
 /* An open card: the same width as its tab, growing downwards over the margin. */
 .margin-card {
@@ -717,13 +746,13 @@ button:disabled { opacity: 0.5; cursor: default; }
 .decision-comment { min-height: calc(1lh + 14px); }
 .decision-answer { min-height: calc(2lh + 14px); }
 .finding-reply { margin: 0; font-size: 11px; color: var(--accent); }
-.finding-body, .finding-proposal, .finding-question { margin: 0; font-size: 12px; line-height: 1.45; color: #3c3c43; }
+.finding-body, .finding-proposal, .finding-question { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-2); }
 .finding-question { font-weight: 500; }
 .finding-quote {
   margin: 0;
   padding-left: 8px;
   border-left: 2px solid var(--border);
-  color: #3c3c43;
+  color: var(--text-2);
   font-size: 12px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -731,10 +760,10 @@ button:disabled { opacity: 0.5; cursor: default; }
   overflow: hidden;
 }
 .diff { display: grid; gap: 4px; font-size: 12px; }
-.diff del { padding: 4px 6px; border-radius: 6px; background: #fdecec; color: #8a1f1f; }
-.diff ins { padding: 4px 6px; border-radius: 6px; background: #e8f6ee; color: #155c34; text-decoration: none; }
+.diff del { padding: 4px 6px; border-radius: 6px; background: var(--del-bg); color: var(--del-text); }
+.diff ins { padding: 4px 6px; border-radius: 6px; background: var(--ins-bg); color: var(--ins-text); text-decoration: none; }
 /* The suggested wording being edited, in place: the same green box, as a text box. */
-.margin-card .diff-edit { min-height: 0; padding: 4px 6px; border: 0; border-radius: 6px; background: #e8f6ee; color: #155c34; font: inherit; font-size: 12px; line-height: inherit; box-shadow: inset 0 0 0 1px #9fd4b4; }
+.margin-card .diff-edit { min-height: 0; padding: 4px 6px; border: 0; border-radius: 6px; background: var(--ins-bg); color: var(--ins-text); font: inherit; font-size: 12px; line-height: inherit; box-shadow: inset 0 0 0 1px #9fd4b4; }
 .margin-card .diff-edit:focus { outline: 2px solid #1f9d55; outline-offset: -1px; }
 .option-list { display: grid; gap: 6px; }
 .option { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; cursor: pointer; }
@@ -752,19 +781,19 @@ button:disabled { opacity: 0.5; cursor: default; }
   align-items: baseline;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid #cdebd9;
+  border: 1px solid var(--decision-border);
   border-radius: 7px;
-  background: #f1faf4;
+  background: var(--decision-bg);
   font: inherit;
   font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
-.decision-card-rejected { border-color: var(--border); background: #f6f6f9; }
-.decision-card:hover { border-color: #9fd5b5; }
-.decision-card-rejected:hover { border-color: #c4c4cb; }
+.decision-card-rejected { border-color: var(--border); background: var(--subtle-bg); }
+.decision-card:hover { border-color: var(--decision-border-hover); }
+.decision-card-rejected:hover { border-color: var(--border-strong); }
 .decision-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.decision-card-title { font-weight: 600; color: #155c34; }
+.decision-card-title { font-weight: 600; color: var(--ins-text); }
 .decision-card-rejected .decision-card-title { color: var(--text); }
 .decision-card-hint { color: var(--muted); font-size: 11px; }
 .decision-card:hover .decision-card-hint { color: var(--accent); }
@@ -783,17 +812,17 @@ button:disabled { opacity: 0.5; cursor: default; }
   font-size: 13px;
 }
 .review-bar-start { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.review-bar-text { color: #55555a; } /* the muted grey, darkened to stay readable on the bar */
-.review-progress { width: 120px; height: 6px; border-radius: 3px; background: #c4c4ca; overflow: hidden; }
+.review-bar-text { color: light-dark(#55555a, #b4b4ba); } /* the muted grey, moved to stay readable on the bar */
+.review-progress { width: 120px; height: 6px; border-radius: 3px; background: var(--border-strong); overflow: hidden; }
 .review-progress-fill { display: block; height: 100%; background: #1f9d55; }
 .review-bar-nav { display: flex; gap: 6px; }
 .review-bar-end { display: flex; align-items: center; gap: 12px; margin-left: auto; } /* ‹ › at the bar's right end */
 /* The tool's icon, in its colour, so the two kinds of review never look alike. */
-.review-bar-tool { display: flex; align-items: center; color: var(--tool-color); }
+.review-bar-tool { display: flex; align-items: center; color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
 .copy-prompt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; } /* at the bar's right end */
 /* Document | List, a two-part switch. The two parts are the same width, and the white thumb
    behind them slides to the chosen one. */
-.view-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; margin-right: 6px; padding: 2px; border-radius: 8px; background: #c9c9cf; -webkit-app-region: no-drag; }
+.view-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; margin-right: 6px; padding: 2px; border-radius: 8px; background: light-dark(#c9c9cf, #2c2c31); -webkit-app-region: no-drag; }
 .view-switch[hidden] { display: none; }
 .view-switch::before {
   content: '';
@@ -807,7 +836,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .view-switch:has(button:last-child[aria-pressed="true"])::before { transform: translateX(100%); }
 .view-switch:not(:has(button[aria-pressed="true"]))::before { opacity: 0; }
-.view-switch button { position: relative; padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: #3c3c43; cursor: pointer; transition: color 0.2s; }
+.view-switch button { position: relative; padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: var(--text-2); cursor: pointer; transition: color 0.2s; }
 .view-switch button[aria-pressed="true"] { color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   .view-switch::before, .view-switch button { transition: none; }
@@ -819,18 +848,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .list-view-open .document, .list-view-open #scrollbar { visibility: hidden; }
 .list-page { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; user-select: text; }
 .list-head { margin-bottom: 24px; }
-.list-goal-label { margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--tool-color); }
+.list-goal-label { margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
 .list-goal { margin: 0 0 10px; font-size: 20px; line-height: 1.3; }
-.list-summary { margin: 0; font-size: 14px; line-height: 1.55; color: #3c3c43; }
+.list-summary { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); }
 .list-muted { color: var(--muted); }
 .list-section { margin-top: 28px; }
-.list-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--section-color); }
+.list-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: light-dark(var(--section-color), color-mix(in srgb, var(--section-color) 62%, white)); }
 .list-section-title::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--section-color); }
 .list-count { margin-left: auto; font-weight: 400; letter-spacing: 0; color: var(--muted); }
 .list-item { display: grid; gap: 6px; margin-bottom: 10px; padding: 14px 16px; border-left: 4px solid var(--item-color); border-radius: 0 10px 10px 0; background: var(--bg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.05); }
 .list-meta { margin: 0; font-size: 11px; color: var(--muted); }
 .list-title { margin: 0; font-size: 15px; }
-.list-note { margin: 0; font-size: 13px; line-height: 1.5; color: #3c3c43; }
-.list-quote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border); font-size: 12.5px; color: #3c3c43; }
+.list-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.list-quote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border); font-size: 12.5px; color: var(--text-2); }
 .list-show { justify-self: start; padding: 5px 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; }
 .list-show:hover { text-decoration: underline; }

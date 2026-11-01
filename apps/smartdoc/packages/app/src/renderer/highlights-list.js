@@ -38,7 +38,7 @@ export function createHighlightsList({ container, onShow }) {
       if (group.length) page.append(section(category, colour, group));
     }
     const missing = highlights.filter((h) => h.missing).sort(byImportance);
-    if (missing.length) page.append(section('Not in the document', '#6e6e73', missing, colours));
+    if (missing.length) page.append(section('Not in the document', 'var(--muted)', missing, colours));
     container.scrollTop = scroll;
   }
 

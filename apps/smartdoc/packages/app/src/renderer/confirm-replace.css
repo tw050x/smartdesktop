@@ -1,11 +1,13 @@
 :root {
-  color-scheme: light;
-  --text: #1d1d1f;
-  --muted: #6e6e73;
-  --border: #d8d8de;
-  --button-hover: #f0f0f3;
-  --accent: #2f6fde;
-  --accent-hover: #2862c8;
+  /* Light or dark, as the main window (see styles.css). */
+  color-scheme: light dark;
+  --bg: light-dark(#ffffff, #232326);
+  --text: light-dark(#1d1d1f, #f2f2f4);
+  --muted: light-dark(#6e6e73, #a1a1a8);
+  --border: light-dark(#d8d8de, #3a3a3f);
+  --button-hover: light-dark(#f0f0f3, #2e2e33);
+  --accent: light-dark(#2f6fde, #4a86ee);
+  --accent-hover: light-dark(#2862c8, #3b77de);
 }
 
 * { box-sizing: border-box; }
@@ -14,7 +16,7 @@ html, body { margin: 0; }
 
 body {
   padding: 22px 24px 20px;
-  background: #fff;
+  background: var(--bg);
   color: var(--text);
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   user-select: none;
@@ -50,7 +52,7 @@ button {
   cursor: pointer;
   -webkit-app-region: no-drag;
 }
-button.secondary { border: 1px solid var(--border); background: #fff; color: var(--text); }
+button.secondary { border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 button.secondary:hover { background: var(--button-hover); }
 button.primary { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
 button.primary:hover { background: var(--accent-hover); }

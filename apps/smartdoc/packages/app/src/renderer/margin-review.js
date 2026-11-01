@@ -35,7 +35,7 @@ const FINDING_KINDS = {
   design: { label: 'Design', color: '#c2417a', side: 'l' },
   flag: { label: 'Flag', color: '#b23c3c', side: 'r' },
 };
-const NOTE = { label: 'Note', color: '#b38a00', kindColor: '#7d5e00', background: '#fffbea', tint: 'rgba(255, 214, 10, 0.32)', strong: 'rgba(255, 214, 10, 0.6)' };
+const NOTE = { label: 'Note', color: '#b38a00', kindColor: '#7d5e00', background: 'light-dark(#fffbea, #332d17)', tint: 'rgba(255, 214, 10, 0.32)', strong: 'rgba(255, 214, 10, 0.6)' };
 // A highlights review colours each category, in the order the categories first appear.
 const CATEGORY_COLOURS = ['#2f6fde', '#7c4ddb', '#1f7a45', '#a65a00', '#08778d', '#c2417a'];
 const IMPORTANCE_LABELS = { high: 'Important', medium: 'Worth knowing', low: 'Minor' };
@@ -213,7 +213,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     Object.assign(slot.style, { top: `${deck.top}px`, width: `${width}px`, left: `${right ? geo.right + PAGE_SPACE : geo.left - width - PAGE_SPACE}px` });
     slot.style.setProperty('--item-color', cur.color);
     slot.style.setProperty('--item-kind-color', cur.kindColor ?? cur.color);
-    slot.style.setProperty('--item-background', cur.background ?? '#fff');
+    slot.style.setProperty('--item-background', cur.background ?? 'var(--bg)');
     for (let i = Math.min(n - 1, 2); i >= 1; i--) {
       const peek = el('div', 'margin-peek');
       peek.style.transform = `translateY(${i * 5}px)`;
