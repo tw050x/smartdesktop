@@ -149,11 +149,6 @@ export function createDemoApi() {
     showDraft,
     get state() { return state; },
     reviews,
-    // Adds the document to the list, as opening or dropping its PDF does.
-    addDocument() {
-      state.added = true;
-      if (state.screen === 'home') emit('recent', listed());
-    },
     // The home screen, listing the document (its variations and drafts as the state has them).
     showHome() {
       state.screen = 'home';
@@ -182,7 +177,11 @@ export function createDemoApi() {
 
     // --- The app's API ---
     platform: 'darwin',
-    openDroppedFile: async () => {},
+    // A file dropped on the window: the document, added and opened.
+    openDroppedFile: async () => {
+      state.added = true;
+      await showDraft(0);
+    },
     onFullScreenChange: () => {},
     onMcpStatus: (callback) => callback({ state: 'running', url: 'http://127.0.0.1:47815/mcp' }),
     mcpSetup: async () => 'claude mcp add --scope user smartdoc -- npx -y @smartdoc/mcp',

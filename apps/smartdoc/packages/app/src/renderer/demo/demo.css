@@ -35,7 +35,6 @@
   transition: opacity 0.2s;
 }
 .demo-cursor.shown { opacity: 1; }
-.demo-cursor.moving { transition: opacity 0.2s, transform 0.65s cubic-bezier(0.45, 0, 0.2, 1); }
 .demo-cursor svg { display: block; transition: transform 0.12s; transform-origin: 4px 3px; }
 .demo-cursor.pressed svg { transform: scale(0.82); }
 

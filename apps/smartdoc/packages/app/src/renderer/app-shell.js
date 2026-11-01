@@ -101,6 +101,7 @@ export function startApp(api) {
       registerPage(n, textContent.items, textLayer.textDivs, contentEl);
       // Each page's review cards can be placed once its text is known.
       relayout();
+      if (n === 1 && dropping) endDrop(); // a dropped file's first page, drawn under the drop indicator
     }
     // The app needs the page texts to place the AI's quotes and to give the AI the document, and
     // the PDF's details to describe it.
@@ -464,6 +465,7 @@ export function startApp(api) {
   };
 
   api.onDraftOpened(async ({ document: doc, variation, draft, pdf, review, tool }) => {
+    if (dropping) dropping.opened = true;
     toolSwitcher.update(tool);
     // A variation other than the original is named before the draft.
     const which = draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
@@ -560,10 +562,23 @@ export function startApp(api) {
     // Moving between the pages fires dragleave too; only clear when leaving the view itself.
     if (!documentEl.contains(e.relatedTarget)) documentEl.classList.remove('dragging');
   });
-  documentEl.addEventListener('drop', (e) => {
-    e.preventDefault();
+  // Dropped, the indicator stays until the document's first page is drawn, so what was behind it
+  // doesn't show for a moment in between; or, if no document opens (the switch was cancelled, or
+  // the file couldn't be read), until opening's over.
+  let dropping = null; // a dropped file being opened: { opened } once its document starts drawing
+  function endDrop() {
+    dropping = null;
     documentEl.classList.remove('dragging');
+  }
+  documentEl.addEventListener('drop', async (e) => {
+    e.preventDefault();
     const file = [...e.dataTransfer.files].find((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-    if (file) openDroppedFile(file);
+    if (!file) return void documentEl.classList.remove('dragging');
+    const drop = (dropping = {});
+    try {
+      await openDroppedFile(file);
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100)); // the document opening, if it is, arrives first
+    if (dropping === drop && !drop.opened) endDrop();
   });
 }

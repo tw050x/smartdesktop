@@ -9,6 +9,7 @@ export function createVariationCard({ dialog, api }) {
   const purpose = dialog.querySelector('#variation-purpose');
   const copy = dialog.querySelector('#variation-copy');
   let prompt = null;
+  let closing; // the close after copying, cancelled if the card's opened again first
 
   purpose.addEventListener('input', () => (copy.disabled = !purpose.value.trim()));
   dialog.querySelector('#variation-cancel').addEventListener('click', () => dialog.close());
@@ -16,11 +17,12 @@ export function createVariationCard({ dialog, api }) {
     e.preventDefault();
     await api.copyText(prompt(purpose.value.trim()));
     copy.textContent = 'Copied';
-    setTimeout(() => dialog.close(), 800);
+    closing = setTimeout(() => dialog.close(), 800);
   });
 
   // { docId, docName, variationId, variationName, draft }: the draft by its number in the variation.
   return function open({ docId, docName, variationId, variationName, draft }) {
+    clearTimeout(closing);
     const from = variationId === 'original' ? label(draft) : `${label(draft)} of ${variationName}`;
     message.textContent = `Your AI starts a variation from ${from} and tailors it from there. The other variations stay as they are.`;
     prompt = (text) => `Make a variation of “${docName}” (document ${docId}) in SmartDoc from ${label(draft)} of its “${variationName}” variation (${variationId}), and tailor it for: ${text}`;
