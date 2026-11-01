@@ -17,9 +17,12 @@ name: Release
 # release, but creates no tag, release or npm version. Publishing refuses to run unless the
 # app is signed and notarised, so an unsigned build can't be released by accident.
 #
-# Secrets: CSC_LINK (the Developer ID Application certificate as base64 .p12) and
-# CSC_KEY_PASSWORD; APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID for notarising;
-# NPM_TOKEN for publishing to npm.
+# Secrets (scripts/set-release-secrets.sh sets them): CSC_LINK (the Developer ID Application
+# certificate as base64 .p12) and CSC_KEY_PASSWORD; APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
+# APPLE_TEAM_ID for notarising. npm needs no secret: @smartdoc/mcp trusts this workflow to publish
+# it (trusted publishing, set in the package's settings on npmjs.com), which GitHub proves with
+# the job's OIDC token. A package has to exist before it can trust a workflow, so its first
+# version was published by hand.
 on:
   workflow_dispatch:
     inputs:
@@ -136,7 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write # npm provenance
+      id-token: write # npm trusted publishing and provenance
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -198,8 +201,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: gh release create "v$VERSION" artifacts/* --target "$GITHUB_SHA" --title "SmartDoc $VERSION" --generate-notes
 
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 comes with npm 10.
       - name: Publish to npm
         if: inputs.publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish -w @smartdoc/mcp --provenance --access public
+        run: |
+          npm install -g npm@11
+          npm publish -w @smartdoc/mcp --provenance --access public
