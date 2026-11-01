@@ -1,7 +1,8 @@
 // Packs the MCP package into dist/smartdoc.mcpb, the bundle Claude Desktop installs. The bundle
-// holds mcpb/manifest.json and icon.png (the app's icon, made by scripts/make-icons.mjs) and
-// packages/mcp (as server/), which opens the app and talks to it. The file name carries no
-// version, so the website can always link to the latest release's copy.
+// holds mcpb/manifest.json, the launcher's icon.png (the app's, made by scripts/make-icons.mjs) and
+// packages/mcp (as server/), which opens the app and talks to it, with its download window if
+// it's been built (scripts/build-helper.mjs). The file name carries no version, so the website can
+// always link to the latest release's copy.
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
@@ -14,8 +15,9 @@ const mcpb = path.join(root, 'node_modules', '.bin', 'mcpb');
 
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(path.join(stage, 'server'), { recursive: true });
-for (const file of ['manifest.json', 'icon.png']) cpSync(path.join(root, 'mcpb', file), path.join(stage, file));
-for (const entry of ['index.js', 'lib', 'package.json']) {
+cpSync(path.join(root, 'mcpb', 'manifest.json'), path.join(stage, 'manifest.json'));
+cpSync(path.join(root, 'packages', 'mcp', 'icon.png'), path.join(stage, 'icon.png'));
+for (const entry of ['index.js', 'lib', 'icon.png', 'package.json']) {
   cpSync(path.join(root, 'packages', 'mcp', entry), path.join(stage, 'server', entry), { recursive: true });
 }
 

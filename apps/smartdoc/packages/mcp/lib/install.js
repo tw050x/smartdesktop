@@ -11,7 +11,8 @@ import { APP_NAME, CHECKSUMS, VERSION, assetName, cacheDir, downloadBase } from 
 // Fetches the app build matching this launcher's version from the GitHub release, checks it
 // against the release's checksums, and unpacks it into the cache, once per version. Two
 // launchers starting at the same time (say Claude Desktop and Claude Code) share one download:
-// the first takes a lock and the other waits for it to finish.
+// the first takes a lock and the other waits for it to finish. `progress` hears how the download
+// is going, as (received, total) in bytes, total null if the server doesn't say; `signal` cancels it.
 
 const run = promisify(execFile);
 const LOCK_STALE_MS = 10 * 60 * 1000;
@@ -29,8 +30,26 @@ export function parseChecksums(text) {
   return sums;
 }
 
+// Whether the app for this version still has to be downloaded: it isn't installed, and no other
+// launcher is downloading it.
+export function needsDownload({ env = process.env } = {}) {
+  if (!assetName()) return false;
+  const dir = path.join(cacheDir({ env }), VERSION);
+  return !existsSync(path.join(dir, `${APP_NAME}.app`)) && !existsSync(`${dir}.lock`);
+}
+
+// How big the download is, in bytes, or null if the release doesn't say in time.
+export async function downloadSize({ env = process.env } = {}) {
+  try {
+    const res = await fetch(`${downloadBase({ env })}/${assetName()}`, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(5000) });
+    return (res.ok && Number(res.headers.get('content-length'))) || null;
+  } catch {
+    return null;
+  }
+}
+
 // The installed app for this version, downloading it first if needed. Resolves to its path.
-export async function ensureInstalled({ env = process.env, log = () => {} } = {}) {
+export async function ensureInstalled({ env = process.env, log = () => {}, progress = () => {}, signal } = {}) {
   const asset = assetName();
   if (!asset) throw new UnsupportedPlatformError(`${APP_NAME} isn’t available for ${process.platform} (${process.arch}) yet. It runs on macOS for now.`);
   const root = cacheDir({ env });
@@ -42,18 +61,26 @@ export async function ensureInstalled({ env = process.env, log = () => {} } = {}
   const lock = `${dir}.lock`;
   while (!(await takeLock(lock))) {
     if (existsSync(appPath)) return appPath;
+    signal?.throwIfAborted();
     await sleep(WAIT_STEP_MS);
   }
   try {
     if (existsSync(appPath)) return appPath;
     const base = downloadBase({ env });
     log(`Downloading ${APP_NAME} ${VERSION}…`);
-    const sums = parseChecksums(await (await get(`${base}/${CHECKSUMS}`)).text());
+    progress(0, null);
+    const sums = parseChecksums(await (await get(`${base}/${CHECKSUMS}`, signal)).text());
     const expected = sums.get(asset);
     if (!expected) throw new Error(`The release has no checksum for ${asset}.`);
 
     const zip = `${dir}.download.zip`;
-    const actual = await download(`${base}/${asset}`, zip);
+    let actual;
+    try {
+      actual = await download(`${base}/${asset}`, zip, { progress, signal });
+    } catch (error) {
+      await rm(zip, { force: true });
+      throw signal?.aborted ? signal.reason : error; // cancelled: say why
+    }
     if (actual !== expected) {
       await rm(zip, { force: true });
       throw new Error(`The download of ${asset} didn’t match the release’s checksum, so it wasn’t used.`);
@@ -88,22 +115,26 @@ async function takeLock(lock) {
   }
 }
 
-async function get(url) {
-  const res = await fetch(url, { redirect: 'follow' });
+async function get(url, signal) {
+  const res = await fetch(url, { redirect: 'follow', signal });
   if (!res.ok) throw new Error(`Couldn’t download ${url} (HTTP ${res.status}).`);
   return res;
 }
 
 // Streams a download to a file, hashing it on the way. Resolves to its SHA-256.
-async function download(url, file) {
-  const res = await get(url);
+async function download(url, file, { progress, signal }) {
+  const res = await get(url, signal);
+  const total = Number(res.headers.get('content-length')) || null;
   const hash = createHash('sha256');
+  let received = 0;
   const tap = new Transform({
     transform(chunk, _encoding, done) {
       hash.update(chunk);
+      received += chunk.length;
+      progress(received, total);
       done(null, chunk);
     },
   });
-  await pipeline(Readable.fromWeb(res.body), tap, createWriteStream(file));
+  await pipeline(Readable.fromWeb(res.body), tap, createWriteStream(file), { signal });
   return hash.digest('hex');
 }

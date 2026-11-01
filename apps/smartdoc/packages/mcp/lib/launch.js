@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { ensureInstalled } from './install.js';
+import { DownloadDeclined } from './download.js';
+import { downloadSize, ensureInstalled, needsDownload } from './install.js';
 import { APP_NAME, mcpUrl, userDataDir } from './platform.js';
 
 // Makes sure the app is running with its MCP server up, opening it if not. A running app is
@@ -35,24 +36,42 @@ export async function probe({ env = process.env } = {}) {
   }
 }
 
-export async function ensureRunning({ env = process.env, log = () => {} } = {}) {
+// `download` (see download.js) shows the user how a first-time download is going.
+export async function ensureRunning({ env = process.env, log = () => {}, download = null } = {}) {
   if ((await probe({ env })) === 'up') return;
-  await openApp({ env, log });
-  const deadline = Date.now() + START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if ((await probe({ env })) === 'up') return;
-    await sleep(POLL_MS);
+  try {
+    await openApp({ env, log, download });
+    const deadline = Date.now() + START_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if ((await probe({ env })) === 'up') return;
+      await sleep(POLL_MS);
+    }
+    throw new Error(`${APP_NAME} didn’t start in time. Open it yourself, then try again.`);
+  } finally {
+    download?.finish();
   }
-  throw new Error(`${APP_NAME} didn’t start in time. Open it yourself, then try again.`);
 }
 
-async function openApp({ env, log }) {
+async function install({ env, log, download }) {
+  if (!download) return ensureInstalled({ env, log });
+  const signal = download.begin();
+  try {
+    if (needsDownload({ env }) && !(await download.ask(await downloadSize({ env })))) throw new DownloadDeclined();
+    const appPath = await ensureInstalled({ env, log, signal, progress: download.progress });
+    download.installed();
+    return appPath;
+  } catch (error) {
+    throw download.failed(error);
+  }
+}
+
+async function openApp({ env, log, download }) {
   const override = env.SMARTDOC_APP;
   if (override) {
     log(`Opening ${override}…`);
     return start(appCommand(path.resolve(override)), env);
   }
-  const appPath = await ensureInstalled({ env, log });
+  const appPath = await install({ env, log, download });
   log(`Opening ${APP_NAME}…`);
   return start(['open', [appPath]], env);
 }

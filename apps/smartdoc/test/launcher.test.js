@@ -7,7 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { after, describe, test } from 'node:test';
+import { format, snapshot } from '../scripts/server-snapshot.mjs';
 import { runBridge } from '../packages/mcp/lib/bridge.js';
+import { DownloadCancelled, DownloadDeclined, createDownload, progressText } from '../packages/mcp/lib/download.js';
 import { ensureInstalled, parseChecksums } from '../packages/mcp/lib/install.js';
 import { probe, readToken } from '../packages/mcp/lib/launch.js';
 import { VERSION, assetName, cacheDir, mcpUrl, userDataDir } from '../packages/mcp/lib/platform.js';
@@ -42,9 +44,22 @@ describe('versions', () => {
   });
 
   test('the bundle lists the tools the app serves', () => {
-    const served = [...readFileSync(path.join(root, 'packages/app/src/main/mcp-server.js'), 'utf8').matchAll(/tool\('([a-z_]+)'/g)].map((m) => m[1]);
+    const served = [...readFileSync(path.join(root, 'packages/app/src/main/mcp-tools.js'), 'utf8').matchAll(/tool\('([a-z_]+)'/g)].map((m) => m[1]);
     const listed = JSON.parse(readFileSync(path.join(root, 'mcpb/manifest.json'), 'utf8')).tools.map((t) => t.name);
     assert.deepEqual(listed.sort(), served.sort());
+  });
+});
+
+describe('offline answers', () => {
+  test('the launcher’s copy of what the app’s server lists is up to date (npm run server-snapshot)', async () => {
+    assert.equal(readFileSync(path.join(root, 'packages/mcp/lib/server.json'), 'utf8'), format(await snapshot()));
+  });
+
+  test('every tool has its safety labels', async () => {
+    for (const tool of (await snapshot()).tools) {
+      assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', tool.name);
+      assert.equal(typeof tool.annotations?.destructiveHint, 'boolean', tool.name);
+    }
   });
 });
 
@@ -111,12 +126,92 @@ describe('install', () => {
     await release.close();
   });
 
+  test('reports the download’s progress', onMac, async () => {
+    const release = await fakeRelease();
+    const env = { SMARTDOC_CACHE: tempDir('cache-progress'), SMARTDOC_DOWNLOADS: release.url };
+    const seen = [];
+    await ensureInstalled({ env, progress: (received, total) => seen.push([received, total]) });
+    assert.deepEqual(seen[0], [0, null]);
+    const [received, total] = seen.at(-1);
+    assert.ok(total > 0);
+    assert.equal(received, total);
+    await release.close();
+  });
+
+  test('stops a cancelled download, leaving nothing behind', onMac, async () => {
+    const release = await fakeRelease();
+    const env = { SMARTDOC_CACHE: tempDir('cache-cancel'), SMARTDOC_DOWNLOADS: release.url };
+    const controller = new AbortController();
+    const install = ensureInstalled({ env, signal: controller.signal, progress: (received) => received > 0 && controller.abort(new DownloadCancelled()) });
+    await assert.rejects(install, DownloadCancelled);
+    assert.ok(!existsSync(path.join(env.SMARTDOC_CACHE, VERSION)));
+    assert.ok(!existsSync(path.join(env.SMARTDOC_CACHE, `${VERSION}.download.zip`)));
+    assert.ok(!existsSync(path.join(env.SMARTDOC_CACHE, `${VERSION}.lock`)));
+    await release.close();
+  });
+
   test('refuses a download that doesn’t match its checksum', onMac, async () => {
     const release = await fakeRelease({ corrupt: true });
     const env = { SMARTDOC_CACHE: tempDir('cache-bad'), SMARTDOC_DOWNLOADS: release.url };
     await assert.rejects(ensureInstalled({ env }), /didn’t match/);
     assert.ok(!existsSync(path.join(env.SMARTDOC_CACHE, VERSION)));
     await release.close();
+  });
+});
+
+describe('download progress', () => {
+  test('puts the progress in words', () => {
+    assert.deepEqual(progressText({ received: 0, total: null, elapsedMs: 0 }), { fraction: -1, percent: null, detail: 'Starting…', left: null });
+    assert.equal(progressText({ received: 40e6, total: 120e6, elapsedMs: 500 }).detail, '40 of 120 MB');
+    // 40 MB in 10 seconds: 80 MB to go takes 20 seconds.
+    assert.deepEqual(progressText({ received: 40e6, total: 120e6, elapsedMs: 10e3 }), { fraction: 1 / 3, percent: 33, detail: '40 of 120 MB · about 20 seconds left', left: 'about 20 seconds' });
+    assert.equal(progressText({ received: 1e6, total: 120e6, elapsedMs: 10e3 }).left, 'about 20 minutes');
+  });
+
+  // Without a window there's no one to ask, so the download goes ahead.
+  const noWindow = { helper: path.join(temp, 'no-window') };
+
+  test('tells the AI how it’s going while it runs, and nothing otherwise', async () => {
+    let time = 0;
+    const download = createDownload({ ...noWindow, now: () => time });
+    assert.equal(download.describe(), null);
+    download.begin();
+    assert.equal(download.describe(), null); // nothing to download yet
+    assert.equal(await download.ask(120e6), true);
+    download.progress(0, null);
+    time = 10e3;
+    download.progress(60e6, 120e6);
+    assert.match(download.describe(), /being downloaded for the first time \(50% done, about 10 seconds left\)\. .*Tell the user/);
+    download.installed();
+    assert.match(download.describe(), /is opening/);
+    download.finish();
+    assert.equal(download.describe(), null);
+  });
+
+  test('tells the AI, once, that the user cancelled or declined', async () => {
+    const download = createDownload(noWindow);
+    const signal = download.begin();
+    await download.ask(null);
+    download.progress(0, null);
+    download.cancel();
+    assert.ok(signal.aborted);
+    assert.ok(download.failed(new Error('This operation was aborted')) instanceof DownloadCancelled);
+    assert.match(download.describe(), /cancelled downloading/);
+    assert.equal(download.describe(), null);
+
+    download.begin();
+    assert.ok(download.failed(new DownloadDeclined()) instanceof DownloadDeclined);
+    assert.match(download.describe(), /chose not to download/);
+    assert.equal(download.describe(), null);
+  });
+
+  test('reports another failure as itself', async () => {
+    const download = createDownload(noWindow);
+    download.begin();
+    await download.ask(null);
+    download.progress(0, null);
+    assert.equal(download.failed(new Error('Couldn’t download it (HTTP 500).')).message, 'Couldn’t download it (HTTP 500).');
+    assert.equal(download.describe(), null);
   });
 });
 
@@ -142,12 +237,12 @@ describe('bridge', () => {
   }
 
   // Runs the bridge on in-memory streams; resolves to the replies once input ends.
-  async function exchange({ env, ensure, messages }) {
+  async function exchange({ env, ensure, messages, ...options }) {
     const input = new PassThrough();
     const output = new PassThrough();
     let out = '';
     output.on('data', (chunk) => (out += chunk));
-    const done = runBridge({ input, output, env, ensure, token: () => readToken({ env }) });
+    const done = runBridge({ input, output, env, ensure, token: () => readToken({ env }), ...options });
     for (const m of messages) input.write(`${JSON.stringify(m)}\n`);
     input.end();
     await done;
@@ -216,5 +311,61 @@ describe('bridge', () => {
     });
     assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 3, error: { code: -32000, message: 'Missing or wrong token.' } }]);
     await app.close();
+  });
+
+  describe('answering for the app until it’s running', () => {
+    const offline = JSON.parse(readFileSync(path.join(root, 'packages/mcp/lib/server.json'), 'utf8'));
+
+    test('answers the handshake and the lists itself, opening nothing', async () => {
+      let ensured = 0;
+      const replies = await exchange({
+        env: { SMARTDOC_PORT: '1', SMARTDOC_USER_DATA: withTokenFile('secret') },
+        ensure: async () => { ensured++; },
+        offline,
+        version: '9.9.9',
+        messages: [
+          { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
+          { jsonrpc: '2.0', method: 'notifications/initialized' },
+          { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+          { jsonrpc: '2.0', id: 3, method: 'prompts/list' },
+        ],
+      });
+      const [init, tools, prompts] = replies.sort((a, b) => a.id - b.id);
+      assert.equal(init.result.protocolVersion, '2025-06-18');
+      assert.deepEqual(init.result.serverInfo, { name: 'smartdoc', version: '9.9.9' });
+      assert.equal(init.result.instructions, offline.instructions);
+      assert.deepEqual(tools.result.tools.map((t) => t.name), offline.tools.map((t) => t.name));
+      assert.equal(prompts.result.prompts.length, offline.prompts.length);
+      assert.equal(ensured, 0);
+    });
+
+    test('opens the app for a tool call, and passes it on', async () => {
+      const app = await fakeApp('secret');
+      const replies = await exchange({
+        env: { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('secret') },
+        ensure: async () => {},
+        offline,
+        messages: [{ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'get_review' } }],
+      });
+      assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 4, result: { echo: 'tools/call' } }]);
+      await app.close();
+    });
+
+    test('answers a tool call with news of the download, without waiting for it', async () => {
+      let status = null;
+      let finish;
+      const replies = await exchange({
+        env: { SMARTDOC_PORT: '1', SMARTDOC_USER_DATA: withTokenFile('secret') },
+        ensure: () => {
+          status = 'SmartDoc is being downloaded for the first time.';
+          return new Promise((resolve, reject) => (finish = reject));
+        },
+        downloading: () => status,
+        offline,
+        messages: [{ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'get_review' } }],
+      });
+      assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 5, result: { isError: true, content: [{ type: 'text', text: 'SmartDoc is being downloaded for the first time.' }] } }]);
+      finish(new Error('stopped'));
+    });
   });
 });

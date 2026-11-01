@@ -2,7 +2,7 @@
 
 Review your documents with your own AI. SmartDoc is a desktop app that shows your document (a PDF); your AI reads it, marks up the text and writes findings, and you decide on each one in the app. The AI then writes the next draft from your decisions.
 
-This package is SmartDoc's MCP server. AI apps start it, and it opens the SmartDoc app for them (downloading it from the [GitHub release](https://github.com/tw050x/smartdoc/releases) the first time).
+This package is SmartDoc's MCP server. AI apps start it, and it opens the SmartDoc app for them when they first use it. If the app isn't on your Mac yet, a window asks whether to download it from the [GitHub release](https://github.com/tw050x/smartdoc/releases), then shows how the download is going.
 
 ## Claude Code
 

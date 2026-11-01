@@ -1,8 +1,8 @@
 // Makes the app's icons from packages/app/resources/icon.svg: icon.png (1024 pixels, for Windows
-// and Linux) and icon.icns (every size macOS uses), beside it, and mcpb/icon.png (512 pixels, for
-// the Claude Desktop bundle). Draws the SVG with headless Chrome
-// (for its filters and gradients), then sizes it with macOS's sips and iconutil, so it runs on a
-// Mac with Chrome installed. Run with `node scripts/make-icons.mjs` after changing icon.svg.
+// and Linux) and icon.icns (every size macOS uses), beside it, and packages/mcp/icon.png (512
+// pixels, for the Claude Desktop bundle and the launcher's download window). Draws the SVG with
+// headless Chrome (for its filters and gradients), then sizes it with macOS's sips and iconutil,
+// so it runs on a Mac with Chrome installed. Run with `node scripts/make-icons.mjs` after changing icon.svg.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -28,7 +28,7 @@ try {
     execFileSync('sips', ['-z', String(size * 2), String(size * 2), png, '--out', path.join(set, `icon_${size}x${size}@2x.png`)], { stdio: 'ignore' });
   }
   execFileSync('iconutil', ['-c', 'icns', set, '-o', path.join(dir, 'icon.icns')]);
-  const bundleIcon = path.join(dir, '../../../mcpb/icon.png');
+  const bundleIcon = path.join(dir, '../../mcp/icon.png');
   execFileSync('sips', ['-z', '512', '512', png, '--out', bundleIcon], { stdio: 'ignore' });
   console.log(`Made ${path.join(dir, 'icon.png')}, icon.icns and ${bundleIcon}`);
 } finally {

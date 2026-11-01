@@ -17,7 +17,9 @@
     "site": "npm run demo && node scripts/serve-site.mjs",
     "test": "node --test",
     "mcpb": "node scripts/pack-mcpb.mjs",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "helper": "node scripts/build-helper.mjs",
+    "server-snapshot": "node scripts/server-snapshot.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "2.1.2"

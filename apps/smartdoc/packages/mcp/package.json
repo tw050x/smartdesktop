@@ -9,7 +9,8 @@
   },
   "files": [
     "index.js",
-    "lib/"
+    "lib/",
+    "icon.png"
   ],
   "engines": {
     "node": ">=18"

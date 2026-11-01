@@ -8,7 +8,8 @@ name: Release
 # and mcpb/manifest.json must match; the tests check):
 #   - the macOS app, signed and notarised, as a zip per architecture (what the launcher
 #     downloads) and a dmg per architecture (for installing by hand)
-#   - smartdoc.mcpb, the bundle Claude Desktop installs (linked from the website)
+#   - smartdoc.mcpb, the bundle Claude Desktop installs (linked from the website), with the
+#     launcher and its download window (signed and notarised too)
 #   - SHA256SUMS.txt, which the launcher checks downloads against
 #   - the launcher on npm as @smartdoc/mcp (what Claude Code runs with npx)
 # Windows and Linux builds follow once they're signed too; the launcher says so meanwhile.
@@ -99,6 +100,43 @@ jobs:
             echo "::warning::Signing secrets aren't set, so this dry run builds the app unsigned."
           fi
 
+      # The launcher's download window (packages/mcp/helper): built for both kinds of Mac, then
+      # signed with the Developer ID certificate, from a keychain of its own that's deleted after,
+      # and notarised. It's a bare program, so the notarisation can't be stapled to it: macOS
+      # checks it online instead.
+      - name: Build the download window
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npm run helper
+          [ "$SIGNED" = true ] || exit 0
+          helper=packages/mcp/lib/download-window
+          keychain="$RUNNER_TEMP/helper.keychain-db"
+          password=$(uuidgen)
+          previous=$(security list-keychains -d user | tr -d '"')
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $previous
+          codesign --force --options runtime --timestamp --keychain "$keychain" --sign "Developer ID Application" "$helper"
+          security list-keychains -d user -s $previous
+          security delete-keychain "$keychain"
+          codesign --verify --strict --verbose=2 "$helper"
+          ditto -c -k "$helper" "$RUNNER_TEMP/download-window.zip"
+          result=$(xcrun notarytool submit "$RUNNER_TEMP/download-window.zip" --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json)
+          echo "$result"
+          [ "$(jq -r .status <<<"$result")" = Accepted ] || { echo "::error::The download window wasn't notarised."; exit 1; }
+
       # electron-builder signs with CSC_LINK and notarises when the APPLE_* variables are set.
       - name: Build the app
         run: npm run dist
@@ -133,6 +171,13 @@ jobs:
             dist/smartdoc.mcpb
           if-no-files-found: error
 
+      # For the npm package, which is published from Linux.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: download-window
+          path: packages/mcp/lib/download-window
+          if-no-files-found: error
+
   release:
     name: ${{ inputs.publish && 'Publish' || 'Dry run (no release)' }}
     needs: build
@@ -150,6 +195,12 @@ jobs:
         with:
           name: release
           path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: download-window
+          path: packages/mcp/lib
+      - name: Put the download window in the launcher
+        run: chmod +x packages/mcp/lib/download-window && npm pack --dry-run -w @smartdoc/mcp 2>&1 | grep download-window
 
       - name: Write the checksums
         working-directory: artifacts
