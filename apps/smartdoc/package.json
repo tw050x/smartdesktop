@@ -16,7 +16,8 @@
     "demo": "npm run demo -w @smartdoc/app",
     "site": "npm run demo && node scripts/serve-site.mjs",
     "test": "node --test",
-    "mcpb": "node scripts/pack-mcpb.mjs"
+    "mcpb": "node scripts/pack-mcpb.mjs",
+    "icons": "node scripts/make-icons.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "2.1.2"

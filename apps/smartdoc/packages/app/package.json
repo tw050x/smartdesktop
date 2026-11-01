@@ -23,7 +23,8 @@
     "appId": "com.tw050x.smartdoc",
     "productName": "SmartDoc",
     "directories": {
-      "output": "../../dist"
+      "output": "../../dist",
+      "buildResources": "resources"
     },
     "files": [
       "src/main/**/*",

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- SmartDoc's app icon: the website's mark, a page with three lines in the brand colours, in
+       the macOS icon shape. The source of icon.icns and icon.png (see scripts/make-icons.mjs). -->
+  <defs>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/></filter>
+    <filter id="paper" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/></filter>
+    <linearGradient id="light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f7f9"/><stop offset="1" stop-color="#dcdce3"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)" filter="url(#lift)"/>
+  <rect x="262" y="196" width="500" height="632" rx="60" fill="#fff" filter="url(#paper)"/>
+  <rect x="352" y="380" width="320" height="66" rx="33" fill="#2f6fde"/>
+  <rect x="352" y="500" width="228" height="66" rx="33" fill="#b45309"/>
+  <rect x="352" y="620" width="274" height="66" rx="33" fill="#c7c7cf"/>
+</svg>
