@@ -99,6 +99,8 @@ h1 .brown { color: var(--brown); }
    below with them (see setHeroTool). The pill showing fills up in its tool's colour, and once
    it's full the other takes over; the fill waits while the hero isn't in view. */
 .hero-tools { display: inline-flex; gap: 6px; margin: 4px 0 16px; }
+/* On a phone, one above the other: side by side, their names would wrap. */
+@media (max-width: 600px) { .hero-tools { flex-direction: column; align-items: center; } .hero-tool { white-space: nowrap; } }
 .hero-tool { --tool: var(--blue); --tool-soft: var(--blue-soft); position: relative; isolation: isolate; overflow: hidden; display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; border: 1px solid var(--border); border-radius: 99px; background: var(--card); color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: color 0.3s, background 0.3s, border-color 0.3s; }
 .hero-tool[data-tool="highlights"] { --tool: var(--brown); --tool-soft: var(--brown-soft); }
 .hero-tool svg { color: var(--tool); }
@@ -152,6 +154,14 @@ h2 { margin: 0 0 10px; font-size: clamp(26px, 3.6vw, 36px); line-height: 1.15; l
 .tabs [role="tab"]:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
 .tab-panel { max-width: 720px; }
 .tab-panel[hidden] { display: none; }
+/* Free: the MIT licence in plain words, as points (no cards). */
+.free .section-head p, .free-answer { text-wrap: pretty; }
+.free-question { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.01em; }
+.free-answer { margin: 0 0 22px; max-width: 640px; color: var(--muted); }
+.free-points { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin: 0; padding: 0; list-style: none; }
+.free-points h3 { margin: 0 0 6px; font-size: 17px; }
+.free-points p { margin: 0; color: var(--muted); text-wrap: pretty; }
+
 .install ol { margin: 14px 0 0; padding-left: 20px; display: grid; gap: 10px; }
 .install .button { margin: 2px 0; }
 .command { position: relative; margin: 6px 0 0; }
