@@ -2,7 +2,7 @@
   "name": "smartdoc",
   "version": "0.1.0",
   "description": "Review and redraft documents with your own AI.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "workspaces": [
