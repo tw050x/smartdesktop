@@ -1,7 +1,7 @@
 {
   "name": "@smartdoc/app",
   "productName": "SmartDoc",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Review and redraft documents with your own AI.",
   "license": "MIT",
   "private": true,

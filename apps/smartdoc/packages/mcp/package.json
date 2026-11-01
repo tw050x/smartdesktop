@@ -1,6 +1,6 @@
 {
   "name": "@smartdoc/mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Review documents with your own AI. Opens the SmartDoc app and connects it to Claude Code, Claude Desktop and other MCP clients.",
   "license": "MIT",
   "type": "module",
