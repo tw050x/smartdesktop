@@ -129,6 +129,20 @@ h2 { margin: 0 0 10px; font-size: clamp(26px, 3.6vw, 36px); line-height: 1.15; l
 .card h3 { margin: 0 0 8px; font-size: 20px; letter-spacing: -0.01em; }
 .card p { margin: 0; color: var(--muted); }
 
+/* Good to know: points with no cards, sliding past without end; still, and wrapped onto lines,
+   for anyone who prefers less motion. */
+.points { overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+.points-track { display: flex; width: max-content; margin: 0; padding: 0; list-style: none; animation: points-slide 60s linear infinite; }
+.points-track li { width: 380px; padding: 0 40px; }
+.points-track h3 { margin: 0 0 8px; font-size: 18px; letter-spacing: -0.01em; }
+.points-track p { margin: 0; color: var(--muted); text-wrap: pretty; }
+@keyframes points-slide { to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .points { mask-image: none; max-width: 1080px; margin: 0 auto; }
+  .points-track { width: auto; flex-wrap: wrap; row-gap: 28px; animation: none; }
+  .points-track li[aria-hidden="true"] { display: none; }
+}
+
 /* Install. */
 /* The install tabs, a segmented control like the app's All | To do, over one panel at a time. */
 .tabs { display: inline-flex; gap: 2px; margin: 0 0 16px; padding: 3px; border-radius: 10px; background: var(--band); }

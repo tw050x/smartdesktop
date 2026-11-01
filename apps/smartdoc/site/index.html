@@ -40,7 +40,6 @@
         </div>
         <div class="actions">
           <span class="button soon" aria-disabled="true" title="SmartDoc for Claude Desktop is coming soon">Coming soon!</span>
-          <a class="button secondary" href="#install-code">Use with Claude Code</a>
         </div>
         <p class="hint">For macOS.</p>
 
@@ -175,20 +174,48 @@
           <p class="kicker">Good to know</p>
           <h2>Your files, your agent.</h2>
         </div>
-        <div class="grid">
-          <article class="card">
-            <h3>Bring your own agent</h3>
-            <p>SmartDoc works with the agent you already use. No new account, no new subscription: just a better way to work on documents together.</p>
-          </article>
-          <article class="card">
-            <h3>Free, no account</h3>
-            <p>There’s nothing to sign up for. The agent is your own, under your own subscription.</p>
-          </article>
-          <article class="card">
-            <h3>Checked downloads</h3>
-            <p>The first time it starts, it downloads the app from the project’s <a href="https://github.com/tw050x/smartdoc/releases">GitHub releases</a> and checks it against the release’s checksums. Runs on macOS (Apple silicon or Intel); Windows is planned.</p>
-          </article>
-        </div>
+      </div>
+      <!-- The points scroll past without end: the list runs twice (the copy added by the script below)
+           and slides left by one run, then starts again. -->
+      <div class="points">
+        <ul class="points-track">
+            <li>
+              <h3>Bring your own agent</h3>
+              <p>SmartDoc works with the agent you already use. No new account, no new subscription: just a better way to work on documents together.</p>
+            </li>
+            <li>
+              <h3>You have the final say</h3>
+              <p>Your agent suggests; you decide. Nothing in your document changes until you’ve said yes.</p>
+            </li>
+            <li>
+              <h3>Nothing gets lost</h3>
+              <p>Every draft is kept, and every variation too. Step back to any version whenever you like.</p>
+            </li>
+            <li>
+              <h3>One document, many versions</h3>
+              <p>Tailor a variation for each job or reader, and keep the original just as it was.</p>
+            </li>
+            <li>
+              <h3>Point at anything</h3>
+              <p>Mark any line to rewrite, question or keep, and your agent answers each one.</p>
+            </li>
+            <li>
+              <h3>See what matters</h3>
+              <p>Ask your agent what a reader would look for, and see it highlighted on the page.</p>
+            </li>
+            <li>
+              <h3>There when you need it</h3>
+              <p>Your agent opens SmartDoc by itself, right where you left off.</p>
+            </li>
+            <li>
+              <h3>Free to use</h3>
+              <p>No sign-up and no plan to choose. SmartDoc is free.</p>
+            </li>
+            <li>
+              <h3>Open source</h3>
+              <p>Every line of SmartDoc is on GitHub, for anyone to read.</p>
+            </li>
+        </ul>
       </div>
     </section>
 
@@ -198,7 +225,6 @@
         <p>Free for macOS, with Claude Desktop or Claude Code.</p>
         <div class="actions">
           <span class="button soon" aria-disabled="true" title="SmartDoc for Claude Desktop is coming soon">Coming soon!</span>
-          <a class="button secondary" href="#install-code">Use with Claude Code</a>
         </div>
       </div>
     </div>
@@ -243,6 +269,10 @@
     });
     for (const b of heroTools) b.addEventListener('click', () => setHeroTool(b.dataset.tool));
 
+
+    // The Good to know points: a copy of the list follows it, so the strip can slide on without a gap.
+    const track = document.querySelector('.points-track');
+    for (const li of [...track.children]) track.append(Object.assign(li.cloneNode(true), { ariaHidden: 'true' }));
 
     // The install tabs: clicking one shows its panel; the arrow keys (and Home and End) move between
     // them, as tabs do.
