@@ -29,9 +29,16 @@ const quote = z.object({
 });
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
 
+// Each tool's safety label, for the AI app to show the user and decide when to ask them: the
+// tools that only read, and the ones that change or remove something the user can't get back (the
+// rest change something, without loss). Every tool works only with the app, on this computer.
+const READ_ONLY = new Set(['list_documents', 'list_variations', 'get_document_info', 'get_document', 'find_text', 'list_focuses', 'get_review', 'get_history', 'get_decisions']);
+const DESTRUCTIVE = new Set(['remove_finding', 'remove_highlight', 'apply_review']);
+const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
+
 function buildServer(workspace, documents) {
-  const server = new McpServer({ name: 'smartdoc', version: '0.1.0' }, { instructions: INSTRUCTIONS });
-  const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema }, async (args) => {
+  const server = new McpServer({ name: 'smartdoc', version: app.getVersion() }, { instructions: INSTRUCTIONS });
+  const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema, annotations: annotations(name) }, async (args) => {
     try {
       return json(await run(args ?? {}));
     } catch (error) {

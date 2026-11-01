@@ -14,6 +14,7 @@
     "url": "https://github.com/tw050x/smartdoc"
   },
   "homepage": "https://tw050x.github.io/smartdoc/",
+  "icon": "icon.png",
   "support": "https://github.com/tw050x/smartdoc/issues",
   "server": {
     "type": "node",
