@@ -19,6 +19,9 @@
 const stage = document.querySelector('.stage');
 const camera = stage.querySelector('.camera');
 const frame = camera.querySelector('iframe');
+// The home page's hero has a second window (.camera.alt, its own copy of the demo) for its other
+// tool: the two slide and fade past each other as the hero swaps tools (see showHero).
+const altCamera = stage.querySelector('.camera.alt');
 const steps = [...document.querySelectorAll('.step')];
 const captions = [...stage.querySelectorAll('.caption')];
 const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
@@ -42,9 +45,14 @@ const gaps = steps.slice(1).map((step) => {
 const clamp = (v) => Math.min(1, Math.max(0, v));
 const ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
 const lerp = (a, b, u) => a + (b - a) * u;
-// A step's caption: the one for its scene, unless the step has none (data-side "none", like the
-// features page's opening step, which shows its first scene without one).
-const captionOf = (step) => (step.dataset.side === 'none' ? undefined : captions.find((c) => c.dataset.scene === step.dataset.scene));
+// A step's caption: the one for its scene (or its data-caption, for a step whose scene changes, like
+// the home page's hero), unless the step has none (data-side "none", like the features page's
+// opening step, which shows its first scene without one).
+const captionOf = (step) => (step.dataset.side === 'none' ? undefined : captions.find((c) => c.dataset.scene === (step.dataset.caption ?? step.dataset.scene)));
+// A step whose moment plays through in time, not as the page scrolls, and that isn't a chapter of
+// the story (no progress dot): one with no caption, or with its caption below the window (the
+// home page's hero, its tools under it).
+const plays = (step) => ['none', 'below'].includes(step.dataset.side);
 
 // Where the page is in the story, at the middle of the view: on a step ({ from, to: from, t: 0 }) or
 // a way (t) through the gap from one step to the next. Before the first step it's on the first;
@@ -87,15 +95,20 @@ function framing(step) {
   // A caption across the top (data-side "top") leaves the full width under it, for a focus that's
   // wide and short, which can then be enlarged more.
   const top = side === 'top' ? gap + (captionOf(step)?.offsetHeight ?? 0) + gap : 0;
+  // A caption below (data-side "below") leaves the room above it, the window against it.
+  const below = side === 'below' ? gap + (captionOf(step)?.offsetHeight ?? 0) + gap : 0;
   const room = side === 'left' ? { x: COLUMN, y: gap, width: W - COLUMN - gap, height: H - 2 * gap }
     : side === 'right' ? { x: gap, y: gap, width: W - COLUMN - gap, height: H - 2 * gap }
     : side === 'top' ? { x: 40, y: top, width: W - 80, height: H - top - gap }
+    : side === 'below' ? { x: 40, y: gap, width: W - 80, height: H - below - gap }
     : { x: 40, y: gap, width: W - 80, height: H - 2 * gap };
   const whole = focus.width >= WINDOW.width;
   const k = Math.min(room.width / focus.width, room.height / focus.height, whole ? 1 : side === 'top' ? 1.8 : 1.4);
   let x = room.x + (room.width - focus.width * k) / 2 - focus.x * k;
   // Centred in its room, or, under a top caption, at the room's top.
-  let y = side === 'top' ? room.y - focus.y * k : room.y + (room.height - focus.height * k) / 2 - focus.y * k;
+  let y = side === 'top' ? room.y - focus.y * k
+    : side === 'below' ? room.y + room.height - (focus.y + focus.height) * k
+    : room.y + (room.height - focus.height * k) / 2 - focus.y * k;
   if (side === 'left') {
     const against = room.x; // the window's left edge on the column's
     x = against + (focus.x + focus.width) * k <= room.x + room.width ? against : Math.max(x, room.x);
@@ -124,11 +137,12 @@ let cursorAt = null; // where the demo's cursor is, in the window's pixels, whil
 const cursorWas = new Map(); // step → where its cursor was last, kept while it's hidden
 const pans = new Map(); // step → { x } the camera centres on, on its way to where it should
 // Which way round each captioned step goes: the window 'over' its caption, or 'under' it.
-const order = new Map(steps.filter((step) => step.dataset.side !== 'none').map((step, i) => [step, i % 2 ? 'under' : 'over']));
+// (A caption below always goes under its window, without counting in the alternation.)
+const order = new Map(steps.filter((step) => !plays(step)).map((step, i) => [step, i % 2 ? 'under' : 'over']));
 // The window's room on a step, and where its caption goes (its top), in the stage's pixels.
 function narrowLayout(step) {
   const H = stage.clientHeight;
-  const way = order.get(step);
+  const way = order.get(step) ?? (step.dataset.side === 'below' ? 'over' : null);
   if (!way) return { room: { top: EDGE, bottom: H - EDGE } };
   const caption = captionOf(step)?.offsetHeight ?? 0;
   return way === 'over'
@@ -260,7 +274,6 @@ function render() {
   const fa = framing(a);
   const fb = framing(b);
   const x = lerp(fa.x, fb.x, u);
-  camera.style.transition = 'none';
   const k = lerp(fa.k, fb.k, u);
   const y = lerp(fa.y, fb.y, u);
   camera.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
@@ -269,7 +282,14 @@ function render() {
   const clipBottom = lerp(fa.clip?.bottom ?? 0, fb.clip?.bottom ?? 0, u);
   const out = -80 / k; // an edge that isn't cut: past the window, so its shadow still shows
   camera.style.clipPath = clipTop || clipBottom ? `inset(${clipTop || out}px ${out}px ${clipBottom || out}px ${out}px)` : '';
-  if (!wide.matches) for (const step of order.keys()) captionOf(step)?.style.setProperty('--narrow-top', `${narrowLayout(step).captionTop}px`);
+  // The hero's second window, framed as the first, showing while the hero is (until the gap after
+  // it's under way, as its caption fades).
+  if (altCamera) {
+    altCamera.style.transform = camera.style.transform;
+    altCamera.style.clipPath = camera.style.clipPath;
+  }
+  stage.classList.toggle('on-hero', a.dataset.side === 'below' && t < 0.2);
+  if (!wide.matches) for (const step of steps) if (captionOf(step)) captionOf(step).style.setProperty('--narrow-top', `${narrowLayout(step).captionTop}px`);
   placeAgent(x, { top: y + clipTop * k, bottom: y + (WINDOW.height - clipBottom) * k });
   placeFile(from, to, t, within, { x, y: lerp(fa.y, fb.y, u), k: lerp(fa.k, fb.k, u) });
 
@@ -294,7 +314,7 @@ function render() {
   // gap before, all of it in the gap after. A step with no caption plays it through in time.
   if (demo && built && built.dataset.scene !== 'settle') {
     const i = steps.indexOf(built);
-    if (built.dataset.side === 'none') {
+    if (plays(built)) {
       if (t === 0 && built === a && started !== a) {
         started = a;
         demo.start();
@@ -410,15 +430,26 @@ function placeAgent(x, shown) {
 
 // The progress dots: one per captioned scene, on the side of the scene's caption. Scenes passed are
 // filled, the current one fills as the page scrolls through its step, and the next takes over half
-// way through the gap. Hidden before the first and after the last.
-const chapters = steps.filter((step) => step.dataset.side !== 'none');
+// way through the gap. Hidden before the first and after the last. A step with its caption below
+// (the home page's hero) isn't one of them: it has a dot of its own, long, on the left, filling as
+// the page scrolls through it.
+const chapters = steps.filter((step) => !plays(step));
 const progress = [...stage.querySelectorAll('.progress')];
 for (const set of progress) set.append(...chapters.map(() => Object.assign(document.createElement('span'), { className: 'dot' })));
+const ownDot = Object.assign(document.createElement('span'), { className: 'dot current' });
+const ownProgress = Object.assign(document.createElement('div'), { className: 'progress' });
+ownProgress.dataset.side = 'left';
+ownProgress.setAttribute('aria-hidden', 'true');
+ownProgress.append(ownDot);
+stage.append(ownProgress);
 function track(from, to, t, within) {
   const step = steps[t >= 0.5 ? to : from];
   const current = chapters.indexOf(step);
   const fill = t === 0 ? clamp(within) : t >= 0.5 ? 0 : 1;
   const side = current === -1 ? null : step.dataset.side === 'top' ? 'left' : step.dataset.side; // a top caption's dots on the left
+  const own = step.dataset.side === 'below';
+  ownProgress.classList.toggle('shown', own);
+  if (own) ownDot.style.setProperty('--fill', fill.toFixed(3));
   for (const set of progress) {
     // Narrow, the captions are all at the foot of the view, so only the left set is used.
     set.classList.toggle('shown', side !== null && set.dataset.side === (wide.matches ? side : 'left'));
@@ -465,7 +496,7 @@ function sizeSteps(lengths) {
   const before = position();
   for (const step of steps) {
     const ms = lengths[step.dataset.scene];
-    if (step.dataset.side !== 'none' && ms) step.style.minHeight = `calc(var(--stage-height) * 0.5 + ${Math.round(ms * PX_PER_MS)}px)`;
+    if (!plays(step) && ms) step.style.minHeight = `calc(var(--stage-height) * 0.5 + ${Math.round(ms * PX_PER_MS)}px)`;
   }
   if (before.t === 0) {
     const r = steps[before.from].getBoundingClientRect();
@@ -473,9 +504,31 @@ function sizeSteps(lengths) {
   }
 }
 
+// The hero's tool: 'improve' shows the first window (its scene the hero step's), anything else the
+// second (its scene in its data-scene), each sliding in as the other slides out, the way they go
+// (stage.dataset.hero, in story.css). The window coming in plays its moment again.
+let altDemo = null;
+function showHero(tool) {
+  stage.dataset.hero = tool;
+  if (tool === 'improve') {
+    if (scene === steps[0]) window.story.replay();
+  }
+  else altDemo?.show(altCamera.dataset.scene).then((focus) => focus && altDemo.start());
+}
+altCamera?.querySelector('iframe').addEventListener('load', async (e) => {
+  const altFrame = e.currentTarget;
+  while (!altFrame.contentWindow.demo) await new Promise((resolve) => setTimeout(resolve, 50));
+  altDemo = altFrame.contentWindow.demo;
+  altDemo.setInstant(still.matches);
+  await altDemo.show(altCamera.dataset.scene);
+  altFrame.classList.add('loaded');
+  if (stage.dataset.hero !== 'improve') altDemo.start();
+});
+
 window.story = {
   get scene() { return scene; },
   steps,
+  showHero,
   // Builds the current step's scene again (after a page changes it).
   replay() {
     wanted = null;

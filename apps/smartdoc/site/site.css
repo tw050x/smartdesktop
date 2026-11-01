@@ -120,7 +120,8 @@ h1 .brown { color: var(--brown); }
 .hint { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
 
 /* Sections. */
-section { padding: 72px 0 0; scroll-margin-top: 56px; } /* linked to, clear of the sticky top bar */
+/* Well apart, so each section reads on its own: more space on wider screens. */
+section { padding: clamp(96px, 12vw, 160px) 0 0; scroll-margin-top: 56px; } /* linked to, clear of the sticky top bar */
 .section-head { max-width: 640px; margin: 0 0 28px; }
 .kicker { margin: 0 0 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 h2 { margin: 0 0 10px; font-size: clamp(26px, 3.6vw, 36px); line-height: 1.15; letter-spacing: -0.025em; }
@@ -153,16 +154,21 @@ h2 { margin: 0 0 10px; font-size: clamp(26px, 3.6vw, 36px); line-height: 1.15; l
 .tabs [role="tab"]:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
 .tab-panel { max-width: 720px; }
 .tab-panel[hidden] { display: none; }
-/* Free: the MIT licence in plain words, as points (no cards). */
+/* Free: the headline beside the MIT licence in plain words, its points stacked, each with an
+   icon (no cards); one above the other on narrow screens. */
+.free-layout { display: grid; gap: 40px 72px; }
+@media (min-width: 860px) { .free-layout { grid-template-columns: 1fr 1fr; align-items: start; } }
+.free-layout .section-head { margin: 0; }
 .free .section-head p, .free-answer { text-wrap: pretty; }
 .free-question { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.01em; }
-.free-answer { margin: 0 0 22px; max-width: 640px; color: var(--muted); }
-.free-points { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin: 0; padding: 0; list-style: none; }
-.free-points h3 { margin: 0 0 6px; font-size: 17px; }
+.free-answer { margin: 0 0 24px; color: var(--muted); }
+.free-points { display: grid; gap: 22px; margin: 0; padding: 0; list-style: none; }
+.free-points li { display: flex; gap: 14px; align-items: flex-start; }
+.free-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--blue-soft); color: var(--blue); }
+.free-points h3 { margin: 6px 0 4px; font-size: 17px; }
 .free-points p { margin: 0; color: var(--muted); text-wrap: pretty; }
 
 .install ol { margin: 14px 0 0; padding-left: 20px; display: grid; gap: 10px; }
-.install .button { margin: 2px 0; }
 .command { position: relative; margin: 6px 0 0; }
 .command pre {
   margin: 0;
@@ -191,7 +197,7 @@ h2 { margin: 0 0 10px; font-size: clamp(26px, 3.6vw, 36px); line-height: 1.15; l
 code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* Closing band and footer. */
-.closing { margin-top: 88px; padding: 56px 0; background: var(--band); text-align: center; }
+.closing { margin-top: clamp(96px, 12vw, 160px); padding: 56px 0; background: var(--band); text-align: center; }
 .closing h2 { margin-bottom: 8px; }
 .closing p { margin: 0 0 24px; color: var(--muted); }
 footer { padding: 28px 0 40px; background: var(--band); border-top: 1px solid var(--border); font-size: 14px; color: var(--muted); }

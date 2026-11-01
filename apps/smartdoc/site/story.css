@@ -8,8 +8,15 @@
 .stage { position: sticky; top: var(--stage-top); height: var(--stage-height); overflow: hidden; }
 .camera {
   position: absolute; top: 0; left: 0; width: 1280px; height: 800px; transform-origin: 0 0;
-  border-radius: 12px; overflow: hidden; background: #ebebef; border: 1px solid rgba(0, 0, 0, 0.12); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), 0 24px 60px rgba(0, 0, 0, 0.18);
+  border-radius: 12px; overflow: hidden; background: var(--bg); /* the app's own background, light or dark, while it loads */ border: 1px solid rgba(0, 0, 0, 0.12); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), 0 24px 60px rgba(0, 0, 0, 0.18);
 }
+/* The hero's two windows (the home page): the one showing in place, the other waiting to the side,
+   faded out. Draft → highlight, the second comes in from the right as the first goes left; back,
+   the other way. Once the story moves on, the first window's back. */
+.camera { transition: opacity 0.6s ease, translate 0.6s cubic-bezier(0.3, 0, 0.2, 1); }
+.camera.alt { opacity: 0; translate: 6% 0; pointer-events: none; }
+.stage.on-hero[data-hero="highlights"] .camera:not(.alt) { opacity: 0; translate: -6% 0; }
+.stage.on-hero[data-hero="highlights"] .camera.alt { opacity: 1; translate: 0 0; }
 .camera iframe { display: block; width: 1280px; height: 800px; border: 0; pointer-events: none; opacity: 0; transition: opacity 0.4s; }
 .camera iframe.loaded { opacity: 1; }
 /* Shown instead of the demo on a page opened as a file, where browsers block it. */
@@ -18,6 +25,7 @@
 .steps { position: relative; margin-top: calc(-1 * var(--stage-height)); pointer-events: none; }
 .step { min-height: calc(var(--stage-height) * 0.7); }
 .step:first-child { min-height: calc(var(--stage-height) * 0.5); }
+.step[data-side="below"] { min-height: calc(var(--stage-height) * 1.5); } /* the hero, its tools under it: held a while, to try them */
 .step:last-child { min-height: calc(var(--stage-height) * 0.4); } /* "settle": back to the whole window before the page moves on */
 .step[data-scene="upload"] { min-height: calc(var(--stage-height) * 1.2); } /* room to drag the file in */
 .gap { height: calc(var(--stage-height) * 0.6); } /* where one scene changes to the next */
@@ -30,6 +38,10 @@
    which meets the column's edge where it can. */
 .caption[data-side="right"] { left: auto; right: 48px; }
 .caption[data-side="left"] { text-align: right; }
+/* Below the window, across the foot (the home page's hero: its tools, under the window they change). */
+.caption[data-side="below"] { top: auto; bottom: 28px; left: 50%; width: min(720px, calc(100% - 80px)); text-align: center; transform: translate(-50%, var(--shift, 32px)); }
+.hero-caption .hero-tools { margin: 0 0 14px; }
+.hero-caption .lede { margin-bottom: 0; }
 /* Across the top, over a window using the full width under it (story.js frames it). */
 .caption[data-side="top"] { top: 28px; left: 50%; width: min(640px, calc(100% - 80px)); text-align: center; transform: translate(-50%, var(--shift, 32px)); }
 .agent { text-align: left; }
@@ -90,7 +102,8 @@
 /* Narrow: the window and the caption one above the other, either way round (story.js places
    them), and the progress dots in a row, centred at the foot, the current one long. */
 @media (max-width: 899px) {
-  .caption, .caption[data-side="right"], .caption[data-side="left"], .caption[data-side="top"] { top: var(--narrow-top, 50%); bottom: auto; left: 16px; right: 16px; width: auto; text-align: left; transform: translateY(var(--shift, 32px)); }
+  .caption, .caption[data-side="right"], .caption[data-side="left"], .caption[data-side="top"], .caption[data-side="below"] { top: var(--narrow-top, 50%); bottom: auto; left: 16px; right: 16px; width: auto; text-align: left; transform: translateY(var(--shift, 32px)); }
+  .caption[data-side="below"] { text-align: center; }
   .progress[data-side] { top: auto; bottom: 16px; left: 50%; right: auto; flex-direction: row; transform: translate(-50%, 12px); }
   .progress.shown { transform: translateX(-50%); }
   .dot { transition: width 0.35s; }

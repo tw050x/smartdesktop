@@ -30,14 +30,6 @@
       <div class="wrap">
         <p class="eyebrow">Works with Claude Desktop and Claude Code</p>
         <h1>Your documents, <span class="blue">reviewed</span> by your own <span class="brown">agent</span>.</h1>
-        <div class="hero-tools" id="hero-tools" role="group" aria-label="Tools">
-          <button class="hero-tool" type="button" data-tool="improve" aria-pressed="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Review and draft</button>
-          <button class="hero-tool" type="button" data-tool="highlights" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>Review and highlight</button>
-        </div>
-        <div class="ledes" aria-live="polite">
-          <p class="lede shown" data-tool="improve">Your agent suggests changes to your document, and you decide on every one: accept, reject or edit it. Then your agent writes the next draft.</p>
-          <p class="lede" data-tool="highlights">Your agent picks out what matters in your document for your purpose, including anything it doesn’t say. Nothing changes; you see what counts at a glance.</p>
-        </div>
         <div class="actions">
           <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/smartdoc.mcpb">Download for Claude Desktop</a>
         </div>
@@ -49,10 +41,23 @@
     <div class="story" id="how">
       <div class="stage">
         <div class="camera" role="img" aria-label="A SmartDoc session: a CV opened, reviewed by an agent, decided on and redrafted, then highlighted and tailored for a job"><iframe src="demo/demo.html" title="SmartDoc demo" tabindex="-1" aria-hidden="true"></iframe></div>
+        <!-- The hero's other tool, in a window of its own (see showHero in story.js). -->
+        <div class="camera alt" data-scene="intro-highlights" aria-hidden="true"><iframe src="demo/demo.html" title="SmartDoc demo: Review and highlight" tabindex="-1" aria-hidden="true"></iframe></div>
         <div class="agent" aria-live="polite"><p class="agent-bar"><span class="agent-lights"><i></i><i></i><i></i></span>Your agent</p><div class="agent-body"></div></div>
         <div class="progress" data-side="left" aria-hidden="true"></div>
         <div class="progress" data-side="right" aria-hidden="true"></div>
         <div class="captions">
+          <!-- The hero's tools, under its window: choosing one changes what the window shows. -->
+          <div class="caption hero-caption" data-scene="intro" data-side="below">
+            <div class="hero-tools" id="hero-tools" role="group" aria-label="Tools">
+              <button class="hero-tool" type="button" data-tool="improve" aria-pressed="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Review and draft</button>
+              <button class="hero-tool" type="button" data-tool="highlights" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>Review and highlight</button>
+            </div>
+            <div class="ledes" aria-live="polite">
+              <p class="lede shown" data-tool="improve">Your agent suggests changes to your document, and you decide on every one: accept, reject or edit it. Then your agent writes the next draft.</p>
+              <p class="lede" data-tool="highlights">Your agent picks out what matters in your document for your purpose, including anything it doesn’t say. Nothing changes; you see what counts at a glance.</p>
+            </div>
+          </div>
           <div class="caption" data-scene="upload" data-side="left">
             <p class="kicker">Step 1 · Open</p>
             <h2>Open your CV in SmartDoc</h2>
@@ -97,7 +102,7 @@
         </div>
       </div>
       <div class="steps">
-      <article class="step" data-scene="intro-improve" data-side="none"></article>
+      <article class="step" data-scene="intro-improve" data-side="below" data-caption="intro"></article>
       <article class="step" data-scene="upload" data-side="left"></article>
       <article class="step" data-scene="ask" data-side="top"></article>
       <article class="step" data-scene="review" data-side="left"></article>
@@ -112,28 +117,40 @@
 
     <!-- Free, and the MIT licence in plain words. -->
     <section id="free" class="free">
-      <div class="wrap">
+      <!-- The headline beside the MIT licence in plain words: three points, each with an icon. -->
+      <div class="wrap free-layout">
         <div class="section-head">
           <p class="kicker">Free and open source</p>
           <h2>SmartDoc is free. Completely.</h2>
           <p>No account, no trial, no paid plan. SmartDoc is released under the MIT licence, which means it stays free: once it’s out, nobody can take that back.</p>
         </div>
-        <h3 class="free-question">What’s the MIT licence?</h3>
-        <p class="free-answer">It’s one of the most common licences for free software, written at the Massachusetts Institute of Technology. In plain terms:</p>
-        <ul class="free-points">
-          <li>
-            <h3>Use it for anything</h3>
-            <p>At home or at work, for as long as you like. You never pay, and you never need permission.</p>
-          </li>
-          <li>
-            <h3>See how it works</h3>
-            <p>All of SmartDoc’s code is public. Anyone can read it, copy it, or change it to suit them.</p>
-          </li>
-          <li>
-            <h3>Just one condition</h3>
-            <p>Anyone who shares a copy keeps the licence with it. It comes as it is, without a guarantee.</p>
-          </li>
-        </ul>
+        <div class="free-mit">
+          <h3 class="free-question">What’s the MIT licence?</h3>
+          <p class="free-answer">It’s one of the most common licences for free software, written at the Massachusetts Institute of Technology. In plain terms:</p>
+          <ul class="free-points">
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div>
+                <h3>Use it for anything</h3>
+                <p>At home or at work, for as long as you like. You never pay, and you never need permission.</p>
+              </div>
+            </li>
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></span>
+              <div>
+                <h3>See how it works</h3>
+                <p>All of SmartDoc’s code is public. Anyone can read it, copy it, or change it to suit them.</p>
+              </div>
+            </li>
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
+              <div>
+                <h3>Just one condition</h3>
+                <p>Anyone who shares a copy keeps the licence with it. It comes as it is, without a guarantee.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
       </div>
     </section>
 
@@ -154,7 +171,7 @@
           <h3>Claude Desktop</h3>
           <p>Install it as an extension.</p>
           <ol>
-            <li>Download the extension. <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/smartdoc.mcpb">Download</a></li>
+            <li><a href="https://github.com/tw050x/smartdoc/releases/latest/download/smartdoc.mcpb">Download the extension</a>.</li>
             <li>Open the downloaded file. Claude Desktop shows what it installs; choose Install.</li>
             <li>Start a new chat and ask Claude to review your document.</li>
           </ol>
@@ -185,7 +202,17 @@
               </div>
               Many agents take it as a config entry like this:
               <div class="command">
-                <pre><code id="mcp-config">{ "mcpServers": { "smartdoc": { "command": "npx", "args": ["-y", "@smartdoc/mcp"] } } }</code></pre>
+                <pre><code id="mcp-config">{
+  "mcpServers": {
+    "smartdoc": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smartdoc/mcp"
+      ]
+    }
+  }
+}</code></pre>
                 <button class="copy" type="button" data-copy="mcp-config">Copy</button>
               </div>
             </li>
@@ -286,8 +313,7 @@
       heroToolsEl.getBoundingClientRect(); // so the fill starts again, even on the same pill
       for (const b of heroTools) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
       for (const lede of ledes) lede.classList.toggle('shown', lede.dataset.tool === tool);
-      steps[0].dataset.scene = `intro-${tool}`;
-      if (story.scene === steps[0]) story.replay();
+      story.showHero(tool); // the windows slide past each other
     }
     const pauseFill = () => heroToolsEl.classList.toggle('paused', story.scene !== steps[0] || document.hidden);
     document.addEventListener('visibilitychange', pauseFill);
