@@ -163,8 +163,16 @@ jobs:
           version=$(node -p "require('./packages/app/package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           problems=""
+          # A GitHub release for this version, with the launcher (packages/mcp) unchanged since its
+          # tag, was made by a run that stopped before npm: this run finishes it, on npm only.
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --silent 2>/dev/null; then
-            problems="$problems Tag v$version already exists."
+            changed=$(gh api "repos/$GITHUB_REPOSITORY/compare/v$version...$GITHUB_SHA" \
+              --jq '[.files[]?.filename | select(startswith("packages/mcp/"))] | length' 2>/dev/null || echo unknown)
+            if [ "$changed" = 0 ] && gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "released=true" >> "$GITHUB_OUTPUT"
+            else
+              problems="$problems Tag v$version already exists."
+            fi
           fi
           if npm view "@smartdoc/mcp@$version" version >/dev/null 2>&1; then
             problems="$problems @smartdoc/mcp@$version is already on npm."
@@ -177,6 +185,7 @@ jobs:
           PROBLEMS: ${{ steps.version.outputs.problems }}
           SIGNED: ${{ needs.build.outputs.signed }}
           PUBLISH: ${{ inputs.publish }}
+          RELEASED: ${{ steps.version.outputs.released }}
         run: |
           {
             if [ "$PUBLISH" = true ]; then echo "## Releasing $VERSION"; else echo "## Dry run: nothing was released"; fi
@@ -184,6 +193,7 @@ jobs:
             echo "- Commit: \`$GITHUB_SHA\`"
             echo "- Version **$VERSION** as tag **v$VERSION** and npm @smartdoc/mcp@$VERSION."
             echo "- Signed and notarised: $SIGNED"
+            if [ "$RELEASED" = true ]; then echo "- The GitHub release v$VERSION already exists, with the same launcher: finishing it, on npm."; fi
             if [ -n "$PROBLEMS" ]; then
               echo "- ⚠️$PROBLEMS Bump the version in packages/app/package.json, packages/mcp/package.json and mcpb/manifest.json."
             fi
@@ -195,15 +205,16 @@ jobs:
 
       # The GitHub release comes first: the npm package downloads the app from it.
       - name: Create the GitHub release
-        if: inputs.publish
+        if: inputs.publish && steps.version.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: gh release create "v$VERSION" artifacts/* --target "$GITHUB_SHA" --title "SmartDoc $VERSION" --generate-notes
 
-      # Trusted publishing needs npm 11.5.1 or later; Node 22 comes with npm 10.
-      - name: Publish to npm
+      # Staged: the trusted publisher only allows `npm stage publish` (npm 11.15.0 or later; Node 22
+      # comes with npm 10), so the version waits on npmjs.com until a maintainer approves it.
+      - name: Stage on npm
         if: inputs.publish
         run: |
-          npm install -g npm@11
-          npm publish -w @smartdoc/mcp --provenance --access public
+          npm install -g npm@^11.15.0
+          npm stage publish -w @smartdoc/mcp --provenance --access public
