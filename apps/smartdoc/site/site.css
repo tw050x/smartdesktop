@@ -2,11 +2,14 @@
    sections, install, the closing band and the footer. */
 
 /* The app's palette: its greys, and a colour per tool (blue: Review and draft, brown: Review
-   and highlight). */
+   and highlight). The page itself is a shade apart from the app's background (--app-bg: lighter
+   in light mode, darker in dark), so the app's window stands out on it. */
 :root {
   color-scheme: light;
-  --bg: #ebebef;
-  --band: #dcdce1;
+  --bg: #f8f8fa;
+  --band: #ececf0;
+  --app-bg: #ebebef;
+  --window-border: rgba(0, 0, 0, 0.12);
   --card: #ffffff;
   --text: #1d1d1f;
   --muted: #6e6e73;
@@ -22,8 +25,10 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #161618;
-    --band: #1f1f22;
+    --bg: #0c0c0e;
+    --band: #141416;
+    --app-bg: #161618;
+    --window-border: rgba(255, 255, 255, 0.14);
     --card: #232326;
     --text: #f2f2f4;
     --muted: #a1a1a8;
