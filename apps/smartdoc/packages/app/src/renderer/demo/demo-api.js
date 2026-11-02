@@ -246,7 +246,7 @@ export function createDemoApi() {
       pdfs[before.id] ??= new Uint8Array(await (await fetch(before.pdf)).arrayBuffer());
       return {
         before: { label: comparesWith(state.draft), pdf: pdfs[before.id].slice() },
-        after: { label: `Preview of Draft ${state.previewing}`, pdf: pdfs[after.id].slice() },
+        after: { label: `Draft ${state.previewing} preview`, pdf: pdfs[after.id].slice() },
       };
     },
     discardPreview: async () => showDraft(state.draft),

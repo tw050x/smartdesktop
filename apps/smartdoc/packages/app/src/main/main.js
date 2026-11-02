@@ -542,7 +542,7 @@ handle('accept-preview', async () => {
     const { response } = await dialog.showMessageBox(win ?? undefined, {
       type: 'warning',
       message: undecided.length === 1 ? 'You haven’t decided on 1 finding. Accept anyway?' : `You haven’t decided on ${undecided.length} findings. Accept anyway?`,
-      detail: `Your AI wrote this preview without your decision on:\n${titles.join('\n')}\n\nCheck the preview to see what it did with them.`,
+      detail: `Your AI wrote this draft preview without your decision on:\n${titles.join('\n')}\n\nCheck the draft preview to see what it did with them.`,
       buttons: ['Cancel', 'Accept Anyway'],
       defaultId: 0,
       cancelId: 0,
@@ -555,8 +555,8 @@ handle('accept-preview', async () => {
 handle('discard-preview', async () => {
   const { response } = await dialog.showMessageBox(win ?? undefined, {
     type: 'warning',
-    message: 'Discard this preview?',
-    detail: 'Your decisions stay as they are, and your AI can write another preview from them.',
+    message: 'Discard this draft preview?',
+    detail: 'Your decisions stay as they are, and your AI can write another draft preview from them.',
     buttons: ['Cancel', 'Discard'],
     defaultId: 0,
     cancelId: 0,

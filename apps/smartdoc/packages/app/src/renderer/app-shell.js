@@ -512,7 +512,7 @@ export function startApp(api) {
     if (dropping) dropping.opened = true;
     toolSwitcher.update(tool);
     // A variation other than the original is named before the draft.
-    const which = draft.isPreview ? `Preview of Draft ${draft.number}` : draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
+    const which = draft.isPreview ? `Draft ${draft.number} preview` : draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
     draftLabel.textContent = variation.isOriginal ? which : `${variation.name} · ${which}`;
     draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : doc.name);
     draftPrev.disabled = draft.number === 0;

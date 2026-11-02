@@ -542,7 +542,7 @@ export function createWorkspace(userData) {
             goal: r.goal ?? null,
             // A review that was decided but not applied may have been replaced by a later one.
             outcome: r.applications.length ? `applied as ${r.applications.map((a) => draftName(a.draftId)).join(', ')}`
-              : r.preview ? 'preview waiting for the user to accept it'
+              : r.preview ? 'draft preview waiting for the user to accept it'
               : r.status !== 'committed' ? 'never committed'
               : r.items.some((i) => i.decision.status !== 'pending') ? 'decided, not applied'
               : 'committed, nothing decided',
@@ -881,7 +881,7 @@ export function createWorkspace(userData) {
       const pdf = await renderHtmlToPdf(page);
       await store.savePreview(doc.id, r, { pdf, html: page });
       r.preview = { at: new Date().toISOString(), summary: summary ?? null, appliedItemIds: appliedItemIds ?? [] };
-      logTo(r, 'ai', 'wrote a preview of the next draft');
+      logTo(r, 'ai', 'wrote a draft preview of the next draft');
       await store.saveReview(doc.id, r);
       const undecided = r.items.filter((i) => i.decision.status === 'pending').length;
       if (r === review) {
@@ -890,16 +890,16 @@ export function createWorkspace(userData) {
         events.emit('review', r);
       }
       return {
-        preview: `Preview of Draft ${doc.line.indexOf(r.draftId) + 1}`,
+        preview: `Draft ${doc.line.indexOf(r.draftId) + 1} preview`,
         status: 'waiting_for_user',
         undecidedFindings: undecided,
-        next: 'This is not a draft yet. Tell the user to switch to the SmartDoc app, look at the preview, and accept or discard it there. Only they can accept it.',
+        next: 'This is not a draft yet. Tell the user to switch to the SmartDoc app, look at the draft preview, and accept or discard it there. Only they can accept it.',
       };
     },
 
     // The window's preview of the next draft, opened and closed by the user.
     async openPreview() {
-      if (!requireReview().preview) throw new Error('This review has no preview.');
+      if (!requireReview().preview) throw new Error('This review has no draft preview.');
       previewing = true;
       events.emit('draft');
     },
@@ -908,10 +908,10 @@ export function createWorkspace(userData) {
     // The preview and the draft it was written from, to show side by side.
     async previewComparison() {
       const r = requireReview();
-      if (!previewing || !r.preview) throw new Error('No preview is showing.');
+      if (!previewing || !r.preview) throw new Error('No draft preview is showing.');
       return {
         before: { label: writtenFromLabel(), pdf: new Uint8Array(await readFile(store.draftPdfPath(doc.id, doc.currentDraftId))) },
-        after: { label: `Preview of Draft ${doc.line.indexOf(doc.currentDraftId) + 1}`, pdf: new Uint8Array(await readFile(store.previewPdfPath(doc.id, r))) },
+        after: { label: `Draft ${doc.line.indexOf(doc.currentDraftId) + 1} preview`, pdf: new Uint8Array(await readFile(store.previewPdfPath(doc.id, r))) },
       };
     },
 
@@ -919,13 +919,13 @@ export function createWorkspace(userData) {
     // earlier draft, that sets aside the drafts after it.
     async acceptPreview() {
       const r = requireReview();
-      if (!r.preview) throw new Error('This review has no preview to accept.');
+      if (!r.preview) throw new Error('This review has no draft preview to accept.');
       const { summary, appliedItemIds } = r.preview;
       const { pdf, html } = await store.loadPreview(doc.id, r);
       const { draftId } = await store.createDraft(doc, r, { pdf, html, summary, appliedItemIds });
       r.applications.push({ draftId, at: new Date().toISOString(), itemIds: appliedItemIds });
       await dropPreview(r);
-      logTo(r, 'user', 'accepted the preview as a new draft');
+      logTo(r, 'user', 'accepted the draft preview as a new draft');
       await store.saveReview(doc.id, r);
       await showDraft(draftId);
     },
@@ -933,9 +933,9 @@ export function createWorkspace(userData) {
     // The user discards the preview; the review stays as it is, for the AI to write another.
     async discardPreview() {
       const r = requireReview();
-      if (!r.preview) throw new Error('This review has no preview to discard.');
+      if (!r.preview) throw new Error('This review has no draft preview to discard.');
       await dropPreview(r);
-      logTo(r, 'user', 'discarded the preview');
+      logTo(r, 'user', 'discarded the draft preview');
       await saveReview();
       leavePreview();
     },

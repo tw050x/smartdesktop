@@ -1,6 +1,6 @@
 # SmartDoc
 
-Review your documents with your own AI. SmartDoc is a desktop app that shows your document (a PDF); your AI reads it, marks up the text and writes findings, and you decide on each one in the app. The AI then writes a preview of the next draft from your decisions, which becomes a draft once you accept it.
+Review your documents with your own AI. SmartDoc is a desktop app that shows your document (a PDF); your AI reads it, marks up the text and writes findings, and you decide on each one in the app. The AI then writes a draft preview of the next draft from your decisions, which becomes a draft once you accept it.
 
 This package is the `smartdoc` command.
 

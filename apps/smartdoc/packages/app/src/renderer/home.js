@@ -225,7 +225,7 @@ const START = { improve: 'Start a review', highlights: 'Find the key information
 function reviewStatus(tool, r) {
   if (tool === 'improve') {
     if (r.status !== 'committed') return `${r.title} · AI reviewing`;
-    if (r.preview) return `${r.title} · preview to accept`;
+    if (r.preview) return `${r.title} · draft preview to accept`;
     if (r.applied) return `${r.title} · next draft written`;
     return `${r.title} · ${r.decided} of ${r.findings} decided`;
   }

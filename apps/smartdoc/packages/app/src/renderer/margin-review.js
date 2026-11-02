@@ -495,13 +495,13 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       text.textContent = 'The AI found nothing to change.';
     } else if (decided === decidable.length && review.preview && !review.preview.outdated) {
       // Everything decided and the AI has written it up: just the preview to look at.
-      text.textContent = `All ${decided} decided. Your AI has written a preview of the next draft.`;
+      text.textContent = `All ${decided} decided. Your AI has written a draft preview.`;
       bar.append(viewPreviewButton('primary-button review-bar-push'));
       return;
     } else if (decided === decidable.length && !review.applications?.length) {
       // Everything decided: nothing left to step through, just the prompt to send.
       text.textContent = review.preview
-        ? `All ${decided} decided, but you changed them after your AI wrote its preview. Send your AI the prompt to write it again.`
+        ? `All ${decided} decided, but you changed them after your AI wrote its draft preview. Send your AI the prompt to write it again.`
         : `All ${decided} decided. Send your AI the prompt to write the next draft.`;
       bar.append(copyPromptButton());
       if (review.preview) bar.append(viewPreviewButton('secondary-button'));
@@ -530,7 +530,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   }
 
   function viewPreviewButton(className) {
-    const button = el('button', className, 'View the preview');
+    const button = el('button', className, 'View the draft preview');
     button.type = 'button';
     button.addEventListener('click', () => api.openPreview());
     return button;
@@ -539,7 +539,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   // The AI's preview of the next draft is showing: it's the user's to accept or discard.
   function renderPreviewBar(text) {
     const { number, setsAside, comparesWith } = state.preview;
-    const notes = [`This is your AI’s preview. It only becomes Draft ${number} if you accept it.`];
+    const notes = [`This is your AI’s draft preview. It only becomes Draft ${number} if you accept it.`];
     const undecided = (state.review?.items ?? []).filter((i) => i.decision.status === 'pending').length;
     if (undecided) notes.push(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`}.`);
     if (state.review?.preview?.outdated) notes.push('You’ve changed your decisions since it was written.');
