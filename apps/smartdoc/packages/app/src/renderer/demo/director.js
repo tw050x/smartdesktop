@@ -781,6 +781,22 @@ export function createDirector({ api }) {
         ...click(() => document.getElementById('draft-next')),
       ],
     },
+    // The preview beside the draft it was written from, stepping through what changed.
+    'f-compare': {
+      async build(id) {
+        await onDocument(0, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS }, made: 0 }, id);
+        await api.showPreview(1);
+        (await waitFor(() => button('.review-bar', 'Compare with Original'), id)).click();
+        await waitFor(() => document.querySelector('.compare-mark'), id, 15000);
+      },
+      focus: () => WINDOW,
+      beats: () => [
+        wait(700),
+        ...click(() => document.querySelector('.compare-step[aria-label="Next change"]')),
+        wait(1300),
+        ...click(() => document.querySelector('.compare-step[aria-label="Next change"]')),
+      ],
+    },
     // Focuses: what each review is for, and the prompt to start a new one.
     'f-focus': {
       async build(id) {
