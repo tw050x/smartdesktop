@@ -159,7 +159,7 @@
         <div class="section-head">
           <p class="kicker">Install</p>
           <h2>Install it, then add it to your agent.</h2>
-          <p><a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download SmartDoc</a> (or <a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">for an Intel Mac</a>), open the file and drag SmartDoc into your <strong>Applications</strong> folder. SmartDoc must be in Applications: that’s where your agent finds it. (With Node.js, <code>npx @smartdoc/cli install</code> puts it there for you.) Then connect it to your agent: Claude Desktop, Claude Code, or any agent that runs MCP servers. It opens by itself whenever your agent needs it.</p>
+          <p><a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download SmartDoc</a> (or <a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">for an Intel Mac</a>), open it and drag SmartDoc into your <strong>Applications</strong> folder. Then add it to your agent below. After that, it opens by itself whenever your agent needs it.</p>
         </div>
         <!-- One tab per agent app (see the tabs script below). -->
         <div class="tabs" role="tablist" aria-label="Your agent">
@@ -171,11 +171,11 @@
           <h3>Claude Desktop</h3>
           <p>SmartDoc adds itself.</p>
           <ol>
-            <li>Open SmartDoc and click <strong>Ready</strong>, at the top right.</li>
+            <li>Open SmartDoc and click the status button at the top right, with the coloured dot. It usually says <strong>Ready</strong>.</li>
             <li>Choose <strong>Add to Claude Desktop</strong>.</li>
             <li>Quit Claude Desktop and open it again. Then start a new chat and ask Claude to review your document.</li>
           </ol>
-          <p class="small">Or add it yourself: in Claude Desktop, open Settings → Developer → Edit Config, and add the entry from the <a href="#install-other">Other agents</a> tab.</p>
+          <p class="small">If the button says <strong>Not running</strong>, another copy of SmartDoc is probably open: quit SmartDoc everywhere, then open it again. Or add it yourself: in Claude Desktop, open Settings → Developer → Edit Config, and add the entry from the <a href="#install-other">Other agents</a> tab.</p>
         </article>
         <article class="card tab-panel" role="tabpanel" id="install-code" aria-labelledby="tab-code" hidden>
           <h3>Claude Code</h3>
