@@ -154,6 +154,8 @@ export function createDirector({ api }) {
 
   function closeAll() {
     hover(null);
+    document.querySelector('.comment-composer .secondary-button')?.click();
+    if (getSelection().rangeCount && !getSelection().isCollapsed) selectOnPage(null);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); // closes an open card or menu
     document.querySelector('dialog[open]')?.close();
     document.querySelectorAll('.demo-menu, .demo-file').forEach((el) => el.remove());
@@ -171,7 +173,18 @@ export function createDirector({ api }) {
 
   // The reviews as far as they've got: { improve: [shown, done], highlights: [shown, done] }, a
   // review left out not started.
+  // Selects text on the page as a press and release there would, or clears the selection. (Not
+  // bubbling: only the pages hear the press, as the app's own handling of a press isn't needed.)
+  function selectOnPage(range) {
+    const selection = getSelection();
+    selection.removeAllRanges();
+    if (range) selection.addRange(range);
+    document.getElementById('pages').dispatchEvent(new MouseEvent('mousedown'));
+    window.dispatchEvent(new MouseEvent('mouseup'));
+  }
+
   function progress({ improve, highlights } = {}) {
+    api.clearComments();
     api.setProgress('improve', improve ? { started: true, shown: improve[0], done: improve[1] } : { started: false, shown: 0, done: false });
     api.setProgress('highlights', highlights ? { started: true, shown: highlights[0], done: highlights[1] } : { started: false, shown: 0, done: false });
   }
@@ -779,6 +792,29 @@ export function createDirector({ api }) {
         ...click(() => document.getElementById('draft-prev')),
         wait(1600),
         ...click(() => document.getElementById('draft-next')),
+      ],
+    },
+    // A comment of the user's own: text selected, the comment typed, and its card in the margin.
+    'f-comment': {
+      async build(id) {
+        await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
+        const span = await waitFor(() => [...document.querySelectorAll('#pages .textLayer span')].find((s) => s.textContent.startsWith('Lead the frontend platform team')), id);
+        const text = span.firstChild;
+        const range = document.createRange();
+        range.setStart(text, 0);
+        range.setEnd(text, 'Lead the frontend platform team'.length);
+        selectOnPage(range);
+        await waitFor(() => document.querySelector('.comment-offer'), id);
+      },
+      focus: () => WINDOW,
+      beats: () => [
+        wait(700),
+        ...click(() => document.querySelector('.comment-offer')),
+        wait(200),
+        ...typeInto(() => document.querySelector('.comment-composer textarea'), 'Say how big the team is.'),
+        wait(300),
+        ...click(() => document.querySelector('.comment-composer .primary-button')),
+        wait(900),
       ],
     },
     // The preview beside the draft it was written from, stepping through what changed.

@@ -241,6 +241,27 @@ export function createDemoApi() {
       await showDraft(state.previewing);
     },
     closePreview: async () => showDraft(state.draft),
+    // Comments stay in the demo's review until the scene moves on (clearComments).
+    addRequest: async (request) => {
+      const r = reviews[state.tool];
+      const entry = { id: `request-${r.requests.length}`, createdAt: new Date().toISOString(), afterCommit: state.progress[state.tool].done, ...request };
+      r.requests.push(entry);
+      emit('review', current());
+      return entry;
+    },
+    updateRequest: async (id, { note }) => {
+      const entry = reviews[state.tool].requests.find((q) => q.id === id);
+      if (entry && note) entry.note = note;
+      emit('review', current());
+    },
+    removeRequest: async (id) => {
+      const r = reviews[state.tool];
+      r.requests = r.requests.filter((q) => q.id !== id);
+      emit('review', current());
+    },
+    clearComments: () => {
+      for (const r of Object.values(reviews)) r.requests = [];
+    },
     previewComparison: async () => {
       const [before, after] = [DRAFTS[state.draft], DRAFTS[state.previewing]];
       pdfs[before.id] ??= new Uint8Array(await (await fetch(before.pdf)).arrayBuffer());
