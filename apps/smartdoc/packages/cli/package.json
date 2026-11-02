@@ -1,6 +1,6 @@
 {
   "name": "@smartdoc/cli",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "The smartdoc command: sets up Claude Desktop and Claude Code to use the SmartDoc app, checks the connection, and runs SmartDoc's MCP connection for agents set up with npx.",
   "license": "MIT",
   "type": "module",
