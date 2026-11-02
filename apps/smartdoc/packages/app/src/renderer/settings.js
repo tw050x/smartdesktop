@@ -1,7 +1,8 @@
 // Settings: a modal in the window, opened from the top bar's gear. Closes with its close button,
 // Escape, or a click outside it. Holds the app's Appearance: as the system is, light or dark,
 // applied at once (main.js keeps it); and its Updates (updates.js), which download by themselves.
-// Once one has downloaded, a button in the top bar offers to restart into it.
+// Once one has downloaded, a notice at the bottom of the window offers to restart into it; Later
+// puts it away until the next launch or the next version.
 
 export function createSettings({ button, dialog, api }) {
   const appearance = dialog.querySelector('#appearance');
@@ -18,7 +19,9 @@ export function createSettings({ button, dialog, api }) {
   const version = dialog.querySelector('#update-version');
   const state = dialog.querySelector('#update-state');
   const action = dialog.querySelector('#update-action');
-  const restart = document.getElementById('update-button');
+  const toast = document.getElementById('update-toast');
+  const toastText = document.getElementById('update-toast-text');
+  let putOff = null; // the version the user chose Later for
   function showUpdates(u) {
     version.textContent = `SmartDoc ${u.version}`;
     state.textContent = {
@@ -32,12 +35,16 @@ export function createSettings({ button, dialog, api }) {
     }[u.state];
     action.textContent = u.state === 'ready' ? 'Restart to Update' : 'Check for Updates';
     action.disabled = ['unavailable', 'checking', 'downloading'].includes(u.state);
-    restart.hidden = u.state !== 'ready';
-    restart.title = u.state === 'ready' ? `Restart SmartDoc to update to ${u.next}` : '';
+    toast.hidden = u.state !== 'ready' || u.next === putOff;
+    toastText.textContent = `SmartDoc ${u.next} is ready to install.`;
   }
   let updates = { state: 'idle', version: '' };
   action.addEventListener('click', () => (updates.state === 'ready' ? api.installUpdate() : api.checkForUpdates()));
-  restart.addEventListener('click', () => api.installUpdate());
+  document.getElementById('update-toast-restart').addEventListener('click', () => api.installUpdate());
+  document.getElementById('update-toast-later').addEventListener('click', () => {
+    putOff = updates.next;
+    toast.hidden = true;
+  });
   api.onUpdates((u) => showUpdates((updates = u)));
   api.getUpdates().then((u) => showUpdates((updates = u)));
 
