@@ -166,7 +166,9 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       }
     }
     const byId = new Map(shown.map((i) => [i.id, i]));
-    const rank = (i) => (i.decided ? 2 : i.decidable ? 0 : 1);
+    // The user's own comment comes first until it's answered: it's what they've just been working on.
+    const awaitingAnswer = (i) => i.type === 'comment' && !state.review.items.some((f) => f.inResponseTo === i.id);
+    const rank = (i) => (awaitingAnswer(i) ? -1 : i.decided ? 2 : i.decidable ? 0 : 1);
     for (const deck of result) {
       deck.items = deck.ids.map((id) => byId.get(id));
       deck.order = [...deck.items].sort((a, b) => rank(a) - rank(b) || deck.items.indexOf(a) - deck.items.indexOf(b));
