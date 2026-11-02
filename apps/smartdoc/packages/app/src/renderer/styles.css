@@ -19,6 +19,8 @@
   --document-bg: light-dark(#ebebef, #161618);
   --top-bar-bg: light-dark(#dcdce1, #1f1f22); /* a shade apart from the background below it (and main.js's title bar overlay) */
   --accent: light-dark(#2f6fde, #4a86ee);
+  --compare-removed: rgba(226, 60, 60, 0.38);
+  --compare-added: rgba(40, 175, 85, 0.42);
   --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
   --thumb: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.28));
   --thumb-active: light-dark(rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.42));
@@ -412,6 +414,34 @@ body:not(.has-document) .review-bar { display: none; }
   background: var(--thumb-active);
   transition-delay: 0s;
 }
+
+/* The handles in the gutters that resize the pages (see app-shell.js): centred in the view, each
+   just off a page edge, in the space between the page and the cards. */
+.page-resizer {
+  grid-area: 1 / 1;
+  align-self: center;
+  justify-self: center;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 10px; /* the whole of that space, so it never reaches over a card or the page */
+  height: 128px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.page-resizer.left { transform: translateX(calc(var(--page-width, 0px) / -2 - 5px)); }
+.page-resizer.right { transform: translateX(calc(var(--page-width, 0px) / 2 + 5px)); }
+.page-resizer::after {
+  content: "";
+  width: 4px;
+  height: 108px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: background-color 0.15s;
+}
+.page-resizer:hover::after, .page-resizing .page-resizer::after { background: var(--accent); }
+.page-resizing, .page-resizing * { cursor: col-resize !important; user-select: none !important; }
+body:not(.has-document) .page-resizer, .comparing .page-resizer, .list-view-open .page-resizer { display: none; }
 
 /* --- PDF view ---------------------------------------------------------------------------- */
 .document {
@@ -860,6 +890,42 @@ button:disabled { opacity: 0.5; cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .view-switch::before, .view-switch button { transition: none; }
 }
+
+/* --- The preview beside the previous draft (see compare.js) ------------------------------- */
+.compare { grid-area: 1 / 1; display: none; overflow: auto; scrollbar-width: none; background: var(--document-bg); }
+.comparing .compare { display: block; }
+.comparing .document:not(.dragging) { visibility: hidden; }
+body:has(.document.dragging) .compare { visibility: hidden; }
+.compare-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  padding: 6px 24px;
+  background: var(--document-bg);
+  font-size: 13px;
+}
+.compare-title { font-weight: 600; text-align: center; }
+.compare-title::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; }
+.compare-title.removed::before { background: #e23c3c; }
+.compare-title.added::before { background: #28af55; }
+.compare-nav { display: flex; align-items: center; gap: 6px; }
+/* A fixed width, so the arrows and the titles either side stay put as the text changes. */
+.compare-status { width: 120px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+.compare-pages { display: grid; grid-template-columns: repeat(2, auto); justify-content: center; align-items: start; gap: 16px; padding: 8px 24px var(--card-gap); }
+/* The pages can't be selected here: this view is only for reading. */
+.compare .textLayer { pointer-events: none; user-select: none; }
+.compare .page { user-select: none; }
+.compare-mark { position: absolute; mix-blend-mode: multiply; pointer-events: none; border-radius: 2px; }
+.compare-mark.removed { background: var(--compare-removed); }
+.compare-mark.added { background: var(--compare-added); }
+.compare-mark { transition: opacity 0.15s ease; }
+.compare.stepping .compare-mark:not(.current) { opacity: 0.22; }
+.compare-mark.current { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* --- A highlights review as a list (see highlights-list.js) ------------------------------- */
 .list-view { grid-area: 1 / 1; display: none; overflow: auto; background: var(--document-bg); }

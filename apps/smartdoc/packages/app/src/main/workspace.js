@@ -87,6 +87,9 @@ export function createWorkspace(userData) {
   };
   const anchorsFrom = (quotes = []) => quotes.map((q) => resolveQuote(pageTexts, q));
 
+  // What the preview is compared with: the draft it was written from.
+  const writtenFromLabel = () => (doc.currentDraftId === store.ORIGINAL ? 'Original' : `Draft ${doc.line.indexOf(doc.currentDraftId)}`);
+
   // Back from a preview to the draft, when what's showing has moved on from it.
   const leavePreview = () => {
     if (!previewing) return;
@@ -408,7 +411,7 @@ export function createWorkspace(userData) {
       if (previewing && review?.preview) {
         return {
           ...shared,
-          draft: { id: 'preview', number: number + 1, total: doc.line.length - 1, isOriginal: false, isPreview: true, summary: review.preview.summary, setsAside: doc.line.length - 1 - number },
+          draft: { id: 'preview', number: number + 1, total: doc.line.length - 1, isOriginal: false, isPreview: true, summary: review.preview.summary, setsAside: doc.line.length - 1 - number, comparesWith: writtenFromLabel() },
           pdf: new Uint8Array(await readFile(store.previewPdfPath(doc.id, review))),
         };
       }
@@ -901,6 +904,16 @@ export function createWorkspace(userData) {
       events.emit('draft');
     },
     closePreview: () => leavePreview(),
+
+    // The preview and the draft it was written from, to show side by side.
+    async previewComparison() {
+      const r = requireReview();
+      if (!previewing || !r.preview) throw new Error('No preview is showing.');
+      return {
+        before: { label: writtenFromLabel(), pdf: new Uint8Array(await readFile(store.draftPdfPath(doc.id, doc.currentDraftId))) },
+        after: { label: `Preview of Draft ${doc.line.indexOf(doc.currentDraftId) + 1}`, pdf: new Uint8Array(await readFile(store.previewPdfPath(doc.id, r))) },
+      };
+    },
 
     // The user accepts the preview: it becomes the next draft, which becomes current. From an
     // earlier draft, that sets aside the drafts after it.

@@ -115,6 +115,8 @@ export function createDemoApi() {
     });
   }
 
+  const comparesWith = (n) => (n === 0 ? 'Original' : `Draft ${n}`);
+
   // The agent's next draft, as a preview: only accepting it makes it a draft.
   async function showPreview(n) {
     state.previewing = n;
@@ -123,7 +125,7 @@ export function createDemoApi() {
     emit('draft-opened', {
       document: DOCUMENT,
       variation: { id: 'original', name: 'Original', isOriginal: true },
-      draft: { id: 'preview', number: n, total: state.made, isOriginal: false, isPreview: true, summary: draft.summary, setsAside: 0 },
+      draft: { id: 'preview', number: n, total: state.made, isOriginal: false, isPreview: true, summary: draft.summary, setsAside: 0, comparesWith: comparesWith(state.draft) },
       pdf: pdfs[draft.id].slice(),
       review: current(),
       tool: state.tool,
@@ -239,6 +241,14 @@ export function createDemoApi() {
       await showDraft(state.previewing);
     },
     closePreview: async () => showDraft(state.draft),
+    previewComparison: async () => {
+      const [before, after] = [DRAFTS[state.draft], DRAFTS[state.previewing]];
+      pdfs[before.id] ??= new Uint8Array(await (await fetch(before.pdf)).arrayBuffer());
+      return {
+        before: { label: comparesWith(state.draft), pdf: pdfs[before.id].slice() },
+        after: { label: `Preview of Draft ${state.previewing}`, pdf: pdfs[after.id].slice() },
+      };
+    },
     discardPreview: async () => showDraft(state.draft),
 
     onDraftOpened: on('draft-opened'),

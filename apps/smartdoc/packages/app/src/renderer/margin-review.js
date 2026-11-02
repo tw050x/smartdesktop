@@ -25,8 +25,10 @@ const PEEK = 10; // how far the cards behind a deck's top card show below it
 const GAP = 8; // the least space between decks
 const LIFT = 7; // a tab's top sits this far above its line, so its title lines up with the text
 const CARD_WIDTH = 264;
-const CARD_INSET = 20; // the space kept between a card and the window edge
-const PAGE_SPACE = 10; // the space between a card and the page's edge
+const WIDENED_CARD_WIDTH = 520; // the most a card takes when the user has made the gutters wider
+export const MIN_CARD_WIDTH = 140;
+export const CARD_INSET = 20; // the space kept between a card and the window edge
+export const PAGE_SPACE = 10; // the space between a card and the page's edge
 const LINKED = 10; // a deck further than this from its card's line draws a line back to it
 
 const FINDING_KINDS = {
@@ -53,8 +55,8 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // elements; `bar` is the bar under the pages. `onMarks` is given what to draw on the page:
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
-export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal, onClearFilter }) {
-  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null };
+export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onClearFilter }) {
+  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false };
   let open = null; // the open deck's key (its first item's id)
   let hover = null; // the hovered deck's key
   let stepped = null; // the deck Previous/Next last opened: it shows as if hovered while it stays open
@@ -181,7 +183,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     decks = geo ? buildDecks(geo) : [];
     if (open && !decks.some((d) => d.key === open)) open = null;
     if (hover && !decks.some((d) => d.key === hover)) hover = null;
-    const width = geo ? Math.max(140, Math.min(CARD_WIDTH, Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE)) : CARD_WIDTH;
+    const width = geo ? Math.max(MIN_CARD_WIDTH, Math.min(pagesResized() ? WIDENED_CARD_WIDTH : CARD_WIDTH, Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE)) : CARD_WIDTH;
     for (const deck of decks) layer.append(...deckElements(deck, geo, width));
     renderBar();
     sendMarks();
@@ -536,7 +538,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
 
   // The AI's preview of the next draft is showing: it's the user's to accept or discard.
   function renderPreviewBar(text) {
-    const { number, setsAside } = state.preview;
+    const { number, setsAside, comparesWith } = state.preview;
     const notes = [`This is your AI’s preview. It only becomes Draft ${number} if you accept it.`];
     const undecided = (state.review?.items ?? []).filter((i) => i.decision.status === 'pending').length;
     if (undecided) notes.push(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`}.`);
@@ -545,6 +547,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     text.textContent = notes.join(' ');
     const end = el('div', 'review-bar-end');
     for (const [label, className, action] of [
+      [state.comparing ? 'Hide the comparison' : `Compare with ${comparesWith}`, 'secondary-button', onCompare],
       ['Back to the review', 'secondary-button', api.closePreview],
       ['Discard', 'secondary-button', api.discardPreview],
       [`Accept as Draft ${number}`, 'primary-button', api.acceptPreview],

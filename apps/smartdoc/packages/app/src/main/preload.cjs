@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('smartdoc', {
   // The preview of the next draft (the AI writes it; only the user makes it a draft).
   openPreview: () => call('open-preview'),
   closePreview: () => call('close-preview'),
+  previewComparison: () => call('preview-comparison'),
   acceptPreview: () => call('accept-preview'),
   discardPreview: () => call('discard-preview'),
   showVariationMenu: (variation) => call('variation-menu', variation),

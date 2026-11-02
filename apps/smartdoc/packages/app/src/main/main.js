@@ -531,6 +531,7 @@ handle('remove-request', (id) => workspace.removeRequest(id));
 handle('decide', (itemId, decision) => workspace.decide(itemId, decision));
 handle('open-preview', () => workspace.openPreview());
 handle('close-preview', () => workspace.closePreview());
+handle('preview-comparison', () => workspace.previewComparison());
 // Asks first if the user hasn't decided on every finding: the AI wrote the preview without their
 // say on those, and it's easy to miss them from the preview, where the cards step aside.
 handle('accept-preview', async () => {

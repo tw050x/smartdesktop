@@ -1,11 +1,13 @@
-import { GlobalWorkerOptions, TextLayer, getDocument } from 'pdfjs-dist';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { clearPages, nearestTextPosition, pageTexts, registerPage, selectionAnchors } from './anchors.js';
+import { createCompareView } from './compare.js';
 import { createFocusPicker } from './focus-picker.js';
 import { createHighlightsList } from './highlights-list.js';
-import { createMarginReview } from './margin-review.js';
+import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
+import { RENDER_SCALE, drawPage, fitPageTo } from './pdf-page.js';
 import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
@@ -45,11 +47,18 @@ export function startApp(api) {
 
   const documentEl = document.getElementById('document');
   const pagesEl = document.getElementById('pages');
-  // The pages take the middle 60% of the view, leaving a fifth either side for the review's margins.
-  const PAGE_SHARE = 0.6;
-  // Pages are drawn once at this scale, then shrunk with CSS to fit the space available, so
-  // resizing the window never needs a redraw.
-  const RENDER_SCALE = 1.5;
+  const compareEl = document.getElementById('compare');
+  const compareView = createCompareView({ el: compareEl, api });
+  let comparing = false;
+  // The pages take the middle 60% of the view, leaving a fifth either side for the review's margins,
+  // unless the user has dragged them to another size (see the page resizers below).
+  const DEFAULT_PAGE_SHARE = 0.6;
+  const PAGE_SHARE_KEY = 'page-share';
+  const storedPageShare = () => {
+    const share = Number(localStorage.getItem(PAGE_SHARE_KEY));
+    return share > 0 && share <= 1 ? share : null;
+  };
+  let pageShare = storedPageShare() ?? DEFAULT_PAGE_SHARE;
   const A4_WIDTH = 595; // points; an A4 page's width, which fitPage never enlarges beyond
 
   let loading = 0; // newest draft wins if drafts are switched quickly
@@ -63,42 +72,13 @@ export function startApp(api) {
     setHasDocument(true);
 
     for (let n = 1; n <= pdf.numPages; n++) {
-      const page = await pdf.getPage(n);
-      const viewport = page.getViewport({ scale: RENDER_SCALE });
-      const ratio = window.devicePixelRatio || 1;
-
-      // .page takes the fitted size in the layout; .page-content holds the page at its drawn
-      // size and is scaled down to match, keeping the canvas and text layer aligned.
-      const pageEl = document.createElement('div');
-      pageEl.className = 'page';
-      pageEl.dataset.width = String(viewport.width);
-      pageEl.dataset.height = String(viewport.height);
-
-      const contentEl = document.createElement('div');
-      contentEl.className = 'page-content';
-      contentEl.style.width = `${viewport.width}px`;
-      contentEl.style.height = `${viewport.height}px`;
-      contentEl.style.setProperty('--total-scale-factor', String(RENDER_SCALE));
-
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.floor(viewport.width * ratio);
-      canvas.height = Math.floor(viewport.height * ratio);
-
-      const textLayerEl = document.createElement('div');
-      textLayerEl.className = 'textLayer';
-
-      contentEl.append(canvas, textLayerEl);
-      pageEl.append(contentEl);
-      pagesEl.append(pageEl);
-      fitPage(pageEl);
-
-      await page.render({ canvas, viewport, transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0] }).promise;
-      const textContent = await page.getTextContent();
-      const textLayer = new TextLayer({ textContentSource: textContent, container: textLayerEl, viewport });
-      await textLayer.render();
+      const { items, textDivs, contentEl, textLayerEl } = await drawPage(await pdf.getPage(n), (pageEl) => {
+        pagesEl.append(pageEl);
+        fitPage(pageEl);
+      });
       if (ticket !== loading) return;
       keepSelectionSteady(textLayerEl);
-      registerPage(n, textContent.items, textLayer.textDivs, contentEl);
+      registerPage(n, items, textDivs, contentEl);
       // Each page's review cards can be placed once its text is known.
       relayout();
       if (n === 1 && dropping) endDrop(); // a dropped file's first page, drawn under the drop indicator
@@ -157,13 +137,62 @@ export function startApp(api) {
   }
 
   function fitPage(pageEl) {
-    const available = documentEl.clientWidth * PAGE_SHARE;
-    const k = Math.max(0, Math.min(1, available / Number(pageEl.dataset.width)));
-    pageEl.style.width = `${Number(pageEl.dataset.width) * k}px`;
-    pageEl.style.height = `${Number(pageEl.dataset.height) * k}px`;
-    pageEl.firstElementChild.style.transform = `scale(${k})`;
-    // The bar under the pages matches their width.
-    documentEl.style.setProperty('--page-width', pageEl.style.width);
+    fitPageTo(pageEl, documentEl.clientWidth * pageShare);
+    // The page resizers sit at the pages' edges.
+    documentEl.parentElement.style.setProperty('--page-width', pageEl.style.width);
+  }
+
+  // --- Page resizers -------------------------------------------------------------------------
+  // A handle in each gutter, at the page's edge. Dragging either resizes the pages from both sides
+  // at once, staying centred, trading page width for room for the review's cards. Double-clicking
+  // goes back to the usual size. The size is kept for every document.
+  const MIN_PAGE_WIDTH = 300;
+  const MIN_GUTTER = MIN_CARD_WIDTH + CARD_INSET + PAGE_SPACE;
+  const MAX_PAGE_WIDTH = A4_WIDTH * RENDER_SCALE;
+  const firstPage = () => pagesEl.querySelector('.page');
+
+  // Sets the share and redraws, keeping the same part of the document at the top of the view.
+  function setPageShare(share) {
+    const before = firstPage()?.offsetWidth;
+    const { scrollTop } = documentEl;
+    pageShare = share;
+    pagesEl.querySelectorAll('.page').forEach(fitPage);
+    const after = firstPage()?.offsetWidth;
+    if (before && after) documentEl.scrollTop = scrollTop * (after / before);
+    relayout();
+  }
+
+  for (const handle of document.querySelectorAll('.page-resizer')) {
+    const side = handle.classList.contains('left') ? -1 : 1;
+    handle.addEventListener('pointerdown', (e) => {
+      const first = firstPage();
+      if (!first) return;
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startWidth = first.offsetWidth;
+      document.body.classList.add('page-resizing');
+      const onMove = (m) => {
+        const view = documentEl.clientWidth;
+        const largest = Math.max(MIN_PAGE_WIDTH, Math.min(MAX_PAGE_WIDTH, view - 2 * MIN_GUTTER));
+        // Twice the pointer's travel: the far edge moves as much as the near one.
+        const width = Math.min(largest, Math.max(MIN_PAGE_WIDTH, startWidth + 2 * side * (m.clientX - startX)));
+        setPageShare(width / view);
+      };
+      const onEnd = () => {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('lostpointercapture', onEnd);
+        document.body.classList.remove('page-resizing');
+        if (pageShare !== DEFAULT_PAGE_SHARE) localStorage.setItem(PAGE_SHARE_KEY, String(pageShare));
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('lostpointercapture', onEnd);
+    });
+    handle.addEventListener('dblclick', () => {
+      localStorage.removeItem(PAGE_SHARE_KEY);
+      setPageShare(DEFAULT_PAGE_SHARE);
+    });
+    handle.addEventListener('wheel', (e) => documentEl.scrollBy(e.deltaX, e.deltaY), { passive: true });
   }
 
   new ResizeObserver(() => {
@@ -251,10 +280,21 @@ export function startApp(api) {
   // Only an open document scrolls; the empty pages shown without one don't.
   const updateScrollUi = customScrollbar({
     scrollbarEl: document.getElementById('scrollbar'),
-    scrollers: [documentEl],
-    scroller: () => documentEl,
-    watch: [documentEl, pagesEl],
+    scrollers: [documentEl, compareEl],
+    scroller: () => (comparing ? compareEl : documentEl),
+    watch: [documentEl, pagesEl, compareEl],
   });
+
+  // The preview beside the draft it was written from (see compare.js), in place of the document.
+  function setComparing(on) {
+    if (on === comparing) return;
+    comparing = on;
+    document.body.classList.toggle('comparing', on);
+    if (on) compareView.open();
+    else compareView.close();
+    marginReview.update({ comparing: on });
+    updateScrollUi();
+  }
 
   // The home screen browses the documents, their variations and drafts. A new variation, from a
   // draft there or from the menu, is made by the AI from the prompt on the variation card.
@@ -404,6 +444,9 @@ export function startApp(api) {
     bar: document.getElementById('review-bar'),
     api,
     onMarks: setMarks,
+    onCompare: () => setComparing(!comparing),
+    // A gutter the user has widened is for the cards to use.
+    pagesResized: () => storedPageShare() !== null || document.body.classList.contains('page-resizing'),
     onReveal: (anchors) => revealAnchors(anchors, documentEl),
     onClearFilter: () => {
       getSelection().removeAllRanges();
@@ -474,7 +517,8 @@ export function startApp(api) {
     draftPrev.disabled = draft.number === 0;
     draftNext.disabled = draft.isPreview || draft.number === draft.total;
     requestAnimationFrame(placeDraftNav);
-    const preview = draft.isPreview ? { number: draft.number, setsAside: draft.setsAside } : null;
+    setComparing(false);
+    const preview = draft.isPreview ? { number: draft.number, setsAside: draft.setsAside, comparesWith: draft.comparesWith } : null;
     current = { doc, review, tool, preview };
     marginReview.update({ document: doc, review, tool, preview, filter: null });
     showView();
@@ -486,6 +530,7 @@ export function startApp(api) {
 
   api.onDocumentClosed(() => {
     loading++;
+    setComparing(false);
     clearPdf();
     clearPages();
     toolSwitcher.close();
@@ -556,7 +601,7 @@ export function startApp(api) {
   documentEl.addEventListener('dragover', (e) => {
     e.preventDefault();
     dropZone.style.top = `${documentEl.scrollTop + 10}px`; // the pages' top padding (--card-gap)
-    dropZone.style.width = `${Math.min(documentEl.clientWidth * PAGE_SHARE, A4_WIDTH * RENDER_SCALE)}px`;
+    dropZone.style.width = `${Math.min(documentEl.clientWidth * pageShare, A4_WIDTH * RENDER_SCALE)}px`;
     documentEl.classList.add('dragging');
   });
   documentEl.addEventListener('dragleave', (e) => {

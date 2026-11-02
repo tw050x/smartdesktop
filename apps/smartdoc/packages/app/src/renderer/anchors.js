@@ -12,6 +12,11 @@ export function clearPages() {
 // Call once a page's text layer has rendered. `items` are the text content items given to the
 // text layer; `textDivs` is the layer's spans (one per item with a string).
 export function registerPage(pageNumber, items, textDivs, contentEl) {
+  pages.set(pageNumber, pageModel(items, textDivs, contentEl));
+}
+
+// A drawn page's text and where each part of it is on the page.
+export function pageModel(items, textDivs, contentEl) {
   let text = '';
   const spans = [];
   items.filter((item) => typeof item.str === 'string').forEach((item, i) => {
@@ -20,7 +25,7 @@ export function registerPage(pageNumber, items, textDivs, contentEl) {
     spans.push({ el: textDivs[i], start, end: text.length });
     if (item.hasEOL) text += '\n';
   });
-  pages.set(pageNumber, { text, spans, contentEl });
+  return { text, spans, contentEl };
 }
 
 export const pageTexts = () => [...pages.keys()].sort((a, b) => a - b).map((n) => pages.get(n).text);
@@ -62,16 +67,20 @@ function offsetIn(span, node, offset) {
 // Rectangles covering an anchor, in the page's unscaled (drawn) coordinates.
 export function anchorRects(anchor) {
   const page = pages.get(anchor.page);
-  if (!page) return [];
+  return page ? rangeRects(page, anchor.start, anchor.end) : [];
+}
+
+// Rectangles covering a range of a page's text (a pageModel), in its unscaled coordinates.
+export function rangeRects(page, start, end) {
   const box = page.contentEl.getBoundingClientRect();
   const scale = box.width / page.contentEl.offsetWidth || 1;
   const rects = [];
   for (const span of page.spans) {
-    if (span.end <= anchor.start || span.start >= anchor.end || !span.el.firstChild) continue;
+    if (span.end <= start || span.start >= end || !span.el.firstChild) continue;
     const node = span.el.firstChild;
     const range = document.createRange();
-    range.setStart(node, Math.max(0, anchor.start - span.start));
-    range.setEnd(node, Math.min(node.length, anchor.end - span.start));
+    range.setStart(node, Math.max(0, start - span.start));
+    range.setEnd(node, Math.min(node.length, end - span.start));
     for (const r of range.getClientRects()) {
       if (r.width < 0.5) continue;
       rects.push({ x: (r.left - box.left) / scale, y: (r.top - box.top) / scale, width: r.width / scale, height: r.height / scale });

@@ -81,9 +81,14 @@ export const APP_MARKUP = `
       <div class="margin-layer" id="margin-layer"></div>
     </div>
   </section>
+  <!-- The AI's preview beside the draft it was written from, in place of the document (see compare.js). -->
+  <section class="compare" id="compare" aria-label="Comparison with the previous draft"></section>
   <!-- A highlights review as a list, in place of the document (see highlights-list.js). -->
   <section class="list-view" id="list-view" aria-label="Highlights"></section>
   <div class="scrollbar" id="scrollbar" aria-hidden="true"><div class="scrollbar-thumb" id="scrollbar-thumb"></div></div>
+  <!-- At the pages' edges, to resize them from both sides at once (see app-shell.js). -->
+  <div class="page-resizer left" title="Drag to resize the page. Double-click to reset."></div>
+  <div class="page-resizer right" title="Drag to resize the page. Double-click to reset."></div>
   <footer class="review-bar" id="review-bar" aria-label="Review"></footer>
 </main>
 
