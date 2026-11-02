@@ -186,7 +186,7 @@ export function createDirector({ api }) {
     progress(reviews);
     resetViews();
     const s = api.state;
-    if (s.screen !== 'document' || s.draft !== n || s.tool !== tool) {
+    if (s.screen !== 'document' || s.draft !== n || s.tool !== tool || s.previewing != null) {
       s.tool = tool;
       await api.showDraft(n);
       await waitFor(() => document.querySelector('.page .textLayer'), id);
@@ -630,7 +630,8 @@ export function createDirector({ api }) {
         ...click(() => button('.margin-card', 'Accept')),
       ],
     },
-    // Everything decided: the prompt goes to the agent, which writes Draft 1; it opens by itself.
+    // Everything decided: the prompt goes to the agent, which writes a preview of Draft 1; it opens
+    // by itself, and accepting it makes it the draft.
     redraft: {
       narrowX: AGENT_X,
       build: (id) => onDocument(0, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS }, made: 0 }, id),
@@ -641,20 +642,17 @@ export function createDirector({ api }) {
         wait(500),
         ...agentWork(`I’ve made my decisions in SmartDoc. Apply the review and write the next draft of “${DOC.name}”.`, [
           { tool: 'get_decisions', done: '4 decided' },
-          { say: 'You chose the first rewrite, accepted the wording and the move, and told me conversion rose 12%. Writing Draft 1 now.' },
+          { say: 'You chose the first rewrite, accepted the wording and the move, and told me conversion rose 12%. Writing the next draft now.' },
           {
-            tool: 'apply_review', detail: 'Draft 1', wait: 2000, done: 'Draft 1 written',
-            act: async () => {
-              api.setMade(1);
-              await api.showDraft(1);
-            },
-            undo: async () => {
-              api.setMade(0);
-              await api.showDraft(0);
-            },
+            tool: 'apply_review', detail: 'Draft 1', wait: 2000, done: 'Preview written',
+            act: () => api.showPreview(1),
+            undo: () => api.showDraft(0),
           },
-          { say: 'Draft 1 is open in SmartDoc. The profile now leads with your platform work, Skills come first, and the checkout line has its result.' },
+          { say: 'Have a look at the preview in SmartDoc. The profile now leads with your platform work, Skills come first, and the checkout line has its result. Accept it and it becomes Draft 1.' },
         ]),
+        wait(400),
+        ...click(() => button('.review-bar', 'Accept as Draft 1')),
+        wait(1000),
       ],
     },
     // The other tool: switched to, asked what matters, and its highlights added one by one.
@@ -694,7 +692,7 @@ export function createDirector({ api }) {
       focus: () => union(rect('.home-column:nth-child(2)'), rect('.home-column:nth-child(3)'), { left: 380, right: 900, top: 240, bottom: 560 }),
       beats: () => [
         wait(500),
-        ...contextMenu(() => document.querySelector('#home-drafts .home-item'), ['New Variation…', 'Make a Document from This Draft']),
+        ...contextMenu(() => document.querySelector('#home-drafts .home-item'), ['New Variation…', 'New Document from Draft', 'Delete this draft']),
         move(menuItem(0)),
         { ms: 0, find: menuItem(0), act: (el) => el.classList.add('active') },
         wait(300),
@@ -715,8 +713,8 @@ export function createDirector({ api }) {
           },
           { say: 'The job leads with the design system and a team of six, so I’ll bring those to the top.' },
           { tool: 'get_document', done: 'Draft 1, pages 1–2' },
-          { tool: 'apply_review', detail: 'Draft 2', wait: 1600, done: 'Draft 2 written' },
-          { say: 'Made “Acme product lead” and wrote its Draft 2 for the job. Your original CV and its drafts are unchanged.' },
+          { tool: 'apply_review', detail: 'Draft 2', wait: 1600, done: 'Preview written' },
+          { say: 'Made “Acme product lead” and wrote a preview of its Draft 2 for the job, for you to accept. Your original CV and its drafts are unchanged.' },
         ]),
         act((_, id) => selectVariation('Acme', id)),
       ],
@@ -835,7 +833,7 @@ export function createDirector({ api }) {
       focus: () => union(rect('.home-column:nth-child(3)'), { left: 900, right: 1260, top: 100, bottom: 300 }),
       beats: () => [
         wait(500),
-        ...contextMenu(() => document.querySelector('#home-drafts .home-item'), ['New Variation…', 'Make a Document from This Draft']),
+        ...contextMenu(() => document.querySelector('#home-drafts .home-item'), ['New Variation…', 'New Document from Draft', 'Delete this draft']),
         move(menuItem(1)),
         { ms: 0, find: menuItem(1), act: (el) => el.classList.add('active') },
       ],

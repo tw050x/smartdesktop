@@ -34,6 +34,7 @@ export function createDemoApi() {
       screen: null, // 'home' or 'document' once the director shows one
       tool: 'improve',
       draft: 0,
+      previewing: null, // the draft whose preview is showing, waiting to be accepted
       made: 0, // the drafts after the original that exist so far
       variation: false, // whether the Acme variation exists yet
       // How far each review has got: started, how many of its findings or highlights the agent
@@ -101,6 +102,7 @@ export function createDemoApi() {
   async function showDraft(n) {
     state.screen = 'document';
     state.draft = n;
+    state.previewing = null;
     const draft = DRAFTS[n];
     pdfs[draft.id] ??= new Uint8Array(await (await fetch(draft.pdf)).arrayBuffer());
     emit('draft-opened', {
@@ -108,6 +110,21 @@ export function createDemoApi() {
       variation: { id: 'original', name: 'Original', isOriginal: true },
       draft: { id: draft.id, number: n, total: state.made, isOriginal: n === 0, summary: draft.summary },
       pdf: pdfs[draft.id].slice(), // pdf.js takes the buffer it's given
+      review: current(),
+      tool: state.tool,
+    });
+  }
+
+  // The agent's next draft, as a preview: only accepting it makes it a draft.
+  async function showPreview(n) {
+    state.previewing = n;
+    const draft = DRAFTS[n];
+    pdfs[draft.id] ??= new Uint8Array(await (await fetch(draft.pdf)).arrayBuffer());
+    emit('draft-opened', {
+      document: DOCUMENT,
+      variation: { id: 'original', name: 'Original', isOriginal: true },
+      draft: { id: 'preview', number: n, total: state.made, isOriginal: false, isPreview: true, summary: draft.summary, setsAside: 0 },
+      pdf: pdfs[draft.id].slice(),
       review: current(),
       tool: state.tool,
     });
@@ -154,6 +171,7 @@ export function createDemoApi() {
     // --- For the director ---
     reset,
     showDraft,
+    showPreview,
     get state() { return state; },
     reviews,
     // The home screen, listing the document (its variations and drafts as the state has them).
@@ -216,6 +234,12 @@ export function createDemoApi() {
     showDocumentMenu: async () => {},
     showVariationMenu: async () => {},
     goHome: async () => {},
+    acceptPreview: async () => {
+      state.made = state.previewing;
+      await showDraft(state.previewing);
+    },
+    closePreview: async () => showDraft(state.draft),
+    discardPreview: async () => showDraft(state.draft),
 
     onDraftOpened: on('draft-opened'),
     onDocumentClosed: on('closed'),
