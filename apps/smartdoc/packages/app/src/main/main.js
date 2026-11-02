@@ -4,8 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
+import { createConnect } from './connect.js';
 import { startMcpServer } from './mcp-server.js';
 import { buildMenu } from './menu.js';
+import { createUpdates } from './updates.js';
 import { createWorkspace } from './workspace.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -393,25 +395,57 @@ async function documentFromDraft(docId, variationId, draftId) {
 }
 
 // --- Connecting an AI --------------------------------------------------------------------
-// AI apps start SmartDoc's MCP server themselves: Claude Code runs the npm package with npx,
-// and Claude Desktop installs the .mcpb bundle from the website. Either one opens this app and
-// talks to its server, so there's nothing to copy from here but the Claude Code command.
+// AI apps start SmartDoc's MCP launcher, which is inside the app (see connect.js). The MCP panel
+// (opened from the server pill, or Connect an AI in the menu) shows how to set up each AI app,
+// and can add SmartDoc to Claude Desktop itself.
 
 const WEBSITE = 'https://tw050x.github.io/smartdoc/';
-const CLAUDE_CODE_COMMAND = 'claude mcp add --scope user smartdoc -- npx -y @smartdoc/mcp';
+const { setups, claudeDesktopStatus, addToClaudeDesktop } = createConnect({
+  isPackaged: app.isPackaged,
+  execPath: process.execPath,
+  resourcesPath: process.resourcesPath,
+  appPath: app.getAppPath(),
+});
 
-async function showConnectAi() {
+const showConnectAi = () => send('show-connect');
+
+async function confirmAddToClaudeDesktop() {
+  const status = await claudeDesktopStatus();
   const { response } = await dialog.showMessageBox(win ?? undefined, {
-    type: 'info',
-    message: 'Connect an AI',
-    detail: 'Claude Desktop: install SmartDoc from the website (download the file and open it).\n\nClaude Code: run this command in a terminal, then start a new session:\n' + CLAUDE_CODE_COMMAND + '\n\nThe AI then opens this app whenever it needs it.',
-    buttons: ['Open the Website', 'Copy the Claude Code Command', 'Close'],
+    type: 'question',
+    message: status.state === 'different' ? 'Update SmartDoc in Claude Desktop?' : 'Add SmartDoc to Claude Desktop?',
+    detail: 'SmartDoc adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
+    buttons: [status.state === 'different' ? 'Update' : 'Add', 'Cancel'],
     defaultId: 0,
-    cancelId: 2,
+    cancelId: 1,
   });
-  if (response === 0) shell.openExternal(WEBSITE);
-  if (response === 1) clipboard.writeText(CLAUDE_CODE_COMMAND);
+  if (response !== 0) return status;
+  return addToClaudeDesktop();
 }
+
+// macOS: AI apps start SmartDoc from where it's installed, so a copy run from the disk image or
+// Downloads is offered a move to Applications (which opens it again from there).
+async function offerMoveToApplications() {
+  if (!app.isPackaged || process.platform !== 'darwin' || app.isInApplicationsFolder()) return;
+  const { response } = await dialog.showMessageBox(win ?? undefined, {
+    type: 'question',
+    message: 'Move SmartDoc to your Applications folder?',
+    detail: 'Your agent opens SmartDoc from where it’s installed, so it works best in Applications.',
+    buttons: ['Move to Applications', 'Not Now'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response !== 0) return;
+  try {
+    app.moveToApplicationsFolder();
+  } catch (error) {
+    dialog.showErrorBox('SmartDoc couldn’t be moved', `${error.message}\n\nDrag SmartDoc into your Applications folder in Finder instead.`);
+  }
+}
+
+// --- Updates -----------------------------------------------------------------------------
+
+const updates = createUpdates({ report: (status) => send('updates', status) });
 
 // --- Window requests ---------------------------------------------------------------------
 
@@ -509,11 +543,11 @@ async function resetReview(step) {
   await reset.run();
   return true;
 }
-// Setup for each AI app, shown and copied for pasting: Claude Code's terminal command.
-const MCP_SETUPS = { 'claude-code': () => CLAUDE_CODE_COMMAND };
-function mcpSetup(target) {
-  if (!MCP_SETUPS[target]) throw new Error(`Unknown AI app: ${target}`);
-  return MCP_SETUPS[target]();
+// Setup for each AI app, shown and copied for pasting (see connect.js).
+async function mcpSetup(target) {
+  const all = await setups();
+  if (!all[target]) throw new Error(`Unknown AI app: ${target}`);
+  return all[target];
 }
 handle('mcp-setup', (target) => mcpSetup(target));
 handle('step-draft', (delta) => workspace.stepDraft(delta));
@@ -521,8 +555,13 @@ handle('list-focuses', (type) => workspace.listFocuses(type));
 handle('set-focus', (reviewId) => workspace.setFocus(reviewId));
 handle('set-tool', (tool) => workspace.setTool(tool));
 handle('copy-text', (text) => clipboard.writeText(String(text)));
-handle('copy-mcp-setup', (target) => clipboard.writeText(mcpSetup(target)));
+handle('copy-mcp-setup', async (target) => clipboard.writeText(await mcpSetup(target)));
 handle('open-website', () => shell.openExternal(WEBSITE));
+handle('claude-desktop-status', () => claudeDesktopStatus());
+handle('add-to-claude-desktop', () => confirmAddToClaudeDesktop());
+handle('get-updates', () => updates.status);
+handle('check-updates', () => updates.check());
+handle('install-update', () => updates.install());
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('set-appearance', (appearance) => setAppearance(appearance));
 
@@ -548,6 +587,9 @@ app.whenReady().then(async () => {
   mcpStarting = false;
   send('mcp-status', mcpStatus());
   if (pendingOpen) importFile(pendingOpen);
+  updates.start();
+  await winReady;
+  offerMoveToApplications();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

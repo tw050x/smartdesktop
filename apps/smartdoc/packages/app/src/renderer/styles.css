@@ -343,6 +343,12 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .app-picker-menu button[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent); font-weight: 600; }
 .tab-panel[hidden] { display: none; }
 .tab-panel { padding-top: 14px; }
+.setup-state { margin: 0 0 12px; font-size: 12px; color: var(--text-2); }
+#setup-claude-desktop > .primary-button { margin-bottom: 4px; }
+#setup-claude-desktop > .primary-button[hidden] { display: none; }
+.setup-manual { margin-top: 16px; font-size: 12px; }
+.setup-manual summary { cursor: pointer; color: var(--text-2); margin-bottom: 10px; }
+.setup-note { margin: 16px 0 0; color: var(--muted); font-size: 11px; }
 .setup-steps { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 12px; }
 .setup-steps li { padding-left: 2px; }
 .code-block { position: relative; margin-top: 6px; }
@@ -626,6 +632,14 @@ button:disabled { opacity: 0.5; cursor: default; }
 .setting + .setting { margin-top: 24px; }
 .setting-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
 .setting-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.setting-line { margin: 0 0 10px; color: var(--text-2); font-size: 13px; }
+.update-button[hidden] { display: none; }
+.update-button {
+  height: 26px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 13px;
+  background: var(--accent); color: #fff; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.update-button:hover { filter: brightness(1.08); }
+.update-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* A row of choices, the chosen one raised, as macOS draws them. */
 .segmented { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--subtle-bg); border: 1px solid var(--border); }
 .segmented button { padding: 4px 16px; border: 0; border-radius: 6px; background: transparent; font: inherit; color: var(--text-2); cursor: pointer; }

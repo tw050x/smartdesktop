@@ -1,16 +1,16 @@
 {
-  "name": "@smartdoc/mcp",
+  "name": "@smartdoc/cli",
   "version": "0.3.0",
-  "description": "Review documents with your own AI. Opens the SmartDoc app and connects it to Claude Code, Claude Desktop and other MCP clients.",
+  "description": "The smartdoc command: sets up Claude Desktop and Claude Code to use the SmartDoc app, checks the connection, and runs SmartDoc's MCP connection for agents set up with npx.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "smartdoc-mcp": "index.js"
+    "smartdoc": "cli.js"
   },
   "files": [
-    "index.js",
-    "lib/",
-    "icon.png"
+    "cli.js",
+    "mcp.js",
+    "lib/"
   ],
   "engines": {
     "node": ">=18"
@@ -18,7 +18,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tw050x/smartdoc.git",
-    "directory": "packages/mcp"
+    "directory": "packages/cli"
   },
   "homepage": "https://tw050x.github.io/smartdoc/",
   "keywords": [

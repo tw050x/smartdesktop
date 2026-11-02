@@ -1,9 +1,6 @@
 import readline from 'node:readline';
 import { mcpUrl } from './platform.js';
 
-const NEWS_EVERY_MS = 100;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 // Carries MCP messages between an AI app, which talks to this launcher over stdio (one JSON-RPC
 // message per line), and the app's MCP server over HTTP. The first message the app has to
 // answer opens it, and waits until it's running. If the app goes away (say the user quits it),
@@ -14,10 +11,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // With `offline` (server.json: what the app's server says about itself, see
 // scripts/server-snapshot.mjs), the bridge answers the AI app's handshake itself, and its requests
 // for the lists of tools and prompts until the app is running, so an AI app isn't kept waiting,
-// and nothing is opened (or downloaded) until the AI uses a tool. `downloading()` says how a
-// first-time download is going, or that the user is being asked whether to download (or null):
-// tool calls are answered with that meanwhile, so the AI can tell the user.
-export function runBridge({ input = process.stdin, output = process.stdout, env = process.env, ensure, token, log = () => {}, offline = null, version = '0.0.0', downloading = () => null }) {
+// and nothing is opened until the AI uses a tool.
+export function runBridge({ input = process.stdin, output = process.stdout, env = process.env, ensure, token, log = () => {}, offline = null, version = '0.0.0' }) {
   let ready = null;
   let running = false;
   const whenReady = () => (ready ??= ensure().then(() => {
@@ -51,23 +46,6 @@ export function runBridge({ input = process.stdin, output = process.stdout, env 
     return undefined;
   }
 
-  // For a tool call while the app isn't running: opens it, and waits until it's running (resolves
-  // null) or there's news of a download to tell the AI (resolves to it).
-  async function news() {
-    const told = downloading();
-    if (told) return told;
-    const opening = whenReady();
-    // Once the AI has the news, how it ends reaches the AI another way: the user sees a failure in
-    // the window, and declining or cancelling is the next call's news.
-    opening.catch(() => {});
-    while (!running) {
-      const status = downloading();
-      if (status) return status;
-      await Promise.race([opening, sleep(NEWS_EVERY_MS)]);
-    }
-    return null;
-  }
-
   async function post(line) {
     const res = await fetch(mcpUrl(env), {
       method: 'POST',
@@ -78,10 +56,6 @@ export function runBridge({ input = process.stdin, output = process.stdout, env 
   }
 
   async function forward(line, message) {
-    if (offline && message.method === 'tools/call' && !running) {
-      const status = await news();
-      if (status) return answer(message.id, { isError: true, content: [{ type: 'text', text: status }] });
-    }
     await whenReady();
     let reply;
     try {
@@ -120,7 +94,10 @@ export function runBridge({ input = process.stdin, output = process.stdout, env 
     if (reply !== undefined) return answer(message.id, reply);
     const job = forward(line, message).catch((error) => {
       log(error.message);
-      fail(message.id, error.message);
+      // A tool call gets the reason as its result, which the AI reads and can pass on (say, that
+      // the app isn't installed).
+      if (message.method === 'tools/call') answer(message.id, { isError: true, content: [{ type: 'text', text: error.message }] });
+      else fail(message.id, error.message);
     });
     pending.add(job);
     job.finally(() => pending.delete(job));

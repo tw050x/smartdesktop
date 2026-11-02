@@ -1,7 +1,8 @@
 // The MCP server's status in the top bar: a pill showing only whether it's starting (amber), on
 // (green) or off (red). Clicking it dulls
 // the window with a white mask (leaving the pill clear) and slides in a full-height panel on the
-// right with the server's details and, in a tab per AI app, how to connect one. The panel's
+// right with the server's details and, for each AI app, how to connect it; for Claude Desktop,
+// a button that adds SmartDoc for the user. Connect an AI in the menu opens it too. The panel's
 // drag handle resizes it, and closes it when dragged below the minimum width.
 
 const PANEL_MIN = 300;
@@ -16,6 +17,15 @@ const LABELS = { starting: 'Starting…', running: 'Ready', off: 'Not running' }
 const TITLES = { starting: 'MCP server: starting', running: 'MCP server: ready for your AI', off: 'MCP server: not running' };
 const STATES = { starting: 'Starting…', running: 'Running', off: 'Not running' };
 
+// Where Claude Desktop stands (see connect.js), and the button for it, if any.
+const CLAUDE_DESKTOP = {
+  'not-installed': { text: 'Claude Desktop isn’t on this Mac. Once it is, come back here to add SmartDoc to it.' },
+  'not-added': { text: 'SmartDoc can add itself to Claude Desktop for you.', button: 'Add to Claude Desktop' },
+  added: { text: 'SmartDoc is in Claude Desktop. If Claude Desktop was open, quit it and open it again to connect, then ask Claude to review your document.' },
+  different: { text: 'Claude Desktop has SmartDoc set up from before (perhaps from where the app used to be).', button: 'Update Claude Desktop' },
+  unreadable: { text: 'Claude Desktop’s settings file isn’t in a form SmartDoc can safely change. Add SmartDoc yourself, below.' },
+};
+
 export function createServerStatus({ api }) {
   const pill = document.getElementById('server-pill');
   const label = document.getElementById('server-pill-label');
@@ -24,7 +34,6 @@ export function createServerStatus({ api }) {
   const stateEl = document.getElementById('server-state');
   const urlEl = document.getElementById('server-url');
   const off = document.getElementById('server-off');
-  const setup = document.getElementById('mcp-setup');
   let status = { state: 'starting' };
 
   function render() {
@@ -35,15 +44,36 @@ export function createServerStatus({ api }) {
     pill.setAttribute('aria-label', TITLES[status.state]);
     urlEl.textContent = status.url ?? '—';
     off.hidden = status.state !== 'off';
-    setup.hidden = status.state !== 'running';
-    if (status.state === 'running') showSetups();
   }
 
   async function showSetups() {
     for (const code of card.querySelectorAll('[data-setup]')) code.textContent = await api.mcpSetup(code.dataset.setup);
   }
 
+  const desktopState = document.getElementById('claude-desktop-state');
+  const addButton = document.getElementById('add-to-claude-desktop');
+  const extensionNote = document.getElementById('claude-extension-note');
+  function showClaudeDesktop(desktop) {
+    const shown = CLAUDE_DESKTOP[desktop.state];
+    desktopState.textContent = shown.text;
+    addButton.hidden = !shown.button;
+    addButton.textContent = shown.button ?? '';
+    extensionNote.hidden = !desktop.extension;
+  }
+  const refreshClaudeDesktop = () => api.claudeDesktopStatus().then(showClaudeDesktop);
+  addButton.addEventListener('click', async () => {
+    addButton.disabled = true;
+    try {
+      showClaudeDesktop(await api.addToClaudeDesktop());
+    } catch (error) {
+      desktopState.textContent = error.message;
+    } finally {
+      addButton.disabled = false;
+    }
+  });
+
   function setOpen(open) {
+    if (open) refreshClaudeDesktop();
     document.body.classList.toggle('mcp-open', open);
     card.inert = !open;
     pill.setAttribute('aria-expanded', String(open));
@@ -100,8 +130,6 @@ export function createServerStatus({ api }) {
     }
   });
 
-  document.getElementById('open-website').addEventListener('click', () => api.openWebsite());
-
   // The AI app to set up: its button opens a menu of the apps; choosing one shows its setup steps.
   const appButton = document.getElementById('app-picker-button');
   const appLabel = document.getElementById('app-picker-label');
@@ -155,5 +183,7 @@ export function createServerStatus({ api }) {
     status = next;
     render();
   });
+  api.onShowConnect(() => setOpen(true));
   render();
+  showSetups();
 }

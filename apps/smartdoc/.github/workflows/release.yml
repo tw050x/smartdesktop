@@ -4,14 +4,16 @@ name: Release
 # goes ahead once the Prerequisites workflow has passed on the same commit; if it's still
 # running, this waits.
 #
-# One version is released everywhere at once (packages/app/package.json, packages/mcp/package.json
-# and mcpb/manifest.json must match; the tests check):
-#   - the macOS app, signed and notarised, as a zip per architecture (what the launcher
-#     downloads) and a dmg per architecture (for installing by hand)
-#   - smartdoc.mcpb, the bundle Claude Desktop installs (linked from the website), with the
-#     launcher and its download window (signed and notarised too)
-#   - SHA256SUMS.txt, which the launcher checks downloads against
-#   - the launcher on npm as @smartdoc/mcp (what Claude Code runs with npx)
+# One version is released everywhere at once (packages/app/package.json and
+# packages/cli/package.json must match; the tests check):
+#   - the macOS app, signed and notarised, as a disk image per architecture, SmartDoc-mac-<arch>.dmg
+#     (no version in the name, so the website links to the latest release's), with SmartDoc's
+#     MCP launcher inside it
+#   - a zip per architecture, and latest-mac.yml listing them, which the app's updater reads
+#     from the latest release (electron-updater); and their blockmaps, for smaller updates
+#   - SHA256SUMS.txt
+#   - the smartdoc command on npm as @smartdoc/cli: setup, doctor, and the MCP connection for
+#     agents set up with npx
 # Windows and Linux builds follow once they're signed too; the launcher says so meanwhile.
 #
 # Without "publish" ticked this is a dry run: it builds everything and reports what it would
@@ -20,7 +22,7 @@ name: Release
 #
 # Secrets (scripts/set-release-secrets.sh sets them): CSC_LINK (the Developer ID Application
 # certificate as base64 .p12) and CSC_KEY_PASSWORD; APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
-# APPLE_TEAM_ID for notarising. npm needs no secret: @smartdoc/mcp trusts this workflow to publish
+# APPLE_TEAM_ID for notarising. npm needs no secret: @smartdoc/cli trusts this workflow to publish
 # it (trusted publishing, set in the package's settings on npmjs.com), which GitHub proves with
 # the job's OIDC token. A package has to exist before it can trust a workflow, so its first
 # version was published by hand.
@@ -100,43 +102,6 @@ jobs:
             echo "::warning::Signing secrets aren't set, so this dry run builds the app unsigned."
           fi
 
-      # The launcher's download window (packages/mcp/helper): built for both kinds of Mac, then
-      # signed with the Developer ID certificate, from a keychain of its own that's deleted after,
-      # and notarised. It's a bare program, so the notarisation can't be stapled to it: macOS
-      # checks it online instead.
-      - name: Build the download window
-        env:
-          SIGNED: ${{ steps.signing.outputs.signed }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          npm run helper
-          [ "$SIGNED" = true ] || exit 0
-          helper=packages/mcp/lib/download-window
-          keychain="$RUNNER_TEMP/helper.keychain-db"
-          password=$(uuidgen)
-          previous=$(security list-keychains -d user | tr -d '"')
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 3600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/certificate.p12"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
-          security list-keychains -d user -s "$keychain" $previous
-          codesign --force --options runtime --timestamp --keychain "$keychain" --sign "Developer ID Application" "$helper"
-          security list-keychains -d user -s $previous
-          security delete-keychain "$keychain"
-          codesign --verify --strict --verbose=2 "$helper"
-          ditto -c -k "$helper" "$RUNNER_TEMP/download-window.zip"
-          result=$(xcrun notarytool submit "$RUNNER_TEMP/download-window.zip" --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json)
-          echo "$result"
-          [ "$(jq -r .status <<<"$result")" = Accepted ] || { echo "::error::The download window wasn't notarised."; exit 1; }
-
       # electron-builder signs with CSC_LINK and notarises when the APPLE_* variables are set.
       - name: Build the app
         run: npm run dist
@@ -159,23 +124,14 @@ jobs:
             xcrun stapler validate "$dir/SmartDoc.app"
           done
 
-      - name: Pack the Claude Desktop bundle
-        run: npm run mcpb
-
       - uses: actions/upload-artifact@v4
         with:
           name: release
           path: |
             dist/smartdoc-*-mac-*.zip
-            dist/smartdoc-*.dmg
-            dist/smartdoc.mcpb
-          if-no-files-found: error
-
-      # For the npm package, which is published from Linux.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: download-window
-          path: packages/mcp/lib/download-window
+            dist/smartdoc-*-mac-*.zip.blockmap
+            dist/SmartDoc-mac-*.dmg
+            dist/latest-mac.yml
           if-no-files-found: error
 
   release:
@@ -195,12 +151,6 @@ jobs:
         with:
           name: release
           path: artifacts
-      - uses: actions/download-artifact@v4
-        with:
-          name: download-window
-          path: packages/mcp/lib
-      - name: Put the download window in the launcher
-        run: chmod +x packages/mcp/lib/download-window && npm pack --dry-run -w @smartdoc/mcp 2>&1 | grep download-window
 
       - name: Write the checksums
         working-directory: artifacts
@@ -214,19 +164,19 @@ jobs:
           version=$(node -p "require('./packages/app/package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           problems=""
-          # A GitHub release for this version, with the launcher (packages/mcp) unchanged since its
+          # A GitHub release for this version, with the command (packages/cli) unchanged since its
           # tag, was made by a run that stopped before npm: this run finishes it, on npm only.
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --silent 2>/dev/null; then
             changed=$(gh api "repos/$GITHUB_REPOSITORY/compare/v$version...$GITHUB_SHA" \
-              --jq '[.files[]?.filename | select(startswith("packages/mcp/"))] | length' 2>/dev/null || echo unknown)
+              --jq '[.files[]?.filename | select(startswith("packages/cli/"))] | length' 2>/dev/null || echo unknown)
             if [ "$changed" = 0 ] && gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "released=true" >> "$GITHUB_OUTPUT"
             else
               problems="$problems Tag v$version already exists."
             fi
           fi
-          if npm view "@smartdoc/mcp@$version" version >/dev/null 2>&1; then
-            problems="$problems @smartdoc/mcp@$version is already on npm."
+          if npm view "@smartdoc/cli@$version" version >/dev/null 2>&1; then
+            problems="$problems @smartdoc/cli@$version is already on npm."
           fi
           echo "problems=$problems" >> "$GITHUB_OUTPUT"
 
@@ -242,11 +192,11 @@ jobs:
             if [ "$PUBLISH" = true ]; then echo "## Releasing $VERSION"; else echo "## Dry run: nothing was released"; fi
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- Version **$VERSION** as tag **v$VERSION** and npm @smartdoc/mcp@$VERSION."
+            echo "- Version **$VERSION** as tag **v$VERSION** and npm @smartdoc/cli@$VERSION."
             echo "- Signed and notarised: $SIGNED"
             if [ "$RELEASED" = true ]; then echo "- The GitHub release v$VERSION already exists, with the same launcher: finishing it, on npm."; fi
             if [ -n "$PROBLEMS" ]; then
-              echo "- ⚠️$PROBLEMS Bump the version in packages/app/package.json, packages/mcp/package.json and mcpb/manifest.json."
+              echo "- ⚠️$PROBLEMS Bump the version in packages/app/package.json and packages/cli/package.json."
             fi
             echo "- Files:"
             for f in artifacts/*; do echo "  - $(basename "$f")"; done
@@ -268,4 +218,4 @@ jobs:
         if: inputs.publish
         run: |
           npm install -g npm@^11.15.0
-          npm stage publish -w @smartdoc/mcp --provenance --access public
+          npm stage publish -w @smartdoc/cli --provenance --access public

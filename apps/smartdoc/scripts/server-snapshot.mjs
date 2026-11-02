@@ -1,6 +1,6 @@
-// Writes packages/mcp/lib/server.json: what the app's MCP server says about itself (its
+// Writes packages/cli/lib/server.json: what the app's MCP server says about itself (its
 // instructions, capabilities, tools and prompts), which the launcher answers AI apps with before
-// the app is running (say while it's being downloaded). Run with `npm run server-snapshot` after
+// the app is running (until the AI first uses a tool, which opens it). Run with `npm run server-snapshot` after
 // changing the tools (packages/app/src/main/mcp-tools.js); a test checks the copy is up to date.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildServer } from '../packages/app/src/main/mcp-tools.js';
 
-export const SNAPSHOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../packages/mcp/lib/server.json');
+export const SNAPSHOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../packages/cli/lib/server.json');
 
 // The server's own answers, from a copy of it with nothing open (listing needs neither).
 export async function snapshot() {

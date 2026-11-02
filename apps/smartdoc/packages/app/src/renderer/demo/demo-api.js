@@ -8,6 +8,13 @@
 import { resolveQuote } from '../../main/anchors.js';
 import { DOCUMENT, DRAFTS, HIGHLIGHTS, IMPROVE, VARIATION } from './scenario.js';
 
+// What the app's MCP panel shows for an installed app.
+const DEMO_LAUNCHER = {
+  command: '/Applications/SmartDoc.app/Contents/MacOS/SmartDoc',
+  args: ['/Applications/SmartDoc.app/Contents/Resources/cli/mcp.js'],
+  env: { ELECTRON_RUN_AS_NODE: '1' },
+};
+
 const day = (n) => new Date(Date.parse(DOCUMENT.importedAt) + n * 864e5).toISOString();
 
 export function createDemoApi() {
@@ -184,9 +191,16 @@ export function createDemoApi() {
     },
     onFullScreenChange: () => {},
     onMcpStatus: (callback) => callback({ state: 'running', url: 'http://127.0.0.1:47815/mcp' }),
-    mcpSetup: async () => 'claude mcp add --scope user smartdoc -- npx -y @smartdoc/mcp',
+    mcpSetup: async (target) => (target === 'config' ? JSON.stringify({ mcpServers: { smartdoc: DEMO_LAUNCHER } }, null, 2) : 'claude mcp add --scope user smartdoc -e ELECTRON_RUN_AS_NODE=1 -- /Applications/SmartDoc.app/Contents/MacOS/SmartDoc /Applications/SmartDoc.app/Contents/Resources/cli/mcp.js'),
     copyMcpSetup: async () => {},
     openWebsite: async () => {},
+    claudeDesktopStatus: async () => ({ state: 'added', extension: false }),
+    addToClaudeDesktop: async () => ({ state: 'added', extension: false }),
+    getUpdates: async () => ({ state: 'current', version: '1.0.0' }),
+    checkForUpdates: async () => {},
+    installUpdate: async () => {},
+    onShowConnect: () => {},
+    onUpdates: () => {},
     copyText: async () => {},
     getAppearance: async () => 'system',
     setAppearance: async () => {},

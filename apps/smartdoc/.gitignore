@@ -3,4 +3,3 @@ dist/
 .DS_Store
 build/
 site/demo/
-packages/mcp/lib/download-window
