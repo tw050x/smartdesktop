@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
 import { createConnect } from './connect.js';
-import { startMcpServer } from './mcp-server.js';
+import { MCP_PORT, startMcpServer } from './mcp-server.js';
 import { buildMenu } from './menu.js';
 import { createUpdates } from './updates.js';
 import { createWorkspace } from './workspace.js';
@@ -22,13 +22,14 @@ const TRAFFIC_LIGHTS_HEIGHT = 16;
 // removed once it's empty. (Defined before the move below runs.)
 const LEGACY_NAMES = ['Shortlist Dock', 'Employment Short List App'];
 
-// Development and automated tests can point the app at a separate data folder, so they never
-// read or overwrite the user's real data (documents, recent files and anything stored later),
-// and at a separate port for its MCP server (SMARTDOC_PORT, see mcp-server.js), so a test
-// copy can run beside the real one. Set before the app is ready so Chromium's own storage moves
-// too. Ignored in packaged builds.
-if (!app.isPackaged && process.env.SMARTDOC_USER_DATA) {
-  app.setPath('userData', path.resolve(process.env.SMARTDOC_USER_DATA));
+// A development copy keeps its data in a folder of its own, SmartDoc Dev (and its MCP server on a
+// port of its own, see mcp-server.js), so it never reads or overwrites the installed app's data,
+// and the two can run side by side: the app allows one copy per data folder. Automated tests
+// point it at a separate folder again (SMARTDOC_USER_DATA) and port (SMARTDOC_PORT), so a test
+// copy can run beside both. Set before the app is ready so Chromium's own storage moves too. The
+// packaged app ignores both, and is the only one to move data from the app's old names.
+if (!app.isPackaged) {
+  app.setPath('userData', process.env.SMARTDOC_USER_DATA ? path.resolve(process.env.SMARTDOC_USER_DATA) : path.join(app.getPath('appData'), 'SmartDoc Dev'));
 } else {
   moveLegacyUserData();
 }
@@ -405,6 +406,8 @@ const { setups, claudeDesktopStatus, addToClaudeDesktop } = createConnect({
   execPath: process.execPath,
   resourcesPath: process.resourcesPath,
   appPath: app.getAppPath(),
+  userData: app.getPath('userData'),
+  port: MCP_PORT,
 });
 
 const showConnectAi = () => send('show-connect');

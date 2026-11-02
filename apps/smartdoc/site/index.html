@@ -159,7 +159,7 @@
         <div class="section-head">
           <p class="kicker">Install</p>
           <h2>Install it, then add it to your agent.</h2>
-          <p><a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download SmartDoc</a> (or <a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">for an Intel Mac</a>), open the file and drag SmartDoc into Applications (or, with Node.js, run <code>npx @smartdoc/cli install</code>). Then connect it to your agent: Claude Desktop, Claude Code, or any agent that runs MCP servers. It opens by itself whenever your agent needs it.</p>
+          <p><a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download SmartDoc</a> (or <a href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">for an Intel Mac</a>), open the file and drag SmartDoc into your <strong>Applications</strong> folder. SmartDoc must be in Applications: that’s where your agent finds it. (With Node.js, <code>npx @smartdoc/cli install</code> puts it there for you.) Then connect it to your agent: Claude Desktop, Claude Code, or any agent that runs MCP servers. It opens by itself whenever your agent needs it.</p>
         </div>
         <!-- One tab per agent app (see the tabs script below). -->
         <div class="tabs" role="tablist" aria-label="Your agent">
@@ -189,7 +189,7 @@
             </li>
             <li>Start a new Claude Code session and ask Claude to review your document.</li>
           </ol>
-          <p class="small">If SmartDoc isn’t in Applications, copy the command from the app instead: click <strong>Ready</strong>, at the top right, and choose Claude Code. Or, with Node.js, run <code>npx @smartdoc/cli setup</code>, which finds SmartDoc and sets up Claude Code and Claude Desktop for you.</p>
+          <p class="small">Or, with Node.js, run <code>npx @smartdoc/cli setup</code>, which sets up Claude Code and Claude Desktop for you.</p>
         </article>
         <article class="card tab-panel" role="tabpanel" id="install-other" aria-labelledby="tab-other" hidden>
           <h3>Other agents</h3>
@@ -215,7 +215,7 @@
             </li>
             <li>Restart your agent and ask it to review your document.</li>
           </ol>
-          <p class="small">SmartDoc runs its connection itself, so there’s nothing else to install. If it isn’t in Applications, copy the entry from the app: click <strong>Ready</strong>, at the top right.</p>
+          <p class="small">SmartDoc runs its connection itself, so there’s nothing else to install.</p>
         </article>
       </div>
     </section>

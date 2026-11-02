@@ -46,6 +46,20 @@ describe('setup for each AI app', () => {
   });
 });
 
+describe('a development copy', () => {
+  test('sets itself up as smartdoc-dev, with its own data folder and port, beside the installed app', async () => {
+    const file = claudeFolder();
+    writeFileSync(file, JSON.stringify({ mcpServers: { smartdoc: entry } }));
+    const dev = createConnect({ isPackaged: false, execPath: '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', appPath: '/repo/packages/app', userData: '/Users/a/Library/Application Support/SmartDoc Dev', port: 47816, env: {}, agents, claudeConfig: file });
+    assert.equal((await dev.claudeDesktopStatus()).state, 'not-added');
+    await dev.addToClaudeDesktop();
+    const servers = JSON.parse(readFileSync(file, 'utf8')).mcpServers;
+    assert.deepEqual(servers.smartdoc, entry); // the installed app's, untouched
+    assert.deepEqual(servers['smartdoc-dev'].env, { ELECTRON_RUN_AS_NODE: '1', SMARTDOC_APP: '/repo/packages/app', SMARTDOC_USER_DATA: '/Users/a/Library/Application Support/SmartDoc Dev', SMARTDOC_PORT: '47816' });
+    assert.match((await dev.setups())['claude-code'], /^claude mcp add --scope user smartdoc-dev /);
+  });
+});
+
 describe('Claude Desktop', () => {
   test('knows when Claude Desktop isn’t installed', async () => {
     const connect = installed(path.join(temp, 'no-claude', 'claude_desktop_config.json'));

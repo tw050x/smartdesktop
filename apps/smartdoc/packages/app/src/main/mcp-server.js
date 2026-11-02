@@ -6,9 +6,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildServer } from './mcp-tools.js';
 
-// Fixed, so AI apps always know where to find it. Development and tests can move it (ignored in
-// packaged builds), so a test copy of the app can run beside the real one.
-export const MCP_PORT = (!app.isPackaged && Number(process.env.SMARTDOC_PORT)) || 47815;
+// Fixed, so AI apps always know where to find it. A development copy uses another, so it can run
+// beside the installed app, and tests another again (SMARTDOC_PORT; ignored in packaged builds).
+export const MCP_PORT = app.isPackaged ? 47815 : Number(process.env.SMARTDOC_PORT) || 47816;
 
 // The token clients send as "Authorization: Bearer <token>". Created once and kept with the app's
 // data, so a configured client keeps working.

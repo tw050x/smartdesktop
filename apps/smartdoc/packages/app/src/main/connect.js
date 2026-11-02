@@ -9,37 +9,36 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // the smartdoc command's setup uses too.
 //
 // main.js says where the app is, from Electron (the tests say their own): whether it's packaged,
-// its executable, its resources folder and (in development) its project folder; and the
-// environment. Tests also pass the agents module, and Claude Desktop's config file.
-export function createConnect({ isPackaged, execPath, resourcesPath, appPath, env = process.env, agents = null, claudeConfig = null }) {
+// its executable, its resources folder, and in development its project folder, data folder and
+// MCP port; and the environment. Tests also pass the agents module, and Claude Desktop's config
+// file.
+export function createConnect({ isPackaged, execPath, resourcesPath, appPath, userData, port, env = process.env, agents = null, claudeConfig = null }) {
   const cli = isPackaged ? path.join(resourcesPath, 'cli') : fileURLToPath(new URL('../../../cli', import.meta.url));
   let loaded = null;
   const load = () => (loaded ??= agents ? Promise.resolve(agents) : import(pathToFileURL(path.join(cli, 'lib', 'agents.js')).href));
 
   // What AI apps run. In development it's the repository's launcher, opening this project with
-  // its own Electron (passing on a test copy's data folder and port).
+  // its own Electron, with the development copy's data folder (where its token is) and port.
   function entry() {
     const launcherEnv = { ELECTRON_RUN_AS_NODE: '1' };
-    if (!isPackaged) {
-      launcherEnv.SMARTDOC_APP = appPath;
-      for (const name of ['SMARTDOC_USER_DATA', 'SMARTDOC_PORT']) if (env[name]) launcherEnv[name] = env[name];
-    }
+    if (!isPackaged) Object.assign(launcherEnv, { SMARTDOC_APP: appPath, SMARTDOC_USER_DATA: userData, SMARTDOC_PORT: String(port) });
     return { command: execPath, args: [path.join(cli, 'mcp.js')], env: launcherEnv };
   }
 
+  const name = isPackaged ? 'smartdoc' : 'smartdoc-dev';
   const configFile = async () => claudeConfig ?? (await load()).claudeDesktopConfig({ env, allowOverride: !isPackaged });
 
   return {
     // What the user copies for each AI app.
     async setups() {
       const { claudeCodeCommand, configJson } = await load();
-      return { 'claude-code': claudeCodeCommand(entry()), config: configJson(entry()) };
+      return { 'claude-code': claudeCodeCommand(entry(), name), config: configJson(entry(), name) };
     },
     async claudeDesktopStatus() {
-      return (await load()).claudeDesktopStatus(await configFile(), entry());
+      return (await load()).claudeDesktopStatus(await configFile(), entry(), name);
     },
     async addToClaudeDesktop() {
-      return (await load()).addToClaudeDesktop(await configFile(), entry());
+      return (await load()).addToClaudeDesktop(await configFile(), entry(), name);
     },
   };
 }

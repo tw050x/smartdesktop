@@ -147,7 +147,7 @@ export const APP_MARKUP = `
           <li>Restart your agent and ask it to review your document. It opens this app whenever it needs it.</li>
         </ol>
       </div>
-      <p class="setup-note">These point at SmartDoc where it is now. If you move the app, set it up again.</p>
+      <p class="setup-note">Keep SmartDoc in your Applications folder: these point at it there. If you move it, set up your agents again.</p>
     </section>
   </div>
 </aside>

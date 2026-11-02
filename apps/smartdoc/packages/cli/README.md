@@ -4,6 +4,8 @@ Review your documents with your own AI. SmartDoc is a desktop app that shows you
 
 This package is the `smartdoc` command.
 
+SmartDoc must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the website, drag it into Applications.
+
 ## Install the app
 
 ```sh
@@ -18,7 +20,7 @@ Downloads the latest SmartDoc for your Mac from the project's [GitHub releases](
 npx @smartdoc/cli setup
 ```
 
-Finds SmartDoc on your Mac and adds it to Claude Desktop and Claude Code, asking before each. (`--yes` doesn't ask.) Claude Desktop's settings file keeps everything else in it, and a copy of the file as it was is saved beside it. Agents run the connection built into the app, so they don't need Node.js once they're set up. You can do the same from the app: click its MCP server status, at the top right.
+Finds SmartDoc in your Applications folder and adds it to Claude Desktop and Claude Code, asking before each. (`--yes` doesn't ask.) Claude Desktop's settings file keeps everything else in it, and a copy of the file as it was is saved beside it. Agents run the connection built into the app, so they don't need Node.js once they're set up. You can do the same from the app: click its MCP server status, at the top right.
 
 ## Check the connection
 
