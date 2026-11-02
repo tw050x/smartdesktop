@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { promptNamingWindow } from '../packages/app/src/renderer/take-over-note.js';
 import { acceptWarning, commentsSincePreview, previewComments, unansweredRequests } from '../packages/app/src/main/comments.js';
 
 describe('the user’s comments', () => {
@@ -45,5 +46,9 @@ describe('the user’s comments', () => {
     const warning = acceptWarning({ preview: { at }, requests: [request('Shorten this', { afterCommit: true, onPreview: true, createdAt: later })] });
     assert.match(warning.message, /1 comment/);
     assert.match(warning.detail, /Shorten this/);
+  });
+
+  test('a prompt copied from a window names it, for the AI to take over', () => {
+    assert.equal(promptNamingWindow('Do this.', 'w-7f3a'), 'Do this. Take over SmartDoc window w-7f3a with use_window first.');
   });
 });

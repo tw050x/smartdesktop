@@ -161,3 +161,38 @@ describe('deleting drafts', () => {
     assert.equal(saved.currentDraftId, two);
   });
 });
+
+describe('windows on the same document', () => {
+  const imported = async (store) => {
+    const source = path.join(await mkdtemp(path.join(os.tmpdir(), 'smartdoc-source-')), 'a.pdf');
+    await writeFile(source, '%PDF-a');
+    return store.importDocument(source);
+  };
+
+  test('each has its own place, but they share the drafts and the reviews', async () => {
+    const store = createStore(await mkdtemp(path.join(os.tmpdir(), 'smartdoc-shared-')));
+    const { id } = await imported(store);
+    const [one, two] = [await store.loadDocument(id), await store.loadDocument(id)];
+    const review = await store.createReview(id, one.currentDraftId, 'ai', { type: 'improve' });
+
+    const { draftId } = await store.createDraft(one, review, { pdf: Buffer.from('%PDF-b'), html: '<p>b</p>' });
+    assert.deepEqual(two.line, one.line, 'a new draft reaches the other window');
+    assert.equal(one.currentDraftId, draftId);
+    assert.equal(two.currentDraftId, store.ORIGINAL, 'the other window stays where it is');
+
+    await store.saveDocument(two);
+    assert.ok((await store.loadDocument(id)).line.includes(draftId), 'saving from the other window keeps the new draft');
+
+    const [found] = await store.listReviews(id, store.ORIGINAL);
+    assert.equal(found, review, 'one copy of a review in memory');
+  });
+
+  test('saves of the same record at once all land, the last one last', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'smartdoc-writes-'));
+    const store = createStore(root);
+    const { id } = await imported(store);
+    const review = await store.createReview(id, store.ORIGINAL, 'ai', { type: 'improve' });
+    await Promise.all(Array.from({ length: 20 }, (_, i) => store.saveReview(id, { ...review, summary: `save ${i}` })));
+    assert.equal((await createStore(root).loadReview(id, store.ORIGINAL, review.id)).summary, 'save 19');
+  });
+});

@@ -26,7 +26,7 @@ export async function mcpToken(userData) {
 // Streamable HTTP on 127.0.0.1 only, stateless (a fresh server per request), JSON responses.
 // Requests carrying an Origin header come from a web page and are refused, as are requests
 // without the token. `documents` lists and opens documents for the AI (it needs the window).
-export async function startMcpServer(workspace, userData, { documents } = {}) {
+export async function startMcpServer(ai, userData) {
   const token = await mcpToken(userData);
   const http = createServer(async (req, res) => {
     const deny = (code, message) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify({ error: message }));
@@ -34,6 +34,14 @@ export async function startMcpServer(workspace, userData, { documents } = {}) {
     if (req.headers.authorization !== `Bearer ${token}`) return deny(401, 'Missing or wrong token.');
     if (!req.url?.startsWith('/mcp')) return deny(404, 'Not found.');
     if (req.method !== 'POST') return deny(405, 'Only POST is supported.');
+    const caller = { session: req.headers['x-smartdoc-session'], client: req.headers['x-smartdoc-client'], startedApp: req.headers['x-smartdoc-started-app'] === '1' };
+    // From the launcher, about the session itself.
+    if (req.url.startsWith('/mcp/alive') || req.url.startsWith('/mcp/end')) {
+      req.resume();
+      if (req.url.startsWith('/mcp/end')) ai.ended(caller);
+      else ai.alive(caller);
+      return res.writeHead(204).end();
+    }
 
     let body;
     try {
@@ -43,7 +51,7 @@ export async function startMcpServer(workspace, userData, { documents } = {}) {
     } catch {
       return deny(400, 'Invalid JSON.');
     }
-    const server = buildServer(workspace, documents, { version: app.getVersion() });
+    const server = buildServer((name, args, run) => ai.call(caller, name, args, run), { version: app.getVersion() });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       transport.close();

@@ -1,5 +1,6 @@
 import { anchorRects, pageContent } from './anchors.js';
 import { toolOf } from './tool-switcher.js';
+import { takeOverNote } from './take-over-note.js';
 
 // The review, laid out in the margins either side of the pages. Each item (a finding, a note or a
 // highlight) is a tab beside the line its text starts on: findings about a whole section
@@ -520,7 +521,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const waitingForAi = review?.status === 'open' && !isHighlights(review) && review.history?.[0]?.who === 'user' && !review.items.length;
     if (waitingForAi && comments && !state.filter) {
       text.textContent = `${commentCount}. Send your AI the prompt to review ${comments === 1 ? 'it' : 'them'}.`;
-      bar.append(copyPromptButton(`I’ve added comments in SmartDoc to ${documentName()}. Review the document and respond to each one.`));
+      appendPrompt(bar, `I’ve added comments in SmartDoc to ${documentName()}. Review the document and respond to each one.`);
       return;
     }
     if (!review || (waitingForAi && !state.filter)) {
@@ -545,7 +546,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       text.textContent = items.length ? `${items.length} highlight${items.length === 1 ? '' : 's'}` : 'The AI found nothing to highlight.';
     } else if (!decidable.length && comments) {
       text.textContent = `${commentCount}. Send your AI the prompt to write the next draft.`;
-      bar.append(copyPromptButton());
+      appendPrompt(bar);
       if (review.preview) bar.append(viewPreviewButton('secondary-button'));
       return;
     } else if (!decidable.length) {
@@ -560,7 +561,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       text.textContent = review.preview
         ? `All ${decided} decided, but you’ve made changes since your AI wrote its draft preview. Send your AI the prompt to write it again.`
         : `All ${decided} decided${comments ? `, with ${commentCount}` : ''}. Send your AI the prompt to write the next draft.`;
-      bar.append(copyPromptButton());
+      appendPrompt(bar);
       if (review.preview) bar.append(viewPreviewButton('secondary-button'));
       return;
     } else {
@@ -605,7 +606,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     if (setsAside) notes.push(`Accepting sets aside the ${setsAside === 1 ? 'draft' : `${setsAside} drafts`} after this one.`);
     text.textContent = notes.join(' ');
     const end = el('div', 'review-bar-end');
-    if (comments) end.append(copyPromptButton(`I’ve commented on the draft preview of ${documentName()}. Update it to do what my comments ask.`));
+    if (comments) appendPrompt(end, `I’ve commented on the draft preview of ${documentName()}. Update it to do what my comments ask.`);
     for (const [label, className, action] of [
       [state.comparing ? 'Hide the comparison' : `Compare with ${comparesWith}`, 'secondary-button', onCompare],
       ['Back to the review', 'secondary-button', api.closePreview],
@@ -622,6 +623,13 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
 
   // Copies the prompt to write the next draft (its text shows on hover); the icon turns to a tick
   // for a moment once copied. Prompts to start a review are in the focus menu (focus-picker.js).
+  // The prompt's button, with what sending it does beside it.
+  function appendPrompt(parent, prompt) {
+    const note = takeOverNote(api);
+    if (note) parent.append(note);
+    parent.append(copyPromptButton(prompt));
+  }
+
   const documentName = () => (state.document ? `“${state.document.name}” (document ${state.document.id})` : 'my document');
   function copyPromptButton(prompt = `I’ve made my decisions in SmartDoc. Apply the review and write the next draft of ${documentName()}.`) {
     const label = 'Copy the prompt';

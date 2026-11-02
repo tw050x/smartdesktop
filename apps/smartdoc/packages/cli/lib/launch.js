@@ -45,11 +45,11 @@ export class NotInstalled extends Error {
 }
 
 export async function ensureRunning({ env = process.env, log = () => {}, execPath = process.execPath, platform = process.platform } = {}) {
-  if ((await probe({ env })) === 'up') return;
+  if ((await probe({ env })) === 'up') return false;
   await openApp({ env, log, execPath, platform });
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if ((await probe({ env })) === 'up') return;
+    if ((await probe({ env })) === 'up') return true; // started by this launcher
     await sleep(POLL_MS);
   }
   throw new Error(`${APP_NAME} didn’t start in time. Open it yourself, then try again.`);

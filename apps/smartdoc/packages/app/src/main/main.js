@@ -1,4 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,12 +8,15 @@ import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, startMcpServer } from './mcp-server.js';
+import { READ_ONLY } from './mcp-tools.js';
+import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
 import { createUpdates } from './updates.js';
-import { createWorkspace } from './workspace.js';
+import { createShared, createWorkspace } from './workspace.js';
 import { acceptWarning } from './comments.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
+const SWEEP_MS = 15 * 1000;
 const TOP_BAR_HEIGHT = 44;
 // Height of the area macOS reserves for the traffic lights (the circles sit centred in it).
 const TRAFFIC_LIGHTS_HEIGHT = 16;
@@ -58,16 +63,32 @@ function moveLegacyUserData() {
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => {
   if (!app.isReady()) return;
-  if (!win) return createWindow();
-  if (win.isMinimized()) win.restore();
-  win.focus();
+  if (!lastFocused) return createWindow();
+  if (lastFocused.win.isMinimized()) lastFocused.win.restore();
+  lastFocused.win.focus();
 });
 
-let win = null;
-let winReady = null; // resolves once the window's interface has loaded
+// Each window has its own workspace, kept in a context with it. Whatever a window asks for, and
+// whatever an AI session does in its window, runs inside that window's context, which everything
+// below reaches through win() and workspace; outside any (the menu, a file opened from Finder) that
+// means the window last used.
+const context = new AsyncLocalStorage();
+const windows = new Map(); // webContents id → { id, win, workspace, ready, session, aiOpen, untouched }
+let lastFocused = null;
+const current = () => context.getStore() ?? lastFocused;
+const win = () => current()?.win ?? null;
+const shared = createShared(app.getPath('userData'));
+const workspace = new Proxy({}, {
+  get(_, key) {
+    const target = current()?.workspace;
+    // With no window at all, what's shared still answers (the recent documents for the menu).
+    if (!target) return key === 'recent' ? shared.recent : undefined;
+    const value = target[key];
+    return typeof value === 'function' ? value.bind(target) : value;
+  },
+});
 let mcp = null; // { url, token } once the MCP server is listening
 let mcpStarting = true;
-const workspace = createWorkspace(app.getPath('userData'));
 
 // --- Appearance ----------------------------------------------------------------------------
 
@@ -97,54 +118,87 @@ const windowColours = () => (nativeTheme.shouldUseDarkColors
   ? { background: '#161618', bar: '#1f1f22', symbols: '#d1d1d6' }
   : { background: '#ebebef', bar: '#dcdce1', symbols: '#3c3c43' });
 nativeTheme.on('updated', () => {
-  if (!win) return;
   const colours = windowColours();
-  win.setBackgroundColor(colours.background);
-  if (process.platform !== 'darwin') win.setTitleBarOverlay({ color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT });
+  for (const { win: browser } of windows.values()) {
+    browser.setBackgroundColor(colours.background);
+    if (process.platform !== 'darwin') browser.setTitleBarOverlay({ color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT });  }
 });
 
 // Frameless window: the interface draws its own top bar. macOS keeps its traffic lights,
 // placed in the top bar; Windows and Linux get the system window controls drawn over it.
-function createWindow() {
+function createWindow({ focus = true } = {}) {
   const colours = windowColours();
   const frame = process.platform === 'darwin'
     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
     : { titleBarStyle: 'hidden', titleBarOverlay: { color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT } };
 
-  win = new BrowserWindow({
+  const id = `w-${randomUUID().slice(0, 4)}`;
+  const browser = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 760,
     minHeight: 480,
     title: 'SmartDoc',
     backgroundColor: colours.background,
+    show: focus,
     ...frame,
     webPreferences: {
       preload: path.join(dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: [`--smartdoc-window=${id}`],
     },
   });
-  winReady = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
-  winReady.then(sendEverything);
-  win.loadFile(path.join(dirname, '../../build/renderer/index.html'));
+  const ctx = { id, win: browser, workspace: createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true };
+  windows.set(browser.webContents.id, ctx);
+  lastFocused = ctx;
+  const inWindow = (fn) => (...args) => context.run(ctx, () => fn(...args));
+  ctx.workspace.events.on('draft', inWindow(() => { ctx.untouched = false; return sendDraft(); }));
+  ctx.workspace.events.on('tool', inWindow((tool) => send('tool', tool)));
+  ctx.workspace.events.on('review', inWindow((review) => {
+    send('review', review);
+    updateMenu();
+  }));
+  browser.on('focus', () => {
+    lastFocused = ctx;
+    context.run(ctx, updateMenu);
+  });
+  ctx.ready = new Promise((resolve) => browser.webContents.once('did-finish-load', resolve));
+  ctx.ready.then(inWindow(sendEverything));
+  browser.loadFile(path.join(dirname, '../../build/renderer/index.html'));
 
   // In full screen macOS moves the traffic lights out of the top bar, so the interface
   // can reclaim the space reserved for them.
-  win.on('enter-full-screen', () => win.webContents.send('full-screen', true));
-  win.on('leave-full-screen', () => win.webContents.send('full-screen', false));
-  win.on('closed', () => {
-    win = null;
-    workspace.close();
+  browser.on('enter-full-screen', () => browser.webContents.send('full-screen', true));
+  browser.on('leave-full-screen', () => browser.webContents.send('full-screen', false));
+  const contentsId = browser.webContents.id;
+  browser.on('closed', () => {
+    windows.delete(contentsId);
+    if (lastFocused === ctx) lastFocused = [...windows.values()].at(-1) ?? null;
+    // An AI's window comes back as it was, the next time the AI needs it.
+    if (ctx.session) {
+      const doc = ctx.workspace.document;
+      ctx.session.restore = doc && { docId: doc.id, variationId: doc.variationId, draftId: doc.currentDraftId, tool: ctx.workspace.tool };
+      ctx.session.ctx = null;
+    }
+    ctx.workspace.dispose();
+    ctx.workspace.events.removeAllListeners(); // nothing left to tell
+    ctx.workspace.close();
+    updateMenuFor(lastFocused);
   });
+  return ctx;
 }
 
 // --- Keeping the window and menu in step with the workspace -----------------------------
 
-const send = (channel, value) => win?.webContents.send(channel, value);
+const send = (channel, value) => win()?.webContents.send(channel, value);
+// For every window: what's the same in all of them.
+const broadcast = (channel, value) => {
+  for (const { win: browser } of windows.values()) browser.webContents.send(channel, value);
+};
 // The home screen's documents, each with where it stands in each tool.
-const recentForWindow = async () => workspace.recent;
+const recentForWindow = async () => shared.recent;
 
 async function sendDraft() {
   const view = await workspace.draftView();
@@ -152,7 +206,7 @@ async function sendDraft() {
   send(view ? 'draft-opened' : 'document-closed', view && { ...view, review: workspace.review, tool: workspace.tool });
   // Back on the home screen, its cards show where each document now stands.
   if (!view) send('recent-documents', await recentForWindow());
-  win?.setRepresentedFilename?.(view ? workspace.currentDraftPdfPath() : '');
+  win()?.setRepresentedFilename?.(view ? workspace.currentDraftPdfPath() : '');
   updateMenu();
 }
 
@@ -161,6 +215,8 @@ const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : { state: mcp
 async function sendEverything() {
   send('recent-documents', await recentForWindow());
   send('mcp-status', mcpStatus());
+  const { session } = current();
+  if (session) send('ai-control', clientLabel(session.client));
   if (workspace.document) {
     await sendDraft();
     send('review', workspace.review);
@@ -168,22 +224,21 @@ async function sendEverything() {
   updateMenu();
 }
 
-workspace.events.on('draft', () => sendDraft());
-workspace.events.on('tool', (tool) => send('tool', tool));
-workspace.events.on('review', (review) => {
-  send('review', review);
-  updateMenu();
-});
-workspace.events.on('recent', async () => {
-  send('recent-documents', await recentForWindow());
-  updateMenu();
+shared.events.on('recent', () => {
+  broadcast('recent-documents', shared.recent);
+  updateMenuFor(lastFocused);
 });
 
+// The menu is the app's, so it's only ever the focused window's. With no window left it still
+// offers what needs none.
+const updateMenuFor = (ctx) => context.run(ctx ?? {}, updateMenu);
 function updateMenu() {
+  if (context.getStore()?.win && context.getStore() !== lastFocused) return;
   const doc = workspace.document;
   const at = doc ? doc.line.indexOf(doc.currentDraftId) : -1;
   const review = doc ? workspace.review : null;
   Menu.setApplicationMenu(buildMenu({
+    hasWindow: Boolean(win()),
     hasDocument: Boolean(doc),
     hasDraft: Boolean(doc) && !workspace.previewing,
     review: review && {
@@ -197,6 +252,7 @@ function updateMenu() {
     canStepForward: doc && !workspace.previewing ? at < doc.line.length - 1 : false,
     recent: workspace.recent,
     actions: {
+      newWindow: () => context.run(createWindow(), () => {}),
       showOpenDialog,
       openDocument: (id) => openDocument(id),
       clearRecent: () => workspace.clearRecent(),
@@ -206,7 +262,7 @@ function updateMenu() {
         const doc = workspace.document;
         if (doc) documentFromDraft(doc.id, doc.variationId, doc.currentDraftId);
       },
-      close: () => workspace.close(),
+      close: () => (workspace.document ? workspace.close() : win()?.close()),
       stepDraft: (delta) => workspace.stepDraft(delta),
       resetReview,
       showConnectAi,
@@ -217,8 +273,8 @@ function updateMenu() {
 // --- Documents ---------------------------------------------------------------------------
 
 async function ensureWindow() {
-  if (!win) createWindow();
-  await winReady;
+  if (!current()) createWindow();
+  await current().ready;
 }
 
 // Everything is saved as it happens, so switching documents never loses work. The confirmation
@@ -229,7 +285,7 @@ async function saveChanges() {}
 async function confirmSwitch(nextName) {
   const doc = workspace.document;
   if (!doc) return true;
-  const choice = await confirmReplace(win, { current: doc.name, next: nextName, unsaved: hasUnsavedChanges() });
+  const choice = await confirmReplace(win(), { current: doc.name, next: nextName, unsaved: hasUnsavedChanges() });
   if (choice === 'cancel') return false;
   if (choice === 'save') await saveChanges();
   return true;
@@ -255,7 +311,7 @@ async function openDocument(docId) {
 }
 
 async function pickPdf() {
-  const { canceled, filePaths } = await dialog.showOpenDialog(win ?? undefined, {
+  const { canceled, filePaths } = await dialog.showOpenDialog(win() ?? undefined, {
     properties: ['openFile'],
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
@@ -275,12 +331,12 @@ async function showOpenDialog() {
 // for the outcome. Only one such request waits at a time.
 
 const AI_OPEN_WAIT_MS = 45 * 1000;
-let aiOpen = null; // { name, state: 'waiting' | 'opened' | 'cancelled' | 'failed', error, done }
+// current().aiOpen: { name, state: 'waiting' | 'opened' | 'cancelled' | 'failed', error, done }
 
 async function bringToFront() {
   await ensureWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
+  if (win().isMinimized()) win().restore();
+  win().show();
   app.focus({ steal: true });
 }
 
@@ -290,7 +346,7 @@ function waitOnUser(name, task) {
     (opened) => { request.state = opened ? 'opened' : 'cancelled'; },
     (error) => { request.state = 'failed'; request.error = error.message; },
   );
-  aiOpen = request;
+  current().aiOpen = request;
 }
 
 const expandHome = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
@@ -310,9 +366,12 @@ async function checkPdf(filePath) {
 }
 
 const documentsForAi = {
+  // Filled in below: it depends on the session.
+  useWindow: null,
   list: () => workspace.recent.map((r) => ({ id: r.id, name: r.name, importedAt: r.importedAt, open: workspace.document?.id === r.id })),
 
   async open({ path: filePath, document_id: docId } = {}) {
+    const aiOpen = current().aiOpen;
     if (aiOpen?.state === 'waiting') {
       throw new Error(`SmartDoc is still waiting for the user to ${aiOpen.name ? `confirm opening ${aiOpen.name}` : 'pick a file'}. Ask them to answer in the app, then call get_document_info.`);
     }
@@ -327,7 +386,7 @@ const documentsForAi = {
       const name = path.basename(resolved);
       waitOnUser(name, async () => {
         await bringToFront();
-        const choice = await confirmReplace(win, { current: workspace.document?.name, next: name, unsaved: false, source: path.dirname(resolved) });
+        const choice = await confirmReplace(win(), { current: workspace.document?.name, next: name, unsaved: false, source: path.dirname(resolved) });
         if (choice === 'cancel') return false;
         await workspace.importAndOpen(resolved);
         return true;
@@ -353,18 +412,126 @@ const documentsForAi = {
   // Called before reading the document: waits for the user's answer to an open request, if there is one.
   // An answer is reported once.
   async settle() {
-    const request = aiOpen;
+    const request = current().aiOpen;
     if (!request) return;
     if (request.state === 'waiting') {
       await Promise.race([request.done, new Promise((resolve) => setTimeout(resolve, AI_OPEN_WAIT_MS))]);
     }
     const what = request.name ?? 'the file';
     if (request.state === 'waiting') throw new Error(`Still waiting for the user to ${request.name ? `confirm opening ${request.name}` : 'pick a file'} in SmartDoc. Remind them to switch to the app, then call get_document_info again.`);
-    aiOpen = null;
+    current().aiOpen = null;
     if (request.state === 'cancelled') throw new Error(`The user cancelled opening ${what}.`);
     if (request.state === 'failed') throw new Error(`Couldn't open ${what}: ${request.error}`);
   },
 };
+
+// --- AI sessions ---------------------------------------------------------------------------
+// Each AI session has a window of its own, opened by its first tool call, whatever windows the user
+// has open: theirs are left alone. The one exception is a prompt copied from a window, which names
+// it, so the AI that gets it takes that window over (use_window); and the window SmartDoc opened on
+// launch, when the AI's launcher is what started it. A window closed comes back as it was.
+
+const sessions = createSessions();
+
+function setSessionWindow(session, ctx) {
+  session.ctx = ctx;
+  session.restore = null;
+  ctx.session = session;
+  ctx.untouched = false;
+  session.docId = ctx.workspace.document?.id ?? null;
+  ctx.ready.then(() => ctx.win.webContents.send('ai-control', clientLabel(session.client)));
+}
+
+// Gives a window back to the user, whichever way the session stopped.
+function releaseWindow(session) {
+  sessions.releaseClaims(session);
+  const { ctx } = session;
+  session.ctx = null;
+  session.restore = null;
+  session.docId = null;
+  if (ctx) {
+    ctx.session = null;
+    ctx.win.webContents.send('ai-control', null);
+  }
+}
+
+async function windowForSession(session, startedApp) {
+  if (session.ctx) return session.ctx;
+  const launch = startedApp && !session.restore && [...windows.values()].find((c) => c.untouched && !c.session && !c.workspace.document);
+  const ctx = launch || createWindow({ focus: false });
+  await ctx.ready;
+  const { restore } = session;
+  setSessionWindow(session, ctx);
+  if (restore?.docId) {
+    await ctx.workspace.openDraft(restore.docId, restore.variationId, restore.draftId, restore.tool).catch(() => {});
+    session.docId = restore.docId;
+  }
+  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  return ctx;
+}
+
+const aiForServer = {
+  alive: ({ session, client }) => sessions.touch(session, client),
+  ended({ session }) {
+    const ended = session && sessions.get(session);
+    if (!ended) return;
+    releaseWindow(ended);
+    sessions.end(session);
+  },
+  async call({ session: id, client, startedApp }, name, args, run) {
+    const session = sessions.touch(id, client);
+    // Taking a window over is the one call that mustn't open one of its own.
+    if (name === 'use_window') {
+      const documents = { useWindow: (windowId) => takeOverWindow(session, windowId) };
+      return run(null, documents);
+    }
+    const ctx = await windowForSession(session, startedApp);
+    return context.run(ctx, async () => {
+      if (!READ_ONLY.has(name)) {
+        // The user can take the window anywhere, but the AI's changes stay with its document.
+        const showing = ctx.workspace.document?.id ?? null;
+        if (session.docId && showing !== session.docId && name !== 'open_document') {
+          throw new Error(`This window has moved off the document you were working on. Nothing was changed. Tell the user, or call open_document with document_id ${session.docId} to go back to it.`);
+        }
+        const key = ctx.workspace.claimKey(name, args);
+        const holder = key && sessions.claim(session, key);
+        if (holder) throw new Error(`${clientLabel(holder.client)} is already working on this in another SmartDoc window, so this change wasn't made. You can still read the document. Tell the user: they can release that window from its top bar.`);
+      }
+      const before = ctx.workspace.document?.id;
+      const result = await run(ctx.workspace, documentsForAi);
+      const after = ctx.workspace.document?.id ?? null;
+      if (name === 'open_document' || !session.docId) {
+        if (before !== after) sessions.releaseClaims(session);
+        session.docId = after;
+      }
+      return result;
+    });
+  },
+};
+
+async function takeOverWindow(session, windowId) {
+  const ctx = [...windows.values()].find((c) => c.id === windowId);
+  if (!ctx) throw new Error(`There's no SmartDoc window ${windowId} open now. Carry on without it: your first tool call opens a window of your own.`);
+  if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
+    throw new Error(`${clientLabel(ctx.session.client)} is already working in window ${windowId}. Tell the user: they can release it from the window's top bar.`);
+  }
+  if (ctx.session && ctx.session !== session) releaseWindow(ctx.session);
+  const old = session.ctx;
+  if (old && old !== ctx) {
+    releaseWindow(session);
+    // A window the session had only just opened, with nothing in it, isn't worth leaving behind.
+    if (!old.workspace.document) old.win.close();
+  }
+  setSessionWindow(session, ctx);
+  return { window: windowId, document: ctx.workspace.document?.name ?? null };
+}
+
+function sweepSessions() {
+  for (const ctx of windows.values()) {
+    if (ctx.session && !sessions.alive(ctx.session)) releaseWindow(ctx.session);
+  }
+  sessions.sweep();
+}
 
 // Writes the current draft anywhere, including over the file it was imported from.
 async function saveDraftAs() {
@@ -372,7 +539,7 @@ async function saveDraftAs() {
   if (!doc) return;
   const number = doc.line.indexOf(doc.currentDraftId);
   const base = doc.name.replace(/\.pdf$/i, '');
-  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+  const { canceled, filePath } = await dialog.showSaveDialog(win(), {
     defaultPath: number === 0 ? `${base}.pdf` : `${base} – Draft ${number}.pdf`,
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
@@ -417,7 +584,7 @@ const showConnectAi = () => send('show-connect');
 
 async function confirmAddToClaudeDesktop() {
   const status = await claudeDesktopStatus();
-  const { response } = await dialog.showMessageBox(win ?? undefined, {
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
     type: 'question',
     message: status.state === 'different' ? 'Update SmartDoc in Claude Desktop?' : 'Add SmartDoc to Claude Desktop?',
     detail: 'SmartDoc adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
@@ -433,7 +600,7 @@ async function confirmAddToClaudeDesktop() {
 // Downloads is offered a move to Applications (which opens it again from there).
 async function offerMoveToApplications() {
   if (!app.isPackaged || process.platform !== 'darwin' || app.isInApplicationsFolder()) return;
-  const { response } = await dialog.showMessageBox(win ?? undefined, {
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
     type: 'question',
     message: 'Move SmartDoc to your Applications folder?',
     detail: 'Your agent opens SmartDoc from where it’s installed, so it works best in Applications.',
@@ -451,16 +618,27 @@ async function offerMoveToApplications() {
 
 // --- Updates -----------------------------------------------------------------------------
 
-const updates = createUpdates({ report: (status) => send('updates', status) });
+const updates = createUpdates({ report: (status) => broadcast('updates', status) });
 
 // --- Window requests ---------------------------------------------------------------------
 
-const handle = (channel, fn) => ipcMain.handle(channel, async (_event, ...args) => {
+// Whatever a window asks for, it asks about itself.
+const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => context.run(windows.get(event.sender.id) ?? lastFocused ?? {}, async () => {
   try {
     return { ok: true, value: await fn(...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
+}));
+
+// The top bar's "Controlled by …": the user can always take a window back.
+handle('ai-control-menu', () => {
+  const ctx = current();
+  const { session } = ctx;
+  if (!session) return;
+  Menu.buildFromTemplate([
+    { label: `Release from ${clientLabel(session.client)}`, click: () => releaseWindow(session) },
+  ]).popup({ window: ctx.win });
 });
 
 handle('open-path', (filePath) => importFile(filePath));
@@ -489,11 +667,16 @@ handle('draft-menu', async ({ docId, variationId, draftId, draft }) => {
     { label: 'New Document from Draft', click: () => documentFromDraft(docId, variationId, draftId) },
     { type: 'separator' },
     { label: 'Delete this draft', enabled: await workspace.canDeleteDraft(docId, variationId, draftId), click: () => deleteDraft(docId, variationId, draftId, draft) },
-  ]).popup({ window: win });
+  ]).popup({ window: win() });
 });
 // Asks first, since a deleted draft can't be got back.
 async function deleteDraft(docId, variationId, draftId, number) {
-  const { response } = await dialog.showMessageBox(win ?? undefined, {
+  const elsewhere = [...windows.values()].some((c) => c !== current() && c.workspace.document?.id === docId && c.workspace.document.currentDraftId === draftId);
+  if (elsewhere) {
+    dialog.showErrorBox('This draft is open in another window', 'Move that window to another draft first, then delete this one.');
+    return;
+  }
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
     type: 'warning',
     message: `Delete Draft ${number}?`,
     detail: 'Its PDF and its reviews are deleted, and can’t be got back. Any later drafts stay, and are renumbered.',
@@ -513,7 +696,7 @@ handle('variation-menu', async ({ docId, variationId }) => {
   const draft = variation.drafts.length - 1;
   Menu.buildFromTemplate([
     { label: 'New Variation from Latest Draft…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
-  ]).popup({ window: win });
+  ]).popup({ window: win() });
 });
 // Back to the home screen: the document closes (everything is already saved).
 handle('go-home', () => workspace.close());
@@ -523,7 +706,7 @@ handle('document-menu', (docId) => {
   if (!workspace.isRecent(docId)) return;
   Menu.buildFromTemplate([
     { label: 'Remove from List', click: () => workspace.removeRecent(docId) },
-  ]).popup({ window: win });
+  ]).popup({ window: win() });
 });
 handle('page-texts', (docId, draftId, texts, details) => workspace.setPageTexts(docId, draftId, texts, details));
 handle('add-request', (request) => workspace.addRequest(request));
@@ -541,7 +724,7 @@ handle('accept-preview', async () => {
   if (undecided.length) {
     const titles = undecided.slice(0, 5).map((i) => `• ${i.title}`);
     if (undecided.length > titles.length) titles.push(`and ${undecided.length - titles.length} more`);
-    const { response } = await dialog.showMessageBox(win ?? undefined, {
+    const { response } = await dialog.showMessageBox(win() ?? undefined, {
       type: 'warning',
       message: undecided.length === 1 ? 'You haven’t decided on 1 finding. Accept anyway?' : `You haven’t decided on ${undecided.length} findings. Accept anyway?`,
       detail: `Your AI wrote this draft preview without your decision on:\n${titles.join('\n')}\n\nCheck the draft preview to see what it did with them.`,
@@ -552,14 +735,14 @@ handle('accept-preview', async () => {
     if (response !== 1) return;
   }
   if (uncommented) {
-    const { response } = await dialog.showMessageBox(win ?? undefined, { type: 'warning', ...uncommented, buttons: ['Cancel', 'Accept Anyway'], defaultId: 0, cancelId: 0 });
+    const { response } = await dialog.showMessageBox(win() ?? undefined, { type: 'warning', ...uncommented, buttons: ['Cancel', 'Accept Anyway'], defaultId: 0, cancelId: 0 });
     if (response !== 1) return;
   }
   await workspace.acceptPreview();
 });
 // Asks first, since the AI would have to write it again.
 handle('discard-preview', async () => {
-  const { response } = await dialog.showMessageBox(win ?? undefined, {
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
     type: 'warning',
     message: 'Discard this draft preview?',
     detail: 'Your decisions stay as they are, and your AI can write another draft preview from them. Any comments you made on this draft preview are removed with it.',
@@ -591,7 +774,7 @@ const HIGHLIGHTS_RESET = {
 async function resetReview(step) {
   const reset = workspace.review?.type === 'highlights' ? step === 1 && HIGHLIGHTS_RESET : RESETS[step];
   if (!reset) return false;
-  const { response } = await dialog.showMessageBox(win ?? undefined, {
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
     type: 'warning',
     message: reset.message,
     detail: reset.detail,
@@ -636,19 +819,20 @@ app.on('open-file', (event, filePath) => {
 });
 
 app.whenReady().then(async () => {
-  await workspace.loadRecent();
-  updateMenu();
-  createWindow();
+  const first = createWindow();
+  await first.workspace.loadRecent();
+  context.run(first, updateMenu);
   try {
-    mcp = await startMcpServer(workspace, app.getPath('userData'), { documents: documentsForAi });
+    mcp = await startMcpServer(aiForServer, app.getPath('userData'));
+    setInterval(sweepSessions, SWEEP_MS).unref();
   } catch {
     mcp = null; // e.g. the port is taken by another copy of the app
   }
   mcpStarting = false;
-  send('mcp-status', mcpStatus());
+  broadcast('mcp-status', mcpStatus());
   if (pendingOpen) importFile(pendingOpen);
   updates.start();
-  await winReady;
+  await first.ready;
   offerMoveToApplications();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

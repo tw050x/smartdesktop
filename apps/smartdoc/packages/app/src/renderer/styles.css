@@ -892,6 +892,25 @@ button:disabled { opacity: 0.5; cursor: default; }
   .view-switch::before, .view-switch button { transition: none; }
 }
 
+/* --- Windows and AI sessions -------------------------------------------------------------- */
+.ai-control {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.ai-control[hidden] { display: none; }
+.take-over-note { margin: 0; color: var(--muted); font-size: 12px; }
+.focus-card .take-over-note, .variation-dialog .take-over-note { margin-top: 10px; }
+.review-bar-end .take-over-note, .review-bar > .take-over-note { margin-left: auto; }
+.take-over-note + .copy-prompt { margin-left: 0; }
+
 /* --- Comments on selected text (see comment-composer.js) ---------------------------------- */
 .comment-offer {
   position: absolute;

@@ -11,6 +11,7 @@ const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's 
 Open: get_document_info and get_document read the document open in the app. If none is open, or the user means a different one (the user may name it with its document id), open it with open_document: by document_id from list_documents (documents the user has opened before), by path (a PDF on the user's computer, which the user confirms in the app), or with neither so the user picks the file in the app. When open_document reports waiting_for_user, tell the user straight away to switch to the SmartDoc app and answer there, then call get_document_info, which waits for them.
 Read: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything.
 Settle the goal first: read the document, get_review and get_history, then decide with the user what the review is for before calling start_review. Either they want the document improved (type "improve"), or they want to understand it: the key information in it for their purpose (type "highlights"). If it isn't clear which, or what they're after, ask. Pass the agreed goal to start_review in their terms.
+Windows: each AI session has a SmartDoc window of its own, opened by its first tool call, and every call goes to it; opening another document reuses it. If the user's prompt names a window, call use_window with it first, so that window becomes yours instead. Another AI may be working on the same document in its own window: reading is always fine, but a change it has claimed (the same variation in an improvement review, the same goal in a highlights review) is refused, so tell the user. If the user moves your window to another document, your next change is refused: open_document brings it back.
 An improvement review, in rounds:
 1. Review: the current review may already hold the user's requests: text they marked to rewrite, comment on, keep, remove, add to, or ask about. The history shows what earlier reviews raised and what the user decided. Don't raise again anything the user rejected or chose to keep, unless that text has changed since or you have a new reason (say so in the finding), and don't ask questions they've already answered: use their answers. Changes they accepted that are still not in the document can be raised again. If the user asks for a fresh review, ignore the history. Decorate text with add_annotation and add findings with add_finding. Every finding offers the user a decision: a proposed change, a choice of options, a question, a structural move, a design change, or a flag to acknowledge. A comment is the user's own note on the text they selected; if the review already holds their comments and no goal, responding to them is the goal, so don't ask for one. Respond to each user request with a finding that has in_response_to set. They can add comments while you work, so read get_review again before committing: commit_review refuses while one has no response. Finish with commit_review; the user then decides in the app.
 2. Decide: the user works through the findings, and may write changes of their own or add comments on the text (requests with afterCommit set). Read their choices with get_decisions.
@@ -28,19 +29,30 @@ const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value,
 // Each tool's safety label, for the AI app to show the user and decide when to ask them: the
 // tools that only read, and the ones that change or remove something the user can't get back (the
 // rest change something, without loss). Every tool works only with the app, on this computer.
-const READ_ONLY = new Set(['list_documents', 'list_variations', 'get_document_info', 'get_document', 'find_text', 'list_focuses', 'get_review', 'get_history', 'get_decisions', 'get_draft_preview']);
+export const READ_ONLY = new Set(['list_documents', 'list_variations', 'get_document_info', 'get_document', 'find_text', 'list_focuses', 'get_review', 'get_history', 'get_decisions', 'get_draft_preview']);
 const DESTRUCTIVE = new Set(['remove_finding', 'remove_highlight']);
 const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
 
-export function buildServer(workspace, documents, { version }) {
+export function buildServer(call, { version }) {
+  // The session's window, found for each call: this server only lives for one request.
+  let workspace = null;
+  let documents = null;
   const server = new McpServer({ name: 'smartdoc', version }, { instructions: INSTRUCTIONS });
   const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema, annotations: annotations(name) }, async (args) => {
     try {
-      return json(await run(args ?? {}));
+      return json(await call(name, args ?? {}, (forWorkspace, forDocuments) => {
+        workspace = forWorkspace;
+        documents = forDocuments;
+        return run(args ?? {});
+      }));
     } catch (error) {
       return { isError: true, content: [{ type: 'text', text: error.message }] };
     }
   });
+
+  tool('use_window', 'Takes over a SmartDoc window, when the user\'s prompt names one: this session then works in it. Call it first, before any other tool, or SmartDoc opens a new window for this session.', {
+    window_id: z.string().describe('The window named in the prompt, such as w-7f3a'),
+  }, ({ window_id }) => documents.useWindow(window_id));
 
   tool('list_documents', 'Documents the user has opened in the app before, newest first, with the one that is open now marked. Open one with open_document and its id.', {}, () => documents.list());
 

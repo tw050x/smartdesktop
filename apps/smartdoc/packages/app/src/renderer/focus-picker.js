@@ -1,3 +1,4 @@
+import { takeOverNote } from './take-over-note.js';
 // The focus picker: the breadcrumb's last level names the focus showing in the active tool (what
 // the review is for), and opens a card with everything about focuses, and the prompts to send:
 //   - this draft's focuses, the one showing highlighted. In the highlight tool there's one
@@ -42,6 +43,8 @@ export function createFocusPicker({ button, label, separator, card, api }) {
         if (!f.showing) await api.setFocus(f.id);
       },
     });
+    const note = takeOverNote(api);
+    if (note) card.append(note);
   }
 
   function setOpen(open) {

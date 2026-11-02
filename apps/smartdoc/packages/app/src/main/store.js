@@ -29,7 +29,26 @@ const ORIGINAL = 'original';
 const now = () => new Date().toISOString();
 const newId = () => randomUUID().slice(0, 8);
 
-export function createStore(root) {
+export function createStore(root, { onReview = () => {}, onDocument = () => {} } = {}) {
+  // Several windows can have a document open, so there's one copy in memory of each review, and of
+  // what a document's windows share (its variations and their lines of drafts). Each window has
+  // its own view of the document: where it is (variation, draft, tool, focus).
+  const reviews = new Map(); // review file → its record, read once
+  const readReview = (file) => {
+    if (!reviews.has(file)) reviews.set(file, readJson(file).catch((error) => { reviews.delete(file); throw error; }));
+    return reviews.get(file);
+  };
+  const documents = new Map(); // document id → its record, read once
+  const views = new WeakSet();
+  function viewOf(shared) {
+    const view = { ...shared };
+    delete view.line;
+    const active = () => view.variations.find((v) => v.id === view.variationId);
+    Object.defineProperty(view, 'line', { enumerable: true, get: () => active().line, set: (line) => { active().line = line; } });
+    views.add(view);
+    return view;
+  }
+
   const docDir = (docId) => path.join(root, 'documents', safe(docId));
   const draftDir = (docId, draftId) => path.join(docDir(docId), 'drafts', safe(draftId));
   const reviewPath = (docId, draftId, reviewId) => path.join(draftDir(docId, draftId), 'reviews', `${safe(reviewId)}.json`);
@@ -37,11 +56,13 @@ export function createStore(root) {
 
   // The active variation's line is kept on the document (doc.line, doc.currentDraftId), where
   // everything else reads it; saving copies it back into the variation.
-  const saveDocument = (doc) => {
+  const saveDocument = async (doc) => {
     const active = doc.variations.find((v) => v.id === doc.variationId);
     active.line = doc.line;
     active.currentDraftId = doc.currentDraftId;
-    return writeJson(path.join(docDir(doc.id), 'document.json'), doc);
+    if (!views.has(doc)) documents.delete(doc.id); // written from outside the views: read it afresh
+    await writeJson(path.join(docDir(doc.id), 'document.json'), doc);
+    onDocument(doc);
   };
 
   async function newDocument(name, copyOriginal, extra = {}) {
@@ -97,7 +118,15 @@ export function createStore(root) {
 
     selectVariation,
 
-    loadDocument: async (docId) => withVariations(await readJson(path.join(docDir(docId), 'document.json'))),
+    async loadDocument(docId) {
+      if (!documents.has(docId)) {
+        documents.set(docId, readJson(path.join(docDir(docId), 'document.json')).then(withVariations).catch((error) => {
+          documents.delete(docId);
+          throw error;
+        }));
+      }
+      return viewOf(await documents.get(docId));
+    },
     saveDocument,
     loadDraft: (docId, draftId) => readJson(path.join(draftDir(docId, draftId), 'draft.json')),
 
@@ -113,8 +142,8 @@ export function createStore(root) {
       try {
         files = (await readdir(path.join(draftDir(docId, draftId), 'reviews'))).filter((f) => f.endsWith('.json'));
       } catch {}
-      const reviews = await Promise.all(files.map((f) => readJson(path.join(draftDir(docId, draftId), 'reviews', f))));
-      return reviews.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const found = await Promise.all(files.map((f) => readReview(path.join(draftDir(docId, draftId), 'reviews', f))));
+      return found.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
 
     // A review is one of two types. An improvement review ('improve') holds findings for the user
@@ -142,11 +171,17 @@ export function createStore(root) {
       logTo(review, by, 'started the review');
       await mkdir(path.join(draftDir(docId, draftId), 'reviews'), { recursive: true });
       await writeJson(reviewPath(docId, draftId, review.id), review);
+      reviews.set(reviewPath(docId, draftId, review.id), Promise.resolve(review));
+      onReview(review);
       return review;
     },
 
-    loadReview: (docId, draftId, reviewId) => readJson(reviewPath(docId, draftId, reviewId)),
-    saveReview: (docId, review) => writeJson(reviewPath(docId, review.draftId, review.id), review),
+    loadReview: (docId, draftId, reviewId) => readReview(reviewPath(docId, draftId, reviewId)),
+    async saveReview(docId, review) {
+      await writeJson(reviewPath(docId, review.draftId, review.id), review);
+      reviews.set(reviewPath(docId, review.draftId, review.id), Promise.resolve(review));
+      onReview(review);
+    },
 
     // The AI's next draft for a review, kept beside the review until the user accepts or discards
     // it. A review has one preview at a time: a newer one replaces it.
@@ -186,7 +221,10 @@ export function createStore(root) {
 
       const meta = await this.loadDraft(doc.id, draftId);
       const applied = await this.loadReview(doc.id, meta.parentId, meta.fromReviewId).catch(() => null); // its draft may be gone
-      if (applied) await this.saveReview(doc.id, { ...applied, applications: applied.applications.filter((a) => a.draftId !== draftId) });
+      if (applied) {
+        applied.applications = applied.applications.filter((a) => a.draftId !== draftId);
+        await this.saveReview(doc.id, applied);
+      }
       for (const draft of await this.listDrafts(doc.id)) {
         if (draft.parentId === draftId) await writeJson(path.join(draftDir(doc.id, draft.id), 'draft.json'), { ...draft, parentId: meta.parentId });
       }
@@ -271,10 +309,18 @@ async function readJson(file) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
-// Written to a temporary file first, so a crash mid-write never leaves a half-written record.
-async function writeJson(file, value) {
-  await mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2));
-  await rename(tmp, file);
+// Written to a temporary file first, so a crash mid-write never leaves a half-written record, and
+// one at a time per file, as several windows can save the same record at once.
+const writing = new Map();
+function writeJson(file, value) {
+  const text = JSON.stringify(value, null, 2);
+  const next = (writing.get(file) ?? Promise.resolve()).catch(() => {}).then(async () => {
+    await mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await writeFile(tmp, text);
+    await rename(tmp, file);
+  });
+  writing.set(file, next);
+  next.finally(() => { if (writing.get(file) === next) writing.delete(file); }).catch(() => {});
+  return next;
 }

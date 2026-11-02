@@ -10,6 +10,10 @@ const on = (channel) => (callback) => ipcRenderer.on(channel, (_event, value) =>
 
 contextBridge.exposeInMainWorld('smartdoc', {
   platform: process.platform,
+  // This window's id, which a copied prompt names so the AI can take it over.
+  windowId: process.argv.find((arg) => arg.startsWith('--smartdoc-window='))?.split('=')[1],
+  onAiControl: on('ai-control'),
+  showAiControlMenu: () => call('ai-control-menu'),
   // Dropped files are imported by path, as a new document.
   openDroppedFile: (file) => call('open-path', webUtils.getPathForFile(file)),
   stepDraft: (delta) => call('step-draft', delta),

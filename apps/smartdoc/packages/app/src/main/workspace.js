@@ -35,9 +35,23 @@ const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.s
 //   'page-texts'  the window reported the current draft's page texts
 // A draft's current review is its newest one. Reviews are single records: the user's requests, the
 // AI's findings and annotations, the user's decisions and the history all live in one file.
-export function createWorkspace(userData) {
-  const store = createStore(userData);
+// What every window shares: the documents on disk, one copy in memory of each record, and the list
+// of recent documents. Its events: 'recent' the list changed, 'review' a review was saved,
+// 'document' a document was saved.
+export function createShared(userData) {
   const events = new EventEmitter();
+  events.setMaxListeners(0);
+  const store = createStore(userData, {
+    onReview: (r) => events.emit('review', r),
+    onDocument: (d) => events.emit('document', d),
+  });
+  return { store, events, recent: [], userData };
+}
+
+export function createWorkspace(shared) {
+  const { store, userData } = shared;
+  const events = new EventEmitter();
+  events.setMaxListeners(0); // waits on the page texts add listeners of their own
   const recentFile = path.join(userData, 'recent-documents.json');
 
   let doc = null; // the open document's record
@@ -49,7 +63,6 @@ export function createWorkspace(userData) {
   let previewing = false; // the window shows the current review's preview instead of the draft
   let pageTexts = null; // the current draft's page texts, reported by the window once drawn
   let pdfDetails = null; // and the PDF's own details: { info, outline }
-  let recent = []; // [{ id, name, importedAt }], newest first
 
   const requireDoc = () => {
     if (!doc) throw new Error('No document is open. Open one with open_document (list_documents shows the ones opened before).');
@@ -220,35 +233,83 @@ export function createWorkspace(userData) {
     };
   };
 
+  // Another window saved something this one is showing. Reviews are shared, so this one's copy is
+  // already up to date: it only has to draw it, or give way if what it shows has gone.
+  async function reviewSaved(saved) {
+    if (!doc) return;
+    if (review?.id === saved.id) {
+      if (previewing && !saved.preview) leavePreview();
+      events.emit('review', saved);
+    } else if (saved.draftId === doc.currentDraftId && typeOf(saved) === tool && inVariation(saved) && (!review || tool === 'improve')) {
+      const next = await newestReview();
+      if (next?.id !== review?.id) {
+        review = next;
+        events.emit('review', review);
+      }
+    }
+  }
+  let seenLine = null;
+  function documentSaved(saved) {
+    if (!doc || saved.id !== doc.id) return;
+    const line = doc.line.join();
+    if (saved === doc) {
+      seenLine = line;
+    } else if (!doc.line.includes(doc.currentDraftId)) {
+      seenLine = line;
+      showDraft(doc.line.at(-1)); // its draft was set aside by a new draft in another window
+    } else if (seenLine !== line) {
+      seenLine = line;
+      events.emit('draft'); // the draft controls count the drafts
+    }
+  }
+  shared.events.on('review', reviewSaved);
+  shared.events.on('document', documentSaved);
+
   async function saveRecent() {
-    await writeFile(recentFile, JSON.stringify(recent)).catch(() => {});
-    events.emit('recent', recent);
+    await writeFile(recentFile, JSON.stringify(shared.recent)).catch(() => {});
+    shared.events.emit('recent');
   }
 
   return {
     events,
+    // The window has gone.
+    dispose() {
+      shared.events.off('review', reviewSaved);
+      shared.events.off('document', documentSaved);
+    },
+    // What an AI has to claim to make this change: one AI per line of drafts in Review and draft,
+    // and per goal in Review and highlight. Null for a change that needs no claim.
+    claimKey(name, args = {}) {
+      if (!doc) return null;
+      if (!['start_review', 'add_annotation', 'add_finding', 'remove_finding', 'add_highlight', 'remove_highlight', 'commit_review', 'apply_review'].includes(name)) return null;
+      const type = name === 'start_review' ? args.type ?? 'improve' : review ? typeOf(review) : null;
+      if (!type) return null;
+      if (type === 'improve') return `${doc.id}:improve:${doc.variationId}`;
+      const goal = args.goal?.trim() || review?.goal;
+      return goal ? `${doc.id}:highlights:${goal}` : null;
+    },
     get document() { return doc; },
     get review() { return review; },
-    get recent() { return recent; },
+    get recent() { return shared.recent; },
     get previewing() { return previewing; },
 
     async loadRecent() {
       try {
-        recent = JSON.parse(await readFile(recentFile, 'utf8'));
+        shared.recent = JSON.parse(await readFile(recentFile, 'utf8'));
       } catch {
-        recent = await importOldRecentFiles();
+        shared.recent = await importOldRecentFiles();
         await saveRecent();
       }
-      events.emit('recent', recent);
+      shared.events.emit('recent');
     },
 
     async removeRecent(docId) {
-      recent = recent.filter((r) => r.id !== docId);
+      shared.recent = shared.recent.filter((r) => r.id !== docId);
       await saveRecent();
     },
 
     async clearRecent() {
-      recent = [];
+      shared.recent = [];
       await saveRecent();
     },
 
@@ -280,7 +341,7 @@ export function createWorkspace(userData) {
         fromDraftId: line[number],
       });
       await showDraft(doc.currentDraftId);
-      events.emit('recent', recent); // the home screen lists variations
+      shared.events.emit('recent'); // the home screen lists variations
       return { variation: variation.id, name: variation.name, purpose: variation.purpose, from: `${draftLabel(number)} of ${from.name}`, showing: draftLabel(number) };
     },
 
@@ -328,7 +389,7 @@ export function createWorkspace(userData) {
       const base = source.name.replace(/\.pdf$/i, '');
       const label = variation.id === store.ORIGINAL ? draftLabel(number) : `${variation.name}, ${draftLabel(number)}`;
       const made = await store.documentFromDraft(source, draftId, { name: `${base} (${label})`, draft: label });
-      recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...recent].slice(0, MAX_RECENT);
+      shared.recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...shared.recent].slice(0, MAX_RECENT);
       await saveRecent();
       return { id: made.id, name: made.name };
     },
@@ -340,7 +401,7 @@ export function createWorkspace(userData) {
       if (REVIEW_TYPES.includes(doc.tool)) tool = doc.tool;
       else tool = typeOf((await store.listReviews(doc.id, doc.currentDraftId)).at(-1) ?? {});
       events.emit('tool', tool);
-      recent = [{ id: doc.id, name: doc.name, importedAt: doc.importedAt }, ...recent.filter((r) => r.id !== doc.id)].slice(0, MAX_RECENT);
+      shared.recent = [{ id: doc.id, name: doc.name, importedAt: doc.importedAt }, ...shared.recent.filter((r) => r.id !== doc.id)].slice(0, MAX_RECENT);
       await saveRecent();
       await showDraft(doc.currentDraftId);
     },
@@ -355,7 +416,7 @@ export function createWorkspace(userData) {
       events.emit('review', null);
     },
 
-    isRecent: (docId) => recent.some((r) => r.id === docId),
+    isRecent: (docId) => shared.recent.some((r) => r.id === docId),
 
     // A document's variations and each one's drafts, newest first, for the home screen. The
     // drafts a variation shares with the one it came from are marked, and each draft says where
@@ -997,7 +1058,7 @@ export function createWorkspace(userData) {
       const d = doc?.id === docId ? doc : await store.loadDocument(docId);
       await store.deleteDraft(d, variationId, draftId);
       if (doc?.id === docId) await showDraft(doc.currentDraftId);
-      events.emit('recent', recent); // the home screen lists drafts
+      shared.events.emit('recent'); // the home screen lists drafts
     },
 
     async saveDraftAs(target) {

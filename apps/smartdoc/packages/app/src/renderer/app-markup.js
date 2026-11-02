@@ -27,6 +27,8 @@ export const APP_MARKUP = `
     <button class="icon-button" id="draft-next" type="button" aria-label="Next draft" title="Next draft">›</button>
   </div>
   <div class="top-bar-end">
+    <!-- Which AI this window belongs to, when it has one (see app-shell.js). -->
+    <button type="button" class="ai-control" id="ai-control" hidden></button>
     <!-- All | To do, in Review and draft: with To do, decided findings are hidden (see app-shell.js). -->
     <div class="view-switch" id="done-switch" role="group" aria-label="Show" hidden>
       <button type="button" data-show="all">All</button>

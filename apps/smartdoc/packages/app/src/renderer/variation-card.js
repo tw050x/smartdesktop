@@ -1,3 +1,5 @@
+import { takeOverNote } from './take-over-note.js';
+
 // The card for a new variation (File > New Variation…, or a draft's "New variation" on the home
 // screen): what the variation is for, then a prompt to send the AI, which makes the variation
 // from that draft and tailors it for the purpose.
@@ -29,6 +31,9 @@ export function createVariationCard({ dialog, api }) {
     purpose.value = '';
     copy.disabled = true;
     copy.textContent = 'Copy the prompt';
+    dialog.querySelector('.take-over-note')?.remove();
+    const note = takeOverNote(api);
+    if (note) dialog.querySelector('.variation-buttons').before(note);
     dialog.showModal();
     purpose.focus();
   };

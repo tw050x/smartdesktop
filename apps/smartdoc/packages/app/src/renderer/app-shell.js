@@ -3,6 +3,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { clearPages, nearestTextPosition, pageTexts, registerPage, selectionAnchors } from './anchors.js';
 import { createCommentComposer } from './comment-composer.js';
+import { promptNamingWindow } from './take-over-note.js';
 import { createCompareView } from './compare.js';
 import { createFocusPicker } from './focus-picker.js';
 import { createHighlightsList } from './highlights-list.js';
@@ -21,7 +22,11 @@ GlobalWorkerOptions.workerSrc = workerUrl;
 // The window's interface, given the API it works through: the app's (window.smartdoc, from the
 // preload script, talking to the main process), or the website demo's stand-in (see demo.js).
 // It fills the empty body with the window's markup first.
-export function startApp(api) {
+export function startApp(appApi) {
+  // A prompt copied from this window names it, so the AI that gets it takes it over.
+  const api = appApi.windowId
+    ? { ...appApi, copyText: (text) => appApi.copyText(promptNamingWindow(text, appApi.windowId)) }
+    : appApi;
   document.body.innerHTML = APP_MARKUP;
   const { platform, openDroppedFile, onFullScreenChange } = api;
   document.body.classList.add(`platform-${platform}`);
@@ -29,6 +34,14 @@ export function startApp(api) {
     document.body.classList.toggle('full-screen', isFullScreen);
   });
   createServerStatus({ api });
+  const aiControl = document.getElementById('ai-control');
+  aiControl.addEventListener('click', () => api.showAiControlMenu());
+  api.onAiControl?.((name) => {
+    aiControl.hidden = !name;
+    aiControl.textContent = name ? `Controlled by ${name}` : '';
+    aiControl.title = name ? `${name} works in this window. Click to release it.` : '';
+    requestAnimationFrame(placeDraftNav);
+  });
   createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog'), api });
   const toolSwitcher = createToolSwitcher({
     button: document.getElementById('tool-button'),

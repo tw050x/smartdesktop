@@ -1,10 +1,10 @@
 import { Menu } from 'electron';
 
 // The application menu. Entries that don't apply to the window's state are disabled rather than
-// hidden. The window shows at most one document, so "the document" is the window's state.
+// hidden. Each window shows at most one document, and the menu follows the focused window.
 // `review` is null without one, else { highlights, canStartAgain, canClearDecisions }. `hasDraft`
 // is whether a draft is showing, rather than nothing or a preview that isn't a draft yet.
-export function buildMenu({ hasDocument, hasDraft, review, canStepBack, canStepForward, recent, actions }) {
+export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBack, canStepForward, recent, actions }) {
   const isMac = process.platform === 'darwin';
   const imported = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -27,7 +27,8 @@ export function buildMenu({ hasDocument, hasDraft, review, canStepBack, canStepF
       { label: 'New Variation…', enabled: hasDraft, click: actions.newVariation },
       { label: 'New Document from Draft', enabled: hasDraft, click: actions.documentFromDraft },
       { type: 'separator' },
-      { label: 'Close Document', accelerator: 'CmdOrCtrl+W', enabled: hasDocument, click: actions.close },
+      // One step at a time: a document back to the home screen, then the window itself.
+      { label: hasDocument ? 'Close Document' : 'Close Window', accelerator: 'CmdOrCtrl+W', enabled: hasWindow, click: actions.close },
     ],
   };
 
@@ -44,11 +45,23 @@ export function buildMenu({ hasDocument, hasDraft, review, canStepBack, canStepF
     ],
   };
 
+  // The role keeps what macOS adds itself, such as the list of open windows.
+  const windowMenu = {
+    role: 'window',
+    submenu: [
+      { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: actions.newWindow },
+      { type: 'separator' },
+      { role: 'minimize' },
+      { role: 'zoom' },
+      ...(isMac ? [{ type: 'separator' }, { role: 'front' }] : []),
+    ],
+  };
+
   return Menu.buildFromTemplate([
     ...(isMac ? [{ role: 'appMenu' }] : []),
     fileMenu,
     { role: 'editMenu' },
     reviewMenu,
-    { role: 'windowMenu' },
+    windowMenu,
   ]);
 }

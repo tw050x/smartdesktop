@@ -88,10 +88,16 @@ describe('opening the app', () => {
 describe('bridge', () => {
   // A stand-in for the app's MCP server: checks the token like the real one, answers 405 to GET,
   // echoes requests and accepts notifications.
+  const calls = []; // what each call to a stand-in said about its session
   async function fakeApp(token) {
     return serve(async (req, res) => {
       if (req.headers.authorization !== `Bearer ${token}`) return res.writeHead(401).end(JSON.stringify({ error: 'Missing or wrong token.' }));
       if (req.method !== 'POST') return res.writeHead(405).end();
+      calls.push({ url: req.url, session: req.headers['x-smartdoc-session'], client: req.headers['x-smartdoc-client'], startedApp: req.headers['x-smartdoc-started-app'] });
+      if (req.url !== '/mcp') {
+        req.resume();
+        return res.writeHead(204).end();
+      }
       let body = '';
       for await (const chunk of req) body += chunk;
       const message = JSON.parse(body);
@@ -125,6 +131,24 @@ describe('bridge', () => {
     assert.equal(await probe({ env: { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('wrong') } }), 'locked');
     await app.close();
     assert.equal(await probe({ env: { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('secret') } }), 'down');
+  });
+
+  test('says which session its calls belong to, the AI app\'s name, and when it ends', async () => {
+    const app = await fakeApp('secret');
+    const env = { SMARTDOC_PORT: String(app.port), SMARTDOC_USER_DATA: withTokenFile('secret') };
+    calls.length = 0;
+    await exchange({
+      env,
+      ensure: async () => true, // this launcher started the app
+      messages: [{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'claude-code' } } }, { jsonrpc: '2.0', id: 2, method: 'tools/call' }],
+    });
+    assert.deepEqual(calls.map((c) => c.url).sort(), ['/mcp', '/mcp', '/mcp/end']);
+    assert.equal(new Set(calls.map((c) => c.session)).size, 1);
+    assert.ok(calls[0].session);
+    const toolCall = calls.find((c) => c.url === '/mcp/end');
+    assert.equal(toolCall.client, 'claude-code');
+    assert.equal(toolCall.startedApp, '1');
+    await app.close();
   });
 
   test('passes requests to the app and its replies back, once the app is ready', async () => {

@@ -14,7 +14,7 @@ export const SNAPSHOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 
 
 // The server's own answers, from a copy of it with nothing open (listing needs neither).
 export async function snapshot() {
-  const server = buildServer(null, null, { version: '0.0.0' });
+  const server = buildServer(null, { version: '0.0.0' });
   const client = new Client({ name: 'snapshot', version: '0.0.0' });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);

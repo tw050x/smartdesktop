@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import readline from 'node:readline';
 import { mcpUrl } from './platform.js';
 
@@ -12,11 +13,20 @@ import { mcpUrl } from './platform.js';
 // scripts/server-snapshot.mjs), the bridge answers the AI app's handshake itself, and its requests
 // for the lists of tools and prompts until the app is running, so an AI app isn't kept waiting,
 // and nothing is opened until the AI uses a tool.
-export function runBridge({ input = process.stdin, output = process.stdout, env = process.env, ensure, token, log = () => {}, offline = null, version = '0.0.0' }) {
+export function runBridge({ input = process.stdin, output = process.stdout, env = process.env, ensure, token, log = () => {}, offline = null, version = '0.0.0', heartbeatMs = 20000 }) {
   let ready = null;
   let running = false;
-  const whenReady = () => (ready ??= ensure().then(() => {
+  // This connection's session, which keeps its own window in the app; the AI app's name for itself,
+  // to show there; and whether this launcher started the app, so the session has the window it opened.
+  const session = randomUUID();
+  let client = null;
+  let startedApp = false;
+  let heartbeat = null;
+  const whenReady = () => (ready ??= ensure().then((started) => {
     running = true;
+    if (started) startedApp = true;
+    heartbeat ??= setInterval(() => notify('alive').catch(() => {}), heartbeatMs);
+    heartbeat.unref?.();
   }, (error) => {
     ready = null; // try again with the next message
     throw error;
@@ -46,10 +56,21 @@ export function runBridge({ input = process.stdin, output = process.stdout, env 
     return undefined;
   }
 
+  const sessionHeaders = () => ({
+    'x-smartdoc-session': session,
+    ...(client && { 'x-smartdoc-client': client }),
+    ...(startedApp && { 'x-smartdoc-started-app': '1' }),
+  });
+  // Tells the app about the session itself, once it's running.
+  async function notify(what) {
+    const res = await fetch(`${mcpUrl(env)}/${what}`, { method: 'POST', headers: { authorization: `Bearer ${token()}`, ...sessionHeaders() } });
+    await res.body?.cancel();
+  }
+
   async function post(line) {
     const res = await fetch(mcpUrl(env), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token() ?? ''}` },
+      headers: { ...sessionHeaders(), 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token() ?? ''}` },
       body: line,
     });
     return { status: res.status, text: (await res.text()).trim() };
@@ -90,6 +111,9 @@ export function runBridge({ input = process.stdin, output = process.stdout, env 
     // Notifications (no id) mean nothing to the app's server until it's running: it keeps no state
     // between requests.
     if (offline && message.id === undefined && !running) return;
+    if (message.method === 'initialize' && typeof message.params?.clientInfo?.name === 'string') {
+      client = message.params.clientInfo.name.replace(/[^\w .-]/g, '').slice(0, 60) || null;
+    }
     const reply = local(message);
     if (reply !== undefined) return answer(message.id, reply);
     const job = forward(line, message).catch((error) => {
@@ -103,5 +127,10 @@ export function runBridge({ input = process.stdin, output = process.stdout, env 
     job.finally(() => pending.delete(job));
   });
 
-  return new Promise((resolve) => lines.on('close', () => Promise.allSettled([...pending]).then(resolve)));
+  // The AI app has gone: so has this session.
+  return new Promise((resolve) => lines.on('close', () => Promise.allSettled([...pending]).then(async () => {
+    clearInterval(heartbeat);
+    if (running) await notify('end').catch(() => {});
+    resolve();
+  })));
 }
