@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 // Documents live in the app's data folder, one folder each. A document is defined by the upload:
@@ -15,6 +15,8 @@ import path from 'node:path';
 //       draft.pdf                   the original is the draft with id "original"
 //       content.html                the source a generated draft was drawn from
 //       reviews/<review id>.json    one review: requests, findings, decisions and history
+//       previews/<review id>/       the next draft the AI wrote from that review, waiting for the
+//                                   user to accept it (draft.pdf and content.html); not yet a draft
 //
 // Drafts form a tree. Each variation is a line through it, from the original to its tip: the
 // "Original" variation is the document's own, and the others (one per purpose, such as a job)
@@ -31,6 +33,7 @@ export function createStore(root) {
   const docDir = (docId) => path.join(root, 'documents', safe(docId));
   const draftDir = (docId, draftId) => path.join(docDir(docId), 'drafts', safe(draftId));
   const reviewPath = (docId, draftId, reviewId) => path.join(draftDir(docId, draftId), 'reviews', `${safe(reviewId)}.json`);
+  const previewDir = (docId, review) => path.join(draftDir(docId, review.draftId), 'previews', safe(review.id));
 
   // The active variation's line is kept on the document (doc.line, doc.currentDraftId), where
   // everything else reads it; saving copies it back into the variation.
@@ -144,6 +147,62 @@ export function createStore(root) {
 
     loadReview: (docId, draftId, reviewId) => readJson(reviewPath(docId, draftId, reviewId)),
     saveReview: (docId, review) => writeJson(reviewPath(docId, review.draftId, review.id), review),
+
+    // The AI's next draft for a review, kept beside the review until the user accepts or discards
+    // it. A review has one preview at a time: a newer one replaces it.
+    previewPdfPath: (docId, review) => path.join(previewDir(docId, review), 'draft.pdf'),
+    async savePreview(docId, review, { pdf, html }) {
+      const dir = previewDir(docId, review);
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'draft.pdf'), pdf);
+      await writeFile(path.join(dir, 'content.html'), html);
+    },
+    async loadPreview(docId, review) {
+      const dir = previewDir(docId, review);
+      return { pdf: await readFile(path.join(dir, 'draft.pdf')), html: await readFile(path.join(dir, 'content.html'), 'utf8') };
+    },
+    removePreview: (docId, review) => rm(previewDir(docId, review), { recursive: true, force: true }),
+
+    // Why a draft can't be deleted from a variation, or null if it can: the original, or a draft
+    // another variation still has or started from.
+    whyDraftKept(doc, variationId, draftId) {
+      if (draftId === ORIGINAL) return 'The original can’t be deleted.';
+      const others = doc.variations.filter((v) => v.id !== variationId);
+      const other = others.find((v) => lineOf(doc, v).includes(draftId)) ?? doc.variations.find((v) => v.fromDraftId === draftId);
+      return other ? `“${other.name}” uses this draft.` : null;
+    },
+
+    // Deletes a draft for good: its PDF and its reviews. The drafts after it stay on the line, and
+    // take its parent as theirs. A variation showing it moves to the draft before it, and the
+    // review it was applied from counts as not applied again.
+    async deleteDraft(doc, variationId, draftId) {
+      const variation = doc.variations.find((v) => v.id === variationId);
+      if (!variation) throw new Error(`No variation ${variationId}.`);
+      const line = lineOf(doc, variation);
+      const at = line.indexOf(draftId);
+      if (at === -1) throw new Error(`No draft ${draftId} in ${variation.name}.`);
+      const kept = this.whyDraftKept(doc, variationId, draftId);
+      if (kept) throw new Error(kept);
+
+      const meta = await this.loadDraft(doc.id, draftId);
+      const applied = await this.loadReview(doc.id, meta.parentId, meta.fromReviewId).catch(() => null); // its draft may be gone
+      if (applied) await this.saveReview(doc.id, { ...applied, applications: applied.applications.filter((a) => a.draftId !== draftId) });
+      for (const draft of await this.listDrafts(doc.id)) {
+        if (draft.parentId === draftId) await writeJson(path.join(draftDir(doc.id, draft.id), 'draft.json'), { ...draft, parentId: meta.parentId });
+      }
+
+      const remaining = line.filter((id) => id !== draftId);
+      if (variation.id === doc.variationId) {
+        doc.line = remaining;
+        if (doc.currentDraftId === draftId) doc.currentDraftId = line[at - 1];
+      } else {
+        variation.line = remaining;
+        if (variation.currentDraftId === draftId) variation.currentDraftId = line[at - 1];
+      }
+      if (doc.focus) delete doc.focus[draftId];
+      await saveDocument(doc);
+      await rm(draftDir(doc.id, draftId), { recursive: true, force: true });
+    },
 
     // Applies a review: stores the new draft as a child of the review's draft, makes it the tip
     // of the active line (abandoning any drafts after the review's draft, unless another

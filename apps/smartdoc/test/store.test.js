@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -88,5 +88,76 @@ describe('documents from drafts', () => {
     assert.equal(await readFile(path.join(path.dirname(store.draftPdfPath(made.id, ORIGINAL)), 'content.html'), 'utf8'), '<p>one</p>');
     assert.deepEqual(await store.listReviews(made.id, ORIGINAL), []);
     assert.deepEqual(await store.loadDocument(doc.id), before);
+  });
+});
+
+describe('previews', () => {
+  test('a preview is kept apart from the drafts until it is removed', async () => {
+    const { doc, two } = await documentWithDrafts();
+    const review = await store.createReview(doc.id, two, 'ai', { variationId: doc.variationId });
+    await store.savePreview(doc.id, review, { pdf: Buffer.from('%PDF-preview'), html: '<p>preview</p>' });
+
+    assert.equal((await store.listDrafts(doc.id)).length, 3);
+    assert.deepEqual((await store.loadDocument(doc.id)).line.at(-1), two);
+    assert.deepEqual(await store.listReviews(doc.id, two), [review]);
+    const { pdf, html } = await store.loadPreview(doc.id, review);
+    assert.equal(pdf.toString(), '%PDF-preview');
+    assert.equal(html, '<p>preview</p>');
+
+    await store.removePreview(doc.id, review);
+    await assert.rejects(access(store.previewPdfPath(doc.id, review)));
+  });
+});
+
+describe('deleting drafts', () => {
+  test('a draft goes for good; later drafts stay and the current draft moves back', async () => {
+    const { doc, one, two } = await documentWithDrafts();
+    await store.deleteDraft(doc, ORIGINAL, two);
+    const loaded = await store.loadDocument(doc.id);
+    assert.deepEqual(loaded.line, [ORIGINAL, one]);
+    assert.equal(loaded.currentDraftId, one);
+    assert.deepEqual((await store.listDrafts(doc.id)).map((d) => d.id).sort(), [ORIGINAL, one].sort());
+    await assert.rejects(access(store.draftPdfPath(doc.id, two)));
+  });
+
+  test('deleting from the middle of a line reparents the next draft', async () => {
+    const { doc, one, two } = await documentWithDrafts();
+    await store.deleteDraft(doc, ORIGINAL, one);
+    assert.deepEqual(doc.line, [ORIGINAL, two]);
+    assert.equal(doc.currentDraftId, two);
+    assert.equal((await store.loadDraft(doc.id, two)).parentId, ORIGINAL);
+  });
+
+  test('the review it was applied from counts as not applied again', async () => {
+    const { doc } = await documentWithDrafts();
+    const review = await store.createReview(doc.id, doc.currentDraftId, 'ai', { variationId: doc.variationId });
+    const { draftId } = await store.createDraft(doc, review, { pdf: Buffer.from('%PDF-three') });
+    await store.saveReview(doc.id, { ...review, applications: [{ draftId, at: 'then', itemIds: [] }] });
+    await store.deleteDraft(doc, ORIGINAL, draftId);
+    assert.deepEqual((await store.loadReview(doc.id, review.draftId, review.id)).applications, []);
+  });
+
+  test('the original, and drafts another variation uses, are kept', async () => {
+    const { doc, one, two } = await documentWithDrafts();
+    await assert.rejects(store.deleteDraft(doc, ORIGINAL, ORIGINAL), /original/);
+    const variation = await store.createVariation(doc, { name: 'Job', purpose: 'A job', fromVariationId: ORIGINAL, fromDraftId: one });
+    await assert.rejects(store.deleteDraft(doc, variation.id, one), /uses this draft/);
+    await assert.rejects(store.deleteDraft(doc, ORIGINAL, one), /uses this draft/);
+    // Only the original line has this one.
+    assert.equal(store.whyDraftKept(doc, ORIGINAL, two), null);
+    await store.deleteDraft(doc, ORIGINAL, two);
+    assert.deepEqual(doc.variations.find((v) => v.id === ORIGINAL).line, [ORIGINAL, one]);
+  });
+
+  test('a draft in a variation that isn’t showing can be deleted', async () => {
+    const { doc, two } = await documentWithDrafts();
+    const variation = await store.createVariation(doc, { name: 'Job', purpose: 'A job', fromVariationId: ORIGINAL, fromDraftId: two });
+    const own = await nextDraft(doc, 'own');
+    store.selectVariation(doc, ORIGINAL);
+    await store.deleteDraft(doc, variation.id, own);
+    const loaded = await store.loadDocument(doc.id);
+    const saved = loaded.variations.find((v) => v.id === variation.id);
+    assert.equal(saved.line.includes(own), false);
+    assert.equal(saved.currentDraftId, two);
   });
 });

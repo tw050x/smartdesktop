@@ -184,14 +184,16 @@ function updateMenu() {
   const review = doc ? workspace.review : null;
   Menu.setApplicationMenu(buildMenu({
     hasDocument: Boolean(doc),
+    hasDraft: Boolean(doc) && !workspace.previewing,
     review: review && {
       highlights: review.type === 'highlights',
       canStartAgain: review.status === 'committed' || Boolean(review.items?.length || review.highlights?.length || review.annotations?.length),
       canClearDecisions: review.type !== 'highlights' && review.status === 'committed'
         && Boolean(review.items.some((i) => i.decision.status !== 'pending' || i.decision.comment) || review.changes?.length),
     },
-    canStepBack: at > 0,
-    canStepForward: doc ? at < doc.line.length - 1 : false,
+    // Stepping back from a preview returns to the draft it was written from.
+    canStepBack: at > 0 || workspace.previewing,
+    canStepForward: doc && !workspace.previewing ? at < doc.line.length - 1 : false,
     recent: workspace.recent,
     actions: {
       showOpenDialog,
@@ -474,7 +476,8 @@ handle('open-draft', async (docId, variationId, draftId, tool) => {
   await workspace.openDraft(docId, variationId, draftId, tool);
 });
 // A draft's right-click menu on the home screen: a new variation from it (the window's variation
-// card), or a new document from it.
+// card), a new document from it, or deleting it (not the original, or a draft another variation
+// uses).
 handle('draft-menu', async ({ docId, variationId, draftId, draft }) => {
   if (!workspace.isRecent(docId)) return;
   const { name, variations } = await workspace.variationsOf(docId);
@@ -483,8 +486,22 @@ handle('draft-menu', async ({ docId, variationId, draftId, draft }) => {
   Menu.buildFromTemplate([
     { label: 'New Variation…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
     { label: 'New Document from Draft', click: () => documentFromDraft(docId, variationId, draftId) },
+    { type: 'separator' },
+    { label: 'Delete this draft', enabled: await workspace.canDeleteDraft(docId, variationId, draftId), click: () => deleteDraft(docId, variationId, draftId, draft) },
   ]).popup({ window: win });
 });
+// Asks first, since a deleted draft can't be got back.
+async function deleteDraft(docId, variationId, draftId, number) {
+  const { response } = await dialog.showMessageBox(win ?? undefined, {
+    type: 'warning',
+    message: `Delete Draft ${number}?`,
+    detail: 'Its PDF and its reviews are deleted, and can’t be got back. Any later drafts stay, and are renumbered.',
+    buttons: ['Cancel', 'Delete'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) await workspace.deleteDraft(docId, variationId, draftId);
+}
 // A variation's right-click menu on the home screen: a new variation from its latest draft.
 handle('variation-menu', async ({ docId, variationId }) => {
   if (!workspace.isRecent(docId)) return;
@@ -512,6 +529,39 @@ handle('add-request', (request) => workspace.addRequest(request));
 handle('update-request', (id, changes) => workspace.updateRequest(id, changes));
 handle('remove-request', (id) => workspace.removeRequest(id));
 handle('decide', (itemId, decision) => workspace.decide(itemId, decision));
+handle('open-preview', () => workspace.openPreview());
+handle('close-preview', () => workspace.closePreview());
+// Asks first if the user hasn't decided on every finding: the AI wrote the preview without their
+// say on those, and it's easy to miss them from the preview, where the cards step aside.
+handle('accept-preview', async () => {
+  const undecided = (workspace.review?.items ?? []).filter((i) => i.decision.status === 'pending');
+  if (undecided.length) {
+    const titles = undecided.slice(0, 5).map((i) => `• ${i.title}`);
+    if (undecided.length > titles.length) titles.push(`and ${undecided.length - titles.length} more`);
+    const { response } = await dialog.showMessageBox(win ?? undefined, {
+      type: 'warning',
+      message: undecided.length === 1 ? 'You haven’t decided on 1 finding. Accept anyway?' : `You haven’t decided on ${undecided.length} findings. Accept anyway?`,
+      detail: `Your AI wrote this preview without your decision on:\n${titles.join('\n')}\n\nCheck the preview to see what it did with them.`,
+      buttons: ['Cancel', 'Accept Anyway'],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (response !== 1) return;
+  }
+  await workspace.acceptPreview();
+});
+// Asks first, since the AI would have to write it again.
+handle('discard-preview', async () => {
+  const { response } = await dialog.showMessageBox(win ?? undefined, {
+    type: 'warning',
+    message: 'Discard this preview?',
+    detail: 'Your decisions stay as they are, and your AI can write another preview from them.',
+    buttons: ['Cancel', 'Discard'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) await workspace.discardPreview();
+});
 // Resetting the review (from the Review menu) asks first, since what's cleared can't be got back
 // in the app. Step 1 starts the review again, empty; step 2 clears the user's decisions.
 const RESETS = {

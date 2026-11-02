@@ -373,7 +373,7 @@ export function startApp(api) {
     // The breadcrumb may have grown or shrunk with the tool and focus.
     requestAnimationFrame(placeDraftNav);
     // All | To do, in Review and draft once there's a finished review to work through.
-    const decidable = Boolean(current.doc && current.tool === 'improve' && current.review?.status === 'committed');
+    const decidable = Boolean(current.doc && !current.preview && current.tool === 'improve' && current.review?.status === 'committed');
     const hideDone = decidable && storedHideDone(current.doc.id);
     doneSwitch.hidden = !decidable;
     for (const button of doneSwitch.querySelectorAll('button')) {
@@ -468,14 +468,15 @@ export function startApp(api) {
     if (dropping) dropping.opened = true;
     toolSwitcher.update(tool);
     // A variation other than the original is named before the draft.
-    const which = draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
+    const which = draft.isPreview ? `Preview of Draft ${draft.number}` : draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
     draftLabel.textContent = variation.isOriginal ? which : `${variation.name} · ${which}`;
     draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : doc.name);
     draftPrev.disabled = draft.number === 0;
-    draftNext.disabled = draft.number === draft.total;
+    draftNext.disabled = draft.isPreview || draft.number === draft.total;
     requestAnimationFrame(placeDraftNav);
-    current = { doc, review, tool };
-    marginReview.update({ document: doc, review, tool, filter: null });
+    const preview = draft.isPreview ? { number: draft.number, setsAside: draft.setsAside } : null;
+    current = { doc, review, tool, preview };
+    marginReview.update({ document: doc, review, tool, preview, filter: null });
     showView();
     marginReview.reset();
     documentEl.scrollTop = 0;
@@ -488,8 +489,8 @@ export function startApp(api) {
     clearPdf();
     clearPages();
     toolSwitcher.close();
-    current = { doc: null, review: null, tool: current.tool };
-    marginReview.update({ document: null, review: null, filter: null });
+    current = { doc: null, review: null, tool: current.tool, preview: null };
+    marginReview.update({ document: null, review: null, preview: null, filter: null });
     showView();
     updateScrollUi();
   });

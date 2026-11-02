@@ -2,8 +2,9 @@ import { Menu } from 'electron';
 
 // The application menu. Entries that don't apply to the window's state are disabled rather than
 // hidden. The window shows at most one document, so "the document" is the window's state.
-// `review` is null without one, else { highlights, canStartAgain, canClearDecisions }.
-export function buildMenu({ hasDocument, review, canStepBack, canStepForward, recent, actions }) {
+// `review` is null without one, else { highlights, canStartAgain, canClearDecisions }. `hasDraft`
+// is whether a draft is showing, rather than nothing or a preview that isn't a draft yet.
+export function buildMenu({ hasDocument, hasDraft, review, canStepBack, canStepForward, recent, actions }) {
   const isMac = process.platform === 'darwin';
   const imported = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -21,10 +22,10 @@ export function buildMenu({ hasDocument, review, canStepBack, canStepForward, re
         ],
       },
       { type: 'separator' },
-      { label: 'Save Draft As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasDocument, click: actions.saveDraftAs },
+      { label: 'Save Draft As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasDraft, click: actions.saveDraftAs },
       { type: 'separator' },
-      { label: 'New Variation…', enabled: hasDocument, click: actions.newVariation },
-      { label: 'New Document from Draft', enabled: hasDocument, click: actions.documentFromDraft },
+      { label: 'New Variation…', enabled: hasDraft, click: actions.newVariation },
+      { label: 'New Document from Draft', enabled: hasDraft, click: actions.documentFromDraft },
       { type: 'separator' },
       { label: 'Close Document', accelerator: 'CmdOrCtrl+W', enabled: hasDocument, click: actions.close },
     ],

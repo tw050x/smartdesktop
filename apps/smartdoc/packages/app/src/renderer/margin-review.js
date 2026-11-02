@@ -15,7 +15,9 @@ import { toolOf } from './tool-switcher.js';
 // cards; once every finding is decided, it offers the prompt that asks the AI to apply them
 // instead (the prompts to start a review are in the focus menu, see focus-picker.js). While a highlights review shows as a list (`view`, see highlights-list.js), there's
 // nothing on the page to step through. With `hideDone` (Review and draft), decided findings leave
-// the margins and the page (the bar still counts them).
+// the margins and the page (the bar still counts them). While the AI's preview of the next draft
+// shows (`preview`), its pages aren't what the review is about, so the review steps aside and the
+// bar asks the user to accept or discard it.
 
 const TAB_HEIGHT = 76; // .margin-tab's height
 const PAGER_HEIGHT = 28; // a deck's tab adds a row for its pager (.multi .margin-tab)
@@ -52,7 +54,7 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
 export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal, onClearFilter }) {
-  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null };
+  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null };
   let open = null; // the open deck's key (its first item's id)
   let hover = null; // the hovered deck's key
   let stepped = null; // the deck Previous/Next last opened: it shows as if hovered while it stays open
@@ -172,7 +174,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
 
   function render() {
     layer.replaceChildren();
-    items = reviewItems(state.review);
+    items = state.preview ? [] : reviewItems(state.review);
     // Hiding what's done leaves the notes, which have nothing to do.
     shown = state.hideDone ? items.filter((i) => !i.decided) : items;
     const geo = shown.length ? geometry() : null;
@@ -466,6 +468,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     const left = el('div', 'review-bar-start');
     left.append(label, text);
     bar.append(left);
+    if (state.preview) return renderPreviewBar(text);
     if (!review) {
       // The prompts are in the focus menu at the top.
       text.textContent = 'No review yet. Choose a focus at the top to copy the prompt for your AI.';
@@ -488,10 +491,18 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
       text.textContent = items.length ? `${items.length} highlight${items.length === 1 ? '' : 's'}` : 'The AI found nothing to highlight.';
     } else if (!decidable.length) {
       text.textContent = 'The AI found nothing to change.';
+    } else if (decided === decidable.length && review.preview && !review.preview.outdated) {
+      // Everything decided and the AI has written it up: just the preview to look at.
+      text.textContent = `All ${decided} decided. Your AI has written a preview of the next draft.`;
+      bar.append(viewPreviewButton('primary-button review-bar-push'));
+      return;
     } else if (decided === decidable.length && !review.applications?.length) {
       // Everything decided: nothing left to step through, just the prompt to send.
-      text.textContent = `All ${decided} decided. Send your AI the prompt to write the next draft.`;
+      text.textContent = review.preview
+        ? `All ${decided} decided, but you changed them after your AI wrote its preview. Send your AI the prompt to write it again.`
+        : `All ${decided} decided. Send your AI the prompt to write the next draft.`;
       bar.append(copyPromptButton());
+      if (review.preview) bar.append(viewPreviewButton('secondary-button'));
       return;
     } else {
       text.textContent = decided === decidable.length ? `All ${decided} decided` : `${decided} of ${decidable.length} decided`;
@@ -503,6 +514,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
     }
     const end = el('div', 'review-bar-end');
     bar.append(end);
+    if (review.preview) end.append(viewPreviewButton('secondary-button'));
     if (decks.length && state.view !== 'list') {
       const nav = el('div', 'review-bar-nav');
       for (const [label, delta] of [['‹ Previous', -1], ['Next ›', 1]]) {
@@ -513,6 +525,36 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onReveal
       }
       end.append(nav);
     }
+  }
+
+  function viewPreviewButton(className) {
+    const button = el('button', className, 'View the preview');
+    button.type = 'button';
+    button.addEventListener('click', () => api.openPreview());
+    return button;
+  }
+
+  // The AI's preview of the next draft is showing: it's the user's to accept or discard.
+  function renderPreviewBar(text) {
+    const { number, setsAside } = state.preview;
+    const notes = [`This is your AI’s preview. It only becomes Draft ${number} if you accept it.`];
+    const undecided = (state.review?.items ?? []).filter((i) => i.decision.status === 'pending').length;
+    if (undecided) notes.push(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`}.`);
+    if (state.review?.preview?.outdated) notes.push('You’ve changed your decisions since it was written.');
+    if (setsAside) notes.push(`Accepting sets aside the ${setsAside === 1 ? 'draft' : `${setsAside} drafts`} after this one.`);
+    text.textContent = notes.join(' ');
+    const end = el('div', 'review-bar-end');
+    for (const [label, className, action] of [
+      ['Back to the review', 'secondary-button', api.closePreview],
+      ['Discard', 'secondary-button', api.discardPreview],
+      [`Accept as Draft ${number}`, 'primary-button', api.acceptPreview],
+    ]) {
+      const button = el('button', className, label);
+      button.type = 'button';
+      button.addEventListener('click', () => action());
+      end.append(button);
+    }
+    bar.append(end);
   }
 
   // Copies the prompt to write the next draft (its text shows on hover); the icon turns to a tick
