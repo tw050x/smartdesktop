@@ -85,3 +85,6 @@
   font-weight: 800;
   color: #d64545;
 }
+
+/* The demo's window is shorter than most, and its scenes are framed around pages near the top. */
+body .pages { padding-top: var(--card-gap); }

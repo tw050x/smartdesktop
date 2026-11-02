@@ -601,7 +601,8 @@ body:not(.has-document) .pages-wrap { display: none; }
   display: grid;
   justify-content: center;
   gap: 16px;
-  padding: var(--card-gap) 0 calc(var(--card-gap) + 120px); /* room below the last page for open cards */
+  /* Room below the last page for open cards, and the same above the first. */
+  padding: calc(var(--card-gap) + 120px) 0;
 }
 .page {
   position: relative;

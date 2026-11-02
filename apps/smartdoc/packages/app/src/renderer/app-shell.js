@@ -154,11 +154,12 @@ export function startApp(api) {
   // Sets the share and redraws, keeping the same part of the document at the top of the view.
   function setPageShare(share) {
     const before = firstPage()?.offsetWidth;
+    const pagesTop = firstPage()?.offsetTop ?? 0;
     const { scrollTop } = documentEl;
     pageShare = share;
     pagesEl.querySelectorAll('.page').forEach(fitPage);
     const after = firstPage()?.offsetWidth;
-    if (before && after) documentEl.scrollTop = scrollTop * (after / before);
+    if (before && after && scrollTop > pagesTop) documentEl.scrollTop = pagesTop + (scrollTop - pagesTop) * (after / before);
     relayout();
   }
 
@@ -600,7 +601,7 @@ export function startApp(api) {
   const dropZone = document.getElementById('drop-zone');
   documentEl.addEventListener('dragover', (e) => {
     e.preventDefault();
-    dropZone.style.top = `${documentEl.scrollTop + 10}px`; // the pages' top padding (--card-gap)
+    dropZone.style.top = `${documentEl.scrollTop + parseFloat(getComputedStyle(pagesEl).paddingTop)}px`;
     dropZone.style.width = `${Math.min(documentEl.clientWidth * pageShare, A4_WIDTH * RENDER_SCALE)}px`;
     documentEl.classList.add('dragging');
   });
