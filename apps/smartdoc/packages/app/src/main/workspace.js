@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveQuote } from './anchors.js';
+import { commentsSincePreview, previewComments, unansweredRequests } from './comments.js';
 import { renderHtmlToPdf } from './render-draft.js';
 import { createStore, logTo } from './store.js';
 import { MAX_READ_CHARS, estimateTokens, findText, parsePages, textStats } from './text-stats.js';
@@ -98,7 +99,21 @@ export function createWorkspace(userData) {
   };
   // The user's decisions moved on since the AI wrote the preview, so it doesn't reflect them.
   const markPreviewOutdated = (r) => {
-    if (r.preview) r.preview.outdated = true;
+    if (!r.preview) return;
+    r.preview.outdated = true;
+    delete r.preview.onlyComments;
+  };
+  // A comment outdates a preview only while it stands: removing the last one puts things back,
+  // unless something else has outdated it too.
+  const markPreviewCommented = (r) => {
+    if (!r.preview || r.preview.outdated) return;
+    r.preview.outdated = true;
+    r.preview.onlyComments = true;
+  };
+  const refreshPreviewAfterRemoval = (r) => {
+    if (!r.preview?.onlyComments || commentsSincePreview(r).length) return;
+    delete r.preview.outdated;
+    delete r.preview.onlyComments;
   };
   const dropPreview = async (r) => {
     if (!r.preview) return;
@@ -362,6 +377,9 @@ export function createWorkspace(userData) {
             decided: improve.items.filter((i) => i.decision.status !== 'pending').length,
             applied: improve.applications.length > 0,
             preview: Boolean(improve.preview),
+            comments: improve.requests.length,
+            // Started by the user's comments, with the AI yet to pick it up.
+            waitingForAi: improve.status === 'open' && improve.history[0]?.who === 'user' && !improve.items.length,
           },
           highlights: highlights && {
             title: focusTitle(highlights),
@@ -685,8 +703,18 @@ export function createWorkspace(userData) {
     async addRequest(request) {
       requireDoc();
       if (!REQUEST_KINDS.includes(request.kind)) throw new Error(`Unknown request kind: ${request.kind}`);
-      if (!review || review.status !== 'open' || typeOf(review) !== 'improve') await this.startReview('user');
+      // Only the newest draft can still change: an earlier one's next draft is already written.
+      // A draft preview can be commented on too: it's waiting to become the next one.
+      if (!previewing && (tool !== 'improve' || doc.currentDraftId !== doc.line.at(-1))) throw new Error('Comments can only be added to the newest draft or a draft preview, in Review and draft.');
+      // A review the user is deciding on takes the comment too; only one that has already become a
+      // draft (since deleted) gives way to a new one.
+      if (!previewing && (!review || review.applications.length)) await this.startReview('user');
       const entry = { id: `request-${Date.now().toString(36)}-${review.requests.length}`, kind: request.kind, anchors: request.anchors ?? [], note: request.note ?? '', details: request.details ?? {}, createdAt: new Date().toISOString() };
+      if (review.status === 'committed') {
+        entry.afterCommit = true; // carried out with the decisions: the AI has finished responding
+        if (previewing) entry.onPreview = true; // its anchors are in the draft preview's text, not the draft's
+        markPreviewCommented(review);
+      }
       review.requests.push(entry);
       logTo(review, 'user', `added a ${entry.kind} request`);
       await saveReview();
@@ -694,17 +722,19 @@ export function createWorkspace(userData) {
     },
 
     async updateRequest(id, changes) {
-      const r = requireOpenReview();
+      const r = requireType(requireReview(), 'improve');
       const entry = r.requests.find((q) => q.id === id);
       if (!entry) throw new Error(`No request ${id}.`);
       if (typeof changes.note === 'string') entry.note = changes.note;
       if (changes.details) entry.details = { ...entry.details, ...changes.details };
+      if (r.status === 'committed') markPreviewCommented(r);
       await saveReview();
     },
 
     async removeRequest(id) {
-      const r = requireOpenReview();
+      const r = requireType(requireReview(), 'improve');
       r.requests = r.requests.filter((q) => q.id !== id);
+      refreshPreviewAfterRemoval(r);
       logTo(r, 'user', 'removed a request');
       await saveReview();
     },
@@ -780,6 +810,10 @@ export function createWorkspace(userData) {
 
     async commitReview(summary) {
       const r = requireOpenReview();
+      const unanswered = unansweredRequests(r);
+      if (unanswered.length) {
+        throw new Error(`The user has comments with no response yet. Add a finding with in_response_to for each, then commit: ${unanswered.map((q) => `${q.id} (“${q.note}”)`).join('; ')}`);
+      }
       r.status = 'committed';
       r.committedAt = new Date().toISOString();
       r.summary = summary ?? null;
@@ -853,6 +887,7 @@ export function createWorkspace(userData) {
       const r = requireType(requireCommittedReview(), 'improve');
       for (const item of r.items) item.decision = { status: 'pending' };
       r.changes = [];
+      r.requests = r.requests.filter((q) => !q.afterCommit);
       await dropPreview(r);
       logTo(r, 'user', 'reset their decisions');
       await saveReview();
@@ -877,6 +912,8 @@ export function createWorkspace(userData) {
     async applyReview({ html, summary, appliedItemIds }) {
       const r = requireType(requireReview(), 'improve');
       if (r.status !== 'committed') throw new Error('Commit the review and let the user decide before applying it.');
+      // Written with the comments on the last one in hand: their text is gone with it.
+      for (const request of previewComments(r)) request.resolved = true;
       const page = withDefaultPage(html);
       const pdf = await renderHtmlToPdf(page);
       await store.savePreview(doc.id, r, { pdf, html: page });
@@ -904,6 +941,14 @@ export function createWorkspace(userData) {
       events.emit('draft');
     },
     closePreview: () => leavePreview(),
+
+    // The waiting draft preview's source and the user's comments on it, for the AI to change it.
+    async getDraftPreview() {
+      const r = requireType(requireReview(), 'improve');
+      if (!r.preview) throw new Error('This review has no draft preview waiting.');
+      const { html } = await store.loadPreview(doc.id, r);
+      return { html: html.toString(), summary: r.preview.summary, outdated: Boolean(r.preview.outdated), comments: previewComments(r) };
+    },
 
     // The preview and the draft it was written from, to show side by side.
     async previewComparison() {
@@ -935,6 +980,7 @@ export function createWorkspace(userData) {
       const r = requireReview();
       if (!r.preview) throw new Error('This review has no draft preview to discard.');
       await dropPreview(r);
+      r.requests = r.requests.filter((q) => !q.onPreview); // about text that's gone
       logTo(r, 'user', 'discarded the draft preview');
       await saveReview();
       leavePreview();

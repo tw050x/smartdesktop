@@ -9,6 +9,7 @@ import { MCP_PORT, startMcpServer } from './mcp-server.js';
 import { buildMenu } from './menu.js';
 import { createUpdates } from './updates.js';
 import { createWorkspace } from './workspace.js';
+import { acceptWarning } from './comments.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOP_BAR_HEIGHT = 44;
@@ -187,9 +188,9 @@ function updateMenu() {
     hasDraft: Boolean(doc) && !workspace.previewing,
     review: review && {
       highlights: review.type === 'highlights',
-      canStartAgain: review.status === 'committed' || Boolean(review.items?.length || review.highlights?.length || review.annotations?.length),
+      canStartAgain: review.status === 'committed' || Boolean(review.items?.length || review.highlights?.length || review.annotations?.length || review.requests?.length),
       canClearDecisions: review.type !== 'highlights' && review.status === 'committed'
-        && Boolean(review.items.some((i) => i.decision.status !== 'pending' || i.decision.comment) || review.changes?.length),
+        && Boolean(review.items.some((i) => i.decision.status !== 'pending' || i.decision.comment) || review.changes?.length || review.requests?.some((q) => q.afterCommit)),
     },
     // Stepping back from a preview returns to the draft it was written from.
     canStepBack: at > 0 || workspace.previewing,
@@ -535,6 +536,7 @@ handle('preview-comparison', () => workspace.previewComparison());
 // Asks first if the user hasn't decided on every finding: the AI wrote the preview without their
 // say on those, and it's easy to miss them from the preview, where the cards step aside.
 handle('accept-preview', async () => {
+  const uncommented = workspace.review && acceptWarning(workspace.review);
   const undecided = (workspace.review?.items ?? []).filter((i) => i.decision.status === 'pending');
   if (undecided.length) {
     const titles = undecided.slice(0, 5).map((i) => `• ${i.title}`);
@@ -549,6 +551,10 @@ handle('accept-preview', async () => {
     });
     if (response !== 1) return;
   }
+  if (uncommented) {
+    const { response } = await dialog.showMessageBox(win ?? undefined, { type: 'warning', ...uncommented, buttons: ['Cancel', 'Accept Anyway'], defaultId: 0, cancelId: 0 });
+    if (response !== 1) return;
+  }
   await workspace.acceptPreview();
 });
 // Asks first, since the AI would have to write it again.
@@ -556,7 +562,7 @@ handle('discard-preview', async () => {
   const { response } = await dialog.showMessageBox(win ?? undefined, {
     type: 'warning',
     message: 'Discard this draft preview?',
-    detail: 'Your decisions stay as they are, and your AI can write another draft preview from them.',
+    detail: 'Your decisions stay as they are, and your AI can write another draft preview from them. Any comments you made on this draft preview are removed with it.',
     buttons: ['Cancel', 'Discard'],
     defaultId: 0,
     cancelId: 0,
@@ -568,12 +574,12 @@ handle('discard-preview', async () => {
 const RESETS = {
   1: {
     message: 'Start the review again?',
-    detail: 'This clears the AI’s findings and notes, your decisions and the changes you added, leaving an empty review for your AI to fill.',
+    detail: 'This clears the AI’s findings and notes, your comments, your decisions and the changes you added, leaving an empty review for your AI to fill.',
     run: () => workspace.resetToReview(),
   },
   2: {
     message: 'Clear your decisions?',
-    detail: 'All your decisions, answers, edits and comments are cleared, and the changes you added are removed. The AI’s findings stay, ready to decide again.',
+    detail: 'All your decisions, answers, edits and comments are cleared, and the changes and comments you added while deciding are removed. The AI’s findings stay, ready to decide again.',
     run: () => workspace.resetDecisions(),
   },
 };

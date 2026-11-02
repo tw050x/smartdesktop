@@ -39,6 +39,8 @@ const FINDING_KINDS = {
   design: { label: 'Design', color: '#c2417a', side: 'l' },
   flag: { label: 'Flag', color: '#b23c3c', side: 'r' },
 };
+// The user's own comment on the text they selected.
+const COMMENT = { label: 'Your comment', color: '#0f7c8a', background: 'light-dark(#e8f6f7, #16302f)', tint: 'rgba(15, 160, 175, 0.28)', strong: 'rgba(15, 160, 175, 0.5)' };
 const NOTE = { label: 'Note', color: '#b38a00', kindColor: '#7d5e00', background: 'light-dark(#fffbea, #332d17)', tint: 'rgba(255, 214, 10, 0.32)', strong: 'rgba(255, 214, 10, 0.6)' };
 // A highlights review colours each category, in the order the categories first appear.
 const CATEGORY_COLOURS = ['#2f6fde', '#7c4ddb', '#1f7a45', '#a65a00', '#08778d', '#c2417a'];
@@ -56,7 +58,7 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
 export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onClearFilter }) {
-  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false };
+  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false, commentable: false };
   let open = null; // the open deck's key (its first item's id)
   let hover = null; // the hovered deck's key
   let stepped = null; // the deck Previous/Next last opened: it shows as if hovered while it stays open
@@ -98,7 +100,13 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       label: NOTE.label, color: NOTE.color, kindColor: NOTE.kindColor, background: NOTE.background, tint: NOTE.tint, strong: NOTE.strong,
       title: note.note || quoteOf(note.anchors), decidable: false, decided: false, status: 'No decision needed',
     }));
-    return [...findings, ...notes];
+    // A comment on the draft preview is in its text: it only means anything over those pages.
+    const comments = (review.requests ?? []).filter((request) => request.kind === 'comment' && !request.resolved && Boolean(request.onPreview) === Boolean(state.preview)).map((request) => ({
+      id: request.id, type: 'comment', request, side: 'r', anchors: request.anchors,
+      ...COMMENT, title: request.note, decidable: false, decided: false,
+      status: review.items.some((i) => i.inResponseTo === request.id) ? 'Your AI responded' : state.preview ? 'For your AI to change' : committed ? 'For the next draft' : 'For your AI',
+    }));
+    return [...findings, ...notes, ...comments];
   }
 
   function findingStatus(item) {
@@ -119,6 +127,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     if (!first) return null;
     return { left: first.offsetLeft, right: first.offsetLeft + first.offsetWidth, top: first.offsetTop, width: layer.clientWidth };
   }
+
+  const cardWidth = (geo) => Math.max(MIN_CARD_WIDTH, Math.min(pagesResized() ? WIDENED_CARD_WIDTH : CARD_WIDTH, Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE));
 
   // The top of an item's text (its first line), in layer coordinates; null until its page is drawn.
   function lineTop(anchors) {
@@ -176,14 +186,15 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
 
   function render() {
     layer.replaceChildren();
-    items = state.preview ? [] : reviewItems(state.review);
+    // On a draft preview the review steps aside, leaving only the comments made on it.
+    items = reviewItems(state.review).filter((i) => !state.preview || i.type === 'comment');
     // Hiding what's done leaves the notes, which have nothing to do.
     shown = state.hideDone ? items.filter((i) => !i.decided) : items;
     const geo = shown.length ? geometry() : null;
     decks = geo ? buildDecks(geo) : [];
     if (open && !decks.some((d) => d.key === open)) open = null;
     if (hover && !decks.some((d) => d.key === hover)) hover = null;
-    const width = geo ? Math.max(MIN_CARD_WIDTH, Math.min(pagesResized() ? WIDENED_CARD_WIDTH : CARD_WIDTH, Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE)) : CARD_WIDTH;
+    const width = geo ? cardWidth(geo) : CARD_WIDTH;
     for (const deck of decks) layer.append(...deckElements(deck, geo, width));
     renderBar();
     sendMarks();
@@ -280,9 +291,11 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     close.innerHTML = CLOSE_ICON;
     close.addEventListener('click', () => closeDeck());
     head.append(close);
-    card.append(head, el('h3', 'margin-card-title', cur.title));
+    card.append(head);
+    if (cur.type !== 'comment') card.append(el('h3', 'margin-card-title', cur.title));
     if (cur.type === 'finding') findingBody(card, cur.item);
     else if (cur.type === 'note') noteBody(card, cur.note);
+    else if (cur.type === 'comment') commentBody(card, cur);
     else highlightBody(card, cur.highlight);
     // Clicking the card (not its controls) brings its text into view.
     card.addEventListener('click', (e) => {
@@ -295,7 +308,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const review = state.review;
     if (item.inResponseTo) {
       const request = review.requests.find((r) => r.id === item.inResponseTo);
-      if (request) card.append(el('p', 'finding-reply', `In response to your ${request.kind} request`));
+      if (request) card.append(el('p', 'finding-reply', request.kind === 'comment' ? `In response to your comment: “${request.note}”` : `In response to your ${request.kind} request`));
     }
     if (item.body) card.append(el('p', 'finding-body', item.body));
     if (item.anchors.length && item.kind !== 'change') card.append(el('blockquote', 'finding-quote', quoteOf(item.anchors)));
@@ -309,6 +322,34 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     if (item.kind === 'question' && item.question) card.append(el('p', 'finding-question', item.question));
     if (review.status === 'committed') card.append(decisionControls(item));
     else if (item.kind === 'options') card.append(optionList(item, false));
+  }
+
+  // The comment, editable while it can still change what happens; once its review has become a
+  // draft it's only there to read.
+  function commentBody(card, cur) {
+    const { request } = cur;
+    if (state.commentable) {
+      const input = el('textarea', 'comment-edit');
+      input.rows = 3;
+      input.value = request.note;
+      input.setAttribute('aria-label', 'Your comment');
+      input.addEventListener('change', () => {
+        const note = input.value.trim();
+        if (note) api.updateRequest(request.id, { note });
+        else input.value = request.note;
+      });
+      card.append(input);
+    } else {
+      card.append(el('p', 'finding-body', request.note));
+    }
+    if (request.anchors.length) card.append(el('blockquote', 'finding-quote', quoteOf(request.anchors)));
+    card.append(el('p', 'finding-reply', cur.status));
+    if (state.commentable) {
+      const remove = el('button', 'secondary-button comment-remove', 'Remove');
+      remove.type = 'button';
+      remove.addEventListener('click', () => api.removeRequest(request.id));
+      card.append(remove);
+    }
   }
 
   function noteBody(card, note) {
@@ -471,7 +512,16 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     left.append(label, text);
     bar.append(left);
     if (state.preview) return renderPreviewBar(text);
-    if (!review) {
+    const comments = items.filter((i) => i.type === 'comment').length;
+    const commentCount = comments === 1 ? '1 comment' : `${comments} comments`;
+    // A review only the user's comments have started: nothing has happened until the AI is told.
+    const waitingForAi = review?.status === 'open' && !isHighlights(review) && review.history?.[0]?.who === 'user' && !review.items.length;
+    if (waitingForAi && comments && !state.filter) {
+      text.textContent = `${commentCount}. Send your AI the prompt to review ${comments === 1 ? 'it' : 'them'}.`;
+      bar.append(copyPromptButton(`I’ve added comments in SmartDoc to ${documentName()}. Review the document and respond to each one.`));
+      return;
+    }
+    if (!review || (waitingForAi && !state.filter)) {
       // The prompts are in the focus menu at the top.
       text.textContent = 'No review yet. Choose a focus at the top to copy the prompt for your AI.';
       return;
@@ -491,6 +541,11 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       text.textContent = `${isHighlights(review) ? 'Your AI is picking out the key information' : 'Your AI is reviewing'}…${items.length ? ` ${items.length} ${noun}${items.length === 1 ? '' : 's'} so far` : ''}`;
     } else if (isHighlights(review)) {
       text.textContent = items.length ? `${items.length} highlight${items.length === 1 ? '' : 's'}` : 'The AI found nothing to highlight.';
+    } else if (!decidable.length && comments) {
+      text.textContent = `${commentCount}. Send your AI the prompt to write the next draft.`;
+      bar.append(copyPromptButton());
+      if (review.preview) bar.append(viewPreviewButton('secondary-button'));
+      return;
     } else if (!decidable.length) {
       text.textContent = 'The AI found nothing to change.';
     } else if (decided === decidable.length && review.preview && !review.preview.outdated) {
@@ -501,8 +556,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     } else if (decided === decidable.length && !review.applications?.length) {
       // Everything decided: nothing left to step through, just the prompt to send.
       text.textContent = review.preview
-        ? `All ${decided} decided, but you changed them after your AI wrote its draft preview. Send your AI the prompt to write it again.`
-        : `All ${decided} decided. Send your AI the prompt to write the next draft.`;
+        ? `All ${decided} decided, but you’ve made changes since your AI wrote its draft preview. Send your AI the prompt to write it again.`
+        : `All ${decided} decided${comments ? `, with ${commentCount}` : ''}. Send your AI the prompt to write the next draft.`;
       bar.append(copyPromptButton());
       if (review.preview) bar.append(viewPreviewButton('secondary-button'));
       return;
@@ -540,17 +595,20 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   function renderPreviewBar(text) {
     const { number, setsAside, comparesWith } = state.preview;
     const notes = [`This is your AI’s draft preview. It only becomes Draft ${number} if you accept it.`];
+    const comments = items.length;
+    if (comments) notes.push(`${comments === 1 ? '1 comment' : `${comments} comments`} on it. Send your AI the prompt to change it.`);
     const undecided = (state.review?.items ?? []).filter((i) => i.decision.status === 'pending').length;
     if (undecided) notes.push(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`}.`);
-    if (state.review?.preview?.outdated) notes.push('You’ve changed your decisions since it was written.');
+    if (state.review?.preview?.outdated && !comments) notes.push('You’ve made changes since it was written.');
     if (setsAside) notes.push(`Accepting sets aside the ${setsAside === 1 ? 'draft' : `${setsAside} drafts`} after this one.`);
     text.textContent = notes.join(' ');
     const end = el('div', 'review-bar-end');
+    if (comments) end.append(copyPromptButton(`I’ve commented on the draft preview of ${documentName()}. Update it to do what my comments ask.`));
     for (const [label, className, action] of [
       [state.comparing ? 'Hide the comparison' : `Compare with ${comparesWith}`, 'secondary-button', onCompare],
       ['Back to the review', 'secondary-button', api.closePreview],
       ['Discard', 'secondary-button', api.discardPreview],
-      [`Accept as Draft ${number}`, 'primary-button', api.acceptPreview],
+      [`Accept as Draft ${number}`, comments ? 'secondary-button' : 'primary-button', api.acceptPreview],
     ]) {
       const button = el('button', className, label);
       button.type = 'button';
@@ -562,9 +620,9 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
 
   // Copies the prompt to write the next draft (its text shows on hover); the icon turns to a tick
   // for a moment once copied. Prompts to start a review are in the focus menu (focus-picker.js).
-  function copyPromptButton() {
+  const documentName = () => (state.document ? `“${state.document.name}” (document ${state.document.id})` : 'my document');
+  function copyPromptButton(prompt = `I’ve made my decisions in SmartDoc. Apply the review and write the next draft of ${documentName()}.`) {
     const label = 'Copy the prompt';
-    const prompt = `I’ve made my decisions in SmartDoc. Apply the review and write the next draft of ${state.document ? `“${state.document.name}” (document ${state.document.id})` : 'my document'}.`;
     const button = el('button', 'primary-button copy-prompt');
     button.type = 'button';
     button.title = prompt;
@@ -650,6 +708,11 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     },
     // Redraws in place, e.g. once a page is drawn or the window is resized.
     layout: render,
+    // Where a card in the right margin goes, in the layer's coordinates.
+    cardPlace() {
+      const geo = geometry();
+      return geo && { left: geo.right + PAGE_SPACE, width: cardWidth(geo) };
+    },
     // Opens the deck holding an item, on that item's card, and brings its text into view.
     openItem(id) {
       const deck = decks.find((d) => d.ids.includes(id));

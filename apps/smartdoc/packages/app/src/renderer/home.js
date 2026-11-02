@@ -224,6 +224,7 @@ const START = { improve: 'Start a review', highlights: 'Find the key information
 // Where a draft's review stands, in a few words.
 function reviewStatus(tool, r) {
   if (tool === 'improve') {
+    if (r.waitingForAi) return `${r.title} · ${r.comments} comment${r.comments === 1 ? '' : 's'}`;
     if (r.status !== 'committed') return `${r.title} · AI reviewing`;
     if (r.preview) return `${r.title} · draft preview to accept`;
     if (r.applied) return `${r.title} · next draft written`;

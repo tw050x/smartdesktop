@@ -76,7 +76,7 @@ export const APP_MARKUP = `
       </div>
     </div>
     <!-- The pages, with the review laid over them and their margins (see margin-review.js). -->
-    <div class="pages-wrap">
+    <div class="pages-wrap" id="pages-wrap">
       <div class="pages" id="pages"></div>
       <div class="margin-layer" id="margin-layer"></div>
     </div>

@@ -2,6 +2,7 @@ import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { clearPages, nearestTextPosition, pageTexts, registerPage, selectionAnchors } from './anchors.js';
+import { createCommentComposer } from './comment-composer.js';
 import { createCompareView } from './compare.js';
 import { createFocusPicker } from './focus-picker.js';
 import { createHighlightsList } from './highlights-list.js';
@@ -210,6 +211,7 @@ export function startApp(api) {
     requestAnimationFrame(() => {
       relayoutQueued = false;
       marginReview.layout();
+      composer.place();
     });
   }
 
@@ -290,6 +292,7 @@ export function startApp(api) {
   function setComparing(on) {
     if (on === comparing) return;
     comparing = on;
+    composer.close();
     document.body.classList.toggle('comparing', on);
     if (on) compareView.open();
     else compareView.close();
@@ -455,6 +458,20 @@ export function startApp(api) {
     },
   });
 
+  // Comments can be added to the newest draft, in Review and draft, or to a draft preview (not in
+  // the website's demo).
+  const canComment = () => Boolean(api.addRequest && current.doc && (current.preview || (current.newest && current.tool === 'improve')));
+  const composer = createCommentComposer({
+    wrapEl: document.getElementById('pages-wrap'),
+    api,
+    canComment,
+    cardPlace: () => marginReview.cardPlace(),
+    onDone: () => {
+      getSelection().removeAllRanges();
+      marginReview.update({ filter: null });
+    },
+  });
+
   // Selecting text on the page fades the review's cards that aren't about it; clicking on the page
   // without selecting brings them all back. Only a press that starts on a page counts, so working
   // in a card (which moves the selection there) keeps the filter.
@@ -466,6 +483,7 @@ export function startApp(api) {
     setTimeout(() => {
       const anchors = selectionAnchors();
       marginReview.update({ filter: anchors.length ? anchors : null });
+      composer.offer(anchors);
     });
   });
 
@@ -519,9 +537,12 @@ export function startApp(api) {
     draftNext.disabled = draft.isPreview || draft.number === draft.total;
     requestAnimationFrame(placeDraftNav);
     setComparing(false);
+    composer.close();
     const preview = draft.isPreview ? { number: draft.number, setsAside: draft.setsAside, comparesWith: draft.comparesWith } : null;
-    current = { doc, review, tool, preview };
-    marginReview.update({ document: doc, review, tool, preview, filter: null });
+    // The only draft that can still change.
+    const newest = !draft.isPreview && draft.number === draft.total;
+    current = { doc, review, tool, preview, newest };
+    marginReview.update({ document: doc, review, tool, preview, filter: null, commentable: newest || Boolean(preview) });
     showView();
     marginReview.reset();
     documentEl.scrollTop = 0;
@@ -532,6 +553,7 @@ export function startApp(api) {
   api.onDocumentClosed(() => {
     loading++;
     setComparing(false);
+    composer.close();
     clearPdf();
     clearPages();
     toolSwitcher.close();

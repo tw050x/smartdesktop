@@ -892,6 +892,52 @@ button:disabled { opacity: 0.5; cursor: default; }
   .view-switch::before, .view-switch button { transition: none; }
 }
 
+/* --- Comments on selected text (see comment-composer.js) ---------------------------------- */
+.comment-offer {
+  position: absolute;
+  z-index: 4;
+  padding: 3px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.comment-draft-mark { position: absolute; background: rgba(15, 160, 175, 0.32); mix-blend-mode: multiply; pointer-events: none; border-radius: 2px; }
+.comment-composer {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 10px 12px 12px;
+  border-left: 4px solid #0f7c8a;
+  border-radius: 8px;
+  background: light-dark(#e8f6f7, #16302f);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+.comment-composer .margin-kind { margin: 0; color: light-dark(#0f7c8a, #5fc9d4); }
+.comment-composer textarea, .comment-edit {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.comment-composer textarea:focus, .comment-edit:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.comment-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.comment-error { margin: 0; color: light-dark(#b23c3c, #ff8f8f); font-size: 12px; }
+.comment-remove { justify-self: start; margin-top: 8px; }
+
 /* --- The preview beside the previous draft (see compare.js) ------------------------------- */
 .compare { grid-area: 1 / 1; display: none; overflow: auto; scrollbar-width: none; background: var(--document-bg); }
 .comparing .compare { display: block; }
