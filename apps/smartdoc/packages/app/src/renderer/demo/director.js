@@ -185,6 +185,7 @@ export function createDirector({ api }) {
 
   function progress({ improve, highlights } = {}) {
     api.clearComments();
+    api.setAiControl(null);
     api.setProgress('improve', improve ? { started: true, shown: improve[0], done: improve[1] } : { started: false, shown: 0, done: false });
     api.setProgress('highlights', highlights ? { started: true, shown: highlights[0], done: highlights[1] } : { started: false, shown: 0, done: false });
   }
@@ -816,6 +817,30 @@ export function createDirector({ api }) {
         ...click(() => document.querySelector('.comment-composer .primary-button')),
         wait(900),
       ],
+    },
+    // Two AIs at once, a window each (the site shows the second scene in a second window beside the
+    // first): one reviewing the original, the other picking out the key information in Draft 1.
+    'f-windows': {
+      async build(id) {
+        await onDocument(0, 'improve', { reviews: { improve: [0, false] }, made: 1 }, id);
+        api.setAiControl('Claude Code');
+      },
+      focus: () => WINDOW,
+      beats: () => [1, 2, 3, 4].flatMap((shown) => [
+        wait(650),
+        act(() => api.setProgress('improve', { shown }), () => api.setProgress('improve', { shown: shown - 1 })),
+      ]),
+    },
+    'f-windows-right': {
+      async build(id) {
+        await onDocument(1, 'highlights', { reviews: { improve: ALL_FINDINGS, highlights: [0, false] } }, id);
+        api.setAiControl('Claude Desktop');
+      },
+      focus: () => WINDOW,
+      beats: () => [1, 2, 3, 4, 5].flatMap((shown) => [
+        wait(700),
+        act(() => api.setProgress('highlights', { shown }), () => api.setProgress('highlights', { shown: shown - 1 })),
+      ]),
     },
     // The preview beside the draft it was written from, stepping through what changed.
     'f-compare': {

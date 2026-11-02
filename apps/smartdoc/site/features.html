@@ -36,6 +36,8 @@
     <div class="story">
       <div class="stage">
         <div class="camera" role="img" aria-label="The SmartDoc app, showing each of its features in turn"><iframe src="demo/demo.html" title="SmartDoc demo" tabindex="-1" aria-hidden="true"></iframe></div>
+        <!-- A second window, beside the first on the step that has two (see story.js). -->
+        <div class="camera second" data-scene="f-windows-right" aria-hidden="true"><iframe data-src="demo/demo.html" title="SmartDoc demo: a second window" tabindex="-1" aria-hidden="true"></iframe></div>
         <div class="progress" data-side="left" aria-hidden="true"></div>
         <div class="progress" data-side="right" aria-hidden="true"></div>
         <div class="captions">
@@ -104,6 +106,11 @@
             <h2>Read it as a list</h2>
             <p>Switch to List for every highlight in one place, the most important first.</p>
           </div>
+          <div class="caption" data-scene="f-windows" data-side="top">
+            <p class="kicker">Windows</p>
+            <h2>Every AI gets its own window</h2>
+            <p>Several can work at once, even on the same document, and can’t overwrite each other. Each window shows who’s working in it. Copy a prompt from a window and your AI takes over that one.</p>
+          </div>
           <div class="caption" data-scene="f-home" data-side="left">
             <p class="kicker">Home</p>
             <h2>Documents, variations, drafts</h2>
@@ -136,6 +143,7 @@
       <article class="step" data-scene="f-highlights" data-side="left"></article>
       <article class="step" data-scene="f-gaps" data-side="left"></article>
       <article class="step" data-scene="f-list" data-side="left"></article>
+      <article class="step" data-scene="f-windows" data-side="top" data-windows="2"></article>
       <article class="step" data-scene="f-home" data-side="left"></article>
       <article class="step" data-scene="f-variation" data-side="right"></article>
       <article class="step" data-scene="f-document" data-side="right"></article>

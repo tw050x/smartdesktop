@@ -22,6 +22,13 @@ const frame = camera.querySelector('iframe');
 // The home page's hero has a second window (.camera.alt, its own copy of the demo) for its other
 // tool: the two slide and fade past each other as the hero swaps tools (see showHero).
 const altCamera = stage.querySelector('.camera.alt');
+// A step with data-windows="2" shows two windows side by side: this one, its own copy of the demo,
+// playing its own scene while the page's scrolling plays the first window's. Narrow, there's only
+// room for one, so it takes over from the first halfway through the step.
+const secondCamera = stage.querySelector('.camera.second');
+let secondDemo = null;
+let secondShowing = false;
+const twoWindows = (step) => Boolean(step.dataset.windows);
 const steps = [...document.querySelectorAll('.step')];
 const captions = [...stage.querySelectorAll('.caption')];
 const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
@@ -92,6 +99,14 @@ function framing(step) {
   const H = stage.clientHeight;
   const side = step.dataset.side;
   const gap = 28;
+  if (step.dataset.windows) {
+    // Under its caption, the two windows the same size, centred with a gap between them.
+    const y = gap + (captionOf(step)?.offsetHeight ?? 0) + gap;
+    const between = 20;
+    const k = Math.min((W - 80 - between) / 2 / WINDOW.width, (H - y - gap) / WINDOW.height);
+    const x = (W - WINDOW.width * k * 2 - between) / 2;
+    return { x, y, k, second: { x: x + WINDOW.width * k + between, y, k } };
+  }
   // A caption across the top (data-side "top") leaves the full width under it, for a focus that's
   // wide and short, which can then be enlarged more.
   const top = side === 'top' ? gap + (captionOf(step)?.offsetHeight ?? 0) + gap : 0;
@@ -288,6 +303,7 @@ function render() {
     altCamera.style.transform = camera.style.transform;
     altCamera.style.clipPath = camera.style.clipPath;
   }
+  placeSecond(a, b, fa, fb, u, t, within, { x, y, k });
   stage.classList.toggle('on-hero', a.dataset.side === 'below' && t < 0.2);
   if (!wide.matches) for (const step of steps) if (captionOf(step)) captionOf(step).style.setProperty('--narrow-top', `${narrowLayout(step).captionTop}px`);
   placeAgent(x, { top: y + clipTop * k, bottom: y + (WINDOW.height - clipBottom) * k });
@@ -503,6 +519,44 @@ function sizeSteps(lengths) {
     scrollTo(0, scrollY + r.top + r.height * before.within - innerHeight / 2);
   }
 }
+
+// The second window: how far it's in, where it goes, its demo loaded as the step comes near, and
+// its scene playing while it shows.
+function playSecond() {
+  secondDemo?.show(secondCamera.dataset.scene).then((focus) => focus && secondDemo.start());
+}
+function placeSecond(a, b, fa, fb, u, t, within, first) {
+  if (!secondCamera) return;
+  const near = steps.findIndex(twoWindows) - steps.indexOf(a);
+  const secondFrame = secondCamera.querySelector('iframe');
+  if (near <= 2 && secondFrame.dataset.src && location.protocol !== 'file:') {
+    secondFrame.src = secondFrame.dataset.src;
+    delete secondFrame.dataset.src;
+  }
+  const amount = (twoWindows(a) ? 1 - u : 0) + (twoWindows(b) ? u : 0);
+  let shows = amount;
+  if (wide.matches) {
+    const to = (twoWindows(b) ? fb : fa).second;
+    if (to) secondCamera.style.transform = `translate(${to.x + (1 - amount) * 80}px, ${to.y}px) scale(${to.k})`;
+  } else {
+    secondCamera.style.transform = `translate(${first.x}px, ${first.y}px) scale(${first.k})`;
+    secondCamera.style.clipPath = camera.style.clipPath;
+    shows = t === 0 && twoWindows(a) && within > 0.5 ? 1 : 0;
+  }
+  secondCamera.style.opacity = shows.toFixed(3);
+  const showing = amount > 0.5;
+  if (showing && !secondShowing) playSecond();
+  secondShowing = showing;
+}
+secondCamera?.querySelector('iframe').addEventListener('load', async (e) => {
+  const secondFrame = e.currentTarget;
+  if (!secondFrame.src) return;
+  while (!secondFrame.contentWindow.demo) await new Promise((resolve) => setTimeout(resolve, 50));
+  secondDemo = secondFrame.contentWindow.demo;
+  secondDemo.setInstant(still.matches);
+  secondFrame.classList.add('loaded');
+  if (secondShowing) playSecond();
+});
 
 // The hero's tool: 'improve' shows the first window (its scene the hero step's), anything else the
 // second (its scene in its data-scene), each sliding in as the other slides out, the way they go

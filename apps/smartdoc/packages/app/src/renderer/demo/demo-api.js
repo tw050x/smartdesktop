@@ -199,6 +199,8 @@ export function createDemoApi() {
       reviews.improve.items.forEach((item, i) => (item.decision = i < count ? { ...decisions[i] } : { status: 'pending' }));
       if (state.screen === 'document') emit('review', current());
     },
+    // The AI working in this window, for the top bar.
+    setAiControl: (name) => emit('ai-control', name),
     // Opens the new-variation card, as right-clicking a draft and choosing New Variation does.
     requestVariation: (request) => emit('variation', request),
 
@@ -226,6 +228,8 @@ export function createDemoApi() {
     setAppearance: async () => {},
 
     onRecentDocuments: on('recent'),
+    onAiControl: on('ai-control'),
+    showAiControlMenu: async () => {},
     onDocumentMade: on('made'),
     onVariationRequested: on('variation'),
     variationsOf: async () => variationsOf(),

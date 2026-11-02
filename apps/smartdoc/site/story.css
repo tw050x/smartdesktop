@@ -17,6 +17,8 @@
 .camera.alt { opacity: 0; translate: 6% 0; pointer-events: none; }
 .stage.on-hero[data-hero="highlights"] .camera:not(.alt) { opacity: 0; translate: -6% 0; }
 .stage.on-hero[data-hero="highlights"] .camera.alt { opacity: 1; translate: 0 0; }
+/* The second window of a step with two: placed and faded in by story.js. */
+.camera.second { opacity: 0; transition: none; pointer-events: none; }
 .camera iframe { display: block; width: 1280px; height: 800px; border: 0; pointer-events: none; opacity: 0; transition: opacity 0.4s; }
 .camera iframe.loaded { opacity: 1; }
 /* Shown instead of the demo on a page opened as a file, where browsers block it. */
