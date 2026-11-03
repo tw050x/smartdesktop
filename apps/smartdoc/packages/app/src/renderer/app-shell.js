@@ -611,6 +611,8 @@ export function startApp(appApi) {
   });
 
   api.onReview(showReview);
+  api.onAiWaiting?.((aiWaiting) => marginReview.update({ aiWaiting }));
+  api.aiWaiting?.().then((aiWaiting) => marginReview.update({ aiWaiting }));
   // The active tool, switched by the user or the AI.
   api.onTool((tool) => {
     toolSwitcher.update(tool);

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 // Documents live in the app's data folder, one folder each. A document is defined by the upload:
@@ -141,6 +141,20 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
       const ids = await readdir(path.join(docDir(docId), 'drafts'));
       const drafts = await Promise.all(ids.map((id) => readJson(path.join(draftDir(docId, id), 'draft.json')).catch(() => null)));
       return drafts.filter(Boolean).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    },
+
+    // A review by its id alone, wherever it is: { docId, review }, or null.
+    async findReview(reviewId) {
+      const names = (dir) => readdir(dir).catch(() => []);
+      for (const docId of await names(path.join(root, 'documents'))) {
+        for (const draftId of await names(path.join(docDir(docId), 'drafts'))) {
+          const file = reviewPath(docId, draftId, reviewId);
+          if (!(await access(file).then(() => true, () => false))) continue;
+          const review = await readReview(file).catch(() => null); // its draft may be being deleted
+          if (review) return { docId, review };
+        }
+      }
+      return null;
     },
 
     async listReviews(docId, draftId) {

@@ -59,7 +59,7 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
 export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onClearFilter }) {
-  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false, commentable: false };
+  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
   let open = null; // the open deck's key (its first item's id)
   let hover = null; // the hovered deck's key
   let stepped = null; // the deck Previous/Next last opened: it shows as if hovered while it stays open
@@ -545,7 +545,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     } else if (isHighlights(review)) {
       text.textContent = items.length ? `${items.length} highlight${items.length === 1 ? '' : 's'}` : 'The AI found nothing to highlight.';
     } else if (!decidable.length && comments) {
-      text.textContent = `${commentCount}. Send your AI the prompt to write the next draft.`;
+      text.textContent = `${commentCount}. ${askAi('decisions', 'write the next draft')}`;
       appendPrompt(bar);
       if (review.preview) bar.append(viewPreviewButton('secondary-button'));
       return;
@@ -559,8 +559,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     } else if (decided === decidable.length && !review.applications?.length) {
       // Everything decided: nothing left to step through, just the prompt to send.
       text.textContent = review.preview
-        ? `All ${decided} decided, but you’ve made changes since your AI wrote its draft preview. Send your AI the prompt to write it again.`
-        : `All ${decided} decided${comments ? `, with ${commentCount}` : ''}. Send your AI the prompt to write the next draft.`;
+        ? `All ${decided} decided, but you’ve made changes since your AI wrote its draft preview. ${askAi('decisions', 'write it again')}`
+        : `All ${decided} decided${comments ? `, with ${commentCount}` : ''}. ${askAi('decisions', 'write the next draft')}`;
       appendPrompt(bar);
       if (review.preview) bar.append(viewPreviewButton('secondary-button'));
       return;
@@ -599,7 +599,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const { number, setsAside, comparesWith } = state.preview;
     const notes = [`This is your AI’s draft preview. It only becomes Draft ${number} if you accept it.`];
     const comments = items.length;
-    if (comments) notes.push(`${comments === 1 ? '1 comment' : `${comments} comments`} on it. Send your AI the prompt to change it.`);
+    if (comments) notes.push(`${comments === 1 ? '1 comment' : `${comments} comments`} on it. ${askAi('preview', 'change it')}`);
     const undecided = (state.review?.items ?? []).filter((i) => i.decision.status === 'pending').length;
     if (undecided) notes.push(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`}.`);
     if (state.review?.preview?.outdated && !comments) notes.push('You’ve made changes since it was written.');
@@ -621,11 +621,29 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     bar.append(end);
   }
 
+  const aiIsWaiting = (what) => state.aiWaiting.some((w) => w.what === what && w.reviewId === state.review?.id);
+  const sentToAi = (what) => (what === 'preview' ? state.review?.previewCommentsSentAt : state.review?.decisionsSentAt);
+  // What the review bar says about the next step, by how the AI can be told.
+  function askAi(what, goal) {
+    if (sentToAi(what)) return 'Sent to your AI.';
+    return aiIsWaiting(what) ? `Send it to your AI to ${goal}.` : `Send your AI the prompt to ${goal}.`;
+  }
+
   // Copies the prompt to write the next draft (its text shows on hover); the icon turns to a tick
   // for a moment once copied. Prompts to start a review are in the focus menu (focus-picker.js).
   // The prompt's button, with what sending it does beside it.
   function appendPrompt(parent, prompt) {
-    const note = takeOverNote(api);
+    // An AI waiting with `smartdoc wait` can be told directly; no need for a prompt.
+    const what = prompt ? 'preview' : 'decisions';
+    if (aiIsWaiting(what)) {
+      const send = el('button', 'primary-button copy-prompt', 'Send to your AI');
+      send.type = 'button';
+      send.addEventListener('click', () => api.sendToAi(what));
+      parent.append(send);
+      return;
+    }
+    // Once sent the prompt is only a fallback, should that AI have gone.
+    const note = !sentToAi(what) && takeOverNote(api);
     if (note) parent.append(note);
     parent.append(copyPromptButton(prompt));
   }

@@ -17,6 +17,7 @@ An improvement review, in rounds:
 2. Decide: the user works through the findings, and may write changes of their own or add comments on the text (requests with afterCommit set). Read their choices with get_decisions.
 3. Apply: carry out what was accepted, the user's own changes and their afterCommit comments (and use the user's answers and comments) by writing the complete updated document as HTML and calling apply_review. Wait for the user's decisions first: call it only when they ask you to, or when get_decisions shows nothing pending. The app draws it to PDF as a draft preview of the next draft, which the user accepts or discards in the app: only they can make it a draft, so tell them to look at it there. If they want it changed, call apply_review again and the new draft preview replaces it. They can comment on the draft preview itself (requests with onPreview set, quoting its text, not the draft's): call get_draft_preview, make what they asked in its HTML, leave the rest as it is, and call apply_review. Requests with resolved set are done: ignore them. Never apply anything the user rejected, and leave text marked "keep" unchanged.
 A highlights review: you decide what's key, for the user's goal. Before starting, having read the document, ask the user what they're looking for and anything about the document that changes what matters (for example which party they are in a contract, or what decision they're making); keep it to the few questions that count. Check list_focuses first: if a focus already has this goal, carry it on or switch to it rather than starting a near-duplicate; if the user wants an earlier draft's focus run again, reuse its goal and name. Start the review with the goal, a short name for it as a focus (title, a few words in the user's terms), and what you learned (context). Then add_highlight for each piece of key information: quote its text, put it in a category you choose for this document (a handful, named in the user's terms, such as "Payment", "Deadlines", "Your obligations", "Risks"), say in the note why it matters for their goal, and rate its importance. Also add what the user would expect but the document doesn't say, as a highlight without quotes. Be selective: what matters for the goal, not a summary of everything. Finish with commit_review, with a summary that answers their goal in a few sentences. get_history shows earlier focuses, so a later review can build on them. Nothing is decided or applied, and the document doesn't change.
+Waiting for the user: commit_review, apply_review and open_document's waiting_for_user reply give you a wait command, a shell command that ends when the user has acted. If you can run commands in the background, as Claude Code can, run it that way, so you can go on talking to the user, and tell them what you're waiting for. While it runs, the app offers them a button to send you their decisions, or their comments on a draft preview. When it ends it prints JSON saying what happened (event: decisions-sent, preview-accepted, preview-discarded, preview-comments, open-opened, open-cancelled or open-failed); act on that as if they'd asked you, reading the details with get_decisions, get_draft_preview or get_document_info. If you can't run commands in the background, don't run it: ask the user to tell you when they're done. If they tell you first, carry on and stop the command.
 Text is referenced by quoting it exactly from get_document or find_text (whitespace-insensitive), with the page number.`;
 
 const quote = z.object({
@@ -33,7 +34,7 @@ export const READ_ONLY = new Set(['list_documents', 'list_variations', 'get_docu
 const DESTRUCTIVE = new Set(['remove_finding', 'remove_highlight']);
 const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
 
-export function buildServer(call, { version }) {
+export function buildServer(call, { version, waitCommand }) {
   // The session's window, found for each call: this server only lives for one request.
   let workspace = null;
   let documents = null;
@@ -148,7 +149,7 @@ export function buildServer(call, { version }) {
 
   tool('commit_review', 'Finishes the review: nothing more can be added. For an improvement review the user can now make their decisions in the app; for a highlights review, the summary should answer their goal.', {
     summary: z.string().optional().describe('A short overview shown at the top of the review'),
-  }, ({ summary }) => workspace.commitReview(summary).then((r) => ({ committed: r.id, ...(r.type === 'highlights' ? { highlights: r.highlights.length } : { findings: r.items.length }) })));
+  }, ({ summary }) => workspace.commitReview(summary).then((r) => ({ committed: r.id, ...(r.type === 'highlights' ? { highlights: r.highlights.length } : { findings: r.items.length, wait: waitCommand('decisions', '--review', r.id) }) })));
 
   tool('get_decisions', 'The user\'s decisions on the current review: each finding\'s status (pending, accepted, rejected, answered, acknowledged), chosen option, answers, edited wording and comments, plus their requests and the changes they wrote themselves (changes, and requests with afterCommit set: carry these out too). preview is the draft preview waiting for the user, if any; outdated means they changed their decisions since it was written.', {}, () => workspace.getDecisions());
 
@@ -158,7 +159,7 @@ export function buildServer(call, { version }) {
     html: z.string().min(1),
     summary: z.string().optional().describe('What changed, shown with the draft preview and the draft'),
     applied_item_ids: z.array(z.string()).optional().describe('The findings this draft carries out'),
-  }, ({ html, summary, applied_item_ids }) => workspace.applyReview({ html, summary, appliedItemIds: applied_item_ids }));
+  }, ({ html, summary, applied_item_ids }) => workspace.applyReview({ html, summary, appliedItemIds: applied_item_ids }).then((applied) => ({ ...applied, wait: waitCommand('preview', '--review', applied.review) })));
 
   // Ready-made requests the user can start a conversation with (Claude Code lists them as slash
   // commands): the kind of review, and optionally the file to open and what they're after.

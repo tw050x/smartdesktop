@@ -119,6 +119,7 @@ export function createWorkspace(shared) {
   };
   // The user's decisions moved on since the AI wrote the preview, so it doesn't reflect them.
   const markPreviewOutdated = (r) => {
+    delete r.decisionsSentAt; // what was sent has changed
     if (!r.preview) return;
     r.preview.outdated = true;
     delete r.preview.onlyComments;
@@ -126,6 +127,8 @@ export function createWorkspace(shared) {
   // A comment outdates a preview only while it stands: removing the last one puts things back,
   // unless something else has outdated it too.
   const markPreviewCommented = (r) => {
+    delete r.decisionsSentAt;
+    delete r.previewCommentsSentAt;
     if (!r.preview || r.preview.outdated) return;
     r.preview.outdated = true;
     r.preview.onlyComments = true;
@@ -1020,6 +1023,10 @@ export function createWorkspace(shared) {
       const pdf = await renderHtmlToPdf(page);
       await store.savePreview(doc.id, r, { pdf, html: page });
       r.preview = { at: new Date().toISOString(), summary: summary ?? null, appliedItemIds: appliedItemIds ?? [] };
+      // The AI has acted on what it was sent: what comes next is about this preview.
+      delete r.decisionsSentAt;
+      delete r.previewCommentsSentAt;
+      delete r.previewResult;
       logTo(r, 'ai', 'wrote a draft preview of the next draft');
       await store.saveReview(doc.id, r);
       const undecided = r.items.filter((i) => i.decision.status === 'pending').length;
@@ -1029,6 +1036,7 @@ export function createWorkspace(shared) {
         events.emit('review', r);
       }
       return {
+        review: r.id,
         preview: `Draft ${doc.line.indexOf(r.draftId) + 1} preview`,
         status: 'waiting_for_user',
         undecidedFindings: undecided,
@@ -1071,16 +1079,30 @@ export function createWorkspace(shared) {
       const { pdf, html } = await store.loadPreview(doc.id, r);
       const { draftId } = await store.createDraft(doc, r, { pdf, html, summary, appliedItemIds });
       r.applications.push({ draftId, at: new Date().toISOString(), itemIds: appliedItemIds });
+      delete r.previewCommentsSentAt;
+      r.previewResult = { outcome: 'accepted', at: new Date().toISOString(), draft: `Draft ${doc.line.indexOf(draftId)}` };
       await dropPreview(r);
       logTo(r, 'user', 'accepted the draft preview as a new draft');
       await store.saveReview(doc.id, r);
       await showDraft(draftId);
     },
 
+    // The user tells an AI waiting on this review (see waits.js) to go ahead: with their decisions,
+    // or their comments on the draft preview.
+    async sendToAi(what) {
+      const r = requireType(requireReview(), 'improve');
+      if (what === 'preview') r.previewCommentsSentAt = new Date().toISOString();
+      else r.decisionsSentAt = new Date().toISOString();
+      logTo(r, 'user', what === 'preview' ? 'sent their comments on the draft preview to the AI' : 'sent their decisions to the AI');
+      await saveReview();
+    },
+
     // The user discards the preview; the review stays as it is, for the AI to write another.
     async discardPreview() {
       const r = requireReview();
       if (!r.preview) throw new Error('This review has no draft preview to discard.');
+      delete r.previewCommentsSentAt;
+      r.previewResult = { outcome: 'discarded', at: new Date().toISOString() };
       await dropPreview(r);
       r.requests = r.requests.filter((q) => !q.onPreview); // about text that's gone
       logTo(r, 'user', 'discarded the draft preview');

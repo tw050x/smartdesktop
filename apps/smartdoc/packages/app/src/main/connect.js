@@ -25,10 +25,18 @@ export function createConnect({ isPackaged, execPath, resourcesPath, appPath, us
     return { command: execPath, args: [path.join(cli, 'mcp.js')], env: launcherEnv };
   }
 
+  // A word for a shell, quoted only if it needs it.
+  const word = (text) => (/^[\w@%+=:,./-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`);
+
   const name = isPackaged ? 'smartdoc' : 'smartdoc-dev';
   const configFile = async () => claudeConfig ?? (await load()).claudeDesktopConfig({ env, allowOverride: !isPackaged });
 
   return {
+    // The command an AI runs in the background to wait for the user (see packages/cli/lib/wait.js).
+    waitCommand(...args) {
+      const { command, env: variables } = entry();
+      return [...Object.entries(variables).map(([key, value]) => `${key}=${word(value)}`), word(command), word(path.join(cli, 'cli.js')), 'wait', ...args.map(word)].join(' ');
+    },
     // What the user copies for each AI app.
     async setups() {
       const { claudeCodeCommand, configJson } = await load();

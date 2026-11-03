@@ -12,6 +12,7 @@ import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
 import { createUpdates } from './updates.js';
+import { WaitRefused, createWaits } from './waits.js';
 import { createShared, createWorkspace } from './workspace.js';
 import { acceptWarning } from './comments.js';
 
@@ -78,6 +79,7 @@ let lastFocused = null;
 const current = () => context.getStore() ?? lastFocused;
 const win = () => current()?.win ?? null;
 const shared = createShared(app.getPath('userData'));
+const waits = createWaits({ store: shared.store, events: shared.events, onChange: () => broadcast('ai-waiting', waits.active()) });
 const workspace = new Proxy({}, {
   get(_, key) {
     const target = current()?.workspace;
@@ -341,13 +343,40 @@ async function bringToFront() {
   app.focus({ steal: true });
 }
 
+// Open requests by id, for `smartdoc wait open`: kept once answered, as the wait may begin after.
+const openRequests = new Map();
+const MAX_OPEN_REQUESTS = 50;
+
 function waitOnUser(name, task) {
-  const request = { name, state: 'waiting', error: null };
+  const request = { id: `open-${randomUUID().slice(0, 8)}`, owner: current(), name, state: 'waiting', error: null };
+  openRequests.set(request.id, request);
+  if (openRequests.size > MAX_OPEN_REQUESTS) openRequests.delete(openRequests.keys().next().value);
   request.done = task().then(
     (opened) => { request.state = opened ? 'opened' : 'cancelled'; },
     (error) => { request.state = 'failed'; request.error = error.message; },
   );
   current().aiOpen = request;
+  return { request_id: request.id, wait: waitCommand('open', '--request', request.id) };
+}
+
+// Waits for the user's answer to an open request. It's reported here, so not again by settle.
+function waitForOpen(id) {
+  const request = openRequests.get(id);
+  if (!request) throw new WaitRefused(`There's no open request ${id}.`, 404);
+  let cancelled = false;
+  let cancel = () => {};
+  const promise = new Promise((resolve) => {
+    cancel = () => {
+      cancelled = true;
+      resolve(null);
+    };
+    request.done.then(() => {
+      if (cancelled) return;
+      if (request.owner.aiOpen === request) request.owner.aiOpen = null;
+      resolve({ request: id, event: `open-${request.state}`, ...(request.name && { name: request.name }), ...(request.error && { error: request.error }) });
+    });
+  });
+  return { promise, cancel: () => cancel() };
 }
 
 const expandHome = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
@@ -385,7 +414,7 @@ const documentsForAi = {
     if (filePath) {
       const resolved = await checkPdf(filePath);
       const name = path.basename(resolved);
-      waitOnUser(name, async () => {
+      const waiting = waitOnUser(name, async () => {
         await bringToFront();
         const choice = await confirmReplace(win(), { current: workspace.document?.name, next: name, unsaved: false, source: path.dirname(resolved) });
         if (choice === 'cancel') return false;
@@ -393,11 +422,12 @@ const documentsForAi = {
         return true;
       });
       return {
+        ...waiting,
         status: 'waiting_for_user',
         message: `Before anything else, tell the user to switch to the SmartDoc app and confirm opening ${name}: it won't open until they do. Then call get_document_info, which waits for their answer.`,
       };
     }
-    waitOnUser(null, async () => {
+    const waiting = waitOnUser(null, async () => {
       await bringToFront();
       const picked = await pickPdf();
       if (!picked) return false;
@@ -405,6 +435,7 @@ const documentsForAi = {
       return true;
     });
     return {
+      ...waiting,
       status: 'waiting_for_user',
       message: 'Before anything else, tell the user to switch to the SmartDoc app and choose the file in the window it has opened: nothing opens until they do. Then call get_document_info, which waits for their choice.',
     };
@@ -473,6 +504,11 @@ async function windowForSession(session, startedApp) {
 
 const aiForServer = {
   alive: ({ session, client }) => sessions.touch(session, client),
+  waitCommand: (...args) => waitCommand(...args),
+  wait({ what, review, request } = {}) {
+    if (what === 'open') return waitForOpen(request);
+    return waits.forReview(what, review);
+  },
   ended({ session }) {
     const ended = session && sessions.get(session);
     if (!ended) return;
@@ -572,7 +608,7 @@ async function documentFromDraft(docId, variationId, draftId) {
 // and can add SmartDoc to Claude Desktop itself.
 
 const WEBSITE = 'https://tw050x.github.io/smartdoc/';
-const { setups, claudeDesktopStatus, addToClaudeDesktop } = createConnect({
+const { setups, claudeDesktopStatus, addToClaudeDesktop, waitCommand } = createConnect({
   isPackaged: app.isPackaged,
   execPath: process.execPath,
   resourcesPath: process.resourcesPath,
@@ -798,6 +834,8 @@ handle('step-draft', (delta) => workspace.stepDraft(delta));
 handle('draft-line', () => workspace.draftLine());
 handle('draft-pdf', (draftId) => workspace.draftPdf(draftId));
 handle('go-to-draft', (draftId) => workspace.goToDraft(draftId));
+handle('send-to-ai', (what) => workspace.sendToAi(what));
+handle('ai-waiting', () => waits.active());
 handle('list-focuses', (type) => workspace.listFocuses(type));
 handle('set-focus', (reviewId) => workspace.setFocus(reviewId));
 handle('set-tool', (tool) => workspace.setTool(tool));
