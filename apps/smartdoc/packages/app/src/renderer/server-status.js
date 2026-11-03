@@ -1,5 +1,6 @@
 // The MCP server's status in the top bar: a pill showing only whether it's starting (amber), on
-// (green) or off (red). Clicking it dulls
+// (green) or off (red), taking turns with which AI works in this window, if one does. Clicking it
+// dulls
 // the window with a white mask (leaving the pill clear) and slides in a full-height panel on the
 // right with the server's details and, for each AI app, how to connect it; for Claude Desktop,
 // a button that adds SmartDoc for the user. Connect an AI in the menu opens it too. The panel's
@@ -7,13 +8,14 @@
 
 const PANEL_MIN = 300;
 const PANEL_MAX_SHARE = 0.66;
+const PILL_SWAP_MS = 4000;
 const panelMax = () => Math.max(PANEL_MIN, window.innerWidth * PANEL_MAX_SHARE);
 
 const copyIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9,18q-0.82,0-1.41-0.59T7,16V4Q7,3.17 7.59,2.59T9,2h9q0.82,0 1.41,0.59T20,4V16q0,0.82-0.59,1.41T18,18H9Zm0-2h9V4H9V16ZM5,22q-0.83,0-1.41-0.59T3,20V6H5V20H16v2H5Zm4-6V4V16Z"/></svg>';
 const copiedIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
 
 // The pill's short label, and its tooltip saying what it's about.
-const LABELS = { starting: 'Starting…', running: 'Ready', off: 'Not running' };
+const LABELS = { starting: 'Starting…', running: 'Server Ready', off: 'Not running' };
 const TITLES = { starting: 'MCP server: starting', running: 'MCP server: ready for your AI', off: 'MCP server: not running' };
 const STATES = { starting: 'Starting…', running: 'Running', off: 'Not running' };
 
@@ -34,14 +36,20 @@ export function createServerStatus({ api }) {
   const stateEl = document.getElementById('server-state');
   const urlEl = document.getElementById('server-url');
   const off = document.getElementById('server-off');
+  const aiLabel = document.getElementById('server-pill-ai');
+  const release = document.getElementById('ai-release');
+  const releaseText = document.getElementById('ai-release-text');
   let status = { state: 'starting' };
+  let aiName = null;
+  let swapping = null;
 
   function render() {
     pill.dataset.state = status.state;
     stateEl.textContent = STATES[status.state];
     label.textContent = LABELS[status.state];
-    pill.title = TITLES[status.state];
-    pill.setAttribute('aria-label', TITLES[status.state]);
+    const title = aiName ? `${TITLES[status.state]}. ${aiName} works in this window.` : TITLES[status.state];
+    pill.title = title;
+    pill.setAttribute('aria-label', title);
     urlEl.textContent = status.url ?? '—';
     off.hidden = status.state !== 'off';
   }
@@ -184,6 +192,28 @@ export function createServerStatus({ api }) {
     render();
   });
   api.onShowConnect(() => setOpen(true));
+  document.getElementById('ai-release-button').addEventListener('click', () => api.releaseAiControl());
   render();
   showSetups();
+
+  return {
+    // The AI working in this window, or null. Both labels take up the pill's room all the time, so
+    // it stays one width as they swap.
+    setAiControl(name) {
+      aiName = name;
+      clearInterval(swapping);
+      delete pill.dataset.showing;
+      aiLabel.hidden = !name;
+      aiLabel.textContent = name ? `Controlled by ${name}` : '';
+      release.hidden = !name;
+      releaseText.textContent = name ? `${name} works in this window.` : '';
+      if (name) {
+        pill.dataset.showing = 'ai';
+        swapping = setInterval(() => {
+          pill.dataset.showing = pill.dataset.showing === 'ai' ? 'server' : 'ai';
+        }, PILL_SWAP_MS);
+      }
+      render();
+    },
+  };
 }

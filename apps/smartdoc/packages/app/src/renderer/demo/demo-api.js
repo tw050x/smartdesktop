@@ -229,7 +229,7 @@ export function createDemoApi() {
 
     onRecentDocuments: on('recent'),
     onAiControl: on('ai-control'),
-    showAiControlMenu: async () => {},
+    releaseAiControl: async () => {},
     onDocumentMade: on('made'),
     onVariationRequested: on('variation'),
     variationsOf: async () => variationsOf(),

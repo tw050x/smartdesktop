@@ -550,7 +550,7 @@ async function takeOverWindow(session, windowId) {
   const ctx = [...windows.values()].find((c) => c.id === windowId);
   if (!ctx) throw new Error(`There's no SmartDoc window ${windowId} open now. Carry on without it: your first tool call opens a window of your own.`);
   if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
-    throw new Error(`${clientLabel(ctx.session.client)} is already working in window ${windowId}. Tell the user: they can release it from the window's top bar.`);
+    throw new Error(`${clientLabel(ctx.session.client)} is already working in window ${windowId}. Tell the user: they can release it from the status pill's panel.`);
   }
   if (ctx.session && ctx.session !== session) releaseWindow(ctx.session);
   const old = session.ctx;
@@ -668,14 +668,10 @@ const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => cont
   }
 }));
 
-// The top bar's "Controlled by …": the user can always take a window back.
-handle('ai-control-menu', () => {
-  const ctx = current();
-  const { session } = ctx;
-  if (!session) return;
-  Menu.buildFromTemplate([
-    { label: `Release from ${clientLabel(session.client)}`, click: () => releaseWindow(session) },
-  ]).popup({ window: ctx.win });
+// The user can always take a window back from an AI, in the MCP panel.
+handle('ai-control-release', () => {
+  const { session } = current();
+  if (session) releaseWindow(session);
 });
 
 handle('open-path', (filePath) => importFile(filePath));

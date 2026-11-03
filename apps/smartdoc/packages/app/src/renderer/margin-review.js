@@ -625,21 +625,22 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   const sentToAi = (what) => (what === 'preview' ? state.review?.previewCommentsSentAt : state.review?.decisionsSentAt);
   // What the review bar says about the next step, by how the AI can be told.
   function askAi(what, goal) {
-    if (sentToAi(what)) return 'Sent to your AI.';
-    return aiIsWaiting(what) ? `Send it to your AI to ${goal}.` : `Send your AI the prompt to ${goal}.`;
+    if (sentToAi(what)) return 'Confirmed for your AI.';
+    return aiIsWaiting(what) ? `Your AI is waiting. Confirm when you’re ready for it to ${goal}, or copy the prompt.` : `Send your AI the prompt to ${goal}.`;
   }
 
   // Copies the prompt to write the next draft (its text shows on hover); the icon turns to a tick
   // for a moment once copied. Prompts to start a review are in the focus menu (focus-picker.js).
   // The prompt's button, with what sending it does beside it.
   function appendPrompt(parent, prompt) {
-    // An AI waiting with `smartdoc wait` can be told directly; no need for a prompt.
+    // An AI waiting with `smartdoc wait` can be told directly, but only when the user says so.
     const what = prompt ? 'preview' : 'decisions';
     if (aiIsWaiting(what)) {
-      const send = el('button', 'primary-button copy-prompt', 'Send to your AI');
-      send.type = 'button';
-      send.addEventListener('click', () => api.sendToAi(what));
-      parent.append(send);
+      const confirm = el('button', 'primary-button', what === 'preview' ? 'Confirm comments' : 'Confirm changes');
+      confirm.type = 'button';
+      confirm.title = 'Tells your AI, which is waiting for you, to go ahead';
+      confirm.addEventListener('click', () => api.sendToAi(what));
+      parent.append(copyPromptButton(prompt, 'secondary-button'), confirm);
       return;
     }
     // Once sent the prompt is only a fallback, should that AI have gone.
@@ -649,9 +650,13 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   }
 
   const documentName = () => (state.document ? `“${state.document.name}” (document ${state.document.id})` : 'my document');
-  function copyPromptButton(prompt = `I’ve made my decisions in SmartDoc. Apply the review and write the next draft of ${documentName()}.`) {
+  function copyPromptButton(prompt, className = 'primary-button') {
+    return makeCopyPromptButton(prompt ?? defaultPrompt(), className);
+  }
+  const defaultPrompt = () => `I’ve made my decisions in SmartDoc. Apply the review and write the next draft of ${documentName()}.`;
+  function makeCopyPromptButton(prompt, className) {
     const label = 'Copy the prompt';
-    const button = el('button', 'primary-button copy-prompt');
+    const button = el('button', `${className} copy-prompt`);
     button.type = 'button';
     button.title = prompt;
     const show = (icon, text) => {

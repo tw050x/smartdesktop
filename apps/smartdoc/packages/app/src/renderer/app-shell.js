@@ -34,13 +34,9 @@ export function startApp(appApi) {
   onFullScreenChange((isFullScreen) => {
     document.body.classList.toggle('full-screen', isFullScreen);
   });
-  createServerStatus({ api });
-  const aiControl = document.getElementById('ai-control');
-  aiControl.addEventListener('click', () => api.showAiControlMenu());
+  const serverStatus = createServerStatus({ api });
   api.onAiControl?.((name) => {
-    aiControl.hidden = !name;
-    aiControl.textContent = name ? `Controlled by ${name}` : '';
-    aiControl.title = name ? `${name} works in this window. Click to release it.` : '';
+    serverStatus.setAiControl(name);
     requestAnimationFrame(placeDraftNav);
   });
   createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog'), api });
