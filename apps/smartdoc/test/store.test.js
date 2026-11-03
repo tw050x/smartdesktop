@@ -96,6 +96,7 @@ describe('where a document reopens', () => {
     const { doc, one, two } = await documentWithDrafts();
     return { doc: await store.loadDocument(doc.id), one, two };
   };
+  const onDisk = async (doc) => JSON.parse(await readFile(path.join(root, 'documents', doc.id, 'document.json'), 'utf8'));
 
   test('on the draft last saved, whether or not the app has restarted since', async () => {
     const { doc, one } = await twoDrafts();
@@ -105,6 +106,38 @@ describe('where a document reopens', () => {
     assert.equal((await createStore(root).loadDocument(doc.id)).currentDraftId, one);
   });
 
+  test('not on a draft only being looked at', async () => {
+    const { doc, one, two } = await twoDrafts();
+    doc.workingDraftId = two;
+    doc.currentDraftId = one;
+    await store.saveDocument(doc);
+    assert.equal(doc.currentDraftId, one);
+    assert.equal((await store.loadDocument(doc.id)).currentDraftId, two);
+    const saved = await onDisk(doc);
+    assert.equal(saved.currentDraftId, two);
+    assert.equal(saved.workingDraftId, undefined);
+  });
+
+  test('a new draft is worked on, whatever was being looked at', async () => {
+    const { doc, one, two } = await twoDrafts();
+    doc.workingDraftId = two;
+    doc.currentDraftId = one;
+    const three = await nextDraft(doc, 'three');
+    assert.equal(doc.workingDraftId, undefined);
+    assert.equal((await store.loadDocument(doc.id)).currentDraftId, three);
+  });
+
+  test('a variation left while looking at a draft keeps the one being worked on', async () => {
+    const { doc, one, two } = await twoDrafts();
+    await store.createVariation(doc, { fromVariationId: ORIGINAL, fromDraftId: one, name: 'v', purpose: 'p' });
+    const variation = doc.variationId;
+    store.selectVariation(doc, ORIGINAL);
+    doc.workingDraftId = two;
+    doc.currentDraftId = one;
+    store.selectVariation(doc, variation);
+    assert.equal(doc.workingDraftId, undefined);
+    assert.equal(doc.variations.find((v) => v.id === ORIGINAL).currentDraftId, two);
+  });
 });
 
 describe('previews', () => {

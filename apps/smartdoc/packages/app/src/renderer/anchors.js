@@ -29,6 +29,9 @@ export function pageModel(items, textDivs, contentEl) {
 }
 
 export const pageTexts = () => [...pages.keys()].sort((a, b) => a - b).map((n) => pages.get(n).text);
+export const pageText = (pageNumber) => pages.get(pageNumber)?.text ?? '';
+// A page's text from its text items, for a page that isn't drawn.
+export const textOfItems = (items) => pageModel(items, [], null).text;
 
 // The current selection as anchors, one per page it touches (empty if nothing is selected).
 export function selectionAnchors() {

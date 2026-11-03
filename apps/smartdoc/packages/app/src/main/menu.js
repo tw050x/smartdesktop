@@ -32,6 +32,27 @@ export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBac
     ],
   };
 
+  // The standard Edit menu, with Find added.
+  const editMenu = {
+    label: 'Edit',
+    submenu: [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      ...(isMac ? [{ role: 'pasteAndMatchStyle' }] : []),
+      { role: 'delete' },
+      { role: 'selectAll' },
+      { type: 'separator' },
+      { label: 'Find…', accelerator: 'CmdOrCtrl+F', enabled: hasDocument, click: () => actions.find('open') },
+      { label: 'Find Next', accelerator: 'CmdOrCtrl+G', enabled: hasDocument, click: () => actions.find('next') },
+      { label: 'Find Previous', accelerator: 'CmdOrCtrl+Shift+G', enabled: hasDocument, click: () => actions.find('previous') },
+      ...(isMac ? [{ type: 'separator' }, { label: 'Speech', submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }] }] : []),
+    ],
+  };
+
   const reviewMenu = {
     label: 'Review',
     submenu: [
@@ -60,7 +81,7 @@ export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBac
   return Menu.buildFromTemplate([
     ...(isMac ? [{ role: 'appMenu' }] : []),
     fileMenu,
-    { role: 'editMenu' },
+    editMenu,
     reviewMenu,
     windowMenu,
   ]);

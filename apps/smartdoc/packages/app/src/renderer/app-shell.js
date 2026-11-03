@@ -5,6 +5,7 @@ import { clearPages, nearestTextPosition, pageTexts, registerPage, selectionAnch
 import { createCommentComposer } from './comment-composer.js';
 import { promptNamingWindow } from './take-over-note.js';
 import { createCompareView } from './compare.js';
+import { createFindBar } from './find-bar.js';
 import { createFocusPicker } from './focus-picker.js';
 import { createHighlightsList } from './highlights-list.js';
 import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
@@ -93,6 +94,7 @@ export function startApp(appApi) {
       if (ticket !== loading) return;
       keepSelectionSteady(textLayerEl);
       registerPage(n, items, textDivs, contentEl);
+      findBar.pageDrawn(n);
       // Each page's review cards can be placed once its text is known.
       relayout();
       if (n === 1 && dropping) endDrop(); // a dropped file's first page, drawn under the drop indicator
@@ -150,8 +152,13 @@ export function startApp(appApi) {
     return match ? [match[1], match[2] ?? '01', match[3] ?? '01'].join('-') : null;
   }
 
+  // Beside the find bar's column the pages keep their size if they can, and shrink if they must.
+  const FIND_GUTTER = 24;
   function fitPage(pageEl) {
-    fitPageTo(pageEl, documentEl.clientWidth * pageShare);
+    const besideFind = document.body.classList.contains('find-docked')
+      ? documentEl.clientWidth - parseFloat(getComputedStyle(documentEl).paddingRight) - 2 * FIND_GUTTER
+      : Infinity;
+    fitPageTo(pageEl, Math.min(documentEl.clientWidth * pageShare, besideFind));
     // The page resizers sit at the pages' edges.
     documentEl.parentElement.style.setProperty('--page-width', pageEl.style.width);
   }
@@ -165,17 +172,19 @@ export function startApp(appApi) {
   const MAX_PAGE_WIDTH = A4_WIDTH * RENDER_SCALE;
   const firstPage = () => pagesEl.querySelector('.page');
 
-  // Sets the share and redraws, keeping the same part of the document at the top of the view.
-  function setPageShare(share) {
+  // Makes a change to what the pages fit and redraws, keeping the same part of the document at the
+  // top of the view.
+  function refitPages(change) {
     const before = firstPage()?.offsetWidth;
     const pagesTop = firstPage()?.offsetTop ?? 0;
     const { scrollTop } = documentEl;
-    pageShare = share;
+    change();
     pagesEl.querySelectorAll('.page').forEach(fitPage);
     const after = firstPage()?.offsetWidth;
     if (before && after && scrollTop > pagesTop) documentEl.scrollTop = pagesTop + (scrollTop - pagesTop) * (after / before);
     relayout();
   }
+  const setPageShare = (share) => refitPages(() => { pageShare = share; });
 
   for (const handle of document.querySelectorAll('.page-resizer')) {
     const side = handle.classList.contains('left') ? -1 : 1;
@@ -305,6 +314,7 @@ export function startApp(appApi) {
   function setComparing(on) {
     if (on === comparing) return;
     comparing = on;
+    if (on) findBar.close();
     composer.close();
     document.body.classList.toggle('comparing', on);
     if (on) compareView.open();
@@ -312,6 +322,27 @@ export function startApp(appApi) {
     marginReview.update({ comparing: on });
     updateScrollUi();
   }
+
+  // Find works on the document's pages, so it brings them back from the views that replace them.
+  const findBar = createFindBar({
+    el: document.getElementById('find-bar'),
+    api,
+    scroller: documentEl,
+    reveal: (match) => revealAnchors([match], documentEl),
+    beforeOpen: () => {
+      setComparing(false);
+      if (document.body.classList.contains('list-view-open')) setView('document');
+    },
+    // Open, it has a column of its own beside the pages, so it never covers them, and the review's
+    // cards make way (see .find-docked).
+    onToggle: () => {
+      const open = findBar.isOpen();
+      if (open !== document.body.classList.contains('find-docked')) refitPages(() => document.body.classList.toggle('find-docked', open));
+    },
+  });
+  api.onFind?.((which) => {
+    if (current.doc && !document.querySelector('dialog[open]')) findBar.command(which);
+  });
 
   // The home screen browses the documents, their variations and drafts. A new variation, from a
   // draft there or from the menu, is made by the AI from the prompt on the variation card.
@@ -439,6 +470,7 @@ export function startApp(appApi) {
     for (const button of viewSwitch.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(button.dataset.view === (list ? 'list' : 'document')));
     }
+    if (list) findBar.close();
     document.body.classList.toggle('list-view-open', Boolean(list));
     highlightsList.update(list ? current.review : null);
     marginReview.update({ view: list ? 'list' : 'document', hideDone });
@@ -473,7 +505,7 @@ export function startApp(appApi) {
 
   // Comments can be added to the newest draft, in Review and draft, or to a draft preview (not in
   // the website's demo).
-  const canComment = () => Boolean(api.addRequest && current.doc && (current.preview || (current.newest && current.tool === 'improve')));
+  const canComment = () => Boolean(api.addRequest && current.doc && !findBar.isOpen() && (current.preview || (current.newest && current.tool === 'improve')));
   const composer = createCommentComposer({
     wrapEl: document.getElementById('pages-wrap'),
     api,
@@ -559,6 +591,7 @@ export function startApp(appApi) {
     showView();
     marginReview.reset();
     documentEl.scrollTop = 0;
+    findBar.draftOpened({ docId: doc.id, draftId: draft.id });
     await showPdf(pdf, { docId: doc.id, draftId: draft.id });
     updateScrollUi();
   });
@@ -567,6 +600,7 @@ export function startApp(appApi) {
     loading++;
     setComparing(false);
     composer.close();
+    findBar.close();
     clearPdf();
     clearPages();
     toolSwitcher.close();

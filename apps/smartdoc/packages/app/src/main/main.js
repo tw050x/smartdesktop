@@ -179,7 +179,7 @@ function createWindow({ focus = true } = {}) {
     // An AI's window comes back as it was, the next time the AI needs it.
     if (ctx.session) {
       const doc = ctx.workspace.document;
-      ctx.session.restore = doc && { docId: doc.id, variationId: doc.variationId, draftId: doc.currentDraftId, tool: ctx.workspace.tool };
+      ctx.session.restore = doc && { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: ctx.workspace.tool };
       ctx.session.ctx = null;
     }
     ctx.workspace.dispose();
@@ -264,6 +264,7 @@ function updateMenu() {
       },
       close: () => (workspace.document ? workspace.close() : win()?.close()),
       stepDraft: (delta) => workspace.stepDraft(delta),
+      find: (which) => send('find', which),
       resetReview,
       showConnectAi,
     },
@@ -794,6 +795,9 @@ async function mcpSetup(target) {
 }
 handle('mcp-setup', (target) => mcpSetup(target));
 handle('step-draft', (delta) => workspace.stepDraft(delta));
+handle('draft-line', () => workspace.draftLine());
+handle('draft-pdf', (draftId) => workspace.draftPdf(draftId));
+handle('go-to-draft', (draftId) => workspace.goToDraft(draftId));
 handle('list-focuses', (type) => workspace.listFocuses(type));
 handle('set-focus', (reviewId) => workspace.setFocus(reviewId));
 handle('set-tool', (tool) => workspace.setTool(tool));

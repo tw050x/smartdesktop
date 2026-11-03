@@ -4,6 +4,7 @@
      the website's. The PDF pages stay white either way: they're the document. */
   color-scheme: light dark;
   --top-bar-height: 44px;
+  --find-column: clamp(300px, 36vw, 416px); /* the find bar's column: the bar, and the space either side of it */
 
   --bg: light-dark(#ffffff, #232326); /* cards and panels */
   --border: light-dark(#e2e2e7, #3a3a3f);
@@ -21,6 +22,7 @@
   --accent: light-dark(#2f6fde, #4a86ee);
   --compare-removed: rgba(226, 60, 60, 0.38);
   --compare-added: rgba(40, 175, 85, 0.42);
+  --find-match: light-dark(#ffe35c, #8a6d00);
   --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
   --thumb: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.28));
   --thumb-active: light-dark(rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.42));
@@ -692,6 +694,46 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 /* --- Marks on the page -------------------------------------------------------------------- */
 .page-content { position: relative; cursor: text; } /* a selection can start anywhere on the page */
+/* --- Find (see find-bar.js) ------------------------------------------------------------- */
+.find-bar[hidden], .find-history[hidden] { display: none; }
+.find-bar {
+  /* In a column of its own at the right of the document, beside the pages (see .find-docked). */
+  grid-area: 1 / 1; align-self: start; justify-self: end; position: relative; z-index: 20; margin: 16px 20px 0 0;
+  display: flex; flex-direction: column; width: calc(var(--find-column) - 36px); max-height: calc(100% - 32px); min-height: 0;
+  border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); color: var(--text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); font-size: 13px;
+}
+.find-row { display: flex; align-items: center; gap: 2px; padding: 5px 5px 5px 12px; }
+.find-row input { flex: 1; min-width: 0; padding: 4px 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
+.find-status { flex: none; margin: 0 6px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.find-bar.no-matches .find-status { color: var(--del-text); }
+.find-step:disabled { color: var(--faint); background: transparent; cursor: default; }
+.find-history { overflow-y: auto; min-height: 0; border-top: 1px solid var(--border); padding: 8px 12px 10px; }
+.find-verdict { margin: 0; font-weight: 600; }
+.find-drafts { margin: 0; padding: 0; list-style: none; }
+.find-drafts li { margin-top: 10px; }
+.find-draft-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; color: var(--muted); font-size: 12px; }
+.find-draft-name { font-weight: 600; color: var(--text-2); }
+.find-snippet, .find-more { display: block; width: calc(100% + 12px); margin: 0 -6px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; line-height: 1.4; text-align: left; cursor: pointer; }
+.find-snippet { display: flex; gap: 8px; }
+.find-snippet:hover, .find-more:hover { background: var(--hover-tint); }
+.find-snippet:focus-visible, .find-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.find-snippet-page { flex: none; color: var(--muted); }
+.find-snippet mark { background: var(--find-match); color: inherit; border-radius: 2px; }
+.find-more { color: var(--accent); }
+/* While find is open: padding makes the column, and the pages stay clear of it (see fitPage in
+   app-shell.js), with their scrollbar beside them. The review's cards, marks and comments make way
+   for the matches, and come back as they were when it closes. */
+.find-docked .document { padding-right: var(--find-column); }
+.find-docked .scrollbar { margin-right: calc(var(--find-column) + 2px); }
+.find-docked .drop-zone { left: calc(50% - var(--find-column) / 2); }
+.find-docked .margin-layer, .find-docked .marks, .find-docked .comment-offer, .find-docked .comment-composer, .find-docked .comment-draft-mark, .find-docked .page-resizer { display: none; }
+.find-docked .review-bar-nav { visibility: hidden; }
+/* Multiplied onto the page so the text still shows through, on a layer of their own. */
+.find-marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; mix-blend-mode: multiply; }
+.find-mark { position: absolute; border-radius: 2px; background: #ffe35c; }
+.find-mark.current { background: #ff9d2e; }
+
 .marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .mark { position: absolute; border-radius: 2px; }
 /* While a deck is hovered, the rest of the page fades behind a white veil with its text cut out. */

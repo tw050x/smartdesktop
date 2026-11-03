@@ -104,6 +104,13 @@ export function createWorkspace(shared) {
   // What the preview is compared with: the draft it was written from.
   const writtenFromLabel = () => (doc.currentDraftId === store.ORIGINAL ? 'Original' : `Draft ${doc.line.indexOf(doc.currentDraftId)}`);
 
+  // Work has started on the draft showing, so it's no longer only being looked at.
+  const settleOnDraft = async () => {
+    if (!doc.workingDraftId) return;
+    delete doc.workingDraftId;
+    await store.saveDocument(doc);
+  };
+
   // Back from a preview to the draft, when what's showing has moved on from it.
   const leavePreview = () => {
     if (!previewing) return;
@@ -134,9 +141,14 @@ export function createWorkspace(shared) {
     await store.removePreview(doc.id, r);
   };
 
-  async function showDraft(draftId) {
+  // `peek` only looks at the draft, as a find result does: the document still reopens on the draft
+  // being worked on, until the user or the AI moves on from here or starts a review of it.
+  async function showDraft(draftId, { peek = false } = {}) {
     previewing = false;
+    if (peek) doc.workingDraftId ??= doc.currentDraftId;
+    else delete doc.workingDraftId;
     doc.currentDraftId = draftId;
+    if (doc.workingDraftId === draftId) delete doc.workingDraftId;
     await store.saveDocument(doc);
     pageTexts = null;
     pdfDetails = null;
@@ -504,16 +516,6 @@ export function createWorkspace(shared) {
       };
     },
 
-    // Shows a draft on the active line by its number, for the AI.
-    async switchDraft(number) {
-      requireDoc();
-      const draftId = doc.line[number];
-      if (!draftId) throw new Error(`There's no draft ${number}: this variation has the original (0) and ${doc.line.length - 1} draft(s) after it.`);
-      if (previewing || draftId !== doc.currentDraftId) await showDraft(draftId);
-      const { draft, notNewest } = identity();
-      return { showing: draft, ...(notNewest && { notNewest }) };
-    },
-
     currentDraftPdfPath: () => doc && store.draftPdfPath(doc.id, doc.currentDraftId),
 
     // Steps along the active line (the draft history): -1 for the previous draft, +1 for the next.
@@ -523,6 +525,31 @@ export function createWorkspace(shared) {
       const to = doc.line.indexOf(doc.currentDraftId) + delta;
       if (to < 0 || to >= doc.line.length) return;
       await showDraft(doc.line[to]);
+    },
+
+    // Looks at a draft on the active line, for a find result.
+    async goToDraft(draftId) {
+      requireDoc();
+      if (!doc.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      if (previewing || draftId !== doc.currentDraftId) await showDraft(draftId, { peek: true });
+    },
+
+    // Shows a draft on the active line by its number, for the AI.
+    async switchDraft(number) {
+      requireDoc();
+      const draftId = doc.line[number];
+      if (!draftId) throw new Error(`There's no draft ${number}: this variation has the original (0) and ${doc.line.length - 1} draft(s) after it.`);
+      if (previewing || doc.workingDraftId || draftId !== doc.currentDraftId) await showDraft(draftId);
+      const { draft, notNewest } = identity();
+      return { showing: draft, ...(notNewest && { notNewest }) };
+    },
+
+    // The drafts on the active line, oldest first, and a draft's PDF, for searching them.
+    draftLine: () => (doc ? doc.line.map((id, i) => ({ id, label: draftLabel(i) })) : []),
+    async draftPdf(draftId) {
+      requireDoc();
+      if (!doc.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      return new Uint8Array(await readFile(store.draftPdfPath(doc.id, draftId)));
     },
 
     // The window reports each draft's page texts once it has drawn the text layer.
@@ -697,6 +724,7 @@ export function createWorkspace(shared) {
         return review;
       }
       review = await store.createReview(doc.id, doc.currentDraftId, by, { type, goal: clean(goal), context: clean(context), title: clean(title), variationId: doc.variationId });
+      await settleOnDraft();
       if (type === 'highlights') await rememberFocus(review.id);
       leavePreview();
       events.emit('review', review);
@@ -947,6 +975,7 @@ export function createWorkspace(shared) {
         await store.saveReview(doc.id, old);
       }
       review = await store.createReview(doc.id, doc.currentDraftId, 'user', { type: typeOf(old), goal: old.goal ?? null, context: old.context ?? null, title: old.title ?? null, variationId: doc.variationId });
+      await settleOnDraft();
       if (typeOf(review) === 'highlights') await rememberFocus(review.id);
       leavePreview();
       events.emit('review', review);

@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld('smartdoc', {
   // Dropped files are imported by path, as a new document.
   openDroppedFile: (file) => call('open-path', webUtils.getPathForFile(file)),
   stepDraft: (delta) => call('step-draft', delta),
+  // Find: the Edit menu's commands, and the drafts on the line to search as well.
+  onFind: on('find'),
+  draftLine: () => call('draft-line'),
+  draftPdf: (draftId) => call('draft-pdf', draftId),
+  goToDraft: (draftId) => call('go-to-draft', draftId),
   onVariationRequested: on('variation-requested'),
   onDocumentMade: on('document-made'),
   variationsOf: (docId) => call('variations-of', docId),

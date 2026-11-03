@@ -59,11 +59,15 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
   const saveDocument = async (doc) => {
     const active = doc.variations.find((v) => v.id === doc.variationId);
     active.line = doc.line;
-    active.currentDraftId = doc.currentDraftId;
+    // A draft only being looked at (workingDraftId, see showDraft) is never where the document
+    // reopens.
+    const { workingDraftId, ...saved } = doc;
+    saved.currentDraftId = settledDraft(doc);
+    active.currentDraftId = saved.currentDraftId;
     if (!views.has(doc)) documents.delete(doc.id); // written from outside the views: read it afresh
     // A view opened from now on starts here, just as it would after a restart.
-    else Object.assign(await documents.get(doc.id) ?? {}, doc);
-    await writeJson(path.join(docDir(doc.id), 'document.json'), doc);
+    else Object.assign(await documents.get(doc.id) ?? {}, saved);
+    await writeJson(path.join(docDir(doc.id), 'document.json'), saved);
     onDocument(doc);
   };
 
@@ -266,6 +270,7 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
       }
       doc.line = [...(at === -1 ? doc.line : doc.line.slice(0, at + 1)), draftId];
       doc.currentDraftId = draftId;
+      delete doc.workingDraftId;
       await saveDocument(doc);
       return { draftId, abandoned };
     },
@@ -285,13 +290,19 @@ function withVariations(doc) {
 // A variation's line: the active one's is the document's own (it may have moved on since saving).
 const lineOf = (doc, variation) => (variation.id === doc.variationId ? doc.line : variation.line);
 
+// The draft a view is working on: the one showing, unless it's only looking at another for now.
+function settledDraft(doc) {
+  return doc.line.includes(doc.workingDraftId) ? doc.workingDraftId : doc.currentDraftId;
+}
+
 // Makes a variation the active one (without saving): its line becomes the document's.
 function selectVariation(doc, variationId) {
   const next = doc.variations.find((v) => v.id === variationId);
   if (!next) throw new Error(`No variation ${variationId}.`);
   const active = doc.variations.find((v) => v.id === doc.variationId);
   active.line = doc.line;
-  active.currentDraftId = doc.currentDraftId;
+  active.currentDraftId = settledDraft(doc);
+  delete doc.workingDraftId;
   doc.variationId = next.id;
   doc.line = next.line;
   doc.currentDraftId = next.currentDraftId;

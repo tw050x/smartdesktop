@@ -91,6 +91,26 @@ export const APP_MARKUP = `
   <!-- At the pages' edges, to resize them from both sides at once (see app-shell.js). -->
   <div class="page-resizer left" title="Drag to resize the page. Double-click to reset."></div>
   <div class="page-resizer right" title="Drag to resize the page. Double-click to reset."></div>
+  <!-- Find, in this draft and the others on its line (see find-bar.js). -->
+  <div class="find-bar" id="find-bar" role="search" aria-label="Find in the document" hidden>
+    <div class="find-row">
+      <input id="find-input" type="text" placeholder="Find in this draft" aria-label="Find in this draft" spellcheck="false" autocomplete="off">
+      <span class="find-status" id="find-status" role="status"></span>
+      <button class="icon-button find-step" id="find-prev" type="button" aria-label="Previous match" title="Previous match">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+      </button>
+      <button class="icon-button find-step" id="find-next" type="button" aria-label="Next match" title="Next match">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <button class="icon-button" id="find-close" type="button" aria-label="Close" title="Close">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="find-history" id="find-history" hidden>
+      <p class="find-verdict" id="find-verdict" role="status"></p>
+      <ul class="find-drafts" id="find-drafts"></ul>
+    </div>
+  </div>
   <footer class="review-bar" id="review-bar" aria-label="Review"></footer>
 </main>
 
