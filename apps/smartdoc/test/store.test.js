@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -137,6 +137,39 @@ describe('where a document reopens', () => {
     store.selectVariation(doc, variation);
     assert.equal(doc.workingDraftId, undefined);
     assert.equal(doc.variations.find((v) => v.id === ORIGINAL).currentDraftId, two);
+  });
+});
+
+describe('listing what’s in the data folder', () => {
+  test('finds every document, newest first, skipping what can’t be read', async () => {
+    const folder = await mkdtemp(path.join(root, 'listing-'));
+    const own = createStore(folder);
+    assert.deepEqual(await own.listDocuments(), []);
+    const source = path.join(root, 'listing.pdf');
+    await writeFile(source, '%PDF-listing');
+    const first = await own.importDocument(source);
+    const second = await own.importDocument(source);
+    await mkdir(path.join(folder, 'documents', 'half-made'), { recursive: true });
+    await mkdir(path.join(folder, 'documents', 'damaged'), { recursive: true });
+    await writeFile(path.join(folder, 'documents', 'damaged', 'document.json'), '{ not json');
+    const listed = await own.listDocuments();
+    assert.deepEqual(listed.map((d) => d.id).sort(), [first.id, second.id].sort());
+    assert.deepEqual(Object.keys(listed[0]).sort(), ['id', 'importedAt', 'name']);
+  });
+});
+
+describe('deleting a document', () => {
+  test('removes it and everything of it, and leaves others alone', async () => {
+    const { doc, two } = await documentWithDrafts();
+    const other = await documentWithDrafts();
+    const view = await store.loadDocument(doc.id);
+    const review = await store.createReview(doc.id, two, 'ai', { variationId: view.variationId });
+    assert.equal((await store.findReview(review.id)).docId, doc.id);
+    await store.deleteDocument(doc.id);
+    await assert.rejects(access(path.join(root, 'documents', doc.id)));
+    await assert.rejects(store.loadDocument(doc.id));
+    assert.equal(await store.findReview(review.id), null);
+    assert.equal((await store.loadDocument(other.doc.id)).id, other.doc.id);
   });
 });
 

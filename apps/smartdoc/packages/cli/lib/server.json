@@ -43,7 +43,7 @@
     },
     {
       "name": "list_documents",
-      "description": "Documents the user has opened in the app before, newest first, with the one that is open now marked. Open one with open_document and its id.",
+      "description": "Documents the user has opened in the app before, newest first, with the one that is open now marked and the folder of any that are in one. Open one with open_document and its id.",
       "inputSchema": {
         "type": "object",
         "properties": {},

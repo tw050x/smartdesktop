@@ -55,7 +55,7 @@ export function buildServer(call, { version, waitCommand }) {
     window_id: z.string().describe('The window named in the prompt, such as w-7f3a'),
   }, ({ window_id }) => documents.useWindow(window_id));
 
-  tool('list_documents', 'Documents the user has opened in the app before, newest first, with the one that is open now marked. Open one with open_document and its id.', {}, () => documents.list());
+  tool('list_documents', 'Documents the user has opened in the app before, newest first, with the one that is open now marked and the folder of any that are in one. Open one with open_document and its id.', {}, () => documents.list());
 
   tool('open_document', 'Opens a document in the app. With document_id: one from list_documents, opened straight away. With path: a PDF on the user\'s computer, which the user must confirm in the app first. With neither: the app asks the user to pick a file. The last two return waiting_for_user: tell the user to switch to the SmartDoc app and answer, then call get_document_info, which waits for them.', {
     document_id: z.string().optional(),

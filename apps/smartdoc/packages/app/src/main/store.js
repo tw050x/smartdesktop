@@ -143,6 +143,26 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
       return drafts.filter(Boolean).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
 
+    // Every document in the data folder, newest first, leaving out anything that can't be read.
+    async listDocuments() {
+      const ids = await readdir(path.join(root, 'documents')).catch(() => []);
+      const found = await Promise.all(ids.map((id) => readJson(path.join(docDir(id), 'document.json')).catch(() => null)));
+      return found
+        .filter((d) => d?.id && typeof d.name === 'string')
+        .map(({ id, name, importedAt }) => ({ id, name, importedAt }))
+        .sort((a, b) => String(b.importedAt).localeCompare(String(a.importedAt)));
+    },
+
+    // Deletes a document and everything of it, and forgets the copies held in memory.
+    async deleteDocument(docId) {
+      const dir = docDir(docId);
+      await rm(dir, { recursive: true, force: true });
+      documents.delete(docId);
+      for (const file of reviews.keys()) {
+        if (file.startsWith(`${dir}${path.sep}`)) reviews.delete(file);
+      }
+    },
+
     // A review by its id alone, wherever it is: { docId, review }, or null.
     async findReview(reviewId) {
       const names = (dir) => readdir(dir).catch(() => []);

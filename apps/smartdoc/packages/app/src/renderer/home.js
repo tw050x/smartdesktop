@@ -4,8 +4,12 @@
 // first, each with a line for each review it has (one per tool: where it stands), which opens
 // the draft in that tool. Clicking a draft opens it in the tool it was last used in. Right-clicking a draft gives a menu to start a new variation
 // from it (the variation card, with a prompt for the AI) or make it a document of its own.
-// Right-clicking a document gives a menu to remove it from the list (its files stay in the app's
-// data folder).
+// Right-clicking a document gives a menu to cut it or delete it for good.
+//
+// The documents column shows one folder at a time, folders first: opening one replaces the list,
+// and a row under the column's title shows the path back, so folders can nest to any depth. Things move by
+// dragging onto a folder, the path or the list, where hovering over a folder or the back arrow
+// opens it on the way; or by Cut and Paste. Folders only organise the list (see main/folders.js).
 
 import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
@@ -15,6 +19,9 @@ const icon = (paths, size = 14) => `<svg viewBox="0 0 24 24" width="${size}" hei
 const arrowIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
 // Drafts open rather than lead to another column, so theirs is an open icon.
 const openIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5,21q-0.83,0-1.41-0.59T3,19V5Q3,4.17 3.59,3.59T5,3h7V5H5V19H19V12h2v7q0,0.82-0.59,1.41T19,21H5Zm4.7-5.3L8.3,14.3L17.6,5H14V3h7v7H19V6.4L9.7,15.7Z"/></svg>';
+const folderIcon = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+const newFolderIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg>';
+const backIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const sortIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3,18V16H9v2H3Zm0-5V11H15v2H3ZM3,8V6H21V8H3Z"/></svg>';
 // Each column's sort orders, the first the default. The list comes in its default order; each
 // option reorders a copy. The choice is remembered in this window's storage.
@@ -41,6 +48,9 @@ const remembered = (column) => {
     return null;
   }
 };
+const HOVER_OPENS_MS = 500; // holding a dragged item over a folder or the back arrow
+const PATH_SHOWN = 3; // folders named on the path row; any before them as …
+const ITEM_TYPE = 'application/x-smartdoc-item';
 const formatDate = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
@@ -111,24 +121,331 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   }
   const sorted = (column, list) => sorts[column][2](list);
 
+  // --- Folders -------------------------------------------------------------------------------
+  const foldersOn = Boolean(api.showHomeMenu);
+  const columnHead = documentsEl.previousElementSibling;
+  const title = columnHead.querySelector('h2');
+  let folderState = { folders: [], placement: {} };
+  let shownFolder = null; // the folder showing, or null for the top level
+  let naming = null; // a name being typed: { folderId } to rename, or { parentId } for a new folder
+  let cut = null; // { kind: 'document' | 'folder', id }, waiting to be pasted
+  let drag = null; // { kind, id, from, itemEl, dropped }
+  let hover = null; // { key, timer }: a dragged item held over something that opens
+
+  const folderOf = (docId) => folderState.placement[docId] ?? null;
+  const folderById = (id) => folderState.folders.find((f) => f.id === id);
+  const foldersIn = (parentId) => folderState.folders.filter((f) => (f.parentId ?? null) === parentId).sort((a, b) => a.name.localeCompare(b.name));
+  const documentsIn = (folderId) => documents.filter((d) => folderOf(d.id) === folderId);
+  function pathTo(folderId) {
+    const path = [];
+    const seen = new Set();
+    for (let f = folderById(folderId); f && !seen.has(f.id); f = folderById(f.parentId)) {
+      seen.add(f.id);
+      path.unshift(f);
+    }
+    return path;
+  }
+  // Whether an item can go to a place: not where it is already, nor a folder inside itself.
+  function canGo({ kind, id }, place) {
+    if (kind === 'document') return folderOf(id) !== place;
+    if ((folderById(id)?.parentId ?? null) === place) return false;
+    return !pathTo(place).some((f) => f.id === id);
+  }
+  const moveItem = ({ kind, id }, place) => (kind === 'document' ? api.moveDocument(id, place) : api.moveFolder(id, place));
+
+  function showFolder(id, { keepSelection = false } = {}) {
+    shownFolder = id;
+    naming = null;
+    api.setHomeFolder?.(id);
+    // The other columns follow the list, unless this is on the way through with a dragged item.
+    if (!keepSelection && selected.doc && folderOf(selected.doc) !== id) {
+      selected = { doc: sorted('documents', documentsIn(id))[0]?.id ?? null, variation: null };
+      load();
+    }
+    renderDocuments();
+  }
+
+  const backButton = el('button', 'icon-button home-back');
+  backButton.type = 'button';
+  backButton.innerHTML = backIcon;
+  backButton.setAttribute('aria-label', 'Back');
+  backButton.title = 'Back';
+  backButton.addEventListener('click', () => showFolder(folderById(shownFolder)?.parentId ?? null));
+  const pathRow = el('nav', 'home-path');
+  pathRow.setAttribute('aria-label', 'Folder path');
+  pathRow.hidden = true;
+  const newFolderButton = el('button', 'icon-button home-new-folder');
+  newFolderButton.type = 'button';
+  newFolderButton.innerHTML = newFolderIcon;
+  newFolderButton.setAttribute('aria-label', 'New folder');
+  newFolderButton.title = 'New folder';
+  newFolderButton.addEventListener('click', () => startNaming({ parentId: shownFolder }));
+  if (foldersOn) {
+    columnHead.after(pathRow);
+    title.after(newFolderButton);
+    dropTarget(backButton, () => folderById(shownFolder)?.parentId ?? null, { opens: true, key: 'back' });
+    dropTarget(documentsEl, () => shownFolder);
+    documentsEl.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.home-item')) return;
+      e.preventDefault();
+      openMenu([{ id: 'new', label: 'New Folder' }, pasteItem()], { new: () => startNaming({ parentId: shownFolder }), paste });
+    });
+    api.onFolders((next) => {
+      folderState = next;
+      afterFoldersChange();
+    });
+    api.folders().then((next) => {
+      folderState = next;
+      afterFoldersChange();
+    });
+    // The Edit menu's Cut and Paste, and their keys, outside anything being typed in.
+    const typing = (e) => e.target.closest?.('input, textarea, [contenteditable]') || !documentsEl.offsetParent;
+    document.addEventListener('cut', (e) => {
+      if (typing(e) || window.getSelection()?.toString()) return;
+      const folderId = document.activeElement?.closest?.('[data-folder]')?.dataset.folder;
+      if (folderId) cutItem({ kind: 'folder', id: folderId });
+      else if (selected.doc && folderOf(selected.doc) === shownFolder) cutItem({ kind: 'document', id: selected.doc });
+    });
+    document.addEventListener('paste', (e) => {
+      if (!typing(e) && cut) paste();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && cut && documentsEl.offsetParent) cutItem(null);
+    });
+  }
+
+  function afterFoldersChange() {
+    if (shownFolder && !folderById(shownFolder)) shownFolder = null;
+    if (cut && !itemExists(cut)) cut = null;
+    renderDocuments();
+  }
+  const itemExists = ({ kind, id }) => (kind === 'folder' ? folderById(id) : documents.some((d) => d.id === id));
+
+  function cutItem(item) {
+    cut = item;
+    renderDocuments();
+  }
+  const pasteItem = () => ({ id: 'paste', label: 'Paste', enabled: Boolean(cut && canGo(cut, shownFolder)) });
+  async function paste() {
+    if (!cut || !canGo(cut, shownFolder)) return;
+    const item = cut;
+    cut = null;
+    await moveItem(item, shownFolder);
+  }
+  async function openMenu(items, actions) {
+    const chosen = await api.showHomeMenu(items);
+    actions[chosen]?.();
+  }
+
+  function startNaming(target) {
+    naming = target;
+    renderDocuments();
+  }
+  // The row to type a folder's name in. Enter or leaving it keeps the name; Esc or nothing typed
+  // leaves things as they were.
+  function namingRow() {
+    const item = el('li', 'home-item home-naming');
+    const input = el('input', 'home-folder-name');
+    const renaming = naming.folderId ? folderById(naming.folderId) : null;
+    input.value = renaming?.name ?? '';
+    input.placeholder = 'Folder name';
+    input.setAttribute('aria-label', 'Folder name');
+    let done = false;
+    const finish = async (keep) => {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      const target = naming;
+      naming = null;
+      if (keep && name && name !== renaming?.name) {
+        if (target.folderId) await api.renameFolder(target.folderId, name);
+        else await api.createFolder(name, target.parentId);
+      } else {
+        renderDocuments();
+      }
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Escape') finish(false);
+    });
+    input.addEventListener('blur', () => finish(true));
+    item.append(input);
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+    return item;
+  }
+
+  // Something a dragged item can be dropped on. `place()` is where that puts it; with `opens`, held
+  // over it for a moment it opens there instead, and the drag carries on.
+  function dropTarget(node, place, { opens = false, key = null } = {}) {
+    const leave = () => {
+      node.classList.remove('home-drop');
+      if (opens && hover?.key === (key ?? place())) stopHover();
+    };
+    node.addEventListener('dragover', (e) => {
+      if (!drag) return;
+      e.stopPropagation();
+      const to = place();
+      // A folder doesn't open as itself is dragged over it.
+      if (opens && !hover && to !== drag.id) {
+        hover = { key: key ?? to, timer: setTimeout(() => {
+          hover = null;
+          showFolder(to, { keepSelection: true });
+        }, HOVER_OPENS_MS) };
+      }
+      if (!canGo(drag, to)) {
+        e.dataTransfer.dropEffect = 'none';
+        return;
+      }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      node.classList.add('home-drop');
+    });
+    // Moving between a target's own parts fires dragleave too; only leaving its bounds counts.
+    node.addEventListener('dragleave', (e) => {
+      const box = node.getBoundingClientRect();
+      if (e.clientX < box.left || e.clientX >= box.right || e.clientY < box.top || e.clientY >= box.bottom) leave();
+    });
+    node.addEventListener('drop', async (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      leave();
+      stopHover();
+      const to = place();
+      if (!canGo(drag, to)) return;
+      drag.dropped = true;
+      await moveItem(drag, to);
+    });
+  }
+  function stopHover() {
+    clearTimeout(hover?.timer);
+    hover = null;
+  }
+  function makeDraggable(item, kind, id) {
+    if (!foldersOn) return;
+    item.draggable = true;
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData(ITEM_TYPE, id);
+      e.dataTransfer.effectAllowed = 'move';
+      drag = { kind, id, from: shownFolder, itemEl: item, dropped: false };
+      item.classList.add('home-dragging');
+    });
+    item.addEventListener('dragend', () => {
+      const { from, dropped } = drag ?? {};
+      drag = null;
+      stopHover();
+      item.remove();
+      // Called off: back where it started, with nothing moved.
+      if (!dropped && from !== shownFolder) showFolder(from);
+      else renderDocuments();
+    });
+  }
+
+  // The column's title is the way back to the top level, and a row under it the way to any folder
+  // on the path, with the back arrow first.
+  function renderHead() {
+    const path = pathTo(shownFolder);
+    const crumb = (name, id) => {
+      const button = el('button', 'home-crumb', name);
+      button.type = 'button';
+      button.title = name;
+      button.addEventListener('click', () => showFolder(id));
+      dropTarget(button, () => id);
+      return button;
+    };
+    title.replaceChildren(path.length ? crumb('Documents', null) : 'Documents');
+    pathRow.hidden = !path.length;
+    pathRow.replaceChildren(backButton);
+    const hidden = path.length - PATH_SHOWN;
+    if (hidden > 0) pathRow.append(el('span', 'home-crumb-more', '…'), el('span', 'home-crumb-gap', '/'));
+    path.slice(Math.max(hidden, 0)).forEach((f, i, shown) => {
+      if (i) pathRow.append(el('span', 'home-crumb-gap', '/'));
+      if (f.id !== shownFolder) return pathRow.append(crumb(f.name, f.id));
+      const here = el('span', 'home-crumb-here', f.name);
+      here.title = f.name;
+      pathRow.append(here);
+    });
+  }
+
+  function folderRow(f) {
+    if (naming?.folderId === f.id) return namingRow();
+    const item = el('li', 'home-item home-folder');
+    if (cut?.kind === 'folder' && cut.id === f.id) item.classList.add('home-cut');
+    const row = rowButton(false, () => showFolder(f.id));
+    row.dataset.folder = f.id;
+    const name = el('span', 'home-title home-folder-title');
+    name.innerHTML = folderIcon;
+    name.append(el('span', null, f.name));
+    const count = foldersIn(f.id).length + documentsIn(f.id).length;
+    row.append(name, el('span', 'home-meta', count ? `${count} item${count === 1 ? '' : 's'}` : 'Empty'));
+    row.title = f.name;
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenu([
+        { id: 'open', label: 'Open' },
+        { id: 'rename', label: 'Rename' },
+        { id: 'cut', label: 'Cut' },
+        { separator: true },
+        { id: 'delete', label: 'Delete Folder' },
+      ], {
+        open: () => showFolder(f.id),
+        rename: () => startNaming({ folderId: f.id }),
+        cut: () => cutItem({ kind: 'folder', id: f.id }),
+        delete: () => api.deleteFolder(f.id),
+      });
+    });
+    makeDraggable(item, 'folder', f.id);
+    dropTarget(item, () => f.id, { opens: true });
+    item.append(row);
+    return item;
+  }
+
   function renderDocuments() {
+    // A dragged row stays in the page while the list changes under it, or the drag would end.
+    if (drag?.itemEl) dragHolder().append(drag.itemEl);
     documentsEl.replaceChildren();
-    if (!documents.length) {
-      documentsEl.append(el('li', 'home-empty', 'No documents yet. Drop a PDF here, or use File › Open.'));
+    renderHead();
+    if (naming?.parentId !== undefined) documentsEl.append(namingRow());
+    const subfolders = foldersOn ? foldersIn(shownFolder) : [];
+    for (const f of subfolders) documentsEl.append(folderRow(f));
+    const shown = sorted('documents', foldersOn ? documentsIn(shownFolder) : documents);
+    if (!shown.length && !subfolders.length && naming?.parentId === undefined) {
+      documentsEl.append(el('li', 'home-empty', shownFolder ? 'This folder is empty. Drag documents here, or right-click to paste.' : 'No documents yet. Drop a PDF here, or use File › Open.'));
       return;
     }
-    for (const d of sorted('documents', documents)) {
+    for (const d of shown) {
       const item = el('li', 'home-item');
+      if (cut?.kind === 'document' && cut.id === d.id) item.classList.add('home-cut');
       const row = rowButton(d.id === selected.doc, () => choose(d.id));
       row.append(el('span', 'home-title', d.name), el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
       row.title = d.name;
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        api.showDocumentMenu(d.id);
+        e.stopPropagation();
+        if (!foldersOn) return;
+        openMenu([
+          { id: 'cut', label: 'Cut' },
+          { separator: true },
+          { id: 'delete', label: 'Delete Document…' },
+        ], {
+          cut: () => cutItem({ kind: 'document', id: d.id }),
+          delete: () => api.deleteDocument(d.id),
+        });
       });
+      makeDraggable(item, 'document', d.id);
       item.append(row);
       documentsEl.append(item);
     }
+  }
+  let holder = null;
+  function dragHolder() {
+    holder ??= Object.assign(document.body.appendChild(document.createElement('ul')), { className: 'home-drag-holder' });
+    return holder;
   }
 
   function renderVariations() {
@@ -213,11 +530,20 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     // The documents in the list, newest first; the selection stays if its document is still there.
     update(list) {
       documents = list;
-      if (!documents.some((d) => d.id === selected.doc)) selected = { doc: documents[0]?.id ?? null, variation: null };
+      if (cut && !itemExists(cut)) cut = null;
+      // The first in the folder showing, if the selected document has gone.
+      if (!documents.some((d) => d.id === selected.doc)) selected = { doc: sorted('documents', foldersOn ? documentsIn(shownFolder) : documents)[0]?.id ?? null, variation: null };
       renderDocuments();
       load();
     },
-    select: choose,
+    // Shows a document in its folder, selected.
+    select(docId) {
+      if (foldersOn && folderOf(docId) !== shownFolder) {
+        shownFolder = folderOf(docId);
+        api.setHomeFolder?.(shownFolder);
+      }
+      return choose(docId);
+    },
   };
 }
 

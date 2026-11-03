@@ -1,13 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveQuote } from './anchors.js';
 import { commentsSincePreview, previewComments, unansweredRequests } from './comments.js';
 import { renderHtmlToPdf } from './render-draft.js';
+import * as folders from './folders.js';
 import { createStore, logTo } from './store.js';
 import { MAX_READ_CHARS, estimateTokens, findText, parsePages, textStats } from './text-stats.js';
 
-const MAX_RECENT = 10;
 const PAGE_TEXT_WAIT_MS = 15 * 1000;
 const INFO_FIRST_LINES_UP_TO = 200; // pages
 const FIND_LIMIT = 50;
@@ -45,7 +46,7 @@ export function createShared(userData) {
     onReview: (r) => events.emit('review', r),
     onDocument: (d) => events.emit('document', d),
   });
-  return { store, events, recent: [], userData };
+  return { store, events, recent: [], folders: folders.NO_FOLDERS, userData };
 }
 
 export function createWorkspace(shared) {
@@ -53,6 +54,8 @@ export function createWorkspace(shared) {
   const events = new EventEmitter();
   events.setMaxListeners(0); // waits on the page texts add listeners of their own
   const recentFile = path.join(userData, 'recent-documents.json');
+  const foldersFile = path.join(userData, 'folders.json');
+  let homeFolder = null; // the folder this window's home screen shows: where a new document goes
 
   let doc = null; // the open document's record
   // The app has two tools, one per kind of review: improve ("Review and draft") and highlights
@@ -208,7 +211,7 @@ export function createWorkspace(shared) {
       return [];
     }
     const imported = [];
-    for (const p of paths.slice(0, MAX_RECENT)) {
+    for (const p of paths) {
       try {
         const d = await store.importDocument(p);
         imported.push({ id: d.id, name: d.name, importedAt: d.importedAt });
@@ -282,6 +285,15 @@ export function createWorkspace(shared) {
   shared.events.on('review', reviewSaved);
   shared.events.on('document', documentSaved);
 
+  // Written whole and swapped in, as losing this file would undo all the user's organising.
+  async function changeFolders(next) {
+    shared.folders = next;
+    const tmp = `${foldersFile}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next));
+    await rename(tmp, foldersFile);
+    shared.events.emit('folders');
+  }
+
   async function saveRecent() {
     await writeFile(recentFile, JSON.stringify(shared.recent)).catch(() => {});
     shared.events.emit('recent');
@@ -317,22 +329,49 @@ export function createWorkspace(shared) {
         shared.recent = await importOldRecentFiles();
         await saveRecent();
       }
+      // The app is the only way to reach a document, so every one in the data folder is listed,
+      // including any an older version let drop off the list.
+      const listed = new Set(shared.recent.map((r) => r.id));
+      const missing = (await store.listDocuments()).filter((d) => !listed.has(d.id));
+      if (missing.length) {
+        shared.recent = [...shared.recent, ...missing];
+        await saveRecent();
+      }
+      shared.folders = folders.readFolders(await readFile(foldersFile, 'utf8').then(JSON.parse).catch(() => null));
+      shared.events.emit('folders');
       shared.events.emit('recent');
     },
 
-    async removeRecent(docId) {
-      shared.recent = shared.recent.filter((r) => r.id !== docId);
-      await saveRecent();
+    get folders() { return shared.folders; },
+    // Where a document is, as the AI is told: "Clients / Acme", or null at the top level.
+    folderPath(docId) {
+      return folders.pathOf(shared.folders, shared.folders.placement[docId]).map((f) => f.name).join(' / ') || null;
     },
+    setHomeFolder(id) {
+      homeFolder = id;
+    },
+    async createFolder(name, parentId) {
+      const id = `folder-${randomUUID().slice(0, 8)}`;
+      await changeFolders(folders.createFolder(shared.folders, { id, name, parentId }));
+      return id;
+    },
+    renameFolder: (id, name) => changeFolders(folders.renameFolder(shared.folders, id, name)),
+    deleteFolder: (id) => changeFolders(folders.deleteFolder(shared.folders, id)),
+    moveFolder: (id, parentId) => changeFolders(folders.moveFolder(shared.folders, id, parentId)),
+    moveDocument: (docId, folderId) => changeFolders(folders.moveDocument(shared.folders, docId, folderId)),
 
-    async clearRecent() {
-      shared.recent = [];
+    // Deletes a document for good, on the user's say only: the AI has no tool for it.
+    async deleteDocument(docId) {
+      await store.deleteDocument(docId);
+      shared.recent = shared.recent.filter((r) => r.id !== docId);
+      await changeFolders(folders.removeDocument(shared.folders, docId));
       await saveRecent();
     },
 
     // Opening a file always imports it as a new document.
     async importAndOpen(sourcePath) {
       const imported = await store.importDocument(sourcePath);
+      if (homeFolder && shared.folders.folders.some((f) => f.id === homeFolder)) await changeFolders(folders.moveDocument(shared.folders, imported.id, homeFolder));
       await this.openDocument(imported.id);
       return imported;
     },
@@ -406,8 +445,11 @@ export function createWorkspace(shared) {
       const base = source.name.replace(/\.pdf$/i, '');
       const label = variation.id === store.ORIGINAL ? draftLabel(number) : `${variation.name}, ${draftLabel(number)}`;
       const made = await store.documentFromDraft(source, draftId, { name: `${base} (${label})`, draft: label });
-      shared.recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...shared.recent].slice(0, MAX_RECENT);
+      shared.recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...shared.recent];
       await saveRecent();
+      // Beside the document it came from.
+      const beside = shared.folders.placement[docId];
+      if (beside) await changeFolders(folders.moveDocument(shared.folders, made.id, beside));
       return { id: made.id, name: made.name };
     },
 
@@ -418,7 +460,7 @@ export function createWorkspace(shared) {
       if (REVIEW_TYPES.includes(doc.tool)) tool = doc.tool;
       else tool = typeOf((await store.listReviews(doc.id, doc.currentDraftId)).at(-1) ?? {});
       events.emit('tool', tool);
-      shared.recent = [{ id: doc.id, name: doc.name, importedAt: doc.importedAt }, ...shared.recent.filter((r) => r.id !== doc.id)].slice(0, MAX_RECENT);
+      shared.recent = [{ id: doc.id, name: doc.name, importedAt: doc.importedAt }, ...shared.recent.filter((r) => r.id !== doc.id)];
       await saveRecent();
       await showDraft(doc.currentDraftId);
     },

@@ -201,6 +201,7 @@ const broadcast = (channel, value) => {
 };
 // The home screen's documents, each with where it stands in each tool.
 const recentForWindow = async () => shared.recent;
+const MENU_RECENT = 10; // File › Open Recent; the home screen lists them all
 
 async function sendDraft() {
   const view = await workspace.draftView();
@@ -226,6 +227,7 @@ async function sendEverything() {
   updateMenu();
 }
 
+shared.events.on('folders', () => broadcast('folders', shared.folders));
 shared.events.on('recent', () => {
   broadcast('recent-documents', shared.recent);
   updateMenuFor(lastFocused);
@@ -252,12 +254,11 @@ function updateMenu() {
     // Stepping back from a preview returns to the draft it was written from.
     canStepBack: at > 0 || workspace.previewing,
     canStepForward: doc && !workspace.previewing ? at < doc.line.length - 1 : false,
-    recent: workspace.recent,
+    recent: workspace.recent.slice(0, MENU_RECENT),
     actions: {
       newWindow: () => context.run(createWindow(), () => {}),
       showOpenDialog,
       openDocument: (id) => openDocument(id),
-      clearRecent: () => workspace.clearRecent(),
       saveDraftAs,
       newVariation,
       documentFromDraft: () => {
@@ -398,7 +399,10 @@ async function checkPdf(filePath) {
 const documentsForAi = {
   // Filled in below: it depends on the session.
   useWindow: null,
-  list: () => workspace.recent.map((r) => ({ id: r.id, name: r.name, importedAt: r.importedAt, open: workspace.document?.id === r.id })),
+  list: () => workspace.recent.map((r) => {
+    const folder = workspace.folderPath(r.id);
+    return { id: r.id, name: r.name, importedAt: r.importedAt, ...(folder && { folder }), open: workspace.document?.id === r.id };
+  }),
 
   async open({ path: filePath, document_id: docId } = {}) {
     const aiOpen = current().aiOpen;
@@ -733,13 +737,41 @@ handle('variation-menu', async ({ docId, variationId }) => {
 });
 // Back to the home screen: the document closes (everything is already saved).
 handle('go-home', () => workspace.close());
-// A document's right-click menu on the home screen. Removing it from the list leaves its files in
-// the data folder.
-handle('document-menu', (docId) => {
-  if (!workspace.isRecent(docId)) return;
-  Menu.buildFromTemplate([
-    { label: 'Remove from List', click: () => workspace.removeRecent(docId) },
-  ]).popup({ window: win() });
+// A right-click menu on the home screen's document list: the window says what's on it, and gets
+// back the id of the item chosen, or null. The click can come after the menu closes, so closing
+// waits a moment for it.
+handle('home-menu', (items) => new Promise((resolve) => {
+  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
+    window: win(),
+    callback: () => setTimeout(() => resolve(null), 100),
+  });
+}));
+handle('folders', () => workspace.folders);
+handle('set-home-folder', (id) => workspace.setHomeFolder(id));
+handle('create-folder', (name, parentId) => workspace.createFolder(name, parentId));
+handle('rename-folder', (id, name) => workspace.renameFolder(id, name));
+handle('delete-folder', (id) => workspace.deleteFolder(id));
+handle('move-folder', (id, parentId) => workspace.moveFolder(id, parentId));
+handle('move-document', (docId, folderId) => workspace.moveDocument(docId, folderId));
+// Deleting a document is the only way off the list: the app is the only place to find it, so it
+// never leaves files behind that nothing can reach. Asks first, and waits for any other window
+// showing it to move on, as an AI may be working there.
+handle('delete-document', async (docId) => {
+  const entry = workspace.recent.find((r) => r.id === docId);
+  if (!entry) return;
+  if ([...windows.values()].some((c) => c.workspace.document?.id === docId)) {
+    dialog.showErrorBox('This document is open in another window', 'Close it there first, then delete it.');
+    return;
+  }
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+    type: 'warning',
+    message: `Delete “${entry.name}”?`,
+    detail: 'The document, all its drafts and variations, and their reviews are deleted, and can’t be got back. The PDF you imported it from isn’t touched.',
+    buttons: ['Cancel', 'Delete'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) await workspace.deleteDocument(docId);
 });
 handle('page-texts', (docId, draftId, texts, details) => workspace.setPageTexts(docId, draftId, texts, details));
 handle('add-request', (request) => workspace.addRequest(request));

@@ -17,8 +17,6 @@ export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBac
         enabled: recent.length > 0,
         submenu: [
           ...recent.map((d) => ({ label: `${d.name} (imported ${imported(d.importedAt)})`, click: () => actions.openDocument(d.id) })),
-          { type: 'separator' },
-          { label: 'Clear Menu', enabled: recent.length > 0, click: actions.clearRecent },
         ],
       },
       { type: 'separator' },

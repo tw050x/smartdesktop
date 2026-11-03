@@ -667,6 +667,7 @@ export function startApp(appApi) {
   // The drop indicator takes the first page's place and size, wherever the view is scrolled to.
   const dropZone = document.getElementById('drop-zone');
   documentEl.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer.types.includes('Files')) return; // something being moved on the home screen
     e.preventDefault();
     dropZone.style.top = `${documentEl.scrollTop + parseFloat(getComputedStyle(pagesEl).paddingTop)}px`;
     dropZone.style.width = `${Math.min(documentEl.clientWidth * pageShare, A4_WIDTH * RENDER_SCALE)}px`;
@@ -685,6 +686,7 @@ export function startApp(appApi) {
     documentEl.classList.remove('dragging');
   }
   documentEl.addEventListener('drop', async (e) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     const file = [...e.dataTransfer.files].find((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     if (!file) return void documentEl.classList.remove('dragging');

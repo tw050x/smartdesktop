@@ -524,6 +524,39 @@ body:not(.has-document) .pages-wrap { display: none; }
   color: var(--muted);
 }
 .home-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 8px 8px; list-style: none; }
+/* Folders: the path back, under the column's title, and a drop's targets. */
+.home-column h2 { display: flex; align-items: center; min-width: 0; min-height: 26px; }
+.home-path { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 0 10px 8px 8px; font-size: 12.5px; color: var(--muted); }
+.home-path[hidden] { display: none; }
+.home-back { flex: none; width: 26px; height: 26px; }
+.home-new-folder { flex: none; width: 26px; height: 26px; color: var(--muted); }
+.home-crumb, .home-crumb-here {
+  overflow: hidden;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: inherit;
+}
+.home-column h2 .home-crumb { margin-left: -4px; }
+.home-crumb { flex: 0 1 auto; cursor: pointer; }
+.home-crumb:hover { color: var(--text); background: var(--hover-tint); }
+.home-crumb-here { flex: 0 1 auto; font-weight: 600; color: var(--text); }
+.home-crumb-gap, .home-crumb-more { flex: none; padding: 0 1px; }
+.home-folder-title { display: flex; align-items: center; gap: 6px; }
+.home-folder-title svg { flex: none; color: var(--muted); }
+.home-folder-title span { overflow: hidden; text-overflow: ellipsis; }
+.home-naming { padding: 6px; }
+.home-folder-name { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+.home-cut, .home-dragging { opacity: 0.45; }
+.home-drop, .home-list.home-drop { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; background: var(--hover-tint); }
+.home-drag-holder { position: fixed; top: -1000px; left: -1000px; width: 300px; margin: 0; padding: 0; list-style: none; }
 .home-empty { padding: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
 .home-item { position: relative; border-radius: 8px; }
 .home-item + .home-item { margin-top: 2px; }
