@@ -344,14 +344,20 @@ async function bringToFront() {
   app.focus({ steal: true });
 }
 
-// Open requests by id, for `smartdoc wait open`: kept once answered, as the wait may begin after.
+// Requests waiting on the user, by id, for `smartdoc wait`: kept once answered, as the wait may
+// begin after.
 const openRequests = new Map();
 const MAX_OPEN_REQUESTS = 50;
 
-function waitOnUser(name, task) {
-  const request = { id: `open-${randomUUID().slice(0, 8)}`, owner: current(), name, state: 'waiting', error: null };
+function rememberRequest(request) {
+  request.id = `${request.kind}-${randomUUID().slice(0, 8)}`;
   openRequests.set(request.id, request);
   if (openRequests.size > MAX_OPEN_REQUESTS) openRequests.delete(openRequests.keys().next().value);
+  return request;
+}
+
+function waitOnUser(name, task) {
+  const request = rememberRequest({ kind: 'open', owner: current(), name, state: 'waiting', error: null });
   request.done = task().then(
     (opened) => { request.state = opened ? 'opened' : 'cancelled'; },
     (error) => { request.state = 'failed'; request.error = error.message; },
@@ -360,10 +366,11 @@ function waitOnUser(name, task) {
   return { request_id: request.id, wait: waitCommand('open', '--request', request.id) };
 }
 
-// Waits for the user's answer to an open request. It's reported here, so not again by settle.
-function waitForOpen(id) {
+// Waits for the user's answer to a request. It's reported here, so not again by settle or
+// delete_document.
+function waitForRequest(kind, id) {
   const request = openRequests.get(id);
-  if (!request) throw new WaitRefused(`There's no open request ${id}.`, 404);
+  if (request?.kind !== kind) throw new WaitRefused(`There's no ${kind} request ${id}.`, 404);
   let cancelled = false;
   let cancel = () => {};
   const promise = new Promise((resolve) => {
@@ -373,8 +380,9 @@ function waitForOpen(id) {
     };
     request.done.then(() => {
       if (cancelled) return;
-      if (request.owner.aiOpen === request) request.owner.aiOpen = null;
-      resolve({ request: id, event: `open-${request.state}`, ...(request.name && { name: request.name }), ...(request.error && { error: request.error }) });
+      if (request.owner?.aiOpen === request) request.owner.aiOpen = null;
+      if (deleteRequests.get(request.docId) === request) deleteRequests.delete(request.docId);
+      resolve({ request: id, event: `${kind}-${request.state}`, ...(request.name && { name: request.name }), ...(request.error && { error: request.error }) });
     });
   });
   return { promise, cancel: () => cancel() };
@@ -395,6 +403,14 @@ async function checkPdf(filePath) {
   }
   return resolved;
 }
+
+// Delete requests from the AI still to be reported, by document: one at a time for each.
+const deleteRequests = new Map();
+const DELETE_ANSWERS = {
+  deleted: 'The user approved it, and the document is deleted for good.',
+  declined: 'The user declined, so the document is still there. Don\'t ask again unless they want you to.',
+  failed: 'It wasn\'t deleted.',
+};
 
 const documentsForAi = {
   // Filled in below: it depends on the session.
@@ -442,6 +458,49 @@ const documentsForAi = {
       ...waiting,
       status: 'waiting_for_user',
       message: 'Before anything else, tell the user to switch to the SmartDoc app and choose the file in the window it has opened: nothing opens until they do. Then call get_document_info, which waits for their choice.',
+    };
+  },
+
+  // Asks the user, in the app, to delete a document: every request asks again, and only their answer
+  // deletes it. The AI hears the answer from its wait command, or by asking again.
+  deleteDocument({ document_id: docId, reason }) {
+    const session = current().session;
+    const asked = deleteRequests.get(docId);
+    if (asked?.state === 'waiting') {
+      return { status: 'waiting_for_user', request_id: asked.id, wait: waitCommand('delete', '--request', asked.id), message: `Still waiting for the user to answer in the SmartDoc app about deleting ${asked.name}. Remind them to switch to it.` };
+    }
+    if (asked) {
+      deleteRequests.delete(docId);
+      return { status: asked.state, document: asked.name, ...(asked.error && { error: asked.error }), message: DELETE_ANSWERS[asked.state] };
+    }
+    const entry = workspace.recent.find((r) => r.id === docId);
+    if (!entry) throw new Error(`No document ${docId}. list_documents shows the ones there are.`);
+    if (openElsewhere(docId)) throw new Error(`${entry.name} is open in another SmartDoc window, so it can't be deleted. Nothing was changed. Tell the user: they can close it there.`);
+
+    const request = rememberRequest({ kind: 'delete', docId, name: entry.name, state: 'waiting', error: null });
+    deleteRequests.set(docId, request);
+    request.done = (async () => {
+      await bringToFront();
+      const approved = await askToDeleteDocument(entry.name, `${clientLabel(session?.client)} asks to delete this document. It gives this reason, in its own words:\n\n“${reason}”`);
+      if (!approved) return 'declined';
+      // Things may have moved on while the question was up.
+      if (!workspace.isRecent(docId)) throw new Error('It has already been deleted.');
+      if (openElsewhere(docId)) throw new Error('It has since been opened in another window.');
+      if (workspace.document?.id === docId) {
+        workspace.close();
+        if (session) session.docId = null;
+      }
+      await workspace.deleteDocument(docId);
+      return 'deleted';
+    })().then(
+      (state) => { request.state = state; },
+      (error) => { request.state = 'failed'; request.error = error.message; },
+    );
+    return {
+      status: 'waiting_for_user',
+      request_id: request.id,
+      wait: waitCommand('delete', '--request', request.id),
+      message: `Nothing is deleted yet. Tell the user straight away to switch to the SmartDoc app and answer about deleting ${entry.name}: only they can approve it. To hear their answer, run the wait command in the background if you can, or call delete_document again.`,
     };
   },
 
@@ -500,7 +559,7 @@ async function windowForSession(session, startedApp) {
   setSessionWindow(session, ctx);
   if (restore?.docId) {
     await ctx.workspace.openDraft(restore.docId, restore.variationId, restore.draftId, restore.tool).catch(() => {});
-    session.docId = restore.docId;
+    session.docId = ctx.workspace.document?.id ?? null; // it may have been deleted since
   }
   if (!ctx.win.isVisible()) ctx.win.showInactive();
   return ctx;
@@ -510,7 +569,7 @@ const aiForServer = {
   alive: ({ session, client }) => sessions.touch(session, client),
   waitCommand: (...args) => waitCommand(...args),
   wait({ what, review, request } = {}) {
-    if (what === 'open') return waitForOpen(request);
+    if (what === 'open' || what === 'delete') return waitForRequest(what, request);
     return waits.forReview(what, review);
   },
   ended({ session }) {
@@ -531,7 +590,8 @@ const aiForServer = {
       if (!READ_ONLY.has(name)) {
         // The user can take the window anywhere, but the AI's changes stay with its document.
         const showing = ctx.workspace.document?.id ?? null;
-        if (session.docId && showing !== session.docId && name !== 'open_document') {
+        // Deleting names its document, whatever the window shows, and the user answers for it.
+        if (session.docId && showing !== session.docId && name !== 'open_document' && name !== 'delete_document') {
           throw new Error(`This window has moved off the document you were working on. Nothing was changed. Tell the user, or call open_document with document_id ${session.docId} to go back to it.`);
         }
         const key = ctx.workspace.claimKey(name, args);
@@ -753,25 +813,35 @@ handle('rename-folder', (id, name) => workspace.renameFolder(id, name));
 handle('delete-folder', (id) => workspace.deleteFolder(id));
 handle('move-folder', (id, parentId) => workspace.moveFolder(id, parentId));
 handle('move-document', (docId, folderId) => workspace.moveDocument(docId, folderId));
+// Whether a window other than this one is showing a document.
+const openElsewhere = (docId) => [...windows.values()].some((c) => c !== current() && c.workspace.document?.id === docId);
+
+// The one question before a document is deleted, by the user or at an AI's request. Cancel is the
+// default, and there's no way to stop it asking.
+async function askToDeleteDocument(name, from = null) {
+  const consequence = 'The document, all its drafts and variations, and their reviews are deleted, and can’t be got back. The PDF you imported it from isn’t touched.';
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+    type: 'warning',
+    message: `Delete “${name}”?`,
+    detail: from ? `${from}\n\n${consequence}` : consequence,
+    buttons: ['Cancel', 'Delete'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  return response === 1;
+}
+
 // Deleting a document is the only way off the list: the app is the only place to find it, so it
 // never leaves files behind that nothing can reach. Asks first, and waits for any other window
 // showing it to move on, as an AI may be working there.
 handle('delete-document', async (docId) => {
   const entry = workspace.recent.find((r) => r.id === docId);
   if (!entry) return;
-  if ([...windows.values()].some((c) => c.workspace.document?.id === docId)) {
+  if (openElsewhere(docId)) {
     dialog.showErrorBox('This document is open in another window', 'Close it there first, then delete it.');
     return;
   }
-  const { response } = await dialog.showMessageBox(win() ?? undefined, {
-    type: 'warning',
-    message: `Delete “${entry.name}”?`,
-    detail: 'The document, all its drafts and variations, and their reviews are deleted, and can’t be got back. The PDF you imported it from isn’t touched.',
-    buttons: ['Cancel', 'Delete'],
-    defaultId: 0,
-    cancelId: 0,
-  });
-  if (response === 1) await workspace.deleteDocument(docId);
+  if (await askToDeleteDocument(entry.name)) await workspace.deleteDocument(docId);
 });
 handle('page-texts', (docId, draftId, texts, details) => workspace.setPageTexts(docId, draftId, texts, details));
 handle('add-request', (request) => workspace.addRequest(request));

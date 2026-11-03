@@ -134,6 +134,13 @@ describe('the wait command', () => {
     server.close();
   });
 
+  test('waits for a delete request by its id', async () => {
+    const { asked, env, server } = await app((res) => res.writeHead(200).end('{"event":"delete-deleted"}'));
+    assert.equal((await run(['delete', '--request', 'delete-1'], env)).code, EXIT.happened);
+    assert.deepEqual(asked[0].body, { what: 'delete', request: 'delete-1' });
+    server.close();
+  });
+
   test('passes on a refusal', async () => {
     const { env, server } = await app((res) => res.writeHead(404).end('{"error":"There\'s no review r1"}'));
     const { code, err } = await run(['decisions', '--review', 'r1'], env);
@@ -165,7 +172,7 @@ describe('the wait command', () => {
 
   test('refuses a wrong command', async () => {
     const { env, server } = await app(() => {});
-    for (const argv of [[], ['nonsense', '--review', 'r'], ['decisions'], ['decisions', '--request', 'r'], ['open', '--review', 'r'], ['decisions', '--review', 'r', '--timeout', 'soon'], ['decisions', '--bad']]) {
+    for (const argv of [[], ['nonsense', '--review', 'r'], ['decisions'], ['decisions', '--request', 'r'], ['open', '--review', 'r'], ['delete', '--review', 'r'], ['delete'], ['decisions', '--review', 'r', '--timeout', 'soon'], ['decisions', '--bad']]) {
       assert.equal((await run(argv, env)).code, EXIT.usage, argv.join(' '));
     }
     server.close();

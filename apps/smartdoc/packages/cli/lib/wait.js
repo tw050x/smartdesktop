@@ -14,6 +14,7 @@ export const WAIT_HELP = `Usage: npx @smartdoc/cli wait <what> <id> [--timeout <
   decisions --review <id>   The user has sent their decisions on this review
   preview --review <id>     The user has accepted, discarded or commented on this review's draft preview
   open --request <id>       The user has answered this open_document request
+  delete --request <id>     The user has answered this delete_document request
 
 Prints what happened as JSON. Exits with 0 when it has happened, 1 if the command is wrong, 2 if
 the timeout passed, 3 if the app says this can never happen, and 4 if the app isn't running or quits.`;
@@ -29,8 +30,9 @@ export async function wait(argv, { env = process.env, out = console.log, err = c
   }
   const [what] = positionals;
   const timeout = values.timeout === undefined ? null : Number(values.timeout);
-  const id = what === 'open' ? values.request : values.review;
-  if (positionals.length !== 1 || !['decisions', 'preview', 'open'].includes(what) || !id || (timeout !== null && !(timeout > 0))) {
+  const byRequest = what === 'open' || what === 'delete';
+  const id = byRequest ? values.request : values.review;
+  if (positionals.length !== 1 || !['decisions', 'preview', 'open', 'delete'].includes(what) || !id || (timeout !== null && !(timeout > 0))) {
     err(WAIT_HELP);
     return EXIT.usage;
   }
@@ -40,7 +42,7 @@ export async function wait(argv, { env = process.env, out = console.log, err = c
     return EXIT.noApp;
   }
 
-  const reply = await ask(`${mcpUrl(env)}/wait`, token, { what, ...(what === 'open' ? { request: id } : { review: id }) }, timeout);
+  const reply = await ask(`${mcpUrl(env)}/wait`, token, { what, ...(byRequest ? { request: id } : { review: id }) }, timeout);
   if (reply.timedOut) {
     err(`Nothing yet after ${timeout} seconds.`);
     return EXIT.timedOut;
