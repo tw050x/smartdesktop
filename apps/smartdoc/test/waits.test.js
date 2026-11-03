@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -176,6 +176,11 @@ describe('the command the AI is given', () => {
   test('runs the app’s own copy of the command', () => {
     const { waitCommand } = createConnect({ isPackaged: true, execPath: '/Users/a/My Apps/SmartDoc.app/Contents/MacOS/SmartDoc', resourcesPath: '/Users/a/My Apps/SmartDoc.app/Contents/Resources' });
     assert.equal(waitCommand('decisions', '--review', 'review-1'), "ELECTRON_RUN_AS_NODE=1 '/Users/a/My Apps/SmartDoc.app/Contents/MacOS/SmartDoc' '/Users/a/My Apps/SmartDoc.app/Contents/Resources/cli/cli.js' wait decisions --review review-1");
+  });
+
+  test('the app carries that copy of the command', async () => {
+    const { build } = JSON.parse(await readFile(new URL('../packages/app/package.json', import.meta.url), 'utf8'));
+    assert.ok(build.extraResources.find((r) => r.to === 'cli').filter.includes('cli.js'));
   });
 
   test('a development copy names its own data and port', () => {

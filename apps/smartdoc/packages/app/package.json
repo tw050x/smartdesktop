@@ -36,6 +36,7 @@
         "from": "../cli",
         "to": "cli",
         "filter": [
+          "cli.js",
           "mcp.js",
           "lib/**/*",
           "package.json"
