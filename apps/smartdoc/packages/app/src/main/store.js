@@ -61,6 +61,8 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
     active.line = doc.line;
     active.currentDraftId = doc.currentDraftId;
     if (!views.has(doc)) documents.delete(doc.id); // written from outside the views: read it afresh
+    // A view opened from now on starts here, just as it would after a restart.
+    else Object.assign(await documents.get(doc.id) ?? {}, doc);
     await writeJson(path.join(docDir(doc.id), 'document.json'), doc);
     onDocument(doc);
   };

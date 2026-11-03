@@ -223,12 +223,14 @@ export function createWorkspace(shared) {
   const activeVariation = () => doc.variations.find((v) => v.id === doc.variationId);
   const identity = () => {
     const number = doc.line.indexOf(doc.currentDraftId);
+    const newest = doc.line.length - 1;
     const variation = activeVariation();
     return {
       id: doc.id,
       name: doc.name,
       variation: { id: variation.id, name: variation.name, ...(variation.purpose && { purpose: variation.purpose }) },
-      draft: number === 0 ? 'Original' : `Draft ${number} of ${doc.line.length - 1}`,
+      draft: number === 0 ? 'Original' : `Draft ${number} of ${newest}`,
+      ...(number < newest && { notNewest: `Draft ${newest} is the newest draft of this variation, and reviews and changes work on the draft showing.` }),
       ...(doc.createdFrom && { createdFrom: { id: doc.createdFrom.id, name: doc.createdFrom.name, draft: doc.createdFrom.draft } }),
     };
   };
@@ -500,6 +502,16 @@ export function createWorkspace(shared) {
         draft: { id: draft.id, number, total: doc.line.length - 1, isOriginal: draft.id === store.ORIGINAL, summary: draft.summary },
         pdf: new Uint8Array(await readFile(store.draftPdfPath(doc.id, doc.currentDraftId))),
       };
+    },
+
+    // Shows a draft on the active line by its number, for the AI.
+    async switchDraft(number) {
+      requireDoc();
+      const draftId = doc.line[number];
+      if (!draftId) throw new Error(`There's no draft ${number}: this variation has the original (0) and ${doc.line.length - 1} draft(s) after it.`);
+      if (previewing || draftId !== doc.currentDraftId) await showDraft(draftId);
+      const { draft, notNewest } = identity();
+      return { showing: draft, ...(notNewest && { notNewest }) };
     },
 
     currentDraftPdfPath: () => doc && store.draftPdfPath(doc.id, doc.currentDraftId),

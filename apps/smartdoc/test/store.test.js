@@ -91,6 +91,22 @@ describe('documents from drafts', () => {
   });
 });
 
+describe('where a document reopens', () => {
+  const twoDrafts = async () => {
+    const { doc, one, two } = await documentWithDrafts();
+    return { doc: await store.loadDocument(doc.id), one, two };
+  };
+
+  test('on the draft last saved, whether or not the app has restarted since', async () => {
+    const { doc, one } = await twoDrafts();
+    doc.currentDraftId = one;
+    await store.saveDocument(doc);
+    assert.equal((await store.loadDocument(doc.id)).currentDraftId, one);
+    assert.equal((await createStore(root).loadDocument(doc.id)).currentDraftId, one);
+  });
+
+});
+
 describe('previews', () => {
   test('a preview is kept apart from the drafts until it is removed', async () => {
     const { doc, two } = await documentWithDrafts();
