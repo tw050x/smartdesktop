@@ -6,14 +6,15 @@
 // from it (the variation card, with a prompt for the AI) or make it a document of its own.
 // Right-clicking a document gives a menu to cut it or delete it for good.
 //
-// The documents column shows one folder at a time, folders first: opening one replaces the list,
-// and a row under the column's title shows the path back, so folders can nest to any depth. Things move by
+// The documents column shows one folder at a time, its folders and documents sorted together (see
+// home-level.js): opening one replaces the list, and a row under the column's title shows the path back, so folders can nest to any depth. Things move by
 // dragging onto a folder, the path or the list, where hovering over a folder or the back arrow
 // opens it on the way; or by Cut and Paste. Folders only organise the list (see main/folders.js).
 
 import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
+import { levelOf } from './home-level.js';
 
 const icon = (paths, size = 14) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const arrowIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
@@ -423,45 +424,42 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     documentsEl.replaceChildren();
     renderHead();
     if (naming?.parentId !== undefined) documentsEl.append(namingRow());
-    const subfolders = foldersOn ? foldersIn(shownFolder) : [];
-    for (const f of subfolders) documentsEl.append(folderRow(f));
-    const shown = sorted('documents', foldersOn ? documentsIn(shownFolder) : documents);
+    const shown = sorted('documents', levelOf(folderState, documents, shownFolder));
     // With no document here, nothing can be chosen for the other columns to show. They keep their
     // room, so the list doesn't shift under a drag.
-    for (const list of [variationsEl, draftsEl]) list.parentElement.classList.toggle('home-column-unused', foldersOn && !shown.length);
-    if (!shown.length && !subfolders.length && naming?.parentId === undefined) {
+    for (const list of [variationsEl, draftsEl]) list.parentElement.classList.toggle('home-column-unused', foldersOn && !shown.some((i) => i.kind === 'document'));
+    if (!shown.length && naming?.parentId === undefined) {
       documentsEl.append(el('li', 'home-empty', shownFolder ? 'This folder is empty. Drag documents here, or right-click to paste.' : 'No documents yet. Drop a PDF here, or use File › Open.'));
       return;
     }
-    for (const d of shown) {
-      if (naming?.docId === d.id) {
-        documentsEl.append(namingRow());
-        continue;
-      }
-      const item = el('li', 'home-item');
-      if (cut?.kind === 'document' && cut.id === d.id) item.classList.add('home-cut');
-      const row = rowButton(d.id === selected.doc, () => choose(d.id));
-      row.append(el('span', 'home-title', d.name), el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
-      row.title = d.name;
-      item.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!foldersOn) return;
-        openMenu([
-          { id: 'rename', label: 'Rename' },
-          { id: 'cut', label: 'Cut' },
-          { separator: true },
-          { id: 'delete', label: 'Delete Document…' },
-        ], {
-          rename: () => startNaming({ docId: d.id }),
-          cut: () => cutItem({ kind: 'document', id: d.id }),
-          delete: () => api.deleteDocument(d.id),
-        });
+    for (const i of shown) documentsEl.append(i.kind === 'folder' ? folderRow(folderById(i.id)) : documentRow(i));
+  }
+
+  function documentRow(d) {
+    if (naming?.docId === d.id) return namingRow();
+    const item = el('li', 'home-item');
+    if (cut?.kind === 'document' && cut.id === d.id) item.classList.add('home-cut');
+    const row = rowButton(d.id === selected.doc, () => choose(d.id));
+    row.append(el('span', 'home-title', d.name), el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
+    row.title = d.name;
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!foldersOn) return;
+      openMenu([
+        { id: 'rename', label: 'Rename' },
+        { id: 'cut', label: 'Cut' },
+        { separator: true },
+        { id: 'delete', label: 'Delete Document…' },
+      ], {
+        rename: () => startNaming({ docId: d.id }),
+        cut: () => cutItem({ kind: 'document', id: d.id }),
+        delete: () => api.deleteDocument(d.id),
       });
-      makeDraggable(item, 'document', d.id);
-      item.append(row);
-      documentsEl.append(item);
-    }
+    });
+    makeDraggable(item, 'document', d.id);
+    item.append(row);
+    return item;
   }
   let holder = null;
   function dragHolder() {
