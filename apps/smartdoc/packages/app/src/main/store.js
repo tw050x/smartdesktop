@@ -43,6 +43,9 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
   function viewOf(shared) {
     const view = { ...shared };
     delete view.line;
+    delete view.name;
+    // The name is the document's, so renaming it reaches every window, and none can save the old one.
+    Object.defineProperty(view, 'name', { enumerable: true, get: () => shared.name, set: (name) => { shared.name = name; } });
     const active = () => view.variations.find((v) => v.id === view.variationId);
     Object.defineProperty(view, 'line', { enumerable: true, get: () => active().line, set: (line) => { active().line = line; } });
     views.add(view);
@@ -141,6 +144,13 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
       const ids = await readdir(path.join(docDir(docId), 'drafts'));
       const drafts = await Promise.all(ids.map((id) => readJson(path.join(draftDir(docId, id), 'draft.json')).catch(() => null)));
       return drafts.filter(Boolean).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    },
+
+    // A document's new name, for every window showing it.
+    async renameDocument(docId, name) {
+      const view = await this.loadDocument(docId);
+      view.name = name;
+      await writeJson(path.join(docDir(docId), 'document.json'), await documents.get(docId));
     },
 
     // Every document in the data folder, newest first, leaving out anything that can't be read.

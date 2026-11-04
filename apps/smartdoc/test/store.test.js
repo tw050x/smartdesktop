@@ -158,6 +158,32 @@ describe('listing what’s in the data folder', () => {
   });
 });
 
+describe('renaming a document', () => {
+  test('reaches every view, lasts, and no view can save the old name', async () => {
+    const { doc } = await documentWithDrafts();
+    const one = await store.loadDocument(doc.id);
+    const other = await store.loadDocument(doc.id);
+    await store.renameDocument(doc.id, 'New name');
+    assert.equal(one.name, 'New name');
+    assert.equal(other.name, 'New name');
+    await store.saveDocument(other);
+    assert.equal((await store.loadDocument(doc.id)).name, 'New name');
+    assert.equal((await createStore(root).loadDocument(doc.id)).name, 'New name');
+    assert.equal(JSON.parse(await readFile(path.join(root, 'documents', doc.id, 'document.json'), 'utf8')).name, 'New name');
+  });
+
+  test('keeps where a view has got to', async () => {
+    const { doc, one, two } = await documentWithDrafts();
+    const view = await store.loadDocument(doc.id);
+    view.currentDraftId = one;
+    await store.saveDocument(view);
+    await store.renameDocument(doc.id, 'Renamed');
+    const reread = JSON.parse(await readFile(path.join(root, 'documents', doc.id, 'document.json'), 'utf8'));
+    assert.equal(reread.currentDraftId, one);
+    assert.ok(reread.line.includes(two));
+  });
+});
+
 describe('deleting a document', () => {
   test('removes it and everything of it, and leaves others alone', async () => {
     const { doc, two } = await documentWithDrafts();

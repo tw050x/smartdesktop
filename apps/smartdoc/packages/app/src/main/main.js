@@ -228,6 +228,15 @@ async function sendEverything() {
 }
 
 shared.events.on('folders', () => broadcast('folders', shared.folders));
+// A new name reaches every window showing that document, without redrawing its pages.
+shared.events.on('renamed', (docId) => {
+  for (const { win: browser, workspace: each } of windows.values()) {
+    const doc = each.document;
+    if (doc?.id !== docId) continue;
+    const variation = doc.variations.find((v) => v.id === doc.variationId);
+    browser.webContents.send('names', { document: doc.name, variation: variation.name });
+  }
+});
 shared.events.on('recent', () => {
   broadcast('recent-documents', shared.recent);
   updateMenuFor(lastFocused);
@@ -565,6 +574,9 @@ async function windowForSession(session, startedApp) {
   return ctx;
 }
 
+// Whether a call says what it acts on, whatever the window shows. A variation is of the open document.
+const namesItsTarget = (name, args) => ['delete_document', 'create_folder', 'move_document'].includes(name) || (name === 'rename' && args?.kind !== 'variation');
+
 const aiForServer = {
   alive: ({ session, client }) => sessions.touch(session, client),
   waitCommand: (...args) => waitCommand(...args),
@@ -590,8 +602,7 @@ const aiForServer = {
       if (!READ_ONLY.has(name)) {
         // The user can take the window anywhere, but the AI's changes stay with its document.
         const showing = ctx.workspace.document?.id ?? null;
-        // Deleting names its document, whatever the window shows, and the user answers for it.
-        if (session.docId && showing !== session.docId && name !== 'open_document' && name !== 'delete_document') {
+        if (session.docId && showing !== session.docId && name !== 'open_document' && !namesItsTarget(name, args)) {
           throw new Error(`This window has moved off the document you were working on. Nothing was changed. Tell the user, or call open_document with document_id ${session.docId} to go back to it.`);
         }
         const key = ctx.workspace.claimKey(name, args);
@@ -639,7 +650,7 @@ async function saveDraftAs() {
   const doc = workspace.document;
   if (!doc) return;
   const number = doc.line.indexOf(doc.currentDraftId);
-  const base = doc.name.replace(/\.pdf$/i, '');
+  const base = doc.name.replace(/\.pdf$/i, '').replace(/[/\\:]/g, '-'); // a name can hold what a file's can't
   const { canceled, filePath } = await dialog.showSaveDialog(win(), {
     defaultPath: number === 0 ? `${base}.pdf` : `${base} – Draft ${number}.pdf`,
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
@@ -792,6 +803,7 @@ handle('variation-menu', async ({ docId, variationId }) => {
   // Drafts come newest first, numbered from the original (0).
   const draft = variation.drafts.length - 1;
   Menu.buildFromTemplate([
+    ...(variationId === 'original' ? [] : [{ label: 'Rename', click: () => send('rename-variation', { docId, variationId }) }]),
     { label: 'New Variation from Latest Draft…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
   ]).popup({ window: win() });
 });
@@ -810,6 +822,8 @@ handle('folders', () => workspace.folders);
 handle('set-home-folder', (id) => workspace.setHomeFolder(id));
 handle('create-folder', (name, parentId) => workspace.createFolder(name, parentId));
 handle('rename-folder', (id, name) => workspace.renameFolder(id, name));
+handle('rename-document', (docId, name) => workspace.renameDocument(docId, name));
+handle('rename-variation', (docId, variationId, name) => workspace.renameVariation(docId, variationId, name));
 handle('delete-folder', (id) => workspace.deleteFolder(id));
 handle('move-folder', (id, parentId) => workspace.moveFolder(id, parentId));
 handle('move-document', (docId, folderId) => workspace.moveDocument(docId, folderId));

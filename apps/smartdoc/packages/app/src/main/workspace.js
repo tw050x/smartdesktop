@@ -39,6 +39,14 @@ const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.s
 // What every window shares: the documents on disk, one copy in memory of each record, and the list
 // of recent documents. Its events: 'recent' the list changed, 'review' a review was saved,
 // 'document' a document was saved.
+const MAX_NAME = 200;
+function cleanName(name, what) {
+  const clean = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+  if (!clean) throw new Error(`A ${what} needs a name.`);
+  if (clean.length > MAX_NAME) throw new Error(`That name is too long: ${MAX_NAME} characters at most.`);
+  return clean;
+}
+
 export function createShared(userData) {
   const events = new EventEmitter();
   events.setMaxListeners(0);
@@ -310,7 +318,7 @@ export function createWorkspace(shared) {
     // and per goal in Review and highlight. Null for a change that needs no claim.
     claimKey(name, args = {}) {
       if (!doc) return null;
-      if (!['start_review', 'add_annotation', 'add_finding', 'remove_finding', 'add_highlight', 'remove_highlight', 'commit_review', 'apply_review'].includes(name)) return null;
+      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'commit_review', 'apply_review'].includes(name)) return null;
       const type = name === 'start_review' ? args.type ?? 'improve' : review ? typeOf(review) : null;
       if (!type) return null;
       if (type === 'improve') return `${doc.id}:improve:${doc.variationId}`;
@@ -359,6 +367,55 @@ export function createWorkspace(shared) {
     deleteFolder: (id) => changeFolders(folders.deleteFolder(shared.folders, id)),
     moveFolder: (id, parentId) => changeFolders(folders.moveFolder(shared.folders, id, parentId)),
     moveDocument: (docId, folderId) => changeFolders(folders.moveDocument(shared.folders, docId, folderId)),
+
+    // Renames a document, a variation (not Original, which is the document's own) or a folder.
+    async renameDocument(docId, name) {
+      if (!shared.recent.some((r) => r.id === docId)) throw new Error(`No document ${docId}. list_documents shows the ones there are.`);
+      const clean = cleanName(name, 'document');
+      await store.renameDocument(docId, clean);
+      shared.recent = shared.recent.map((r) => (r.id === docId ? { ...r, name: clean } : r));
+      await saveRecent();
+      shared.events.emit('renamed', docId);
+      return { id: docId, name: clean };
+    },
+    async renameVariation(docId, variationId, name) {
+      if (!docId) requireDoc();
+      const clean = cleanName(name, 'variation');
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = d.variations.find((v) => v.id === variationId);
+      if (!variation) throw new Error(`No variation ${variationId}. list_variations shows the ones there are.`);
+      if (variation.id === store.ORIGINAL) throw new Error('Original is the document’s own line of drafts, so it keeps its name.');
+      variation.name = clean;
+      await store.saveDocument(d);
+      shared.events.emit('recent'); // the home screen lists variations
+      shared.events.emit('renamed', docId);
+      return { id: variationId, name: clean };
+    },
+    async moveDocumentForAi(docId, folderId) {
+      const entry = shared.recent.find((r) => r.id === docId);
+      if (!entry) throw new Error(`No document ${docId}. list_documents shows the ones there are.`);
+      await changeFolders(folders.moveDocument(shared.folders, docId, folderId));
+      return { id: docId, name: entry.name, folder: this.folderPath(docId) };
+    },
+    async createFolderForAi(name, parentId) {
+      const id = await this.createFolder(name, parentId);
+      return { id, name: shared.folders.folders.find((f) => f.id === id).name, path: folders.pathOf(shared.folders, id).map((p) => p.name).join(' / ') };
+    },
+    async renameFolderForAi(id, name) {
+      await changeFolders(folders.renameFolder(shared.folders, id, name));
+      return { id, name: shared.folders.folders.find((f) => f.id === id).name };
+    },
+    // Every folder, for the AI, with the path to it and how much is in it.
+    listFolders() {
+      const state = shared.folders;
+      return state.folders.map((f) => ({
+        id: f.id,
+        name: f.name,
+        path: folders.pathOf(state, f.id).map((p) => p.name).join(' / '),
+        documents: Object.values(state.placement).filter((id) => id === f.id).length,
+        folders: state.folders.filter((c) => c.parentId === f.id).length,
+      }));
+    },
 
     // Deletes a document for good, on the user's say only: the AI has no tool for it.
     async deleteDocument(docId) {
@@ -918,8 +975,14 @@ export function createWorkspace(shared) {
       return item;
     },
 
+    // Removes a finding or a highlight, whichever the open review holds.
+    removeItem(id) {
+      return typeOf(requireOpenReview()) === 'highlights' ? this.removeHighlight(id) : this.removeFinding(id);
+    },
+
     async removeFinding(id) {
       const r = requireType(requireOpenReview(), 'improve');
+      if (!r.items.some((i) => i.id === id)) throw new Error(`No finding ${id}.`);
       r.items = r.items.filter((i) => i.id !== id);
       logTo(r, 'ai', 'removed a finding');
       await saveReview();

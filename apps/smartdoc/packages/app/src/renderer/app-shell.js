@@ -567,13 +567,28 @@ export function startApp(appApi) {
     showView();
   };
 
-  api.onDraftOpened(async ({ document: doc, variation, draft, pdf, review, tool }) => {
-    if (dropping) dropping.opened = true;
-    toolSwitcher.update(tool);
+  // The draft's label in the top bar.
+  let labelled = null; // { doc, variation, draft }
+  function showDraftLabel({ doc, variation, draft }) {
+    labelled = { doc, variation, draft };
     // A variation other than the original is named before the draft.
     const which = draft.isPreview ? `Draft ${draft.number} preview` : draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
     draftLabel.textContent = variation.isOriginal ? which : `${variation.name} · ${which}`;
     draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : doc.name);
+    requestAnimationFrame(placeDraftNav);
+  }
+  // The document showing, or its variation, has a new name.
+  api.onNames?.(({ document: name, variation }) => {
+    if (!current.doc || !labelled) return;
+    current.doc = { ...current.doc, name };
+    marginReview.update({ document: current.doc });
+    showDraftLabel({ ...labelled, doc: current.doc, variation: { ...labelled.variation, name: variation } });
+  });
+
+  api.onDraftOpened(async ({ document: doc, variation, draft, pdf, review, tool }) => {
+    if (dropping) dropping.opened = true;
+    toolSwitcher.update(tool);
+    showDraftLabel({ doc, variation, draft });
     draftPrev.disabled = draft.number === 0;
     draftNext.disabled = draft.isPreview || draft.number === draft.total;
     requestAnimationFrame(placeDraftNav);

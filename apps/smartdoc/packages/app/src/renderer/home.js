@@ -157,11 +157,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     shownFolder = id;
     naming = null;
     api.setHomeFolder?.(id);
-    // The other columns follow the list, unless this is on the way through with a dragged item.
-    if (!keepSelection && selected.doc && folderOf(selected.doc) !== id) {
-      selected = { doc: sorted('documents', documentsIn(id))[0]?.id ?? null, variation: null };
-      load();
-    }
+    if (!keepSelection) followList();
     renderDocuments();
   }
 
@@ -217,7 +213,17 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   function afterFoldersChange() {
     if (shownFolder && !folderById(shownFolder)) shownFolder = null;
     if (cut && !itemExists(cut)) cut = null;
+    followList();
     renderDocuments();
+  }
+  // The other columns show a document in the list: the first, if the selected one isn't, unless a
+  // drag is on its way through.
+  function followList() {
+    if (drag || (selected.doc && folderOf(selected.doc) === shownFolder)) return;
+    const first = sorted('documents', documentsIn(shownFolder))[0]?.id ?? null;
+    if (first === selected.doc) return;
+    selected = { doc: first, variation: null };
+    load();
   }
   const itemExists = ({ kind, id }) => (kind === 'folder' ? folderById(id) : documents.some((d) => d.id === id));
 
@@ -241,28 +247,21 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     naming = target;
     renderDocuments();
   }
-  // The row to type a folder's name in. Enter or leaving it keeps the name; Esc or nothing typed
+  // A row to type a name in. Enter or leaving it keeps the name; Esc, nothing typed or no change
   // leaves things as they were.
-  function namingRow() {
+  function nameRow(value, placeholder, save, done) {
     const item = el('li', 'home-item home-naming');
     const input = el('input', 'home-folder-name');
-    const renaming = naming.folderId ? folderById(naming.folderId) : null;
-    input.value = renaming?.name ?? '';
-    input.placeholder = 'Folder name';
-    input.setAttribute('aria-label', 'Folder name');
-    let done = false;
+    input.value = value;
+    input.placeholder = placeholder;
+    input.setAttribute('aria-label', placeholder);
+    let finished = false;
     const finish = async (keep) => {
-      if (done) return;
-      done = true;
+      if (finished) return;
+      finished = true;
       const name = input.value.trim();
-      const target = naming;
-      naming = null;
-      if (keep && name && name !== renaming?.name) {
-        if (target.folderId) await api.renameFolder(target.folderId, name);
-        else await api.createFolder(name, target.parentId);
-      } else {
-        renderDocuments();
-      }
+      done();
+      if (keep && name && name !== value) await save(name);
     };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -276,6 +275,16 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       input.select();
     });
     return item;
+  }
+  function namingRow() {
+    const target = naming;
+    const done = () => {
+      naming = null;
+      renderDocuments();
+    };
+    if (target.docId) return nameRow(documents.find((d) => d.id === target.docId)?.name ?? '', 'Document name', (name) => api.renameDocument(target.docId, name), done);
+    const save = target.folderId ? (name) => api.renameFolder(target.folderId, name) : (name) => api.createFolder(name, target.parentId);
+    return nameRow(target.folderId ? folderById(target.folderId)?.name ?? '' : '', 'Folder name', save, done);
   }
 
   // Something a dragged item can be dropped on. `place()` is where that puts it; with `opens`, held
@@ -341,7 +350,10 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       item.remove();
       // Called off: back where it started, with nothing moved.
       if (!dropped && from !== shownFolder) showFolder(from);
-      else renderDocuments();
+      else {
+        followList();
+        renderDocuments();
+      }
     });
   }
 
@@ -414,11 +426,18 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     const subfolders = foldersOn ? foldersIn(shownFolder) : [];
     for (const f of subfolders) documentsEl.append(folderRow(f));
     const shown = sorted('documents', foldersOn ? documentsIn(shownFolder) : documents);
+    // With no document here, nothing can be chosen for the other columns to show. They keep their
+    // room, so the list doesn't shift under a drag.
+    for (const list of [variationsEl, draftsEl]) list.parentElement.classList.toggle('home-column-unused', foldersOn && !shown.length);
     if (!shown.length && !subfolders.length && naming?.parentId === undefined) {
       documentsEl.append(el('li', 'home-empty', shownFolder ? 'This folder is empty. Drag documents here, or right-click to paste.' : 'No documents yet. Drop a PDF here, or use File › Open.'));
       return;
     }
     for (const d of shown) {
+      if (naming?.docId === d.id) {
+        documentsEl.append(namingRow());
+        continue;
+      }
       const item = el('li', 'home-item');
       if (cut?.kind === 'document' && cut.id === d.id) item.classList.add('home-cut');
       const row = rowButton(d.id === selected.doc, () => choose(d.id));
@@ -429,10 +448,12 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
         e.stopPropagation();
         if (!foldersOn) return;
         openMenu([
+          { id: 'rename', label: 'Rename' },
           { id: 'cut', label: 'Cut' },
           { separator: true },
           { id: 'delete', label: 'Delete Document…' },
         ], {
+          rename: () => startNaming({ docId: d.id }),
           cut: () => cutItem({ kind: 'document', id: d.id }),
           delete: () => api.deleteDocument(d.id),
         });
@@ -448,9 +469,24 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     return holder;
   }
 
+  let namingVariation = null; // the variation whose name is being typed
+  api.onRenameVariation?.(({ docId, variationId }) => {
+    if (tree?.id !== docId) return;
+    namingVariation = variationId;
+    renderVariations();
+  });
+
   function renderVariations() {
     variationsEl.replaceChildren();
     for (const v of sorted('variations', tree?.variations ?? [])) {
+      if (namingVariation === v.id) {
+        const docId = tree.id;
+        variationsEl.append(nameRow(v.name, 'Variation name', (name) => api.renameVariation(docId, v.id, name), () => {
+          namingVariation = null;
+          renderVariations();
+        }));
+        continue;
+      }
       const item = el('li', 'home-item');
       const row = rowButton(v.id === selected.variation, () => {
         selected.variation = v.id;
