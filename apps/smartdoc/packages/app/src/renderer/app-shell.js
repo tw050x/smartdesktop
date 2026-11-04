@@ -165,6 +165,7 @@ export function startApp(appApi) {
   // goes back to the usual size. The size is kept for every document.
   const MIN_PAGE_WIDTH = 300;
   const MIN_GUTTER = MIN_CARD_WIDTH + CARD_INSET + PAGE_SPACE;
+  const NEAR_PAGE_EDGE = 48; // px either side of a page edge that bring up its resize handle
   const MAX_PAGE_WIDTH = A4_WIDTH * RENDER_SCALE;
   const firstPage = () => pagesEl.querySelector('.page');
 
@@ -214,6 +215,20 @@ export function startApp(appApi) {
     });
     handle.addEventListener('wheel', (e) => documentEl.scrollBy(e.deltaX, e.deltaY), { passive: true });
   }
+
+  // A handle stays faint until the pointer is near its page edge, at any height in the view. Watched
+  // from the document, as the cards in the gutters would catch a hover area's events.
+  const pageResizers = [...document.querySelectorAll('.page-resizer')];
+  const showNearResizers = (x, y) => {
+    const view = documentEl.getBoundingClientRect();
+    const inView = y >= view.top && y < view.bottom && x >= view.left && x < view.right;
+    for (const handle of pageResizers) {
+      const box = handle.getBoundingClientRect();
+      handle.classList.toggle('near', inView && Math.abs(x - (box.left + box.right) / 2) <= NEAR_PAGE_EDGE);
+    }
+  };
+  document.addEventListener('pointermove', (e) => showNearResizers(e.clientX, e.clientY), { passive: true });
+  document.documentElement.addEventListener('pointerleave', () => showNearResizers(-1, -1));
 
   new ResizeObserver(() => {
     pagesEl.querySelectorAll('.page').forEach(fitPage);

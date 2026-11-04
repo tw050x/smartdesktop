@@ -456,8 +456,10 @@ body:not(.has-document) .review-bar { display: none; }
   height: 108px;
   border-radius: 2px;
   background: var(--border-strong);
-  transition: background-color 0.15s;
+  opacity: 0.3;
+  transition: background-color 0.15s, opacity 0.15s;
 }
+.page-resizer.near::after, .page-resizer:hover::after, .page-resizing .page-resizer::after { opacity: 1; }
 .page-resizer:hover::after, .page-resizing .page-resizer::after { background: var(--accent); }
 .page-resizing, .page-resizing * { cursor: col-resize !important; user-select: none !important; }
 body:not(.has-document) .page-resizer, .comparing .page-resizer, .list-view-open .page-resizer { display: none; }
