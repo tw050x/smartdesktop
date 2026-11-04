@@ -228,6 +228,7 @@ async function sendEverything() {
 }
 
 shared.events.on('folders', () => broadcast('folders', shared.folders));
+shared.events.on('labels', () => broadcast('labels', shared.labels));
 // A new name reaches every window showing that document, without redrawing its pages.
 shared.events.on('renamed', (docId) => {
   for (const { win: browser, workspace: each } of windows.values()) {
@@ -773,6 +774,7 @@ handle('draft-menu', async ({ docId, variationId, draftId, draft }) => {
   Menu.buildFromTemplate([
     { label: 'New Variation…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
     { label: 'New Document from Draft', click: () => documentFromDraft(docId, variationId, draftId) },
+    { label: 'Add Label…', click: () => send('label-requested', [docId, variationId, draftId]) },
     { type: 'separator' },
     { label: 'Delete this draft', enabled: await workspace.canDeleteDraft(docId, variationId, draftId), click: () => deleteDraft(docId, variationId, draftId, draft) },
   ]).popup({ window: win() });
@@ -805,6 +807,7 @@ handle('variation-menu', async ({ docId, variationId }) => {
   Menu.buildFromTemplate([
     ...(variationId === 'original' ? [] : [{ label: 'Rename', click: () => send('rename-variation', { docId, variationId }) }]),
     { label: 'New Variation from Latest Draft…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
+    { label: 'Add Label…', click: () => send('label-requested', [docId, variationId]) },
   ]).popup({ window: win() });
 });
 // Back to the home screen: the document closes (everything is already saved).
@@ -819,6 +822,10 @@ handle('home-menu', (items) => new Promise((resolve) => {
   });
 }));
 handle('folders', () => workspace.folders);
+handle('labels', () => workspace.labels);
+handle('add-label', (item, name) => workspace.addLabel(item, name));
+handle('remove-label', (item, labelId) => workspace.removeLabel(item, labelId));
+handle('set-label-color', (labelId, color) => workspace.setLabelColor(labelId, color));
 handle('set-home-folder', (id) => workspace.setHomeFolder(id));
 handle('create-folder', (name, parentId) => workspace.createFolder(name, parentId));
 handle('rename-folder', (id, name) => workspace.renameFolder(id, name));

@@ -10,12 +10,17 @@
 // home-level.js): opening one replaces the list, and a row under the column's title shows the path back, so folders can nest to any depth. Things move by
 // dragging onto a folder, the path or the list, where hovering over a folder or the back arrow
 // opens it on the way; or by Cut and Paste. Folders only organise the list (see main/folders.js).
+//
+// Documents, variations and drafts can have labels the user defines, at the bottom of their rows:
+// right-click an item to add one, typing a name or choosing one of its scope, and right-click a label
+// for its color. Labels show on everything below the item they're on (see main/labels.js).
 
 import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
 import { levelOf } from './home-level.js';
 import { actionFor } from './home-review-state.js';
+import { LABEL_COLORS, NO_LABELS, labelsOn, labelsToChoose } from '../main/labels.js';
 
 const icon = (paths, size = 14) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const arrowIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
@@ -122,6 +127,112 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     list.previousElementSibling.append(label);
   }
   const sorted = (column, list) => sorts[column][2](list);
+
+  // --- Labels --------------------------------------------------------------------------------
+  const labelsEnabled = Boolean(api.labels);
+  let labelState = NO_LABELS;
+  let labelling = null; // the path of the item a label is being added to, and what's typed so far
+  let labelTyped = '';
+  const sameItem = (a, b) => a?.join('/') === b?.join('/');
+  function renderLabelled() {
+    renderDocuments();
+    renderVariations();
+    renderDrafts();
+  }
+  function startLabelling(item) {
+    labelling = item;
+    labelTyped = '';
+    renderLabelled();
+  }
+  function stopLabelling() {
+    if (!labelling) return;
+    labelling = null;
+    renderLabelled();
+  }
+  if (labelsEnabled) {
+    api.onLabels((next) => {
+      labelState = next;
+      renderLabelled();
+    });
+    api.labels().then((next) => {
+      labelState = next;
+      renderLabelled();
+    });
+    api.onLabelRequested(startLabelling);
+    document.addEventListener('pointerdown', (e) => {
+      if (labelling && !e.target.closest?.('.home-label-editor')) stopLabelling();
+    });
+  }
+  // A label's right-click menu: its color, and taking it off the item it's on. `item` is null where
+  // it isn't on the item, inherited from above or still to be chosen.
+  function labelMenu(label, item) {
+    openMenu([
+      ...LABEL_COLORS.map(([id, name]) => ({ id, label: id === label.color ? `✓ ${name}` : name })),
+      ...(item ? [{ separator: true }, { id: 'remove', label: 'Remove Label' }] : []),
+    ], {
+      ...Object.fromEntries(LABEL_COLORS.map(([id]) => [id, () => api.setLabelColor(label.id, id)])),
+      remove: () => api.removeLabel(item, label.id),
+    });
+  }
+  function labelChip(label, onMenu) {
+    const chip = el('span', 'home-label', label.name);
+    chip.style.setProperty('--label-color', LABEL_COLORS.find(([id]) => id === label.color)[2]);
+    chip.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onMenu();
+    });
+    return chip;
+  }
+  // The labels at the bottom of an item's row, if it has any.
+  function labelsRow(item) {
+    const shown = labelsOn(labelState, item);
+    if (!shown.length) return null;
+    const row = el('span', 'home-labels');
+    for (const label of shown) {
+      const chip = labelChip(label, () => labelMenu(label, label.inherited ? null : item));
+      if (label.inherited) chip.title = 'Inherited from above';
+      row.append(chip);
+    }
+    return row;
+  }
+  // Where a label is typed, or chosen from those its scope already has. It stays open to add more,
+  // until Esc, Enter with nothing typed or a click elsewhere.
+  function labelEditor(item) {
+    if (!sameItem(labelling, item)) return null;
+    const editor = el('div', 'home-label-editor');
+    const input = el('input', 'home-folder-name');
+    input.value = labelTyped;
+    input.placeholder = 'Label name';
+    input.setAttribute('aria-label', 'Label name');
+    input.addEventListener('input', () => {
+      labelTyped = input.value;
+    });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') stopLabelling();
+      if (e.key !== 'Enter') return;
+      const name = input.value.trim();
+      if (!name) return stopLabelling();
+      labelTyped = '';
+      input.value = '';
+      api.addLabel(item, name);
+    });
+    editor.append(input);
+    const choices = labelsToChoose(labelState, item);
+    if (choices.length) {
+      const list = el('div', 'home-labels');
+      for (const label of choices) {
+        const chip = labelChip(label, () => labelMenu(label, null));
+        chip.classList.add('home-label-choice');
+        chip.addEventListener('click', () => api.addLabel(item, label.name));
+        list.append(chip);
+      }
+      editor.append(list);
+    }
+    requestAnimationFrame(() => input.focus());
+    return editor;
+  }
 
   // --- Folders -------------------------------------------------------------------------------
   const foldersOn = Boolean(api.showHomeMenu);
@@ -442,6 +553,8 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     if (cut?.kind === 'document' && cut.id === d.id) item.classList.add('home-cut');
     const row = rowButton(d.id === selected.doc, () => choose(d.id));
     row.append(el('span', 'home-title', d.name), el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
+    const labelled = labelsRow([d.id]);
+    if (labelled) row.append(labelled);
     row.title = d.name;
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -450,16 +563,20 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       openMenu([
         { id: 'rename', label: 'Rename' },
         { id: 'cut', label: 'Cut' },
+        { id: 'label', label: 'Add Label…' },
         { separator: true },
         { id: 'delete', label: 'Delete Document…' },
       ], {
         rename: () => startNaming({ docId: d.id }),
         cut: () => cutItem({ kind: 'document', id: d.id }),
+        label: () => startLabelling([d.id]),
         delete: () => api.deleteDocument(d.id),
       });
     });
     makeDraggable(item, 'document', d.id);
     item.append(row);
+    const editor = labelEditor([d.id]);
+    if (editor) item.append(editor);
     return item;
   }
   let holder = null;
@@ -496,11 +613,15 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       if (v.purpose && v.purpose !== v.name) row.append(el('span', 'home-purpose', v.purpose));
       const count = v.drafts.length - 1;
       row.append(el('span', 'home-meta', [count ? `${count} draft${count === 1 ? '' : 's'}` : 'No drafts yet', v.from && `from ${v.from}`].filter(Boolean).join(' · ')));
+      const labelled = labelsRow([tree.id, v.id]);
+      if (labelled) row.append(labelled);
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         api.showVariationMenu({ docId: tree.id, variationId: v.id });
       });
       item.append(row);
+      const editor = labelEditor([tree.id, v.id]);
+      if (editor) item.append(editor);
       variationsEl.append(item);
     }
   }
@@ -527,11 +648,15 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       }
       row.append(head, el('span', 'home-meta', [formatDate(d.createdAt), d.shared && `from ${d.shared}`].filter(Boolean).join(' · ')));
       if (d.summary) row.append(el('span', 'home-summary', d.summary));
+      const labelled = labelsRow([tree.id, variation.id, d.id]);
+      if (labelled) row.append(labelled);
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         api.showDraftMenu({ docId: tree.id, variationId: variation.id, draftId: d.id, draft: number });
       });
       item.append(row);
+      const editor = labelEditor([tree.id, variation.id, d.id]);
+      if (editor) item.append(editor);
       // A line per tool: where its review stands, or, with none yet, a way to start one (a card
       // saying what it's for, see openStartCard).
       const list = el('div', 'home-reviews');

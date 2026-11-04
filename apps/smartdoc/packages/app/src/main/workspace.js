@@ -6,6 +6,7 @@ import { resolveQuote } from './anchors.js';
 import { commentsSincePreview, previewComments, unansweredRequests } from './comments.js';
 import { renderHtmlToPdf } from './render-draft.js';
 import * as folders from './folders.js';
+import * as labels from './labels.js';
 import { createStore, logTo } from './store.js';
 import { MAX_READ_CHARS, estimateTokens, findText, parsePages, textStats } from './text-stats.js';
 
@@ -54,7 +55,7 @@ export function createShared(userData) {
     onReview: (r) => events.emit('review', r),
     onDocument: (d) => events.emit('document', d),
   });
-  return { store, events, recent: [], folders: folders.NO_FOLDERS, userData };
+  return { store, events, recent: [], folders: folders.NO_FOLDERS, labels: labels.NO_LABELS, userData };
 }
 
 export function createWorkspace(shared) {
@@ -63,6 +64,7 @@ export function createWorkspace(shared) {
   events.setMaxListeners(0); // waits on the page texts add listeners of their own
   const recentFile = path.join(userData, 'recent-documents.json');
   const foldersFile = path.join(userData, 'folders.json');
+  const labelsFile = path.join(userData, 'labels.json');
   let homeFolder = null; // the folder this window's home screen shows: where a new document goes
 
   let doc = null; // the open document's record
@@ -301,6 +303,13 @@ export function createWorkspace(shared) {
     await rename(tmp, foldersFile);
     shared.events.emit('folders');
   }
+  async function changeLabels(next) {
+    shared.labels = next;
+    const tmp = `${labelsFile}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next));
+    await rename(tmp, labelsFile);
+    shared.events.emit('labels');
+  }
 
   async function saveRecent() {
     await writeFile(recentFile, JSON.stringify(shared.recent)).catch(() => {});
@@ -347,6 +356,8 @@ export function createWorkspace(shared) {
       }
       shared.folders = folders.readFolders(await readFile(foldersFile, 'utf8').then(JSON.parse).catch(() => null));
       shared.events.emit('folders');
+      shared.labels = labels.readLabels(await readFile(labelsFile, 'utf8').then(JSON.parse).catch(() => null));
+      shared.events.emit('labels');
       shared.events.emit('recent');
     },
 
@@ -367,6 +378,11 @@ export function createWorkspace(shared) {
     deleteFolder: (id) => changeFolders(folders.deleteFolder(shared.folders, id)),
     moveFolder: (id, parentId) => changeFolders(folders.moveFolder(shared.folders, id, parentId)),
     moveDocument: (docId, folderId) => changeFolders(folders.moveDocument(shared.folders, docId, folderId)),
+
+    get labels() { return shared.labels; },
+    addLabel: (item, name) => changeLabels(labels.addLabel(shared.labels, item, name, `label-${randomUUID().slice(0, 8)}`)),
+    removeLabel: (item, labelId) => changeLabels(labels.removeLabel(shared.labels, item, labelId)),
+    setLabelColor: (labelId, color) => changeLabels(labels.setLabelColor(shared.labels, labelId, color)),
 
     // Renames a document, a variation (not Original, which is the document's own) or a folder.
     async renameDocument(docId, name) {
@@ -422,6 +438,7 @@ export function createWorkspace(shared) {
       await store.deleteDocument(docId);
       shared.recent = shared.recent.filter((r) => r.id !== docId);
       await changeFolders(folders.removeDocument(shared.folders, docId));
+      await changeLabels(labels.removeItem(shared.labels, [docId]));
       await saveRecent();
     },
 
@@ -1225,6 +1242,7 @@ export function createWorkspace(shared) {
     async deleteDraft(docId, variationId, draftId) {
       const d = doc?.id === docId ? doc : await store.loadDocument(docId);
       await store.deleteDraft(d, variationId, draftId);
+      await changeLabels(labels.removeItem(shared.labels, [docId, variationId, draftId]));
       if (doc?.id === docId) await showDraft(doc.currentDraftId);
       shared.events.emit('recent'); // the home screen lists drafts
     },
