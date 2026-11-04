@@ -15,6 +15,7 @@ import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
 import { levelOf } from './home-level.js';
+import { actionFor } from './home-review-state.js';
 
 const icon = (paths, size = 14) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const arrowIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
@@ -514,7 +515,17 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       const item = el('li', 'home-item home-draft');
       const row = rowButton(false, () => api.openDraft(tree.id, variation.id, d.id), openIcon);
       row.title = `Open ${d.label}`;
-      row.append(el('span', 'home-title', d.label), el('span', 'home-meta', [formatDate(d.createdAt), d.shared && `from ${d.shared}`].filter(Boolean).join(' · ')));
+      // What the draft's review is waiting for the user to do: its labels all beside the title, or
+      // all under it if they don't fit.
+      const head = el('span', 'home-title-row');
+      head.append(el('span', 'home-title', d.label));
+      const action = actionFor(d.reviews?.improve);
+      if (action) {
+        const pills = el('span', 'home-pills');
+        pills.append(el('span', 'home-pill', action));
+        head.append(pills);
+      }
+      row.append(head, el('span', 'home-meta', [formatDate(d.createdAt), d.shared && `from ${d.shared}`].filter(Boolean).join(' · ')));
       if (d.summary) row.append(el('span', 'home-summary', d.summary));
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();

@@ -597,6 +597,12 @@ body:not(.has-document) .pages-wrap { display: none; }
 }
 .home-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .home-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
+/* A title and its pills share a line only if every pill fits; otherwise they all go under the title,
+   as one group that wraps within itself. */
+.home-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.home-title-row .home-title { min-width: 0; }
+.home-pills { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.home-pill { flex: none; padding: 1px 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .home-purpose, .home-summary {
   display: -webkit-box;
   overflow: hidden;
