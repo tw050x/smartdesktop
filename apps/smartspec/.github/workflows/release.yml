@@ -1,0 +1,221 @@
+name: Release
+
+# Run by hand (Actions → Release → Run workflow) on the branch to release. The release only
+# goes ahead once the Prerequisites workflow has passed on the same commit; if it's still
+# running, this waits.
+#
+# One version is released everywhere at once (packages/app/package.json and
+# packages/cli/package.json must match; the tests check):
+#   - the macOS app, signed and notarised, as a disk image per architecture, SmartSpec-mac-<arch>.dmg
+#     (no version in the name, so a link to the latest release's stays good), with SmartSpec's
+#     MCP launcher inside it
+#   - a zip per architecture, and latest-mac.yml listing them, which the app's updater reads
+#     from the latest release (electron-updater); and their blockmaps, for smaller updates
+#   - SHA256SUMS.txt
+#   - the smartspec command on npm as @smartspec/cli: install, setup, doctor, and the MCP
+#     connection for agents set up with npx
+# Windows and Linux builds follow once they're signed too; the launcher says so meanwhile.
+#
+# Without "publish" ticked this is a dry run: it builds everything and reports what it would
+# release, but creates no tag, release or npm version. Publishing refuses to run unless the
+# app is signed and notarised, so an unsigned build can't be released by accident.
+#
+# Secrets (scripts/set-release-secrets.sh sets them): CSC_LINK (the Developer ID Application
+# certificate as base64 .p12) and CSC_KEY_PASSWORD; APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
+# APPLE_TEAM_ID for notarising. npm needs no secret: @smartspec/cli trusts this workflow to publish
+# it (trusted publishing, set in the package's settings on npmjs.com), which GitHub proves with
+# the job's OIDC token. A package has to exist before it can trust a workflow, so its first
+# version has to be published by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release (unticked is a dry run)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prerequisites:
+    name: Wait for Prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check for a successful Prerequisites run on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          while true; do
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow prerequisites.yml --commit "$GITHUB_SHA" \
+              --limit 1 --json status,conclusion,url --jq '.[0] // empty')
+            if [ -z "$run" ]; then
+              echo "No Prerequisites run for $GITHUB_SHA yet. Waiting…"
+            else
+              status=$(jq -r .status <<<"$run")
+              conclusion=$(jq -r .conclusion <<<"$run")
+              url=$(jq -r .url <<<"$run")
+              if [ "$status" = completed ]; then
+                if [ "$conclusion" = success ]; then
+                  echo "Prerequisites passed: $url"
+                  exit 0
+                fi
+                echo "::error::Prerequisites did not pass ($conclusion): $url"
+                exit 1
+              fi
+              echo "Prerequisites is $status: $url. Waiting…"
+            fi
+            sleep 20
+          done
+
+  build:
+    name: Build (macOS)
+    needs: prerequisites
+    runs-on: macos-latest
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Check signing
+        id: signing
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          if [ -n "$CSC_LINK" ] && [ -n "$APPLE_ID" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            if [ "$PUBLISH" = true ]; then
+              echo "::error::Publishing needs the app signed and notarised: set the signing and notarising secrets first."
+              exit 1
+            fi
+            echo "::warning::Signing secrets aren't set, so this dry run builds the app unsigned."
+          fi
+
+      # electron-builder signs with CSC_LINK and notarises when the APPLE_* variables are set.
+      - name: Build the app
+        run: npm run dist
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.signed }}
+
+      - name: Check the signature and notarisation
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          for zip in dist/smartspec-*-mac-*.zip; do
+            dir=$(mktemp -d)
+            ditto -x -k "$zip" "$dir"
+            codesign --verify --deep --strict --verbose=2 "$dir/SmartSpec.app"
+            spctl --assess --type execute --verbose "$dir/SmartSpec.app"
+            xcrun stapler validate "$dir/SmartSpec.app"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            dist/smartspec-*-mac-*.zip
+            dist/smartspec-*-mac-*.zip.blockmap
+            dist/SmartSpec-mac-*.dmg
+            dist/latest-mac.yml
+          if-no-files-found: error
+
+  release:
+    name: ${{ inputs.publish && 'Publish' || 'Dry run (no release)' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # npm trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: artifacts
+
+      - name: Write the checksums
+        working-directory: artifacts
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Check the version is free
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./packages/app/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          problems=""
+          # A GitHub release for this version, with the command (packages/cli) unchanged since its
+          # tag, was made by a run that stopped before npm: this run finishes it, on npm only.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --silent 2>/dev/null; then
+            changed=$(gh api "repos/$GITHUB_REPOSITORY/compare/v$version...$GITHUB_SHA" \
+              --jq '[.files[]?.filename | select(startswith("packages/cli/"))] | length' 2>/dev/null || echo unknown)
+            if [ "$changed" = 0 ] && gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "released=true" >> "$GITHUB_OUTPUT"
+            else
+              problems="$problems Tag v$version already exists."
+            fi
+          fi
+          if npm view "@smartspec/cli@$version" version >/dev/null 2>&1; then
+            problems="$problems @smartspec/cli@$version is already on npm."
+          fi
+          echo "problems=$problems" >> "$GITHUB_OUTPUT"
+
+      - name: Report
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PROBLEMS: ${{ steps.version.outputs.problems }}
+          SIGNED: ${{ needs.build.outputs.signed }}
+          PUBLISH: ${{ inputs.publish }}
+          RELEASED: ${{ steps.version.outputs.released }}
+        run: |
+          {
+            if [ "$PUBLISH" = true ]; then echo "## Releasing $VERSION"; else echo "## Dry run: nothing was released"; fi
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Version **$VERSION** as tag **v$VERSION** and npm @smartspec/cli@$VERSION."
+            echo "- Signed and notarised: $SIGNED"
+            if [ "$RELEASED" = true ]; then echo "- The GitHub release v$VERSION already exists, with the same launcher: finishing it, on npm."; fi
+            if [ -n "$PROBLEMS" ]; then
+              echo "- ⚠️$PROBLEMS Bump the version in packages/app/package.json and packages/cli/package.json."
+            fi
+            echo "- Files:"
+            for f in artifacts/*; do echo "  - $(basename "$f")"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+          if [ "$PUBLISH" = true ] && [ -n "$PROBLEMS" ]; then exit 1; fi
+
+      # The GitHub release comes first: the npm package downloads the app from it.
+      - name: Create the GitHub release
+        if: inputs.publish && steps.version.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release create "v$VERSION" artifacts/* --target "$GITHUB_SHA" --title "SmartSpec $VERSION" --generate-notes
+
+      # Staged: the trusted publisher only allows `npm stage publish` (npm 11.15.0 or later; Node 22
+      # comes with npm 10), so the version waits on npmjs.com until a maintainer approves it.
+      - name: Stage on npm
+        if: inputs.publish
+        run: |
+          npm install -g npm@^11.15.0
+          npm stage publish -w @smartspec/cli --provenance --access public

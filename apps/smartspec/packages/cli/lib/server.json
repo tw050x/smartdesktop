@@ -1,0 +1,35 @@
+{
+  "protocolVersions": [
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+    "2024-10-07"
+  ],
+  "capabilities": {
+    "tools": {
+      "listChanged": true
+    }
+  },
+  "instructions": "This server is SmartSpec: a desktop app for planning systems and the contracts between them. Each AI session has a SmartSpec window of its own, opened by its first tool call. SmartSpec is at an early stage: its planning tools aren't built yet, so for now it can only say what it is, with get_app_info.",
+  "tools": [
+    {
+      "name": "get_app_info",
+      "description": "The app's name and version.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ],
+  "prompts": []
+}

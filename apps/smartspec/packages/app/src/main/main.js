@@ -1,0 +1,313 @@
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createConnect } from './connect.js';
+import { MCP_PORT, startMcpServer } from './mcp-server.js';
+import { clientLabel, createSessions } from './sessions.js';
+import { buildMenu } from './menu.js';
+import { createUpdates } from './updates.js';
+
+const dirname = path.dirname(fileURLToPath(import.meta.url));
+const SWEEP_MS = 15 * 1000;
+const TOP_BAR_HEIGHT = 44;
+// Height of the area macOS reserves for the traffic lights (the circles sit centred in it).
+const TRAFFIC_LIGHTS_HEIGHT = 16;
+
+// A development copy keeps its data in a folder of its own, SmartSpec Dev (and its MCP server on a
+// port of its own, see mcp-server.js), so it never reads or overwrites the installed app's data,
+// and the two can run side by side: the app allows one copy per data folder. Automated tests
+// point it at a separate folder again (SMARTSPEC_USER_DATA) and port (SMARTSPEC_PORT), so a test
+// copy can run beside both. Set before the app is ready so Chromium's own storage moves too. The
+// packaged app ignores both.
+if (!app.isPackaged) {
+  app.setPath('userData', process.env.SMARTSPEC_USER_DATA ? path.resolve(process.env.SMARTSPEC_USER_DATA) : path.join(app.getPath('appData'), 'SmartSpec Dev'));
+}
+
+// One copy of the app runs at a time (per data folder). Every AI app connects to it, and opening
+// it again just brings its window forward.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => {
+  if (!app.isReady()) return;
+  if (!lastFocused) return createWindow();
+  if (lastFocused.win.isMinimized()) lastFocused.win.restore();
+  lastFocused.win.focus();
+});
+
+const windows = new Map(); // webContents id → { win, ready, session, untouched }
+let lastFocused = null;
+let mcp = null; // { url, token } once the MCP server is listening
+let mcpStarting = true;
+
+// For every window: what's the same in all of them.
+const broadcast = (channel, value) => {
+  for (const { win } of windows.values()) win.webContents.send(channel, value);
+};
+
+// --- Appearance ----------------------------------------------------------------------------
+
+// Light, dark, or as the system is: chosen in Settings and kept in settings.json, with the app's
+// data. Electron's theme then has the interface's styles follow it (their light-dark() colours,
+// see styles.css), and its native menus and dialogs too.
+const APPEARANCES = ['system', 'light', 'dark'];
+const settingsFile = path.join(app.getPath('userData'), 'settings.json');
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+function setAppearance(appearance) {
+  if (!APPEARANCES.includes(appearance)) return;
+  nativeTheme.themeSource = appearance;
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  fs.writeFileSync(settingsFile, JSON.stringify({ ...readSettings(), appearance }, null, 2));
+}
+nativeTheme.themeSource = APPEARANCES.includes(readSettings().appearance) ? readSettings().appearance : 'system';
+
+// The window's own colours, which the interface can't set: its background (showing as it opens
+// or resizes) and, on Windows and Linux, the title bar's (the top bar's, see styles.css).
+const windowColours = () => (nativeTheme.shouldUseDarkColors
+  ? { background: '#161618', bar: '#1f1f22', symbols: '#d1d1d6' }
+  : { background: '#ebebef', bar: '#dcdce1', symbols: '#3c3c43' });
+nativeTheme.on('updated', () => {
+  const colours = windowColours();
+  for (const { win } of windows.values()) {
+    win.setBackgroundColor(colours.background);
+    if (process.platform !== 'darwin') win.setTitleBarOverlay({ color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT });
+  }
+});
+
+// --- Windows -------------------------------------------------------------------------------
+
+// Frameless window: the interface draws its own top bar. macOS keeps its traffic lights,
+// placed in the top bar; Windows and Linux get the system window controls drawn over it.
+function createWindow({ focus = true } = {}) {
+  const colours = windowColours();
+  const frame = process.platform === 'darwin'
+    ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
+    : { titleBarStyle: 'hidden', titleBarOverlay: { color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT } };
+
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 760,
+    minHeight: 480,
+    title: 'SmartSpec',
+    backgroundColor: colours.background,
+    show: focus,
+    ...frame,
+    webPreferences: {
+      preload: path.join(dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  const ctx = { win, ready: null, session: null, untouched: true };
+  const contentsId = win.webContents.id;
+  windows.set(contentsId, ctx);
+  lastFocused = ctx;
+  updateMenu();
+  win.on('focus', () => {
+    lastFocused = ctx;
+  });
+  ctx.ready = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
+  ctx.ready.then(() => {
+    win.webContents.send('mcp-status', mcpStatus());
+    if (ctx.session) win.webContents.send('ai-control', clientLabel(ctx.session.client));
+  });
+  win.loadFile(path.join(dirname, '../../build/renderer/index.html'));
+
+  win.on('closed', () => {
+    windows.delete(contentsId);
+    if (lastFocused === ctx) lastFocused = [...windows.values()].at(-1) ?? null;
+    // The AI gets a new window, the next time it needs one.
+    if (ctx.session) ctx.session.ctx = null;
+    updateMenu();
+  });
+  return ctx;
+}
+
+const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : { state: mcpStarting ? 'starting' : 'off' });
+
+function updateMenu() {
+  Menu.setApplicationMenu(buildMenu({
+    hasWindow: windows.size > 0,
+    actions: {
+      newWindow: () => createWindow(),
+      close: () => lastFocused?.win.close(),
+      showConnectAi,
+    },
+  }));
+}
+
+// --- AI sessions ---------------------------------------------------------------------------
+// Each AI session has a window of its own, opened by its first tool call, whatever windows the user
+// has open: theirs are left alone. The one exception is the window SmartSpec opened on launch, when
+// the AI's launcher is what started it. A window closed is opened again by the session's next call.
+
+const sessions = createSessions();
+
+function setSessionWindow(session, ctx) {
+  session.ctx = ctx;
+  ctx.session = session;
+  ctx.untouched = false;
+  ctx.ready.then(() => ctx.win.webContents.send('ai-control', clientLabel(session.client)));
+}
+
+// Gives a window back to the user, whichever way the session stopped.
+function releaseWindow(session) {
+  const { ctx } = session;
+  session.ctx = null;
+  if (ctx) {
+    ctx.session = null;
+    ctx.win.webContents.send('ai-control', null);
+  }
+}
+
+async function windowForSession(session, startedApp) {
+  if (session.ctx) return session.ctx;
+  const launch = startedApp && [...windows.values()].find((c) => c.untouched && !c.session);
+  const ctx = launch || createWindow({ focus: false });
+  await ctx.ready;
+  setSessionWindow(session, ctx);
+  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  return ctx;
+}
+
+const aiForServer = {
+  alive: ({ session, client }) => sessions.touch(session, client),
+  ended({ session }) {
+    const ended = session && sessions.get(session);
+    if (!ended) return;
+    releaseWindow(ended);
+    sessions.end(session);
+  },
+  async call({ session: id, client, startedApp }, _name, _args, run) {
+    await windowForSession(sessions.touch(id, client), startedApp);
+    return run();
+  },
+};
+
+function sweepSessions() {
+  for (const { session } of windows.values()) {
+    if (session && !sessions.alive(session)) releaseWindow(session);
+  }
+  sessions.sweep();
+}
+
+// --- Connecting an AI --------------------------------------------------------------------
+// AI apps start SmartSpec's MCP launcher, which is inside the app (see connect.js). The MCP panel
+// (opened from the server pill, or Connect an AI in the menu) shows how to set up each AI app,
+// and can add SmartSpec to Claude Desktop itself.
+
+const { setups, claudeDesktopStatus, addToClaudeDesktop } = createConnect({
+  isPackaged: app.isPackaged,
+  execPath: process.execPath,
+  resourcesPath: process.resourcesPath,
+  appPath: app.getAppPath(),
+  userData: app.getPath('userData'),
+  port: MCP_PORT,
+});
+
+async function showConnectAi() {
+  const ctx = lastFocused ?? createWindow();
+  await ctx.ready;
+  ctx.win.webContents.send('show-connect');
+}
+
+async function confirmAddToClaudeDesktop(ctx) {
+  const status = await claudeDesktopStatus();
+  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+    type: 'question',
+    message: status.state === 'different' ? 'Update SmartSpec in Claude Desktop?' : 'Add SmartSpec to Claude Desktop?',
+    detail: 'SmartSpec adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
+    buttons: [status.state === 'different' ? 'Update' : 'Add', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response !== 0) return status;
+  return addToClaudeDesktop();
+}
+
+// macOS: AI apps start SmartSpec from where it's installed, so a copy run from the disk image or
+// Downloads is offered a move to Applications (which opens it again from there).
+async function offerMoveToApplications(ctx) {
+  if (!app.isPackaged || process.platform !== 'darwin' || app.isInApplicationsFolder()) return;
+  const { response } = await dialog.showMessageBox(ctx.win, {
+    type: 'question',
+    message: 'Move SmartSpec to your Applications folder?',
+    detail: 'Your agent opens SmartSpec from where it’s installed, so it works best in Applications.',
+    buttons: ['Move to Applications', 'Not Now'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response !== 0) return;
+  try {
+    app.moveToApplicationsFolder();
+  } catch (error) {
+    dialog.showErrorBox('SmartSpec couldn’t be moved', `${error.message}\n\nDrag SmartSpec into your Applications folder in Finder instead.`);
+  }
+}
+
+// --- Updates -----------------------------------------------------------------------------
+
+const updates = createUpdates({ report: (status) => broadcast('updates', status) });
+
+// --- Window requests ---------------------------------------------------------------------
+
+// Whatever a window asks for, it asks about itself: each handler gets that window first.
+const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+  try {
+    return { ok: true, value: await fn(windows.get(event.sender.id) ?? lastFocused, ...args) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+// Setup for each AI app, shown and copied for pasting (see connect.js).
+async function mcpSetup(target) {
+  const all = await setups();
+  if (!all[target]) throw new Error(`Unknown AI app: ${target}`);
+  return all[target];
+}
+
+// The user can always take a window back from an AI, in the MCP panel.
+handle('ai-control-release', ({ session }) => {
+  if (session) releaseWindow(session);
+});
+handle('mcp-setup', (_ctx, target) => mcpSetup(target));
+handle('copy-mcp-setup', async (_ctx, target) => clipboard.writeText(await mcpSetup(target)));
+handle('claude-desktop-status', () => claudeDesktopStatus());
+handle('add-to-claude-desktop', (ctx) => confirmAddToClaudeDesktop(ctx));
+handle('get-updates', () => updates.status);
+handle('check-updates', () => updates.check());
+handle('install-update', () => updates.install());
+handle('get-appearance', () => nativeTheme.themeSource);
+handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
+
+// --- App lifecycle -----------------------------------------------------------------------
+
+app.whenReady().then(async () => {
+  const first = createWindow();
+  try {
+    mcp = await startMcpServer(aiForServer, app.getPath('userData'));
+    setInterval(sweepSessions, SWEEP_MS).unref();
+  } catch {
+    mcp = null; // e.g. the port is taken by another copy of the app
+  }
+  mcpStarting = false;
+  broadcast('mcp-status', mcpStatus());
+  updates.start();
+  await first.ready;
+  offerMoveToApplications(first);
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

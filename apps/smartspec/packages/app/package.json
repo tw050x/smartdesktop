@@ -1,0 +1,91 @@
+{
+  "name": "@smartspec/app",
+  "productName": "SmartSpec",
+  "version": "0.1.0",
+  "description": "Plan systems and define the contracts between them, with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "dist": "vite build && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0",
+    "vite": "8.3.5"
+  },
+  "build": {
+    "appId": "com.tw050x.smartspec",
+    "productName": "SmartSpec",
+    "directories": {
+      "output": "../../dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "src/main/**/*",
+      "build/renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../cli",
+        "to": "cli",
+        "filter": [
+          "cli.js",
+          "mcp.js",
+          "lib/**/*",
+          "package.json"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tw050x",
+        "repo": "smartspec"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "dmg": {
+      "artifactName": "SmartSpec-mac-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    },
+    "artifactName": "smartspec-${version}-${os}-${arch}.${ext}"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "electron-updater": "6.8.11",
+    "zod": "4.6.7"
+  }
+}

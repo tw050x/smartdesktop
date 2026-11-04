@@ -1,0 +1,326 @@
+:root {
+  /* Light or dark, as the app's Appearance setting has it (nativeTheme in main.js), or as the
+     system does; each colour below is light-dark(its light value, its dark value). */
+  color-scheme: light dark;
+  --top-bar-height: 44px;
+
+  --bg: light-dark(#ffffff, #232326); /* cards and panels */
+  --border: light-dark(#e2e2e7, #3a3a3f);
+  --border-strong: light-dark(#c4c4cb, #4a4a50);
+  --text: light-dark(#1d1d1f, #f2f2f4);
+  --text-2: light-dark(#3c3c43, #d1d1d6); /* body text on cards, a step softer than --text */
+  --muted: light-dark(#6e6e73, #a1a1a8);
+  --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
+  --button-hover: light-dark(#e6e6ea, #2e2e33);
+  --button-active: light-dark(#dadadf, #38383e);
+  --window-bg: light-dark(#ebebef, #161618);
+  --top-bar-bg: light-dark(#dcdce1, #1f1f22); /* a shade apart from the background below it (and main.js's title bar overlay) */
+  --accent: light-dark(#2f6fde, #4a86ee);
+  --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
+  --card-radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  grid-template-rows: var(--top-bar-height) 1fr;
+  background: var(--window-bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+/* --- Top bar ---------------------------------------------------------------------------
+   The whole bar drags the window; buttons opt out. Windows and Linux reserve room on the right
+   for the system window controls (the env() values come from Electron's title bar overlay). */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  background: var(--top-bar-bg);
+  -webkit-app-region: drag;
+  /* Hover and press shades darker than the bar itself. */
+  --button-hover: light-dark(#cdcdd3, #2c2c31);
+  --button-active: light-dark(#c2c2c8, #36363c);
+}
+body:not(.platform-darwin) .top-bar {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
+}
+.top-bar-end { display: flex; align-items: center; gap: 6px; }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.icon-button:hover { background: var(--button-hover); color: var(--text); }
+.icon-button:active { background: var(--button-active); }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* MCP server status: a pill in the top bar, and the popover it opens. */
+.server-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.server-pill:hover, .server-pill[aria-expanded="true"] { background: var(--subtle-bg); }
+.server-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.server-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0a100; } /* starting */
+.server-pill[data-state="running"] .server-dot { background: #1f9d55; }
+.server-pill[data-state="off"] .server-dot { background: #d64545; }
+
+.server-pill { position: relative; z-index: 33; } /* stays on top of the mask and the MCP panel */
+.server-pill { transition: background-color 0.3s ease, border-color 0.3s ease; }
+/* The two labels share a cell, so the pill is as wide as the longer one whichever is showing. */
+.server-pill-labels { display: grid; justify-items: start; white-space: nowrap; }
+.server-pill-labels > * { grid-area: 1 / 1; transition: opacity 0.3s ease; }
+#server-pill-ai { opacity: 0; }
+.server-pill[data-showing="ai"] #server-pill-ai { opacity: 1; }
+.server-pill[data-showing="ai"] #server-pill-label { opacity: 0; }
+.server-pill[data-showing="ai"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .server-pill, .server-pill-labels > * { transition: none; }
+}
+.ai-release { display: grid; gap: 8px; justify-items: start; margin-bottom: 20px; font-size: 13px; }
+.ai-release[hidden] { display: none; }
+.ai-release p { margin: 0; }
+
+/* The mask dulls the whole window, top bar included; clicking it closes the card. */
+.mcp-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--mask);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
+
+/* A full-height panel on the right, top bar included, laid over the content (which stays where
+   it is) rather than pushing it aside. Its own top bar lines up with the window's and holds the
+   close button on the left; the window's server pill stays on top of it on the right. Only the
+   content below scrolls. It slides in from past the window's right edge, and hides once it has
+   slid back out. */
+.mcp-card {
+  position: fixed;
+  z-index: 32;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(var(--mcp-width, 380px), 100vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12);
+  transform: translateX(calc(100% + 28px)); /* past the edge, shadow included */
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
+/* Dragging the handle below the minimum slides the panel out (and lifts the mask) while the
+   handle keeps following the pointer; letting go there closes it. */
+.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(100% + 28px)); }
+.mcp-open.mcp-closing .mcp-mask { opacity: 0; }
+.mcp-card-bar { flex: none; display: flex; align-items: center; height: var(--top-bar-height); padding: 0 8px; }
+/* The panel's titles ("MCP server", "Set up an AI app") are underlined, and a title with content
+   above it has room above it too, so each section reads as separate. */
+.mcp-card .panel h3 { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.mcp-card > .panel > h3:first-child { margin-top: 0; }
+.mcp-card > .panel > section { margin-top: 28px; }
+.mcp-card > .panel > section > h3:first-child { margin-top: 0; }
+.mcp-card > .panel { flex: 1; overflow: hidden auto; padding-top: 4px; }
+
+/* The panel's drag handle sits just outside its left edge, vertically centred on the window,
+   and slides in and out with it. */
+.mcp-resizer {
+  position: fixed;
+  z-index: 32;
+  top: 50%;
+  right: min(var(--mcp-width, 380px), 100vw);
+  width: 14px;
+  height: 128px;
+  margin-top: -64px;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  transform: translateX(calc(min(var(--mcp-width, 380px), 100vw) + 28px));
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-resizer { transform: none; visibility: visible; transition: transform 0.2s ease; }
+.mcp-resizing .mcp-resizer { transition: none; }
+.mcp-resizer::after {
+  content: "";
+  width: 4px;
+  height: 108px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: background-color 0.15s;
+}
+.mcp-resizer:hover::after, .mcp-resizing .mcp-resizer::after { background: var(--accent); }
+.mcp-resizing, .mcp-resizing * { cursor: col-resize !important; user-select: none !important; }
+.server-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 12px; }
+.server-details dt { color: var(--muted); }
+.server-details dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-setup[hidden] { display: none; }
+
+/* The AI app to set up: a full-width button with its chevron at the end, opening a menu of the
+   apps below it, as wide as the button. */
+.app-picker { position: relative; display: block; }
+.app-picker-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+.app-picker-button:hover, .app-picker-button[aria-expanded="true"] { background: var(--subtle-bg); }
+.app-picker-button svg { color: var(--muted); }
+.app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app-picker-menu {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  min-width: 100%;
+  padding: 4px;
+  border-radius: 9px;
+  background: var(--bg);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.14);
+}
+.app-picker-menu[hidden] { display: none; }
+.app-picker-menu button { padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; text-align: left; white-space: nowrap; color: var(--text); cursor: pointer; }
+.app-picker-menu button:hover { background: var(--subtle-bg); }
+.app-picker-menu button[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent); font-weight: 600; }
+.tab-panel[hidden] { display: none; }
+.tab-panel { padding-top: 14px; }
+.setup-state { margin: 0 0 12px; font-size: 12px; color: var(--text-2); }
+#setup-claude-desktop > .primary-button { margin-bottom: 4px; }
+#setup-claude-desktop > .primary-button[hidden] { display: none; }
+.setup-manual { margin-top: 16px; font-size: 12px; }
+.setup-manual summary { cursor: pointer; color: var(--text-2); margin-bottom: 10px; }
+.setup-note { margin: 16px 0 0; color: var(--muted); font-size: 11px; }
+.setup-steps { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 12px; }
+.setup-steps li { padding-left: 2px; }
+.code-block { position: relative; margin-top: 6px; }
+.code-block pre {
+  margin: 0;
+  padding: 10px 44px 10px 12px; /* room on the right for the copy button */
+  min-height: 36px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--subtle-bg);
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.setup-steps .code-block code { padding: 0; background: none; font-size: inherit; }
+.code-copy { position: absolute; right: 3px; bottom: 3px; }
+.code-copy:hover { background: var(--button-hover); }
+.setup-steps code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 11px; }
+
+/* --- Home ----------------------------------------------------------------------------------- */
+.home {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 24px;
+  text-align: center;
+}
+.home h1 { margin: 0; font-size: 22px; font-weight: 600; }
+.home p { margin: 0 0 8px; max-width: 32em; color: var(--muted); }
+
+/* --- Panels ------------------------------------------------------------------------------- */
+.panel { padding: 16px 16px 24px; user-select: none; }
+.panel h3 { margin: 20px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.panel-note[hidden] { display: none; }
+.panel-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--subtle-bg); color: var(--muted); font-size: 12px; }
+.primary-button, .secondary-button {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.primary-button { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.secondary-button { border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.secondary-button:hover { background: var(--subtle-bg); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* Settings: a modal in the window, opened from the top bar's gear. */
+.settings-dialog { width: 560px; max-width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; flex-direction: column; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); font-size: 13px; }
+.settings-dialog[open] { display: flex; }
+.settings-dialog:focus { outline: none; }
+.settings-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--border); }
+.settings-head h2 { margin: 0; font-size: 15px; }
+.settings-body { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
+.setting + .setting { margin-top: 24px; }
+.setting-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.setting-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.setting-line { margin: 0 0 10px; color: var(--text-2); font-size: 13px; }
+/* The update notice: centred at the bottom of the window, above everything but dialogs. */
+.update-toast[hidden] { display: none; }
+.update-toast {
+  position: fixed; left: 50%; bottom: 20px; z-index: 50; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px;
+  border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); color: var(--text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); font-size: 13px; white-space: nowrap;
+  animation: update-toast-in 220ms ease-out;
+}
+.update-toast span { margin-right: 6px; }
+@keyframes update-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+/* A row of choices, the chosen one raised, as macOS draws them. */
+.segmented { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--subtle-bg); border: 1px solid var(--border); }
+.segmented button { padding: 4px 16px; border: 0; border-radius: 6px; background: transparent; font: inherit; color: var(--text-2); cursor: pointer; }
+.segmented button:hover { color: var(--text); }
+.segmented button[aria-checked="true"] { background: light-dark(var(--bg), #46464c); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
