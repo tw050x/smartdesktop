@@ -1,4 +1,5 @@
 import { takeOverNote } from './take-over-note.js';
+import { showCopied } from './copied-tip.js';
 // The focus picker: the breadcrumb's last level names the focus showing in the active tool (what
 // the review is for), and opens a card with everything about focuses, and the prompts to send:
 //   - this draft's focuses, the one showing highlighted. In the highlight tool there's one
@@ -151,13 +152,10 @@ export function fillFocusCard(card, { tool, doc, focuses, copyText, onChoose, on
   function copyButton(kind, text, getPrompt) {
     const b = el('button', `${kind} focus-copy`, text);
     b.type = 'button';
-    let reset;
     b.addEventListener('click', async () => {
       await onCopy?.();
       await copyText(getPrompt());
-      b.textContent = 'Copied';
-      clearTimeout(reset);
-      reset = setTimeout(() => (b.textContent = text), 1500);
+      showCopied(b);
     });
     return b;
   }

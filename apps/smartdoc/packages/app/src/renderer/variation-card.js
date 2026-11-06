@@ -1,4 +1,5 @@
 import { takeOverNote } from './take-over-note.js';
+import { showCopied } from './copied-tip.js';
 
 // The card for a new variation (File > New Variation…, or a draft's "New variation" on the home
 // screen): what the variation is for, then a prompt to send the AI, which makes the variation
@@ -18,7 +19,7 @@ export function createVariationCard({ dialog, api }) {
   dialog.querySelector('form').addEventListener('submit', async (e) => {
     e.preventDefault();
     await api.copyText(prompt(purpose.value.trim()));
-    copy.textContent = 'Copied';
+    showCopied(copy);
     closing = setTimeout(() => dialog.close(), 800);
   });
 
@@ -30,7 +31,6 @@ export function createVariationCard({ dialog, api }) {
     prompt = (text) => `Make a variation of “${docName}” (document ${docId}) in SmartDoc from ${label(draft)} of its “${variationName}” variation (${variationId}), and tailor it for: ${text}`;
     purpose.value = '';
     copy.disabled = true;
-    copy.textContent = 'Copy the prompt';
     dialog.querySelector('.take-over-note')?.remove();
     const note = takeOverNote(api);
     if (note) dialog.querySelector('.variation-buttons').before(note);

@@ -1,6 +1,7 @@
 import { anchorRects, pageContent } from './anchors.js';
 import { toolOf } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
+import { showCopied } from './copied-tip.js';
 
 // The review, laid out in the margins either side of the pages. Each item (a finding, a note or a
 // highlight) is a tab beside the line its text starts on: findings about a whole section
@@ -49,7 +50,6 @@ const IMPORTANCE_LABELS = { high: 'Important', medium: 'Worth knowing', low: 'Mi
 const STATUS_LABELS = { accepted: 'Accepted', rejected: 'Rejected', answered: 'Answered', acknowledged: 'Acknowledged' };
 
 const COPY_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-const COPIED_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 
 export const isHighlights = (review) => review?.type === 'highlights';
@@ -629,8 +629,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     return aiIsWaiting(what) ? `Your AI is waiting. Confirm when you’re ready for it to ${goal}, or copy the prompt.` : `Send your AI the prompt to ${goal}.`;
   }
 
-  // Copies the prompt to write the next draft (its text shows on hover); the icon turns to a tick
-  // for a moment once copied. Prompts to start a review are in the focus menu (focus-picker.js).
+  // Copies the prompt to write the next draft (its text shows on hover); "Copied" shows above it
+  // for a moment. Prompts to start a review are in the focus menu (focus-picker.js).
   // The prompt's button, with what sending it does beside it.
   function appendPrompt(parent, prompt) {
     // An AI waiting with `smartdoc wait` can be told directly, but only when the user says so.
@@ -659,17 +659,11 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const button = el('button', `${className} copy-prompt`);
     button.type = 'button';
     button.title = prompt;
-    const show = (icon, text) => {
-      button.innerHTML = icon;
-      button.append(document.createTextNode(text));
-    };
-    show(COPY_ICON, label);
-    let reset;
+    button.innerHTML = COPY_ICON;
+    button.append(document.createTextNode(label));
     button.addEventListener('click', async () => {
       await api.copyText(prompt);
-      show(COPIED_ICON, 'Copied');
-      clearTimeout(reset);
-      reset = setTimeout(() => show(COPY_ICON, label), 1500);
+      showCopied(button);
     });
     return button;
   }
