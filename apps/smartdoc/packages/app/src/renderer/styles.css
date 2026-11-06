@@ -200,15 +200,16 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .icon-button:active { background: var(--button-active); }
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* MCP server status: a pill in the top bar, and the popover it opens. */
+/* MCP server status: a button in the top bar, the same height and corners as the others, and the
+   popover it opens. */
 .server-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  height: 30px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 13px;
+  border-radius: 7px;
   background: var(--bg);
   color: var(--text);
   font: inherit;
