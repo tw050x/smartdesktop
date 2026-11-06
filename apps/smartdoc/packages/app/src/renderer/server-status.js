@@ -84,11 +84,27 @@ export function createServerStatus({ api }) {
 
   function setOpen(open) {
     if (open) refreshClaudeDesktop();
+    const wasIn = card.contains(document.activeElement);
     document.body.classList.toggle('mcp-open', open);
     card.inert = !open;
     pill.setAttribute('aria-expanded', String(open));
+    // The focus goes into the panel as it opens, and back to the pill as it closes.
+    if (open) document.getElementById('mcp-close').focus({ preventScroll: true });
+    else if (wasIn) pill.focus();
   }
   const isOpen = () => document.body.classList.contains('mcp-open');
+
+  // While the panel is open, Tab goes round its controls only, until Escape or Close closes it.
+  const FOCUSABLE = 'button, select, textarea, input, a[href], [tabindex]:not([tabindex="-1"])';
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !isOpen()) return;
+    const stops = [...card.querySelectorAll(FOCUSABLE)].filter((el) => !el.disabled && el.checkVisibility({ visibilityProperty: true }));
+    if (!stops.length) return;
+    const at = stops.indexOf(document.activeElement);
+    const next = at < 0 ? (e.shiftKey ? stops.length - 1 : 0) : (at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length;
+    e.preventDefault();
+    stops[next].focus();
+  });
 
   pill.addEventListener('click', () => setOpen(!isOpen()));
 
