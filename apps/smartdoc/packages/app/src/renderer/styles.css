@@ -65,7 +65,7 @@ body {
 .top-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px; /* the same between everything in the bar: see .breadcrumb and .top-bar-end */
   padding: 0 8px;
   background: var(--top-bar-bg);
   -webkit-app-region: drag;
@@ -78,6 +78,7 @@ body:not(.platform-darwin) .top-bar {
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
 }
 .top-bar-start, .top-bar-end { display: flex; align-items: center; gap: 6px; }
+.top-bar-end { flex: none; margin-left: auto; }
 
 /* The tool switcher: the active tool's name with a chevron, opening a card of both tools, each a
    card of its own with the active one highlighted in the accent colour. */
@@ -102,10 +103,10 @@ body:not(.platform-darwin) .top-bar {
 /* Short of room (see app-shell.js): the tool shows just its icon. */
 .breadcrumb.tight .tool-name { display: none; }
 #tool-label svg { color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
-/* The breadcrumb: home › tool. Only shown with a document open. */
-.breadcrumb { min-width: 0; gap: 2px; }
-.crumb-home { -webkit-app-region: no-drag; }
-.crumb-sep { color: var(--muted); padding: 0 2px; }
+/* The breadcrumb: home, tool and focus. Only shown with a document open. Long names shrink rather
+   than push the bar's controls away. */
+.breadcrumb { flex: 0 1 auto; min-width: 0; }
+.crumb-home { flex: none; -webkit-app-region: no-drag; }
 body:not(.has-document) .breadcrumb { visibility: hidden; }
 /* The draft controls, centred in the top bar. */
 .top-bar { position: relative; }
@@ -154,7 +155,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .focus-new { display: grid; gap: 8px; padding: 0 2px 4px; }
 .focus-goal-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; font: inherit; font-size: 12px; field-sizing: content; resize: none; min-height: calc(2lh + 14px); user-select: text; }
 .focus-goal-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
-.focus-button[hidden], .crumb-sep[hidden] { display: none; }
+.focus-button[hidden] { display: none; }
 .focus-button { min-width: 0; }
 #focus-label { max-width: 200px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tool-option {

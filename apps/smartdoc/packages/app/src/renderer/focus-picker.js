@@ -11,14 +11,13 @@ import { takeOverNote } from './take-over-note.js';
 // The focuses come from the main process when the card opens (list-focuses). The card's contents
 // (fillFocusCard) are the home screen's too, for starting a review on a draft from there.
 
-export function createFocusPicker({ button, label, separator, card, api }) {
+export function createFocusPicker({ button, label, card, api }) {
   let state = { doc: null, tool: 'improve', review: null };
   const drafting = () => state.tool === 'improve';
 
   function renderButton() {
     const visible = Boolean(state.doc);
     button.hidden = !visible;
-    separator.hidden = !visible;
     const r = state.review && (state.review.type ?? 'improve') === state.tool ? state.review : null;
     label.textContent = r ? r.title ?? shorten(r.goal) ?? (drafting() ? 'General review' : 'Highlights') : 'No focus yet';
     button.title = r ? [r.title, r.goal].filter(Boolean).join(': ') : '';

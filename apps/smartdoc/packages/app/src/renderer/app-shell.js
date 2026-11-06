@@ -49,7 +49,6 @@ export function startApp(appApi) {
   const focusPicker = createFocusPicker({
     button: document.getElementById('focus-button'),
     label: document.getElementById('focus-label'),
-    separator: document.getElementById('focus-sep'),
     card: document.getElementById('focus-card'),
     api,
   });
