@@ -11,11 +11,36 @@
       "listChanged": true
     }
   },
-  "instructions": "This server is SmartSpec: a desktop app for planning systems and the contracts between them. Each AI session has a SmartSpec window of its own, opened by its first tool call. SmartSpec is at an early stage: its planning tools aren't built yet, so for now it can only say what it is, with get_app_info.",
+  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schemas, for the user and for other agents to act on. It's about system design at any scale: a schema can describe a whole business, one service, or one module inside a single application.\nA schema has a name, a summary and a contract, which are what show when it's collapsed inside another schema, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schema's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schema is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schemas this one embeds, but not inside them. Links that go nowhere are refused.\nSchemas embed other schemas: a standard structure, such as machine to machine auth, is one schema, and shows as a single element in each schema that uses it. Each use is pinned to a draft and can only set the parameters the embedded schema declares. To change anything else, propose a new draft of that schema, or a separate schema.\nRead only what you need: get_schema lists a schema's items and links without their content, with its uses collapsed. Fetch an item with get_schema_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schema as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schema creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schema later to see where it stands. A schema you embed must have an accepted draft, so wait for the acceptance before building on it.",
   "tools": [
     {
-      "name": "get_app_info",
-      "description": "The app's name and version.",
+      "name": "use_window",
+      "description": "Takes over a SmartSpec window, when the user's prompt names one: this session then works in it. Call it first, before any other tool, or SmartSpec opens a new window for this session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "window_id": {
+            "type": "string",
+            "description": "The window named in the prompt, such as w-7f3a"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_schemas",
+      "description": "Every schema, most recently changed first: its id, name, summary, number of accepted drafts, status, and any proposal waiting for the user.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -23,6 +48,796 @@
       },
       "annotations": {
         "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_schema",
+      "description": "One schema's accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schemas it embeds, each collapsed to its name, summary, contract and pinned draft, saying if a newer draft exists. Fetch an item with get_schema_item. Open further levels with depth, or by calling this for an embedded schema's id and draft. proposal says if a change is waiting for the user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schema_id": {
+            "type": "string"
+          },
+          "draft_id": {
+            "description": "The draft to read (default: the latest)",
+            "type": "string"
+          },
+          "depth": {
+            "description": "How many levels of embedded schemas to open (default 0: all collapsed)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "schema_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_schema_item",
+      "description": "One item's full content, with the links out of it and into it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schema_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "draft_id": {
+            "description": "The draft to read (default: the latest)",
+            "type": "string"
+          },
+          "proposal": {
+            "description": "Read it from the proposal waiting on the schema instead",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schema_id",
+          "item_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_proposal",
+      "description": "The change waiting for the user on a schema, in the same form as get_schema, with which items it adds, changes and removes. Fetch an item from it with get_schema_item and proposal. Null if nothing is waiting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schema_id": {
+            "type": "string"
+          },
+          "depth": {
+            "description": "How many levels of embedded schemas to open (default 0: all collapsed)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "schema_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "propose_schema",
+      "description": "Proposes a new schema, or with schema_id a change to one, and shows it in the app for the user to accept or discard. For a change, send only what changes: everything else carries over, from the proposal already waiting (which this replaces) or else the latest draft. Links are checked, and the proposal is refused if one goes nowhere.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schema_id": {
+            "description": "The schema to change (leave out to propose a new one)",
+            "type": "string"
+          },
+          "name": {
+            "description": "Needed for a new schema",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "description": "What this is, in a sentence or two. Shows when it's collapsed. Needed for a new schema.",
+            "type": "string",
+            "minLength": 1
+          },
+          "contract": {
+            "description": "Markdown: what it promises and what it needs. Shows when it's collapsed.",
+            "type": "string"
+          },
+          "items": {
+            "description": "Items to add, or to replace by id",
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": {
+                      "description": "One line saying what it is, listed by get_schema",
+                      "type": "string"
+                    },
+                    "links": {
+                      "description": "Links from the item as a whole",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "to": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "to"
+                        ]
+                      }
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "document"
+                    },
+                    "markdown": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "kind",
+                    "markdown"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": {
+                      "description": "One line saying what it is, listed by get_schema",
+                      "type": "string"
+                    },
+                    "links": {
+                      "description": "Links from the item as a whole",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "to": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "to"
+                        ]
+                      }
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "flow"
+                    },
+                    "direction": {
+                      "description": "Top to bottom (the default, and almost always best: the diagram shares the page with cards either side). Left to right only if it truly reads better.",
+                      "type": "string",
+                      "enum": [
+                        "TB",
+                        "LR"
+                      ]
+                    },
+                    "nodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label"
+                        ]
+                      }
+                    },
+                    "edges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "description": "Needed if two connections join the same nodes. Default: from-to",
+                            "type": "string"
+                          },
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "from",
+                          "to"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "kind",
+                    "nodes"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": {
+                      "description": "One line saying what it is, listed by get_schema",
+                      "type": "string"
+                    },
+                    "links": {
+                      "description": "Links from the item as a whole",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "to": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "to"
+                        ]
+                      }
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "sequence"
+                    },
+                    "participants": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label"
+                        ]
+                      }
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "reply": {
+                            "description": "Drawn dashed, as a reply",
+                            "type": "boolean"
+                          },
+                          "description": {
+                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "from",
+                          "to",
+                          "label"
+                        ]
+                      }
+                    },
+                    "groups": {
+                      "description": "Boxes wrapped around messages. They can nest.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "loop",
+                              "alt",
+                              "opt",
+                              "par",
+                              "critical",
+                              "break",
+                              "group"
+                            ],
+                            "description": "loop: repeats. alt: one of several sections happens. opt: may not happen. par: sections happen at the same time. critical: must finish as a whole. break: stops the rest. group: just a named set of steps."
+                          },
+                          "label": {
+                            "description": "The condition or name, such as \"up to five times\"",
+                            "type": "string"
+                          },
+                          "from": {
+                            "type": "string",
+                            "description": "The first message inside it"
+                          },
+                          "to": {
+                            "type": "string",
+                            "description": "The last message inside it"
+                          },
+                          "sections": {
+                            "description": "For alt and par: where each further section starts",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "at": {
+                                  "type": "string",
+                                  "description": "The message that starts this section"
+                                },
+                                "label": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "at"
+                              ]
+                            }
+                          },
+                          "description": {
+                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "from",
+                          "to"
+                        ]
+                      }
+                    },
+                    "activations": {
+                      "description": "Bars on a lifeline: this participant is busy from one message to another",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "participant": {
+                            "type": "string"
+                          },
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "participant",
+                          "from",
+                          "to"
+                        ]
+                      }
+                    },
+                    "boxes": {
+                      "description": "Boxes around participants that belong together, such as those in one service",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "participants": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Next to each other in participants"
+                          },
+                          "description": {
+                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "participants"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "kind",
+                    "participants"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": {
+                      "description": "One line saying what it is, listed by get_schema",
+                      "type": "string"
+                    },
+                    "links": {
+                      "description": "Links from the item as a whole",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "to": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "to"
+                        ]
+                      }
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "table"
+                    },
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label"
+                        ]
+                      }
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "cells": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "description": "Column id to value. Values can hold Markdown links."
+                          },
+                          "link": {
+                            "description": "Where it links: an item id, or item#part",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "cells"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "kind",
+                    "columns"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": {
+                      "description": "One line saying what it is, listed by get_schema",
+                      "type": "string"
+                    },
+                    "links": {
+                      "description": "Links from the item as a whole",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "to": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "to"
+                        ]
+                      }
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "image"
+                    },
+                    "mediaType": {
+                      "type": "string",
+                      "description": "image/svg+xml, image/png, image/jpeg or image/webp"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "The image as base64, up to 5 MB"
+                    },
+                    "alt": {
+                      "description": "What it shows",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "kind",
+                    "mediaType",
+                    "data"
+                  ]
+                }
+              ]
+            }
+          },
+          "remove_items": {
+            "description": "The ids of items to remove",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "item_order": {
+            "description": "Item ids in the order to show them. Any left out follow.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parameters": {
+            "description": "What each use of this schema can set. Replaces the list.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "uses": {
+            "description": "The schemas this one embeds. Replaces the list.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Its name within this schema, which links use"
+                },
+                "schema_id": {
+                  "type": "string",
+                  "description": "The schema to embed, which must have an accepted draft"
+                },
+                "draft_id": {
+                  "description": "The draft to pin to (default: its latest)",
+                  "type": "string"
+                },
+                "with": {
+                  "description": "Values for the parameters it declares",
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "schema_id"
+              ]
+            }
+          },
+          "goal": {
+            "description": "The focus the user gave you for this work, in their words",
+            "type": "string",
+            "minLength": 1
+          },
+          "goal_title": {
+            "description": "A short name for that focus",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as \"Proposed change:\""
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
         "destructiveHint": false,
         "openWorldHint": false
       },

@@ -10,8 +10,24 @@ const on = (channel) => (callback) => ipcRenderer.on(channel, (_event, value) =>
 
 contextBridge.exposeInMainWorld('smartspec', {
   platform: process.platform,
+  // This window's id, which a copied prompt names so the AI can take it over.
+  windowId: process.argv.find((arg) => arg.startsWith('--smartspec-window='))?.split('=')[1],
   onAiControl: on('ai-control'),
   releaseAiControl: () => call('ai-control-release'),
+  // The schemas (see store.js): what there is, and the user's answer to a proposal.
+  listSchemas: () => call('list-schemas'),
+  listFocuses: (id, options) => call('list-focuses', id, options),
+  copyText: (text) => call('copy-text', text),
+  listDrafts: (id) => call('list-drafts', id),
+  getSchema: (id, draftId) => call('get-schema', id, draftId),
+  getProposal: (id) => call('get-proposal', id),
+  getItem: (id, itemId, options) => call('get-item', id, itemId, options),
+  getConnections: (id, options) => call('get-connections', id, options),
+  acceptProposal: (id) => call('accept-proposal', id),
+  discardProposal: (id) => call('discard-proposal', id),
+  onSchemasChanged: on('schemas-changed'),
+  onShowSchema: on('show-schema'),
+  onNewSchema: on('new-schema'),
   mcpSetup: (target) => call('mcp-setup', target),
   copyMcpSetup: (target) => call('copy-mcp-setup', target),
   // Claude Desktop's setup: { state }, and adding SmartSpec to it (after asking).
@@ -27,4 +43,5 @@ contextBridge.exposeInMainWorld('smartspec', {
   onMcpStatus: on('mcp-status'),
   onShowConnect: on('show-connect'),
   onUpdates: on('updates'),
+  onFullScreenChange: on('full-screen'),
 });

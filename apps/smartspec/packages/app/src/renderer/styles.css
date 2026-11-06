@@ -11,6 +11,7 @@
   --text-2: light-dark(#3c3c43, #d1d1d6); /* body text on cards, a step softer than --text */
   --muted: light-dark(#6e6e73, #a1a1a8);
   --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
+  --hover-tint: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
   --button-hover: light-dark(#e6e6ea, #2e2e33);
   --button-active: light-dark(#dadadf, #38383e);
   --window-bg: light-dark(#ebebef, #161618);
@@ -30,7 +31,7 @@ html, body {
 
 body {
   display: grid;
-  grid-template-rows: var(--top-bar-height) 1fr;
+  grid-template-rows: var(--top-bar-height) minmax(0, 1fr) auto;
   background: var(--window-bg);
   color: var(--text);
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -43,7 +44,7 @@ body {
 .top-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  gap: 6px; /* the same between everything in the bar: see .history-nav, .breadcrumb and .top-bar-end */
   padding: 0 8px;
   background: var(--top-bar-bg);
   -webkit-app-region: drag;
@@ -51,10 +52,11 @@ body {
   --button-hover: light-dark(#cdcdd3, #2c2c31);
   --button-active: light-dark(#c2c2c8, #36363c);
 }
+.platform-darwin:not(.full-screen) .top-bar { padding-left: 84px; } /* the traffic lights */
 body:not(.platform-darwin) .top-bar {
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
 }
-.top-bar-end { display: flex; align-items: center; gap: 6px; }
+.top-bar-end { display: flex; flex: none; align-items: center; gap: 6px; }
 
 .icon-button {
   display: grid;
@@ -73,15 +75,16 @@ body:not(.platform-darwin) .top-bar {
 .icon-button:active { background: var(--button-active); }
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* MCP server status: a pill in the top bar, and the popover it opens. */
+/* MCP server status: a button in the top bar, the same height and corners as the others, and the
+   popover it opens. */
 .server-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  height: 30px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 13px;
+  border-radius: 7px;
   background: var(--bg);
   color: var(--text);
   font: inherit;
@@ -265,18 +268,446 @@ body:not(.platform-darwin) .top-bar {
 .code-copy:hover { background: var(--button-hover); }
 .setup-steps code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 11px; }
 
-/* --- Home ----------------------------------------------------------------------------------- */
-.home {
+/* The bar along the bottom of the window, in the top bar's shade so it stands out, for a proposal
+   waiting on the schema showing: what it proposes on the left, and the answers at the right. */
+.review-bar { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 8px 16px; background: var(--top-bar-bg); font-size: 13px; --button-hover: light-dark(#cdcdd3, #2c2c31); }
+.review-bar[hidden] { display: none; }
+.review-bar-text { overflow: hidden; flex: 1; min-width: 0; margin: 0; white-space: nowrap; text-overflow: ellipsis; }
+.review-bar-text span { color: light-dark(#55555a, #b4b4ba); }
+
+/* --- The schemas (see schemas.js) ------------------------------------------------------------ */
+.content { min-height: 0; overflow: auto; scroll-padding-block: 8px; } /* tabbing in scrolls a focus outline wholly into view */
+.page { max-width: 860px; margin: 0 auto; padding: 16px 24px 64px; }
+.page > h1 { margin: 4px 0 16px; font-size: 20px; font-weight: 600; }
+.muted { margin: 0; color: var(--muted); }
+
+/* Home: schemas › drafts, each list scrolling on its own. A row is shaded while it's hovered or
+   selected, the selected one's title in the accent colour. */
+.browser { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; height: 100%; max-width: 1200px; margin: 0 auto; padding: 24px; }
+.browser-column { display: flex; flex-direction: column; min-height: 0; }
+.browser-head { display: flex; align-items: center; gap: 10px; padding: 14px 10px 10px 16px; }
+.browser-head h2 { flex: 1; margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+/* A column's sort: the icon, then a select with no background or border. */
+.browser-sort { display: flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
+.browser-sort svg { flex: none; }
+.browser-sort select { appearance: none; padding: 2px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.browser-sort select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.browser-sort:hover, .browser-sort:hover select { color: var(--text); }
+.browser-empty { display: grid; gap: 10px; justify-items: start; margin: 0; padding: 8px; color: var(--muted); font-size: 12.5px; }
+.browser-empty p { margin: 0; }
+.browser-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 8px 8px; list-style: none; }
+.browser-list li + li { margin-top: 2px; }
+.browser-row { position: relative; display: grid; gap: 2px; justify-items: start; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.browser-row:has(.browser-arrow) { padding-right: 34px; } /* room for the arrow */
+.browser-row:hover, .browser-row[aria-pressed="true"] { background: var(--hover-tint); }
+.browser-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.browser-row[aria-pressed="true"] strong { color: var(--accent); }
+.browser-row strong { font-size: 13px; font-weight: 600; }
+/* An arrow at the row's right slides in while it's hovered, and stays on the selected row. */
+.browser-arrow { position: absolute; top: 8px; right: 10px; display: grid; color: var(--muted); opacity: 0; transform: translateX(-6px); transition: opacity 0.15s, transform 0.15s; }
+.browser-row:hover .browser-arrow, .browser-row[aria-pressed="true"] .browser-arrow { opacity: 1; transform: none; }
+.browser-row[aria-pressed="true"] .browser-arrow { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .browser-arrow { transition: none; } }
+/* A title with its status pills: on one row if they all fit, else all of them beneath it. The pills
+   wrap as one item, and only wrap among themselves if they're too wide for a row of their own. */
+.title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; min-width: 0; max-width: 100%; }
+.title-row strong { min-width: 0; overflow-wrap: anywhere; }
+.status-pills { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; max-width: 100%; }
+.browser-row-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-2); font-size: 12px; line-height: 1.35; }
+.browser-row-meta { color: var(--muted); font-size: 11.5px; }
+.proposal-row { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.proposal-row:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.use-list { display: grid; gap: 8px; }
+.card {
   display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  min-height: 0;
-  padding: 24px;
-  text-align: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
 }
-.home h1 { margin: 0; font-size: 22px; font-weight: 600; }
-.home p { margin: 0 0 8px; max-width: 32em; color: var(--muted); }
+button.card { cursor: pointer; }
+button.card:hover { border-color: var(--border-strong); }
+button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.card .title-row strong { font-size: 14px; font-weight: 600; }
+.card-meta { color: var(--muted); font-size: 12px; }
+.card-text { color: var(--text-2); }
+.card-settings { display: flex; flex-wrap: wrap; gap: 4px; }
+.card-settings code { padding: 1px 6px; border-radius: 4px; background: var(--subtle-bg); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.card-contract { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; padding-left: 8px; border-left: 2px solid var(--border); color: var(--muted); font-size: 12px; white-space: pre-line; }
+.pill { flex: none; padding: 1px 8px; border-radius: 10px; background: var(--subtle-bg); color: var(--muted); font-size: 11px; font-weight: 500; }
+.pill.proposed { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+/* What a card is, at its top, in capitals. */
+.pill.kind-pill { margin-bottom: 3px; padding: 2px 8px; border-radius: 4px; background: var(--border-strong); color: var(--text); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+/* Another schema stands out from the rest: solid, and not the accent that status pills use. */
+.pill.schema-pill { background: var(--text-2); color: var(--bg); }
+
+/* Back and forward through where this window has been (see schemas.js). */
+.history-nav { display: flex; flex: none; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
+.history-nav[hidden] { display: none; }
+.history-nav .icon-button:disabled { opacity: 1; color: light-dark(#aeaeb4, #5a5a60); cursor: default; }
+.history-nav .icon-button:disabled:hover { background: none; }
+
+/* The mode switcher: the mode's name with a chevron, opening a card of the modes. */
+.tool-button { display: flex; flex: none; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; -webkit-app-region: no-drag; }
+.tool-button:hover, .tool-button[aria-expanded="true"] { background: var(--button-hover); }
+.tool-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tool-button svg { color: var(--muted); }
+.tool-label { display: flex; align-items: center; gap: 6px; }
+.tool-label svg { color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
+.tool-card { position: fixed; z-index: 40; top: calc(var(--top-bar-height) - 4px); left: 8px; display: grid; gap: 6px; width: 320px; padding: 8px; border-radius: 12px; background: var(--bg); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.16); }
+.platform-darwin:not(.full-screen) .tool-card { left: 84px; }
+.tool-card[hidden] { display: none; }
+.tool-option { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.tool-option:hover { border-color: var(--border-strong); }
+.tool-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tool-option[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); box-shadow: inset 0 0 0 1px var(--accent); }
+.tool-option[aria-checked="true"] strong { color: var(--accent); }
+.tool-option-text { display: grid; gap: 2px; flex: 1; }
+.tool-option-text span { color: var(--muted); font-size: 12px; }
+.tool-option-icon { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: color-mix(in srgb, var(--option-color) 12%, var(--bg)); color: light-dark(var(--option-color), color-mix(in srgb, var(--option-color) 62%, white)); }
+
+/* The focus, as a button in the breadcrumb, and the card for setting the AI a new one. */
+.crumb-focus { flex: 0 1 auto; min-width: 0; font-weight: 500; }
+.crumb-focus .crumb-here { display: block; overflow: hidden; min-width: 0; padding: 0; white-space: nowrap; text-overflow: ellipsis; }
+.crumb-focus svg { flex: none; }
+.platform-darwin:not(.full-screen) .focus-menu, .focus-menu { width: 360px; max-height: calc(100vh - var(--top-bar-height) - 24px); overflow: auto; }
+.focus-heading { margin: 6px 4px 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.focus-empty { margin: 0 4px; color: var(--muted); font-size: 12px; }
+.focus-option { cursor: default; }
+.focus-current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+.focus-goal { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.tool-option-text .focus-meta { color: var(--muted); font-size: 11px; }
+.focus-earlier { flex-direction: column; align-items: stretch; gap: 8px; background: var(--subtle-bg); }
+.focus-earlier:hover { border-color: var(--border); }
+.focus-copy { align-self: flex-start; justify-self: start; }
+.focus-new { display: grid; gap: 8px; padding: 0 2px 4px; }
+.focus-goal-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 12px; field-sizing: content; min-height: calc(2lh + 14px); resize: none; user-select: text; }
+.focus-goal-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.take-over-note { margin: 4px; color: var(--muted); font-size: 12px; }
+
+/* The draft controls, centred in the top bar. */
+.top-bar { position: relative; }
+.draft-nav { position: absolute; left: 50%; display: flex; align-items: center; gap: 2px; transform: translateX(-50%); -webkit-app-region: no-drag; }
+/* Pushed along by the breadcrumb (see schemas.js): no longer centred on its left edge. */
+.draft-nav.pushed { transform: none; }
+/* Too little room: the label goes first, then the whole control. */
+.draft-nav.compact .draft-label { display: none; }
+.draft-nav.collapsed, .draft-nav[hidden] { display: none; }
+.draft-nav .icon-button { font-size: 18px; line-height: 1; }
+.draft-nav .icon-button:disabled { opacity: 1; color: light-dark(#aeaeb4, #5a5a60); cursor: default; }
+.draft-label { color: var(--text); font-weight: 500; white-space: nowrap; }
+
+.mode-empty { display: grid; place-content: center; justify-items: center; gap: 8px; height: 100%; padding: 24px; text-align: center; }
+.mode-empty h1 { margin: 0; font-size: 18px; font-weight: 600; }
+.mode-empty p { margin: 0; max-width: 34em; color: var(--muted); }
+
+/* In the top bar. Long paths shrink rather than push the bar's controls away. */
+.breadcrumb { display: flex; flex: 0 1 auto; align-items: center; gap: 6px; min-width: 0; margin-right: auto; color: var(--muted); }
+.crumb-here { overflow: hidden; flex: 0 1 auto; min-width: 24px; padding: 3px 6px; white-space: nowrap; text-overflow: ellipsis; }
+.crumb-here { flex-shrink: 1; color: var(--text); font-weight: 600; }
+.crumb-home { flex: none; }
+
+.parameters { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; user-select: text; }
+.parameters dt { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.parameters dd { margin: 0; color: var(--text-2); }
+
+.markdown { font-size: 14px; line-height: 1.5; user-select: text; overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 1.2em 0 0.4em; line-height: 1.25; }
+.markdown h1 { font-size: 18px; }
+.markdown h2 { font-size: 16px; }
+.markdown h3, .markdown h4 { font-size: 14px; }
+.markdown a { color: var(--accent); }
+.markdown code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown pre { overflow: auto; padding: 10px 12px; border-radius: 8px; background: var(--subtle-bg); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown pre code { padding: 0; background: none; }
+.markdown blockquote { margin: 1em 0; padding-left: 12px; border-left: 3px solid var(--border-strong); color: var(--text-2); }
+.markdown table { display: block; overflow-x: auto; width: max-content; max-width: 100%; border-collapse: collapse; font-size: 13px; }
+.markdown th, .markdown td { padding: 4px 10px; border: 1px solid var(--border); text-align: left; }
+.diagram { overflow: auto; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); text-align: center; }
+
+/* Diagrams, drawn from data (see item-views.js). Colours come from here, so they follow the theme. */
+.diagram-svg { max-width: 100%; height: auto; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; user-select: text; }
+.diagram-box { fill: var(--subtle-bg); stroke: var(--border-strong); }
+.diagram-text { fill: var(--text); }
+.diagram-line { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.diagram-line.reply { stroke-dasharray: 5 4; }
+.diagram-arrow { fill: var(--muted); }
+/* Thin things are given a wider, invisible stroke, so they're easy to hover over and click. */
+.diagram-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+.diagram-participants-box { fill: color-mix(in srgb, var(--accent) 6%, transparent); stroke: color-mix(in srgb, var(--accent) 30%, var(--border)); pointer-events: none; }
+.diagram-box-hit { fill: transparent; pointer-events: all; }
+.diagram-activation { fill: color-mix(in srgb, var(--accent) 30%, var(--subtle-bg)); stroke: var(--accent); }
+.diagram-group-frame { fill: none; stroke: var(--muted); stroke-width: 1.25; pointer-events: stroke; }
+.diagram-group-tab { fill: var(--subtle-bg); stroke: var(--muted); stroke-width: 1.25; }
+.diagram-group-word { fill: var(--text); font-size: 11px; font-weight: 600; }
+.diagram-group-divider { stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 5 4; }
+.diagram-group.alt .diagram-group-word, .diagram-group.opt .diagram-group-word { fill: var(--text); }
+/* What a part of a diagram means, under the pointer (see item-views.js). */
+.diagram-tip { position: fixed; z-index: 60; display: grid; gap: 3px; max-width: 280px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); color: var(--text-2); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.35; pointer-events: none; }
+.diagram-tip[hidden] { display: none; }
+.diagram-tip strong { color: var(--text); font-weight: 600; }
+.diagram-tip-here { display: grid; gap: 3px; margin: 4px -10px 0; padding: 7px 10px 0; border-top: 1px solid var(--border); }
+.diagram-tip-name { color: var(--text); font-weight: 500; }
+.diagram-tip-said { color: var(--text); }
+.diagram-lifeline { stroke: var(--border-strong); stroke-dasharray: 3 4; }
+.diagram-label { fill: var(--text-2); font-size: 12px; }
+.diagram-label-bg { fill: var(--bg); }
+.part-link { cursor: pointer; outline: none; }
+.part-link .diagram-box { stroke: var(--accent); }
+.part-link:hover .diagram-box, .part-link:focus-visible .diagram-box { fill: color-mix(in srgb, var(--accent) 16%, var(--bg)); }
+.part-link:hover .diagram-line, .part-link:focus-visible .diagram-line { stroke: var(--accent); }
+tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.part-focus { animation: part-focus 2s ease-out; }
+@keyframes part-focus { 0%, 60% { filter: drop-shadow(0 0 6px var(--accent)); background: color-mix(in srgb, var(--accent) 22%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .part-focus { animation: none; outline: 2px solid var(--accent); } }
+
+/* A table is as wide as its columns want, and scrolls sideways within its surface if that's more than
+   there is. Its cells wrap only once they're long. */
+.item-table-holder { overflow: auto hidden; overscroll-behavior-x: contain; border-radius: inherit; }
+/* It fills its surface, so its separators run from edge to edge. */
+.focus-body > .item-table-holder { margin: -14px -16px -18px; }
+.focus-body .item-table th:first-child, .focus-body .item-table td:first-child { padding-left: 16px; }
+.focus-body .item-table th:last-child, .focus-body .item-table td:last-child { padding-right: 16px; }
+.markdown a.lit { background: color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 3px; }
+.item-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 13px; user-select: text; }
+.item-table th, .item-table td { max-width: 320px; padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+.item-table tbody tr:last-child td { border-bottom: 0; }
+/* Room for the scrollbar that shows while it scrolls, so it doesn't sit on the last line. */
+.item-table-holder { padding-bottom: 8px; }
+.item-table th { color: var(--muted); font-size: 12px; font-weight: 600; }
+.item-table a { color: var(--accent); }
+.item-image { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+
+/* A schema: the focused item in the middle, with what links to it around it (see focus-view.js). The
+   page fits the window, and the middle scrolls inside itself. */
+.schema-page { display: flex; flex-direction: column; max-width: 1440px; min-height: 100%; padding-bottom: 16px; }
+/* A canvas moves inside itself, so its page fits the window. */
+.schema-page:has(.canvas-body) { height: 100%; }
+.content:has(.focus-stage) { scrollbar-gutter: stable; }
+.focus-page { display: flex; flex: 1 0 auto; flex-direction: column; gap: 12px; min-height: 420px; }
+/* Just clear of the top bar: the room goes to what's in the middle. */
+.schema-page:has(> .focus-page) { padding-top: 8px; }
+.focus-stage { position: relative; display: grid; flex: 1 0 auto; grid-template-columns: minmax(180px, 250px) minmax(0, 1fr) minmax(180px, 250px); gap: 56px; min-height: 0; }
+.focus-stage.sized { grid-template-columns: minmax(180px, 1fr) var(--focus-width) minmax(180px, 1fr); }
+.focus-resizing .focus-stage.sized { grid-template-columns: minmax(0, 1fr) var(--focus-width) minmax(0, 1fr); }
+/* The handles that resize the middle card: the whole column beside it can be dragged, wherever you'd
+   expect to, and the grip stays nearly invisible until the pointer is there (see focus-view.js). */
+.focus-resizer { position: absolute; z-index: 2; top: 0; bottom: 0; display: grid; place-items: center; width: 48px; cursor: col-resize; touch-action: none; }
+.focus-resizer.left { left: -49px; justify-items: end; }
+.focus-resizer.right { right: -49px; justify-items: start; }
+.focus-resizer::after { content: ""; position: sticky; top: calc(var(--side-top, 0px) + var(--side-room, 100vh) / 2 - 54px); align-self: start; width: 4px; height: 108px; margin: 0 5px; border-radius: 2px; background: var(--border-strong); opacity: 0.12; transition: opacity 0.15s, background-color 0.15s; }
+/* Placed by centreGrips: the middle of the part of the card in view, not the window's. */
+.focus-resizer.placed::after { position: relative; top: var(--grip-top, 0px); }
+.focus-resizer:hover::after { opacity: 1; }
+.focus-resizing .focus-resizer::after { background: var(--accent); opacity: 1; }
+.focus-resizing, .focus-resizing * { cursor: col-resize !important; user-select: none !important; }
+/* Full screen, at the page's edges (see page-view.js), and beneath the buttons floating there. */
+.page-resizer { z-index: 1; }
+.focus-resizing .focus-full .sheet-body { overflow-x: hidden; }
+.focus-lines { position: sticky; z-index: 0; top: var(--side-top, 0px); grid-area: 1 / 1 / 2 / -1; align-self: start; width: 100%; height: var(--side-room, 100%); overflow: visible; pointer-events: none; }
+/* The lines run behind the cards, and stop at their edges. */
+.focus-stage > .focus-card { position: relative; z-index: 1; }
+/* All in one row, as the lines' layer spans it, holding still with the side columns. */
+.focus-stage > .focus-card:not(.focus-ghost) { grid-area: 1 / 2; }
+.focus-side.left { grid-area: 1 / 1; }
+.focus-side.right { grid-area: 1 / 3; }
+/* The window scrolls the middle, and these stay beside it. */
+/* From the window's top edge to its bottom, through what's above the stage and the page's bottom
+   margin, without moving anything or making the page any taller. */
+.focus-side { position: sticky; z-index: 1; top: 0; align-self: start; box-sizing: border-box; height: calc(var(--side-top, 0px) + var(--side-room, 100%) + var(--side-margin, 0px)); margin: calc(-1 * var(--side-top, 0px)) 0 calc(-1 * var(--side-margin, 0px)); padding: var(--side-top, 0px) 0 var(--side-margin, 0px); }
+.focus-lines path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; transition: stroke 0.12s; }
+.focus-lines circle { fill: var(--border-strong); transition: fill 0.12s; }
+.focus-lines path.lit { stroke: var(--accent); stroke-width: 2; }
+.focus-lines circle.lit { fill: var(--accent); }
+/* Each card placed level with what it links to (see focus-view.js). */
+.focus-side.placed > * { position: absolute; left: var(--side-inset, 0px); right: var(--side-inset, 0px); width: auto; }
+.focus-side { display: flex; flex-direction: column; justify-content: safe center; gap: 10px; min-height: 0; overflow: auto; scrollbar-width: none; }
+/* The column scrolls, so it clips: room at its sides for a card's focus outline, given back by the
+   margin so the cards stay put. */
+.focus-side { --side-inset: 4px; padding-inline: var(--side-inset); margin-inline: calc(-1 * var(--side-inset)); }
+.focus-card { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--border-strong); border-radius: var(--card-radius); background: var(--bg); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06), 0 10px 28px rgba(0, 0, 0, 0.12); }
+.focus-card .pane-head { flex: none; margin: 0; padding: 12px 16px 10px; }
+.focus-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 18px; }
+.focus-stage .focus-body:not(.canvas-body) { flex: 1 0 auto; overflow: visible; }
+.focus-body .diagram { padding: 4px; border: 0; }
+.focus-neighbour { position: relative; display: grid; flex: none; gap: 3px; justify-items: start; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; text-align: left; }
+/* Another schema, on this one's cards and rows: a heavier dashed edge. The padding gives back the
+   extra pixel, so its words line up with those of the cards beside it. */
+.focus-neighbour.embedded, .list-row.embedded { border: 2px dashed var(--border-strong); }
+button.focus-neighbour { cursor: pointer; }
+button.focus-neighbour:hover, .focus-neighbour.lit { border-color: var(--accent); }
+button.focus-neighbour:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.focus-neighbour strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.focus-neighbour.embedded { padding: 9px 29px 9px 11px; }
+.focus-neighbour .card-contract { -webkit-line-clamp: 2; }
+.focus-kind { color: var(--text-2); font-size: 11.5px; font-weight: 500; }
+.focus-meta:empty { display: none; }
+.focus-meta { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.focus-more { align-self: center; flex: none; }
+/* Previews are few and very small: a glance, not a reading. */
+/* Its line runs to the card's edges, past the card's own padding. */
+.focus-preview { display: block; box-sizing: border-box; width: calc(100% + 24px); margin: 7px -12px 0; padding: 10px 12px 0; border-top: 1px solid var(--border); }
+.focus-preview.text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-2); font-size: 11px; line-height: 1.35; }
+.focus-preview.picture { pointer-events: none; }
+.focus-preview.table-preview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 11px; line-height: 1.35; }
+.table-preview-row { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.table-preview-name { color: var(--text-2); font-weight: 500; }
+.table-preview-totals { color: var(--muted); }
+.focus-preview .item-image { max-height: 52px; margin: 0 auto; }
+.lit.diagram-node .diagram-box, .lit.diagram-edge .diagram-line { stroke: var(--accent); }
+tr.lit, .markdown .lit { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; }
+/* Everything in a schema, as a list (see schemas.js). */
+.list-page { position: relative; max-width: 760px; }
+/* Down both sides of the rows, a line for each pair of connected items (see list-lines.js). */
+.list-lines { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.list-lines path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.list-lines path.hit { stroke: transparent; stroke-width: 12; pointer-events: stroke; }
+.list-lines circle { fill: var(--border-strong); }
+.list-lines.picking path:not(.lit) { opacity: 0.35; }
+.list-lines path.lit { stroke: var(--accent); stroke-width: 2; }
+.list-lines circle.lit { fill: var(--accent); }
+.list-page .list-rows .list-row.lit { border-color: var(--accent); }
+/* What's behind a line, while pointing at it. */
+.hover-card { position: fixed; z-index: 60; display: grid; gap: 10px; width: max-content; max-width: 340px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); color: var(--text-2); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.35; pointer-events: none; }
+.hover-card[hidden] { display: none; }
+/* A link's destination, while pointing at the link. */
+.hover-card.link-tip { gap: 4px; justify-items: start; }
+.link-tip .kind-pill { margin-bottom: 2px; }
+.link-tip-title { color: var(--text); font-weight: 600; }
+.link-tip-part { color: var(--text-2); }
+.link-tip-url { color: var(--text-2); overflow-wrap: anywhere; }
+.link-tip-said { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: var(--muted); }
+.link-tip-hint { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.link-card-count { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.link-card section { display: grid; gap: 4px; }
+.link-card-head strong { color: var(--text); font-weight: 600; }
+.link-card ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.link-card-arrow, .link-card-whole, .link-card-more { color: var(--muted); }
+.link-card-label { display: block; color: var(--muted); }
+/* The window's margin is too small to hold them: they get room of their own. */
+@media (max-width: 900px) { .list-page { padding-right: 64px; padding-left: 64px; } }
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.page > .list-head h1 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.list-section { margin: 24px 0 12px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.list-rows { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.list-row { display: grid; gap: 3px; justify-items: start; width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; text-align: left; }
+button.list-row { cursor: pointer; }
+button.list-row:hover { border-color: var(--border-strong); }
+.list-row.embedded { padding: 9px 13px; }
+button.list-row.embedded:hover { border-color: var(--muted); }
+button.list-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.list-row strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.list-row.removed { color: var(--muted); }
+.list-row-name { text-decoration: line-through; }
+/* Beneath the line, as on a side card: a look inside, then how it's linked. The card's padding is
+   14px (13px inside an embedded schema's thicker border), so the line runs edge to edge. */
+.list-row-foot { display: grid; gap: 6px; box-sizing: border-box; width: calc(100% + 28px); margin: 7px -14px 0; padding: 10px 14px 0; border-top: 1px solid var(--border); }
+.list-row.embedded .list-row-foot { width: calc(100% + 26px); margin-inline: -13px; padding-inline: 13px; }
+.list-row-foot > .focus-preview { width: auto; margin: 0; padding: 0; border: 0; }
+.list-row-links { color: var(--muted); font-size: 11.5px; }
+/* Item | List, a two-part switch: the two parts are the same width, and a thumb slides between them. */
+.view-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 2px; border-radius: 8px; background: light-dark(#c9c9cf, #2c2c31); -webkit-app-region: no-drag; }
+.view-switch[hidden] { display: none; }
+.view-switch::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 6px; background: var(--bg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); transition: transform 0.2s ease-out; }
+.view-switch:has(button:last-child[aria-pressed="true"])::before { transform: translateX(100%); }
+.view-switch button { position: relative; padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; transition: color 0.2s; }
+.view-switch button[aria-pressed="true"] { color: var(--text); }
+@media (prefers-reduced-motion: reduce) { .view-switch::before, .view-switch button { transition: none; } }
+::view-transition-group(*) { animation-duration: 0.22s; }
+/* While the focus moves: cards slide past their columns' edges, and nothing can be clicked. */
+.focus-animating { pointer-events: none; }
+.focus-animating .focus-side { overflow: visible; }
+.focus-animating-page { overflow: hidden; }
+.focus-stage > .focus-ghost { position: absolute; z-index: 3; overflow: hidden; }
+.focus-ghost-words { position: absolute; top: 0; left: 0; box-sizing: border-box; margin: 0; border-color: transparent; background: none; box-shadow: none; pointer-events: none; }
+/* Too narrow for the lines: what links here above, what it links to below. */
+@media (max-width: 900px) {
+  .schema-page { height: auto; }
+  .focus-stage { display: flex; flex-direction: column; gap: 10px; }
+  .focus-lines, .focus-resizer { display: none; }
+  .focus-card { min-height: 360px; }
+  .focus-side { --side-inset: 0px; position: relative; top: auto; height: auto; margin: 0; padding: 0; overflow: visible; }
+  .focus-side > * { top: auto !important; }
+}
+.item-change { font-size: 11.5px; font-weight: 600; }
+.item-change.added, .item-change.changed { color: var(--accent); }
+.item-change.removed { color: light-dark(#b23c3c, #ff8f8f); text-decoration: none; }
+.pane-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.pane-title { display: grid; flex: 1; gap: 1px; min-width: 0; }
+.pane-title h2 { min-width: 0; margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.pane-title .muted { font-size: 12px; }
+.pane-title { position: relative; }
+.pane-title h2[tabindex] { outline: none; cursor: default; }
+.pane-title h2[tabindex]:focus-visible { border-radius: 4px; outline: 2px solid var(--accent); outline-offset: 2px; }
+.title-card { position: absolute; z-index: 20; top: calc(100% + 6px); left: -2px; display: none; gap: 6px; justify-items: start; width: max-content; max-width: min(360px, 100%); padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); color: var(--text-2); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.4; pointer-events: none; }
+.pane-title:has(h2:hover, h2:focus-visible) .title-card { display: grid; }
+.pane-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
+.page.schema-page.full { max-width: none; height: 100%; padding: 0; }
+.focus-full { display: flex; flex: 1; min-height: 0; }
+/* What's in the middle has no card around it: its heading floats where a card's would be. The borders
+   stay, unseen, so that nothing moves. */
+.focus-card.embeds { border-color: transparent; background: none; box-shadow: none; }
+.focus-card.embeds .pane-head { padding-top: 0; padding-bottom: 8px; border-bottom-color: transparent; }
+/* With nothing around it, the title runs level with the tops of the side cards. */
+/* In the middle, a canvas is a sheet like a page, and a table or image a sheet of its own size. Full
+   screen, a canvas is the window's own background. */
+.focus-stage .focus-body.table-body, .focus-stage .focus-body.image-body { flex: none; }
+.focus-stage .canvas-body, .focus-stage .table-body, .focus-stage .image-body { border-radius: var(--card-radius); background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06); }
+.focus-full .focus-card, .focus-full .focus-card.embeds { flex: 1; min-width: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.focus-full .focus-card { position: relative; z-index: 1; }
+.full-actions { position: absolute; top: 12px; right: 16px; z-index: 2; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+.full-actions .status-pills { margin: 0 6px; }
+.canvas-body { position: relative; padding: 0; overflow: hidden; }
+.focus-body .diagram.diagram-canvas { position: absolute; inset: 0; overflow: hidden; padding: 0; border: 0; border-radius: 0; background: none; cursor: grab; touch-action: none; }
+.diagram-heads-band { display: none; fill: var(--window-bg); stroke: var(--border); }
+.focus-stage .diagram-heads-band { fill: var(--bg); }
+.diagram-heads.pinned .diagram-heads-band { display: block; }
+.canvas-dots { position: absolute; inset: 0; background-image: radial-gradient(var(--border) 1px, transparent 1px); pointer-events: none; }
+.morphing .focus-card, .morphing .focus-stage .canvas-body, .morphing .table-body, .morphing .image-body { background: transparent; border-color: transparent; box-shadow: none; }
+.morphing .sheet-head, .morphing .focus-side, .morphing .focus-lines, .morphing .focus-resizer, .morphing .pane-head, .morphing .full-actions, .morphing .canvas-controls, .morphing .canvas-dots { opacity: 0; pointer-events: none; }
+.morph-moving .focus-body, .morph-moving .diagram, .morph-moving .focus-body .diagram.diagram-canvas { overflow: visible; }
+.morphing .focus-body { scrollbar-width: none; }
+.morph-surface { position: fixed; z-index: 0; box-sizing: border-box; border: 1px solid transparent; pointer-events: none; }
+.diagram-canvas.panning { cursor: grabbing; }
+.diagram-canvas .diagram-svg { position: absolute; top: 0; left: 0; max-width: none; height: revert-layer; overflow: visible; transform-origin: 0 0; user-select: none; }
+.canvas-controls { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); cursor: default; }
+.canvas-controls button { min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.canvas-controls button:hover { background: var(--button-hover); }
+.canvas-amount { min-width: 42px; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; }
+.sheet-body { display: flex; flex-direction: column; padding: 0 0 16px; }
+.focus-full .sheet-body { padding: 20px 24px 24px; }
+/* Centred even while pulled past the space it has. */
+.focus-full .document-sheet { align-self: center; margin: 0; }
+.sheet-head { flex: none; width: 100%; max-width: calc(794px * var(--page-zoom, 1)); box-sizing: border-box; margin: 0 auto 14px; padding: 0 72px 0 4px; }
+.sheet-head h2 { margin: 0; }
+/* An A4 page, always laid out at this size and scaled to fit (see page-view.js), which grows if the
+   writing needs more. */
+.document-sheet { display: flow-root; flex: none; width: 794px; min-height: 1123px; box-sizing: border-box; margin: 0 auto; padding: 60px; zoom: var(--page-zoom, 1); border-radius: var(--card-radius); background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06); font-size: 16px; line-height: 1.6; }
+.document-sheet .markdown { font-size: inherit; line-height: inherit; }
+.table-body, .image-body { background: var(--bg); }
+.image-body { display: grid; place-items: center; }
+.use-summary { margin: 0; user-select: text; }
+.use-contents { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; user-select: text; }
+.use-contents li { display: grid; gap: 1px; }
+.parameters dd code { margin-right: 4px; }
+.pane-subhead { margin: 24px 0 8px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.link-button { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
+
+/* A new schema: what it's for, and the prompt to send (see schemas.js). */
+.prompt-dialog { width: 480px; padding: 20px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); }
+.prompt-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.prompt-dialog h2 { margin: 0 0 6px; font-size: 15px; }
+.prompt-dialog p { margin: 0 0 12px; color: var(--muted); }
+.prompt-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.prompt-buttons .focus-copy { align-self: auto; }
 
 /* --- Panels ------------------------------------------------------------------------------- */
 .panel { padding: 16px 16px 24px; user-select: none; }

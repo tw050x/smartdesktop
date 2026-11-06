@@ -1,12 +1,14 @@
 // AI sessions: one per connection, told apart by the id the launcher sends with every call. A
-// session keeps its window until it ends: the launcher says when it's going, and its heartbeat
-// stopping says the same if it crashed. Connections with no id (direct HTTP) share one session,
-// which only the user can release.
+// session keeps its window, and claims what it's working on, so two AIs can't propose changes to
+// the same schema at once. A session lasts until it ends, however long the AI waits on the user:
+// the launcher says when it's going, and its heartbeat stopping says the same if it crashed.
+// Connections with no id (direct HTTP) share one session, which only the user can release.
 export const SHARED_SESSION = 'shared';
 export const SESSION_TIMEOUT_MS = 60 * 1000;
 
 export function createSessions({ now = Date.now } = {}) {
   const sessions = new Map();
+  const claims = new Map(); // what's claimed → the session id
 
   const alive = (session) => session.id === SHARED_SESSION || now() - session.lastSeen < SESSION_TIMEOUT_MS;
 
@@ -26,13 +28,26 @@ export function createSessions({ now = Date.now } = {}) {
     get: (id) => sessions.get(id),
     alive,
 
+    // Claims `key` for a session. Gives back the live session holding it instead, if another does.
+    claim(session, key) {
+      const holder = sessions.get(claims.get(key));
+      if (holder && holder !== session && alive(holder)) return holder;
+      claims.set(key, session.id);
+      return null;
+    },
+    // Gives up a claim, whoever holds it: the work it protected is over.
+    release: (key) => claims.delete(key),
+    releaseClaims(session) {
+      for (const [key, id] of claims) if (id === session.id) claims.delete(key);
+    },
     end(id) {
       const session = sessions.get(id);
       if (!session) return null;
+      this.releaseClaims(session);
       sessions.delete(id);
       return session;
     },
-    // Ends the sessions whose launcher has gone quiet.
+    // Ends the sessions whose launcher has gone quiet, giving their claims back.
     sweep() {
       const gone = [...sessions.values()].filter((session) => !alive(session));
       for (const session of gone) this.end(session.id);

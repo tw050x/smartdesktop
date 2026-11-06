@@ -23,7 +23,7 @@ const STATES = { starting: 'Starting…', running: 'Running', off: 'Not running'
 const CLAUDE_DESKTOP = {
   'not-installed': { text: 'Claude Desktop isn’t on this Mac. Once it is, come back here to add SmartSpec to it.' },
   'not-added': { text: 'SmartSpec can add itself to Claude Desktop for you.', button: 'Add to Claude Desktop' },
-  added: { text: 'SmartSpec is in Claude Desktop. If Claude Desktop was open, quit it and open it again to connect, then ask Claude to use SmartSpec.' },
+  added: { text: 'SmartSpec is in Claude Desktop. If Claude Desktop was open, quit it and open it again to connect, then ask Claude to design something in SmartSpec.' },
   different: { text: 'Claude Desktop has SmartSpec set up from before (perhaps from where the app used to be).', button: 'Update Claude Desktop' },
   unreadable: { text: 'Claude Desktop’s settings file isn’t in a form SmartSpec can safely change. Add SmartSpec yourself, below.' },
 };

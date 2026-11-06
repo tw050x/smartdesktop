@@ -8,6 +8,8 @@ export function buildMenu({ hasWindow, actions }) {
   const fileMenu = {
     label: 'File',
     submenu: [
+      { label: 'New Schema…', accelerator: 'CmdOrCtrl+Shift+N', click: actions.newSchema },
+      { type: 'separator' },
       { label: 'Connect an AI…', click: actions.showConnectAi },
       { type: 'separator' },
       { label: 'Close Window', accelerator: 'CmdOrCtrl+W', enabled: hasWindow, click: actions.close },

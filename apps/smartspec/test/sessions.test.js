@@ -46,6 +46,30 @@ describe('AI sessions', () => {
     assert.deepEqual(sessions.sweep(), []);
   });
 
+  test('one session can hold a claim, and can take it again', () => {
+    const { sessions } = setup();
+    const [a, b] = [sessions.touch('a'), sessions.touch('b')];
+    assert.equal(sessions.claim(a, 'k'), null);
+    assert.equal(sessions.claim(a, 'k'), null);
+    assert.equal(sessions.claim(b, 'k'), a);
+  });
+
+  test('a claim ends with its work, its session, or its session going quiet', () => {
+    const { sessions, clock } = setup();
+    const [a, b] = [sessions.touch('a'), sessions.touch('b')];
+    sessions.claim(a, 'answered');
+    sessions.release('answered');
+    assert.equal(sessions.claim(b, 'answered'), null);
+    sessions.claim(a, 'ended');
+    sessions.end('a');
+    assert.equal(sessions.claim(b, 'ended'), null);
+    const c = sessions.touch('c');
+    sessions.claim(c, 'quiet');
+    clock.tick(SESSION_TIMEOUT_MS + 1);
+    sessions.touch('b');
+    assert.equal(sessions.claim(b, 'quiet'), null);
+  });
+
   test('an AI app is named as a person would say it', () => {
     assert.equal(clientLabel('claude-code'), 'Claude Code');
     assert.equal(clientLabel('some-agent'), 'some-agent');

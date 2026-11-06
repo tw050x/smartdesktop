@@ -22,6 +22,14 @@ npx @smartspec/cli setup
 
 Finds SmartSpec in your Applications folder and adds it to Claude Desktop and Claude Code, asking before each. (`--yes` doesn't ask.) Claude Desktop's settings file keeps everything else in it, and a copy of the file as it was is saved beside it. Agents run the connection built into the app, so they don't need Node.js once they're set up. You can do the same from the app: click its MCP server status, at the top right.
 
+## Wait for the user
+
+```sh
+npx @smartspec/cli wait proposal --id <id>
+```
+
+Stays until the user has accepted or discarded a proposal, then prints what happened and exits. AI apps that can run commands in the background use it to carry on as soon as the user is done; SmartSpec's tools give them the exact command. `wait --help` lists its exit codes.
+
 ## Check the connection
 
 ```sh

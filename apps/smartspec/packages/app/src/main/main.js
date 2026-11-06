@@ -1,4 +1,5 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +7,9 @@ import { createConnect } from './connect.js';
 import { MCP_PORT, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
+import { createStore } from './store.js';
 import { createUpdates } from './updates.js';
+import { WaitRefused, createWaits } from './waits.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const SWEEP_MS = 15 * 1000;
@@ -34,10 +37,12 @@ app.on('second-instance', () => {
   lastFocused.win.focus();
 });
 
-const windows = new Map(); // webContents id → { win, ready, session, untouched }
+const windows = new Map(); // webContents id → { id, win, ready, session, untouched }
 let lastFocused = null;
 let mcp = null; // { url, token } once the MCP server is listening
 let mcpStarting = true;
+const store = createStore(app.getPath('userData'));
+const waits = createWaits({ store });
 
 // For every window: what's the same in all of them.
 const broadcast = (channel, value) => {
@@ -89,6 +94,7 @@ function createWindow({ focus = true } = {}) {
     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
     : { titleBarStyle: 'hidden', titleBarOverlay: { color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT } };
 
+  const id = `w-${randomUUID().slice(0, 4)}`;
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -103,15 +109,34 @@ function createWindow({ focus = true } = {}) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: [`--smartspec-window=${id}`],
     },
   });
-  const ctx = { win, ready: null, session: null, untouched: true };
+  const ctx = { id, win, ready: null, session: null, untouched: true };
   const contentsId = win.webContents.id;
   windows.set(contentsId, ctx);
-  lastFocused = ctx;
+  // An AI's window opens without taking focus, so the menu stays with the one the user is in.
+  if (focus || !lastFocused) lastFocused = ctx;
   updateMenu();
   win.on('focus', () => {
     lastFocused = ctx;
+  });
+  // In full screen macOS moves the traffic lights out of the top bar, so the interface can reclaim
+  // the space reserved for them.
+  win.on('enter-full-screen', () => win.webContents.send('full-screen', true));
+  win.on('leave-full-screen', () => win.webContents.send('full-screen', false));
+  // A schema's content is written by an AI, and its links must never replace the interface: they
+  // open in the browser, if they're web links at all.
+  const openLink = (url) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+  };
+  win.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault();
+    openLink(url);
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openLink(url);
+    return { action: 'deny' };
   });
   ctx.ready = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
   ctx.ready.then(() => {
@@ -138,6 +163,11 @@ function updateMenu() {
     actions: {
       newWindow: () => createWindow(),
       close: () => lastFocused?.win.close(),
+      newSchema: async () => {
+        const ctx = lastFocused ?? createWindow();
+        await ctx.ready;
+        ctx.win.webContents.send('new-schema');
+      },
       showConnectAi,
     },
   }));
@@ -159,6 +189,7 @@ function setSessionWindow(session, ctx) {
 
 // Gives a window back to the user, whichever way the session stopped.
 function releaseWindow(session) {
+  sessions.releaseClaims(session);
   const { ctx } = session;
   session.ctx = null;
   if (ctx) {
@@ -177,17 +208,67 @@ async function windowForSession(session, startedApp) {
   return ctx;
 }
 
+// A prompt copied from a window names it, so the AI that gets it takes that window over.
+function takeOverWindow(session, windowId) {
+  const ctx = [...windows.values()].find((one) => one.id === windowId);
+  if (!ctx) throw new Error(`There's no SmartSpec window ${windowId} open now. Carry on without it: your first tool call opens a window of your own.`);
+  if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
+    throw new Error(`${clientLabel(ctx.session.client)} is already working in window ${windowId}. Tell the user: they can release it from the status pill's panel.`);
+  }
+  if (ctx.session && ctx.session !== session) releaseWindow(ctx.session);
+  const old = session.ctx;
+  if (old && old !== ctx) {
+    releaseWindow(session);
+    old.win.close(); // a window the session opened for itself isn't worth leaving behind
+  }
+  setSessionWindow(session, ctx);
+  return { window: windowId };
+}
+
+const schemaClaim = (schemaId) => `schema:${schemaId}`;
+
+// The schemas as an AI session may use them. Its proposals show in its own window.
+const schemasFor = (session, ctx) => ({
+  list: () => store.list(),
+  getSchema: (id, options) => store.getSchema(id, options),
+  getItem: (id, itemId, options) => store.getItem(id, itemId, options),
+  getProposal: (id, options) => store.getProposal(id, options),
+  async propose(proposal) {
+    if (proposal.schemaId) {
+      const holder = sessions.claim(session, schemaClaim(proposal.schemaId));
+      if (holder) throw new Error(`${clientLabel(holder.client)} is already proposing a change to this schema, so this one wasn't made. You can still read it. Tell the user: they can answer its proposal, or release its window from the status pill's panel.`);
+    }
+    const made = await store.propose(proposal);
+    sessions.claim(session, schemaClaim(made.schema));
+    ctx.win.webContents.send('show-schema', { schemaId: made.schema, name: proposal.name ?? '' });
+    if (!ctx.win.isVisible()) ctx.win.showInactive();
+    return {
+      ...made,
+      status: 'waiting_for_user',
+      wait: waitCommand('proposal', '--id', made.proposal),
+      message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schema later.',
+    };
+  },
+});
+
 const aiForServer = {
   alive: ({ session, client }) => sessions.touch(session, client),
+  wait({ what, proposal } = {}) {
+    if (what !== 'proposal') throw new WaitRefused(`Can't wait for "${what}".`, 400);
+    return waits.forProposal(proposal);
+  },
   ended({ session }) {
     const ended = session && sessions.get(session);
     if (!ended) return;
     releaseWindow(ended);
     sessions.end(session);
   },
-  async call({ session: id, client, startedApp }, _name, _args, run) {
-    await windowForSession(sessions.touch(id, client), startedApp);
-    return run();
+  async call({ session: id, client, startedApp }, name, _args, run) {
+    const session = sessions.touch(id, client);
+    // Taking a window over is the one call that mustn't open one of its own.
+    if (name === 'use_window') return run({ useWindow: (windowId) => takeOverWindow(session, windowId) });
+    const ctx = await windowForSession(session, startedApp);
+    return run(schemasFor(session, ctx));
   },
 };
 
@@ -203,7 +284,7 @@ function sweepSessions() {
 // (opened from the server pill, or Connect an AI in the menu) shows how to set up each AI app,
 // and can add SmartSpec to Claude Desktop itself.
 
-const { setups, claudeDesktopStatus, addToClaudeDesktop } = createConnect({
+const { setups, claudeDesktopStatus, addToClaudeDesktop, waitCommand } = createConnect({
   isPackaged: app.isPackaged,
   execPath: process.execPath,
   resourcesPath: process.resourcesPath,
@@ -274,6 +355,38 @@ async function mcpSetup(target) {
   return all[target];
 }
 
+store.events.on('changed', () => broadcast('schemas-changed'));
+
+// Asks first when there's no way back: the AI would have to write the proposal again.
+async function discardProposal(ctx, schemaId) {
+  const proposal = await store.getProposal(schemaId);
+  if (!proposal) return;
+  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+    type: 'warning',
+    message: proposal.total ? 'Discard this proposed change?' : `Discard “${proposal.name}”?`,
+    detail: proposal.total ? 'The schema stays as it is. Your AI would have to propose the change again.' : 'It has no accepted draft, so the schema goes with it. Your AI would have to propose it again.',
+    buttons: ['Cancel', 'Discard'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response !== 1) return;
+  await store.discard(schemaId);
+  sessions.release(schemaClaim(schemaId));
+}
+
+handle('list-schemas', () => store.list());
+handle('list-focuses', (_ctx, id, options) => store.listFocuses(id, options));
+handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
+handle('list-drafts', (_ctx, id) => store.listDrafts(id));
+handle('get-schema', (_ctx, id, draftId) => store.getSchema(id, { draftId: draftId ?? undefined }));
+handle('get-proposal', (_ctx, id) => store.getProposal(id));
+handle('get-item', (_ctx, id, itemId, options) => store.getItem(id, itemId, options));
+handle('get-connections', (_ctx, id, options) => store.getConnections(id, options));
+handle('accept-proposal', async (_ctx, id) => {
+  await store.accept(id);
+  sessions.release(schemaClaim(id));
+});
+handle('discard-proposal', (ctx, id) => discardProposal(ctx, id));
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', ({ session }) => {
   if (session) releaseWindow(session);

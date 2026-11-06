@@ -1,4 +1,6 @@
 import { APP_MARKUP } from './app-markup.js';
+import { watchArrowKeys } from './arrow-nav.js';
+import { createSchemas } from './schemas.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
 
@@ -7,8 +9,10 @@ import { createSettings } from './settings.js';
 export function startApp(api) {
   document.body.innerHTML = APP_MARKUP;
   document.body.classList.add(`platform-${api.platform}`);
+  api.onFullScreenChange((isFullScreen) => document.body.classList.toggle('full-screen', isFullScreen));
   const serverStatus = createServerStatus({ api });
   api.onAiControl((name) => serverStatus.setAiControl(name));
   createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog'), api });
-  document.getElementById('home-connect').addEventListener('click', () => serverStatus.open());
+  createSchemas({ el: document.getElementById('content'), bottomBar: document.getElementById('review-bar'), crumbs: document.getElementById('breadcrumb'), draftNav: document.getElementById('draft-nav'), modeCard: document.getElementById('mode-card'), focusMenu: document.getElementById('focus-menu'), viewSwitch: document.getElementById('view-switch'), api, onConnect: () => serverStatus.open() });
+  watchArrowKeys();
 }

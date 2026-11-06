@@ -51,6 +51,18 @@ export async function startMcpServer(ai, userData) {
     } catch {
       return deny(400, 'Invalid JSON.');
     }
+    // From `smartspec wait`: answered once what it's waiting for has happened, however long that is.
+    if (req.url.startsWith('/mcp/wait')) {
+      try {
+        const wait = ai.wait(body);
+        res.on('close', wait.cancel);
+        const result = await wait.promise;
+        if (result) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+      } catch (error) {
+        deny(error.status ?? 500, error.message);
+      }
+      return;
+    }
     const server = buildServer((name, args, run) => ai.call(caller, name, args, run), { version: app.getVersion() });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {

@@ -15,8 +15,8 @@ retrieve the plan and either delegate it or act on it.
 
 ## Status
 
-Early days: the desktop app, its MCP server and the `smartspec` command are in place, but the
-planning tools aren't built yet.
+Early days: an AI can propose schemas, you accept them, and you open them level by level.
+Contract testing isn't built yet.
 
 ## Development
 
