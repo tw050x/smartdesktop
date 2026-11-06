@@ -21,6 +21,7 @@ import { takeOverNote } from './take-over-note.js';
 import { levelOf } from './home-level.js';
 import { actionFor } from './home-review-state.js';
 import { LABEL_COLORS, NO_LABELS, labelsOn, labelsToChoose } from '../main/labels.js';
+import { arrowKeysIn } from './menu-keys.js';
 
 const icon = (paths, size = 14) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const arrowIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
@@ -107,24 +108,73 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   let tree = null; // the selected document's variations and drafts
   let loading = 0;
   const sorts = {};
-  // A select at the right of each column's title, after the sort icon.
+  // A button at the right of each column's title: the sort's name, then its icon. It opens a menu
+  // of the sorts, as the MCP panel's app picker does.
   for (const [column, list] of [['documents', documentsEl], ['variations', variationsEl], ['drafts', draftsEl]]) {
     const options = SORTS[column];
     sorts[column] = options.find(([id]) => id === remembered(column)) ?? options[0];
-    const label = el('label', 'home-sort');
-    label.innerHTML = sortIcon;
-    const select = el('select');
-    select.setAttribute('aria-label', 'Sort by');
-    for (const [id, text] of options) select.append(new Option(text, id, false, id === sorts[column][0]));
-    select.addEventListener('change', () => {
-      sorts[column] = options.find(([id]) => id === select.value);
+    const picker = el('div', 'home-sort-picker');
+    const button = el('button', 'home-sort');
+    button.type = 'button';
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-label', `Sort by: ${sorts[column][1]}`);
+    const text = el('span', 'home-sort-text', sorts[column][1]);
+    button.append(text);
+    button.insertAdjacentHTML('beforeend', sortIcon);
+    const menu = el('div', 'app-picker-menu home-sort-menu');
+    menu.setAttribute('role', 'menu');
+    menu.hidden = true;
+    const items = options.map(([id, label]) => {
+      const item = el('button', null, label);
+      item.type = 'button';
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(id === sorts[column][0]));
+      item.addEventListener('click', () => choose(id));
+      return item;
+    });
+    menu.append(...items);
+    const setOpen = (open) => {
+      menu.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+      if (open) items.find((i) => i.getAttribute('aria-checked') === 'true')?.focus();
+    };
+    const choose = (id) => {
+      sorts[column] = options.find(([o]) => o === id);
+      text.textContent = sorts[column][1];
+      button.setAttribute('aria-label', `Sort by: ${sorts[column][1]}`);
+      items.forEach((item, i) => item.setAttribute('aria-checked', String(options[i][0] === id)));
+      setOpen(false);
+      button.focus();
       try {
-        localStorage.setItem(`home-sort-${column}`, select.value);
+        localStorage.setItem(`home-sort-${column}`, id);
       } catch {}
       ({ documents: renderDocuments, variations: renderVariations, drafts: renderDrafts })[column]();
+    };
+    button.addEventListener('click', () => setOpen(menu.hidden));
+    // Up or Down on the button opens the menu too.
+    button.addEventListener('keydown', (e) => {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && menu.hidden) {
+        e.preventDefault();
+        setOpen(true);
+      }
     });
-    label.append(select);
-    list.previousElementSibling.append(label);
+    // A press elsewhere, or the focus moving on, closes it; Escape closes it back onto the button.
+    document.addEventListener('pointerdown', (e) => {
+      if (!menu.hidden && !picker.contains(e.target)) setOpen(false);
+    });
+    picker.addEventListener('focusout', (e) => {
+      if (!menu.hidden && e.relatedTarget && !picker.contains(e.relatedTarget)) setOpen(false);
+    });
+    menu.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setOpen(false);
+      button.focus();
+    });
+    arrowKeysIn(menu);
+    picker.append(button, menu);
+    list.previousElementSibling.append(picker);
   }
   const sorted = (column, list) => sorts[column][2](list);
 

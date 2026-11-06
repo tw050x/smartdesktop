@@ -634,21 +634,32 @@ body:not(.has-document) .pages-wrap { display: none; }
 .home-label-editor { display: grid; gap: 4px; padding: 0 10px 8px; }
 .home-label-choice { cursor: pointer; }
 .home-label-choice:hover { background: color-mix(in srgb, var(--label-color) 28%, transparent); }
-/* A column's sort: the icon, then a select with no background or border. */
-.home-sort { display: flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
-.home-sort svg { flex: none; }
-.home-sort select {
-  appearance: none;
-  padding: 2px 0;
+/* A column's sort: a button with the sort's name, then the icon, opening a menu of the sorts. */
+.home-sort {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px 0 8px;
   border: 0;
-  background: none;
-  font: inherit;
+  border-radius: 7px;
+  background: transparent;
+  font-family: inherit;
   font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--muted);
   cursor: pointer;
 }
-.home-sort:hover, .home-sort:hover select { color: var(--text); }
-.home-sort select:focus, .home-sort select:focus-visible { outline: none; }
+.home-sort svg { flex: none; }
+.home-sort-text { white-space: nowrap; }
+.home-sort:hover, .home-sort[aria-expanded="true"] { background: var(--button-hover); color: var(--text); }
+.home-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Its menu: the app picker's (see .app-picker-menu), lined up with the button's right edge. */
+.home-sort-picker { position: relative; flex: none; }
+.home-sort-menu { left: auto; right: 0; }
 /* A draft's reviews, a line each under it in its tool's icon and colour. */
 .home-reviews { display: grid; gap: 2px; padding: 0 6px 8px; }
 .home-review {

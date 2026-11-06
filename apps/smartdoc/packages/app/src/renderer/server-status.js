@@ -6,6 +6,8 @@
 // a button that adds SmartDoc for the user. Connect an AI in the menu opens it too. The panel's
 // drag handle resizes it, and closes it when dragged below the minimum width.
 
+import { arrowKeysIn } from './menu-keys.js';
+
 const PANEL_MIN = 300;
 const PANEL_MAX_SHARE = 0.66;
 const PILL_SWAP_MS = 4000;
@@ -148,6 +150,13 @@ export function createServerStatus({ api }) {
     appButton.setAttribute('aria-expanded', String(open));
   };
   appButton.addEventListener('click', () => setAppMenuOpen(appMenu.hidden));
+  // Up or Down on the button opens the menu on the app chosen.
+  appButton.addEventListener('keydown', (e) => {
+    if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || !appMenu.hidden) return;
+    e.preventDefault();
+    setAppMenuOpen(true);
+    appOptions.find((o) => o.getAttribute('aria-checked') === 'true')?.focus();
+  });
   for (const option of appOptions) {
     option.addEventListener('click', () => {
       for (const o of appOptions) {
@@ -162,6 +171,7 @@ export function createServerStatus({ api }) {
   document.addEventListener('pointerdown', (e) => {
     if (!appMenu.hidden && !appMenu.contains(e.target) && !appButton.contains(e.target)) setAppMenuOpen(false);
   });
+  arrowKeysIn(appMenu);
   appMenu.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.stopPropagation(); // closes just the menu, not the panel
