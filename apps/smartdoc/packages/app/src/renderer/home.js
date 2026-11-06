@@ -178,6 +178,51 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   }
   const sorted = (column, list) => sorts[column][2](list);
 
+  // With a row focused, Up and Down move to the row above or below in its column, choosing it as a
+  // click would if it's a document or a variation (not a folder, which a click opens, or a draft).
+  // Left and Right move to the column either side, onto its chosen row or else its first. In a
+  // folder, Up from the top row goes to the back button, and Down from there comes back. The
+  // arrows do nothing here anywhere else.
+  const columns = [documentsEl, variationsEl, draftsEl];
+  const rowsIn = (list) => [...list.querySelectorAll('.home-row')];
+  const focusRow = (row) => {
+    row.focus({ focusVisible: true });
+    row.scrollIntoView({ block: 'nearest' });
+  };
+  document.addEventListener('keydown', (e) => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (document.activeElement === backButton && e.key === 'ArrowDown' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      const first = rowsIn(documentsEl)[0];
+      if (first) {
+        e.preventDefault();
+        focusRow(first);
+      }
+      return;
+    }
+    const row = document.activeElement?.closest?.('.home-row');
+    const column = row && columns.findIndex((list) => list.contains(row));
+    if (!row || column < 0) return;
+    e.preventDefault();
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const list = columns[column];
+      const rows = rowsIn(list);
+      const at = rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1);
+      const next = rows[at];
+      if (!next && at < 0 && column === 0 && !pathRow.hidden) return backButton.focus({ focusVisible: true });
+      if (!next) return;
+      if (column < 2 && !next.dataset.folder) {
+        next.click(); // redraws the column
+        return focusRow(rowsIn(list)[at] ?? next);
+      }
+      return focusRow(next);
+    }
+    const list = columns[column + (e.key === 'ArrowRight' ? 1 : -1)];
+    if (!list) return;
+    const rows = rowsIn(list);
+    const next = rows.find((r) => r.getAttribute('aria-pressed') === 'true') ?? rows[0];
+    if (next) focusRow(next);
+  });
+
   // --- Labels --------------------------------------------------------------------------------
   const labelsEnabled = Boolean(api.labels);
   let labelState = NO_LABELS;
