@@ -258,7 +258,16 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       el('span', 'margin-status', allDecided ? `✓ All ${decidable.length} decided` : cur.whole && !cur.highlight?.missing ? `Whole document · ${cur.status}` : cur.status),
     );
     button.title = cur.title;
-    button.addEventListener('click', () => openDeck(deck.key, deck.page));
+    const show = () => {
+      openDeck(deck.key, deck.page);
+      showOpenCard(deck.key);
+    };
+    button.addEventListener('click', show);
+    // Reached with the keyboard, a tab opens its card at once (closing any other), so the focus
+    // goes card by card rather than onto the tabs an open card covers.
+    button.addEventListener('focus', () => {
+      if (!refocusing && button.matches(':focus-visible')) show();
+    });
     return button;
   }
 
@@ -691,10 +700,45 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     render();
   }
 
+  // A card opened from its tab scrolls wholly into view (its top first, if it's taller than the
+  // view) and takes the focus in place of the tab, which has gone, so Tab carries on inside it.
+  function showOpenCard(key) {
+    const card = [...layer.querySelectorAll('.margin-slot')].find((s) => s.dataset.key === key)?.querySelector('.margin-card');
+    if (!card) return;
+    const view = card.closest('.document') ?? document.scrollingElement;
+    const tall = card.getBoundingClientRect().height > view.clientHeight;
+    const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    card.scrollIntoView({ block: tall ? 'start' : 'nearest', behavior: smooth ? 'smooth' : 'auto' });
+    card.tabIndex = -1;
+    card.focus({ preventScroll: true });
+  }
+
+  // Closing a card puts the focus back on its tab, if the focus was in the card, without opening
+  // it again.
+  let refocusing = false;
   function closeDeck() {
+    const key = open;
+    const wasIn = layer.contains(document.activeElement);
     open = null;
     render();
+    if (!wasIn) return;
+    refocusing = true;
+    [...layer.querySelectorAll('.margin-slot')].find((s) => s.dataset.key === key)?.querySelector('.margin-tab')?.focus({ preventScroll: true });
+    refocusing = false;
   }
+  // Tabbing out of the review (to the top bar, say) closes the open card. A click elsewhere, which
+  // moves the focus nowhere in particular, leaves it open.
+  layer.addEventListener('focusout', () => {
+    setTimeout(() => {
+      const to = document.activeElement;
+      if (!open || !to || to === document.body || layer.contains(to) || !to.matches(':focus-visible')) return;
+      // Closing redraws the review bar too; the focus goes to the same control in the new one.
+      const controls = () => [...bar.querySelectorAll('button, select, textarea, input')];
+      const at = bar.contains(to) ? controls().indexOf(to) : -1;
+      closeDeck();
+      if (!to.isConnected && at >= 0) controls()[at]?.focus();
+    });
+  });
 
   // Hovering only restyles the decks and the page, so the deck under the pointer stays put.
   function setHover(key) {

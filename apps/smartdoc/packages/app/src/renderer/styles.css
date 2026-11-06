@@ -895,6 +895,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .margin-pager button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; font-size: 15px; line-height: 1; color: var(--text-2); cursor: pointer; }
 .margin-pager button:hover { background: var(--button-hover); }
 /* An open card: the same width as its tab, growing downwards over the margin. */
+.margin-card:focus { outline: none; }
+.margin-card { scroll-margin: 16px; } /* room around it when it's scrolled into view */
+.margin-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .margin-card {
   position: relative;
   z-index: 1;
