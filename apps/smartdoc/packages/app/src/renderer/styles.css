@@ -551,7 +551,7 @@ body:not(.has-document) .pages-wrap { display: none; }
 .home-crumb { flex: 0 1 auto; cursor: pointer; }
 .home-crumb:hover { color: var(--text); background: var(--hover-tint); }
 .home-crumb-here { flex: 0 1 auto; font-weight: 600; color: var(--text); }
-.home-crumb-gap, .home-crumb-more { flex: none; padding: 0 1px; }
+.home-crumb-more { flex: none; padding: 0 1px; }
 .home-folder-title { display: flex; align-items: center; gap: 6px; }
 .home-folder-title svg { flex: none; color: var(--muted); }
 .home-folder-title span { overflow: hidden; text-overflow: ellipsis; }

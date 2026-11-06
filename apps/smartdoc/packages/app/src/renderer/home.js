@@ -486,9 +486,8 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     pathRow.hidden = !path.length;
     pathRow.replaceChildren(backButton);
     const hidden = path.length - PATH_SHOWN;
-    if (hidden > 0) pathRow.append(el('span', 'home-crumb-more', '…'), el('span', 'home-crumb-gap', '/'));
-    path.slice(Math.max(hidden, 0)).forEach((f, i, shown) => {
-      if (i) pathRow.append(el('span', 'home-crumb-gap', '/'));
+    if (hidden > 0) pathRow.append(el('span', 'home-crumb-more', '…'));
+    path.slice(Math.max(hidden, 0)).forEach((f) => {
       if (f.id !== shownFolder) return pathRow.append(crumb(f.name, f.id));
       const here = el('span', 'home-crumb-here', f.name);
       here.title = f.name;
