@@ -316,12 +316,15 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   }
   const moveItem = ({ kind, id }, place) => (kind === 'document' ? api.moveDocument(id, place) : api.moveFolder(id, place));
 
-  function showFolder(id, { keepSelection = false } = {}) {
+  // Opened by the user (not by a drag), the folder's first row takes the focus, or with none the
+  // back button, so the keyboard carries on from there.
+  function showFolder(id, { keepSelection = false, focus = false } = {}) {
     shownFolder = id;
     naming = null;
     api.setHomeFolder?.(id);
     if (!keepSelection) followList();
     renderDocuments();
+    if (focus) (documentsEl.querySelector('.home-row') ?? (pathRow.hidden ? null : backButton))?.focus();
   }
 
   const backButton = el('button', 'icon-button home-back');
@@ -329,7 +332,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   backButton.innerHTML = backIcon;
   backButton.setAttribute('aria-label', 'Back');
   backButton.title = 'Back';
-  backButton.addEventListener('click', () => showFolder(folderById(shownFolder)?.parentId ?? null));
+  backButton.addEventListener('click', () => showFolder(folderById(shownFolder)?.parentId ?? null, { focus: true }));
   const pathRow = el('nav', 'home-path');
   pathRow.setAttribute('aria-label', 'Folder path');
   pathRow.hidden = true;
@@ -528,7 +531,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       const button = el('button', 'home-crumb', name);
       button.type = 'button';
       button.title = name;
-      button.addEventListener('click', () => showFolder(id));
+      button.addEventListener('click', () => showFolder(id, { focus: true }));
       dropTarget(button, () => id);
       return button;
     };
@@ -549,7 +552,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     if (naming?.folderId === f.id) return namingRow();
     const item = el('li', 'home-item home-folder');
     if (cut?.kind === 'folder' && cut.id === f.id) item.classList.add('home-cut');
-    const row = rowButton(false, () => showFolder(f.id));
+    const row = rowButton(false, () => showFolder(f.id, { focus: true }));
     row.dataset.folder = f.id;
     const name = el('span', 'home-title home-folder-title');
     name.innerHTML = folderIcon;
@@ -567,7 +570,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
         { separator: true },
         { id: 'delete', label: 'Delete Folder' },
       ], {
-        open: () => showFolder(f.id),
+        open: () => showFolder(f.id, { focus: true }),
         rename: () => startNaming({ folderId: f.id }),
         cut: () => cutItem({ kind: 'folder', id: f.id }),
         delete: () => api.deleteFolder(f.id),
