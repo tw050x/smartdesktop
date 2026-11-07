@@ -29,6 +29,7 @@ const arrowIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="current
 const openIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5,21q-0.83,0-1.41-0.59T3,19V5Q3,4.17 3.59,3.59T5,3h7V5H5V19H19V12h2v7q0,0.82-0.59,1.41T19,21H5Zm4.7-5.3L8.3,14.3L17.6,5H14V3h7v7H19V6.4L9.7,15.7Z"/></svg>';
 const folderIcon = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
 const newFolderIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg>';
+const newDocumentIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 const backIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const sortIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3,18V16H9v2H3Zm0-5V11H15v2H3ZM3,8V6H21V8H3Z"/></svg>';
 // Each column's sort orders, the first the default. The list comes in its default order; each
@@ -387,15 +388,23 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   newFolderButton.setAttribute('aria-label', 'New folder');
   newFolderButton.title = 'New folder';
   newFolderButton.addEventListener('click', () => startNaming({ parentId: shownFolder }));
+  // An empty document, named here, in the folder showing (as SmartSpec's + makes a domain).
+  const newDocumentButton = el('button', 'icon-button home-new-folder');
+  newDocumentButton.type = 'button';
+  newDocumentButton.innerHTML = newDocumentIcon;
+  newDocumentButton.setAttribute('aria-label', 'New document');
+  newDocumentButton.title = 'New document';
+  newDocumentButton.addEventListener('click', () => startNaming({ parentId: shownFolder, document: true }));
   if (foldersOn) {
     columnHead.after(pathRow);
     title.after(newFolderButton);
+    if (api.createDocument) newFolderButton.after(newDocumentButton);
     dropTarget(backButton, () => folderById(shownFolder)?.parentId ?? null, { opens: true, key: 'back' });
     dropTarget(documentsEl, () => shownFolder);
     documentsEl.addEventListener('contextmenu', (e) => {
       if (e.target.closest('.home-item')) return;
       e.preventDefault();
-      openMenu([{ id: 'new', label: 'New Folder' }, pasteItem()], { new: () => startNaming({ parentId: shownFolder }), paste });
+      openMenu([...(api.createDocument ? [{ id: 'document', label: 'New Document' }] : []), { id: 'new', label: 'New Folder' }, pasteItem()], { document: () => startNaming({ parentId: shownFolder, document: true }), new: () => startNaming({ parentId: shownFolder }), paste });
     });
     api.onFolders((next) => {
       folderState = next;
@@ -460,12 +469,35 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   }
   // A row to type a name in. Enter or leaving it keeps the name; Esc, nothing typed or no change
   // leaves things as they were.
-  function nameRow(value, placeholder, save, done) {
+  // With `suffix` (a document's ".pdf"), it shows faintly just after what's typed, as if part of it,
+  // but isn't in the field: it's added to the name when it's kept, unless typed already.
+  function nameRow(value, placeholder, save, done, { suffix = null } = {}) {
     const item = el('li', 'home-item home-naming');
     const input = el('input', 'home-folder-name');
     input.value = value;
     input.placeholder = placeholder;
     input.setAttribute('aria-label', placeholder);
+    if (suffix) {
+      // A copy of the text, invisible, with the suffix after it, laid over the field in its font and
+      // padding, and scrolled with it, so the suffix always sits at the end of the text.
+      const typed = el('span', 'home-name-typed');
+      const after = el('span', 'home-name-suffix', suffix);
+      const ghost = el('span', 'home-name-ghost');
+      ghost.setAttribute('aria-hidden', 'true');
+      ghost.append(typed, after);
+      const field = el('span', 'home-name-field');
+      field.append(input, ghost);
+      const follow = () => {
+        typed.textContent = input.value;
+        after.hidden = !input.value || input.value.trim().toLowerCase().endsWith(suffix.toLowerCase());
+        ghost.scrollLeft = input.scrollLeft;
+      };
+      for (const event of ['input', 'scroll', 'keyup', 'select', 'focus']) input.addEventListener(event, () => requestAnimationFrame(follow));
+      follow();
+      const keep = save;
+      save = (name) => keep(name.toLowerCase().endsWith(suffix.toLowerCase()) ? name : `${name}${suffix}`);
+      item.append(field);
+    }
     let finished = false;
     const finish = async (keep) => {
       if (finished) return;
@@ -480,7 +512,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       if (e.key === 'Escape') finish(false);
     });
     input.addEventListener('blur', () => finish(true));
-    item.append(input);
+    if (!suffix) item.append(input);
     requestAnimationFrame(() => {
       input.focus();
       input.select();
@@ -493,7 +525,11 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       naming = null;
       renderDocuments();
     };
-    if (target.docId) return nameRow(documents.find((d) => d.id === target.docId)?.name ?? '', 'Document name', (name) => api.renameDocument(target.docId, name), done);
+    if (target.document) return nameRow('', 'Document name', (name) => api.createDocument(name, target.parentId), done, { suffix: '.pdf' });
+    if (target.docId) {
+      const name = documents.find((d) => d.id === target.docId)?.name ?? '';
+      return nameRow(name.replace(/\.pdf$/i, ''), 'Document name', (next) => api.renameDocument(target.docId, next), done, { suffix: '.pdf' });
+    }
     const save = target.folderId ? (name) => api.renameFolder(target.folderId, name) : (name) => api.createFolder(name, target.parentId);
     return nameRow(target.folderId ? folderById(target.folderId)?.name ?? '' : '', 'Folder name', save, done);
   }
@@ -729,6 +765,28 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     if (!variation) return;
     // Drafts come newest first; each keeps its number in the variation whatever the order.
     const numbered = variation.drafts.map((d, i) => ({ d, number: variation.drafts.length - 1 - i }));
+    // A draft preview waiting comes first, whatever the order, as a proposal does on SmartSpec's
+    // home: it's the next draft, if the user accepts it. Opening it opens the draft it was written
+    // from, then the preview.
+    for (const { d, number } of numbered) {
+      const preview = d.reviews?.improve?.preview;
+      if (!preview) continue;
+      const item = el('li', 'home-item home-draft home-preview');
+      const row = rowButton(false, async () => {
+        await api.openDraft(tree.id, variation.id, d.id, 'improve');
+        await api.openPreview();
+      }, openIcon);
+      row.title = `Open the draft preview written from ${d.label}`;
+      const head = el('span', 'home-title-row');
+      head.append(el('span', 'home-title', `Draft ${number + 1} preview`));
+      const pills = el('span', 'home-pills');
+      pills.append(el('span', 'home-pill', 'Waiting for you'));
+      head.append(pills);
+      row.append(head, el('span', 'home-meta', [preview.at && formatDate(preview.at), `from ${d.label}`].filter(Boolean).join(' · ')));
+      if (preview.summary) row.append(el('span', 'home-summary', preview.summary));
+      item.append(row);
+      draftsEl.append(item);
+    }
     for (const { d, number } of sorted('drafts', numbered)) {
       const item = el('li', 'home-item home-draft');
       const row = rowButton(false, () => api.openDraft(tree.id, variation.id, d.id), openIcon);

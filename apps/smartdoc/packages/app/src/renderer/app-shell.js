@@ -7,6 +7,7 @@ import { promptNamingWindow } from './take-over-note.js';
 import { createCompareView } from './compare.js';
 import { createFindBar } from './find-bar.js';
 import { createFocusPicker } from './focus-picker.js';
+import { createHistoryNav } from './history-nav.js';
 import { createHighlightsList } from './highlights-list.js';
 import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
@@ -52,6 +53,23 @@ export function startApp(appApi) {
     card: document.getElementById('focus-card'),
     api,
   });
+  // Back and forward through where the window has been. The website's demo can't open somewhere
+  // again, so its arrows stay off.
+  const historyNav = createHistoryNav({
+    back: document.getElementById('history-back'),
+    forward: document.getElementById('history-forward'),
+    api,
+    canTravel: !api.isDemo,
+  });
+  // The draft showing, and with it the stop it makes (see history-nav.js). A preview is a stop on
+  // the draft it was written from.
+  let atDraft = null; // { docId, variationId, draftId } of the draft last opened, not a preview
+  function noteWhereAt() {
+    if (!current.doc) return historyNav.observe({ home: true });
+    if (!atDraft || atDraft.docId !== current.doc.id) return;
+    const focus = current.tool === 'highlights' && current.review?.type === 'highlights' ? current.review.id : null;
+    historyNav.observe({ ...atDraft, tool: current.tool, focus, preview: Boolean(current.preview) });
+  }
 
   // --- PDF view ----------------------------------------------------------------------------
 
@@ -579,6 +597,7 @@ export function startApp(appApi) {
     current.review = review;
     marginReview.update({ review });
     showView();
+    noteWhereAt();
   };
 
   // The draft's label in the top bar.
@@ -612,6 +631,8 @@ export function startApp(appApi) {
     // The only draft that can still change.
     const newest = !draft.isPreview && draft.number === draft.total;
     current = { doc, review, tool, preview, newest };
+    if (!draft.isPreview) atDraft = { docId: doc.id, variationId: variation.id, draftId: draft.id };
+    noteWhereAt();
     marginReview.update({ document: doc, review, tool, preview, filter: null, commentable: newest || Boolean(preview) });
     showView();
     marginReview.reset();
@@ -632,6 +653,7 @@ export function startApp(appApi) {
     current = { doc: null, review: null, tool: current.tool, preview: null };
     marginReview.update({ document: null, review: null, preview: null, filter: null });
     showView();
+    noteWhereAt();
     updateScrollUi();
   });
 
@@ -644,7 +666,11 @@ export function startApp(appApi) {
     current.tool = tool;
     marginReview.update({ tool });
     showView();
+    noteWhereAt();
   });
+  // Where the window starts is the first stop: home, unless a draft opens straight away, which the
+  // stop's settling then takes instead.
+  noteWhereAt();
 
   // As in pdf.js's own viewer: while selecting, an unselectable layer fills the gaps between the
   // text, so a cursor between lines doesn't make the selection jump to text further down the page

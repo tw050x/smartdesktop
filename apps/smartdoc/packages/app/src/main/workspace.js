@@ -508,6 +508,19 @@ export function createWorkspace(shared) {
       await showDraft(draftId);
     },
 
+    // An empty document, named by the user on home, in the folder showing there: one blank A4
+    // page. It goes to the top of the documents list.
+    async createDocument(name, folderId = null) {
+      const clean = cleanName(name, 'document');
+      const html = withDefaultPage('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+      const pdf = await renderHtmlToPdf(html);
+      const made = await store.createDocument(/\.pdf$/i.test(clean) ? clean : `${clean}.pdf`, { pdf, html });
+      shared.recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...shared.recent];
+      await saveRecent();
+      if (folderId && shared.folders.folders.some((f) => f.id === folderId)) await changeFolders(folders.moveDocument(shared.folders, made.id, folderId));
+      return { id: made.id, name: made.name };
+    },
+
     // A new document from one of a document's drafts (an improved CV, say, to make variations
     // of). It goes to the top of the documents list.
     async documentFromDraft(docId, variationId, draftId) {
@@ -570,7 +583,8 @@ export function createWorkspace(shared) {
             findings: improve.items.length,
             decided: improve.items.filter((i) => i.decision.status !== 'pending').length,
             applied: improve.applications.length > 0,
-            preview: Boolean(improve.preview),
+            // A draft preview waiting: when it was written, and the AI's summary of it.
+            preview: improve.preview ? { at: improve.preview.at, summary: improve.preview.summary ?? null } : null,
             comments: improve.requests.length,
             // Started by the user's comments, with the AI yet to pick it up.
             waitingForAi: improve.status === 'open' && improve.history[0]?.who === 'user' && !improve.items.length,

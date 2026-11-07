@@ -95,6 +95,15 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
       return newDocument(path.basename(sourcePath), (to) => copyFile(sourcePath, path.join(to, 'draft.pdf')));
     },
 
+    // An empty document, made in the app rather than imported: its original is a blank page and the
+    // empty HTML it was drawn from, for the AI to write the next draft into.
+    async createDocument(name, { pdf, html }) {
+      return newDocument(name, async (to) => {
+        await writeFile(path.join(to, 'draft.pdf'), pdf);
+        await writeFile(path.join(to, 'content.html'), html);
+      });
+    },
+
     // A new document from one of another document's drafts (an improved CV, say, to make
     // variations of): that draft, its PDF and the HTML it was drawn from, becomes the new
     // document's original. The other document is left as it is.

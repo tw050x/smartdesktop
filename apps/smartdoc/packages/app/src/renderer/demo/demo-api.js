@@ -170,6 +170,8 @@ export function createDemoApi() {
 
   reset();
   return {
+    // The window's back and forward can't reopen anywhere here (see history-nav.js).
+    isDemo: true,
     // --- For the director ---
     reset,
     showDraft,

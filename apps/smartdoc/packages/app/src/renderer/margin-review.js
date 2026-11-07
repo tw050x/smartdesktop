@@ -1,5 +1,4 @@
 import { anchorRects, pageContent } from './anchors.js';
-import { toolOf } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
 import { showCopied } from './copied-tip.js';
 
@@ -509,80 +508,88 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
 
   // --- The bar under the pages ----------------------------------------------------------------
 
+  // One line: a short sentence on the left on where the review stands or what needs doing, and on
+  // the right what to do about it. The sentence gives way (an ellipsis) only when the window is too
+  // narrow for it; the actions never do.
   function renderBar() {
     const review = state.review;
     bar.replaceChildren();
-    const tool = toolOf(state.tool);
-    // The tool's icon, in its colour; its name is for hover and screen readers.
-    const label = el('span', 'review-bar-tool');
-    label.innerHTML = tool.icon;
-    label.title = tool.label;
-    label.setAttribute('role', 'img');
-    label.setAttribute('aria-label', tool.label);
-    const text = el('span', 'review-bar-text');
-    const left = el('div', 'review-bar-start');
-    left.append(label, text);
-    bar.append(left);
-    if (state.preview) return renderPreviewBar(text);
+    const text = el('p', 'review-bar-text');
+    const end = el('div', 'review-bar-end');
+    bar.append(text, end);
+    const say = (sentence) => {
+      text.textContent = sentence;
+      text.title = sentence;
+    };
+    if (state.preview) return renderPreviewBar(say, end);
     const comments = items.filter((i) => i.type === 'comment').length;
-    const commentCount = comments === 1 ? '1 comment' : `${comments} comments`;
+    const yourComments = comments === 1 ? 'your comment' : `your ${comments} comments`;
     // A review only the user's comments have started: nothing has happened until the AI is told.
     const waitingForAi = review?.status === 'open' && !isHighlights(review) && review.history?.[0]?.who === 'user' && !review.items.length;
     if (waitingForAi && comments && !state.filter) {
-      text.textContent = `${commentCount}. Send your AI the prompt to review ${comments === 1 ? 'it' : 'them'}.`;
-      appendPrompt(bar, `I’ve added comments in SmartDoc to ${documentName()}. Review the document and respond to each one.`);
+      say(`Send ${yourComments} to your AI to review.`);
+      appendPrompt(end, `I’ve added comments in SmartDoc to ${documentName()}. Review the document and respond to each one.`);
       return;
     }
     if (!review || (waitingForAi && !state.filter)) {
       // The prompts are in the focus menu at the top.
-      text.textContent = 'No review yet. Choose a focus at the top to copy the prompt for your AI.';
+      say('Choose a focus at the top to start a review.');
       return;
     }
     const decidable = items.filter((i) => i.decidable);
     const decided = decidable.filter((i) => i.decided).length;
     const committed = review.status === 'committed';
+    const findings = (n) => (n === 1 ? '1 finding' : `${n} findings`);
+    const highlights = (n) => (n === 1 ? '1 highlight' : `${n} highlights`);
     if (state.filter) {
       const count = items.filter((i) => overlapsFilter(i.anchors)).length;
-      text.textContent = count ? `${count} ${count === 1 ? 'card is' : 'cards are'} about the selected text` : 'Nothing in the review is about the selected text';
+      say(count ? `${count === 1 ? '1 card is' : `${count} cards are`} about the text you selected.` : 'Nothing in the review is about the text you selected.');
       const all = el('button', 'secondary-button', 'Show all');
       all.type = 'button';
       all.addEventListener('click', onClearFilter);
-      left.append(all);
-    } else if (!committed) {
-      const noun = isHighlights(review) ? 'highlight' : 'finding';
-      text.textContent = `${isHighlights(review) ? 'Your AI is picking out the key information' : 'Your AI is reviewing'}…${items.length ? ` ${items.length} ${noun}${items.length === 1 ? '' : 's'} so far` : ''}`;
+      end.append(all);
+      return;
+    }
+    if (!committed) {
+      if (isHighlights(review)) say(items.length ? `Your AI has picked out ${highlights(items.length)} so far.` : 'Your AI is picking out the key information.');
+      else say(items.length ? `Your AI has raised ${findings(items.length)} so far.` : 'Your AI is reviewing this draft.');
     } else if (isHighlights(review)) {
-      text.textContent = items.length ? `${items.length} highlight${items.length === 1 ? '' : 's'}` : 'The AI found nothing to highlight.';
+      say(items.length ? `Your AI picked out ${highlights(items.length)}.` : 'Your AI found nothing to highlight.');
     } else if (!decidable.length && comments) {
-      text.textContent = `${commentCount}. ${askAi('decisions', 'write the next draft')}`;
-      appendPrompt(bar);
-      if (review.preview) bar.append(viewPreviewButton('secondary-button'));
+      say(nextStep('decisions', {
+        sent: 'Your AI is writing the next draft from your comments.',
+        waiting: `Your AI is waiting for ${yourComments}.`,
+        send: `Send ${yourComments} to your AI for the next draft.`,
+      }));
+      appendPrompt(end);
+      if (review.preview) end.append(viewPreviewButton('secondary-button'));
       return;
     } else if (!decidable.length) {
-      text.textContent = 'The AI found nothing to change.';
+      say('Your AI found nothing to change.');
     } else if (decided === decidable.length && review.preview && !review.preview.outdated) {
       // Everything decided and the AI has written it up: just the preview to look at.
-      text.textContent = `All ${decided} decided. Your AI has written a draft preview.`;
-      bar.append(viewPreviewButton('primary-button review-bar-push'));
+      say('Your AI has written a draft preview from your decisions.');
+      end.append(viewPreviewButton('primary-button'));
       return;
     } else if (decided === decidable.length && !review.applications?.length) {
       // Everything decided: nothing left to step through, just the prompt to send.
-      text.textContent = review.preview
-        ? `All ${decided} decided, but you’ve made changes since your AI wrote its draft preview. ${askAi('decisions', 'write it again')}`
-        : `All ${decided} decided${comments ? `, with ${commentCount}` : ''}. ${askAi('decisions', 'write the next draft')}`;
-      appendPrompt(bar);
-      if (review.preview) bar.append(viewPreviewButton('secondary-button'));
+      say(review.preview
+        ? nextStep('decisions', {
+          sent: 'Your AI is writing its draft preview again.',
+          waiting: 'Your AI is waiting for the decisions you’ve changed.',
+          send: 'You’ve changed your decisions since your AI wrote its draft preview.',
+        })
+        : nextStep('decisions', {
+          sent: 'Your AI is writing the next draft from your decisions.',
+          waiting: `Your AI is waiting for your decisions on ${findings(decided)}.`,
+          send: `You’ve decided all ${findings(decided)}. Send them to your AI.`,
+        }));
+      appendPrompt(end);
+      if (review.preview) end.append(viewPreviewButton('secondary-button'));
       return;
     } else {
-      text.textContent = decided === decidable.length ? `All ${decided} decided` : `${decided} of ${decidable.length} decided`;
-      const progress = el('span', 'review-progress');
-      const fill = el('span', 'review-progress-fill');
-      fill.style.width = `${Math.round((decided / decidable.length) * 100)}%`;
-      progress.append(fill);
-      left.append(progress);
+      say(decided === decidable.length ? `You’ve decided all ${findings(decided)}.` : `You’ve decided ${decided} of ${findings(decidable.length)}.`);
     }
-    const end = el('div', 'review-bar-end');
-    bar.append(end);
     if (review.preview) end.append(viewPreviewButton('secondary-button'));
     if (decks.length && state.view !== 'list') {
       const nav = el('div', 'review-bar-nav');
@@ -603,18 +610,23 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     return button;
   }
 
-  // The AI's preview of the next draft is showing: it's the user's to accept or discard.
-  function renderPreviewBar(text) {
+  // The AI's preview of the next draft is showing: it's the user's to accept or discard. The
+  // sentence is the one thing most worth knowing before answering.
+  function renderPreviewBar(say, end) {
     const { number, setsAside, comparesWith } = state.preview;
-    const notes = [`This is your AI’s draft preview. It only becomes Draft ${number} if you accept it.`];
     const comments = items.length;
-    if (comments) notes.push(`${comments === 1 ? '1 comment' : `${comments} comments`} on it. ${askAi('preview', 'change it')}`);
+    const yourComments = comments === 1 ? 'your comment' : `your ${comments} comments`;
     const undecided = (state.review?.items ?? []).filter((i) => i.decision.status === 'pending').length;
-    if (undecided) notes.push(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`}.`);
-    if (state.review?.preview?.outdated && !comments) notes.push('You’ve made changes since it was written.');
-    if (setsAside) notes.push(`Accepting sets aside the ${setsAside === 1 ? 'draft' : `${setsAside} drafts`} after this one.`);
-    text.textContent = notes.join(' ');
-    const end = el('div', 'review-bar-end');
+    if (comments) {
+      say(nextStep('preview', {
+        sent: 'Your AI is changing its draft preview from your comments.',
+        waiting: `Your AI is waiting for ${yourComments} on its draft preview.`,
+        send: `Send ${yourComments} on the draft preview to your AI.`,
+      }));
+    } else if (undecided) say(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`} in this review.`);
+    else if (state.review?.preview?.outdated) say('You’ve changed your decisions since your AI wrote this preview.');
+    else if (setsAside) say(`Accepting this preview sets aside the ${setsAside === 1 ? 'draft' : `${setsAside} drafts`} after this one.`);
+    else say(`This is your AI’s draft preview of Draft ${number}.`);
     if (comments) appendPrompt(end, `I’ve commented on the draft preview of ${documentName()}. Update it to do what my comments ask.`);
     for (const [label, className, action] of [
       [state.comparing ? 'Hide the comparison' : `Compare with ${comparesWith}`, 'secondary-button', onCompare],
@@ -627,20 +639,17 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       button.addEventListener('click', () => action());
       end.append(button);
     }
-    bar.append(end);
   }
 
   const aiIsWaiting = (what) => state.aiWaiting.some((w) => w.what === what && w.reviewId === state.review?.id);
   const sentToAi = (what) => (what === 'preview' ? state.review?.previewCommentsSentAt : state.review?.decisionsSentAt);
-  // What the review bar says about the next step, by how the AI can be told.
-  function askAi(what, goal) {
-    if (sentToAi(what)) return 'Confirmed for your AI.';
-    return aiIsWaiting(what) ? `Your AI is waiting. Confirm when you’re ready for it to ${goal}, or copy the prompt.` : `Send your AI the prompt to ${goal}.`;
+  // The bar's sentence for the next step, by whether the AI has been told, is waiting to be, or
+  // needs the prompt.
+  function nextStep(what, { sent, waiting, send }) {
+    if (sentToAi(what)) return sent;
+    return aiIsWaiting(what) ? waiting : send;
   }
 
-  // Copies the prompt to write the next draft (its text shows on hover); "Copied" shows above it
-  // for a moment. Prompts to start a review are in the focus menu (focus-picker.js).
-  // The prompt's button, with what sending it does beside it.
   function appendPrompt(parent, prompt) {
     // An AI waiting with `smartdoc wait` can be told directly, but only when the user says so.
     const what = prompt ? 'preview' : 'decisions';
@@ -652,10 +661,12 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       parent.append(copyPromptButton(prompt, 'secondary-button'), confirm);
       return;
     }
-    // Once sent the prompt is only a fallback, should that AI have gone.
+    // Once sent the prompt is only a fallback, should that AI have gone. What sending it does to
+    // this window is said on the button, so the bar stays one line.
+    const button = copyPromptButton(prompt);
     const note = !sentToAi(what) && takeOverNote(api);
-    if (note) parent.append(note);
-    parent.append(copyPromptButton(prompt));
+    if (note) button.title = `${note.textContent} ${button.title}`;
+    parent.append(button);
   }
 
   const documentName = () => (state.document ? `“${state.document.name}” (document ${state.document.id})` : 'my document');

@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('smartdoc', {
   setLabelColor: (labelId, color) => call('set-label-color', labelId, color),
   setHomeFolder: (id) => call('set-home-folder', id),
   createFolder: (name, parentId) => call('create-folder', name, parentId),
+  createDocument: (name, folderId) => call('create-document', name, folderId),
   renameFolder: (id, name) => call('rename-folder', id, name),
   renameDocument: (docId, name) => call('rename-document', docId, name),
   renameVariation: (docId, variationId, name) => call('rename-variation', docId, variationId, name),

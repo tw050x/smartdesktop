@@ -2,6 +2,15 @@
 // both put it in an empty body before starting the interface (see app-shell.js).
 export const APP_MARKUP = `
 <header class="top-bar">
+  <!-- Back and forward through where this window has been (see history-nav.js). -->
+  <div class="history-nav" id="history-nav" role="group" aria-label="History">
+    <button class="icon-button" id="history-back" type="button" aria-label="Back" title="Back" disabled>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
+    </button>
+    <button class="icon-button" id="history-forward" type="button" aria-label="Forward" title="Forward" disabled>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+    </button>
+  </div>
   <!-- Where you are: home, the open document's tool and, in the highlight tool, its focus (see
        app-shell.js, tool-switcher.js and focus-picker.js). -->
   <nav class="top-bar-start breadcrumb" aria-label="Location">

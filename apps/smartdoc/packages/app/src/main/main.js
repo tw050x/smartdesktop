@@ -210,7 +210,13 @@ const recentForWindow = async () => shared.recent;
 const MENU_RECENT = 10; // File › Open Recent; the home screen lists them all
 
 async function sendDraft() {
+  // Only the newest of this window's sends goes out. Opening a draft and then its preview straight
+  // away starts two, and the draft's PDF can take longer to read than the preview's, so without this
+  // it would arrive last and cover the preview.
+  const ctx = current();
+  const ticket = (ctx.draftTicket = (ctx.draftTicket ?? 0) + 1);
   const view = await workspace.draftView();
+  if (ctx.draftTicket !== ticket) return;
   // The draft's review comes with it, so the window never shows a draft with another draft's review.
   send(view ? 'draft-opened' : 'document-closed', view && { ...view, review: workspace.review, tool: workspace.tool });
   // Back on the home screen, its cards show where each document now stands.
@@ -835,6 +841,12 @@ handle('remove-label', (item, labelId) => workspace.removeLabel(item, labelId));
 handle('set-label-color', (labelId, color) => workspace.setLabelColor(labelId, color));
 handle('set-home-folder', (id) => workspace.setHomeFolder(id));
 handle('create-folder', (name, parentId) => workspace.createFolder(name, parentId));
+// An empty document from home's + button, chosen on home once it's made.
+handle('create-document', async (name, folderId) => {
+  const made = await workspace.createDocument(name, folderId);
+  send('document-made', made.id);
+  return made;
+});
 handle('rename-folder', (id, name) => workspace.renameFolder(id, name));
 handle('rename-document', (docId, name) => workspace.renameDocument(docId, name));
 handle('rename-variation', (docId, variationId, name) => workspace.renameVariation(docId, variationId, name));
