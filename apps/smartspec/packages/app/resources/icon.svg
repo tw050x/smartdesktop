@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- A placeholder, carried over from SmartDoc: a page with three lines, in the macOS icon shape.
+  <!-- Three items joined by their links, as on a schematic's overview: SmartDoc's icon shape, cards,
+       shadows and three bar colours, but cards that link to each other rather than a page.
        The source of icon.icns and icon.png (see scripts/make-icons.mjs). -->
   <defs>
     <filter id="lift" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/></filter>
@@ -7,8 +8,17 @@
     <linearGradient id="light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f7f9"/><stop offset="1" stop-color="#dcdce3"/></linearGradient>
   </defs>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)" filter="url(#lift)"/>
-  <rect x="262" y="196" width="500" height="632" rx="60" fill="#fff" filter="url(#paper)"/>
-  <rect x="352" y="380" width="320" height="66" rx="33" fill="#2f6fde"/>
-  <rect x="352" y="500" width="228" height="66" rx="33" fill="#b45309"/>
-  <rect x="352" y="620" width="274" height="66" rx="33" fill="#c7c7cf"/>
+  <g fill="none" stroke="#9a9aa8" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M322 420 V604"/>
+    <path d="M444 320 H658 Q694 320 694 356 V412"/>
+    <path d="M444 704 H658 Q694 704 694 668 V612"/>
+  </g>
+  <g filter="url(#paper)" fill="#fff">
+    <rect x="200" y="220" width="244" height="200" rx="44"/>
+    <rect x="572" y="412" width="244" height="200" rx="44"/>
+    <rect x="200" y="604" width="244" height="200" rx="44"/>
+  </g>
+  <rect x="247" y="292" width="150" height="56" rx="28" fill="#2f6fde"/>
+  <rect x="619" y="484" width="150" height="56" rx="28" fill="#b45309"/>
+  <rect x="247" y="676" width="150" height="56" rx="28" fill="#c7c7cf"/>
 </svg>
