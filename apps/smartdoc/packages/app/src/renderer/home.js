@@ -634,8 +634,8 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     renderHead();
     if (naming?.parentId !== undefined) documentsEl.append(namingRow());
     const shown = sorted('documents', levelOf(folderState, documents, shownFolder));
-    // With no document here, nothing can be chosen for the other columns to show. They keep their
-    // room, so the list doesn't shift under a drag.
+    // With no document here, nothing can be chosen for the other columns to show, so they show
+    // placeholder rows instead. They keep their room, so the list doesn't shift under a drag.
     for (const list of [variationsEl, draftsEl]) list.parentElement.classList.toggle('home-column-unused', foldersOn && !shown.some((i) => i.kind === 'document'));
     if (!shown.length && naming?.parentId === undefined) {
       documentsEl.append(el('li', 'home-empty', shownFolder ? 'This folder is empty. Drag documents here, or right-click to paste.' : 'No documents yet. Drop a PDF here, or use File › Open.'));

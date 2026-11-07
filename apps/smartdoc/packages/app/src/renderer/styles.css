@@ -15,6 +15,7 @@
   --faint: light-dark(#aeaeb4, #5a5a60);
   --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
   --hover-tint: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  --skeleton: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
   --button-hover: light-dark(#e6e6ea, #2e2e33);
   --button-active: light-dark(#dadadf, #38383e);
   --document-bg: light-dark(#ebebef, #161618);
@@ -528,7 +529,23 @@ body:not(.has-document) .pages-wrap { display: none; }
   color: var(--muted);
 }
 .home-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 8px 8px; list-style: none; }
-.home-column-unused { visibility: hidden; }
+/* A column with nothing to show yet: placeholder rows in place of its list and controls. */
+.home-skeleton { display: none; padding: 0 8px 8px; }
+.home-column-unused .home-skeleton { display: block; }
+.home-column-unused .home-list, .home-column-unused .home-sort-picker { display: none; }
+/* Each placeholder is built from a real row's parts, so it has that row's shape and size. */
+.home-skeleton .home-item { background: var(--hover-tint); }
+.home-skeleton .home-row { cursor: default; }
+.home-skeleton .home-item:nth-child(2) { opacity: 0.6; }
+.home-skeleton .home-item:nth-child(3) { opacity: 0.3; }
+.home-skeleton-bar, .home-skeleton-icon { display: inline-block; vertical-align: middle; border-radius: 4px; background: var(--skeleton); }
+.home-skeleton-bar { height: 0.75em; }
+.home-skeleton .home-review-text { flex: 1; }
+.home-skeleton-icon { flex: none; width: 16px; height: 16px; }
+/* A review line's bars take its tool's colour, as the line's text does. */
+.home-skeleton .home-review .home-skeleton-bar, .home-skeleton .home-review .home-skeleton-icon {
+  background: color-mix(in srgb, light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white)) 28%, transparent);
+}
 /* Folders: the path back, under the column's title, and a drop's targets. */
 .home-column h2 { display: flex; align-items: center; min-width: 0; min-height: 26px; }
 .home-path { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 0 10px 8px 8px; font-size: 12.5px; color: var(--muted); }
