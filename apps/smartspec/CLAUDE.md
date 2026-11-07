@@ -119,7 +119,7 @@ These are decisions the user has made.
   `items.js` defines the kinds of item and their links, `store.js` holds the schematics, `schemas.js` is
   their interface, `focus-view.js` draws the lines around the focused item and `item-views.js`
   renders each kind. Home has three columns: groups, schematics
-  (sortable) and drafts (sortable); a variations column comes when variations do.
+  (sortable) and drafts (sortable); a variations column comes when variations do. A column with nothing in it shows fading placeholder rows, as SmartDoc's home does, with no text and no buttons.
 - Not built yet: icons, labels, linking implementations, running tests and real status (everything
   is design only), deleting schematics or drafts, and the comment loop (sending comments to the AI in a
   prompt, and the user replying to the AI).
@@ -128,7 +128,7 @@ These are decisions the user has made.
   "publish" is ticked). Release hasn't run yet.
 - After changing the tools in `mcp-tools.js`, run `npm run server-snapshot`; a test checks the copy.
 - SmartSpec's MCP ports are 47825 (installed) and 47826 (development), so it runs beside SmartDoc.
-- The app icon (`resources/icon.svg`, made into icon.png and icon.icns by `npm run icons`) is related to SmartDoc's: the same shape, cards and three colours, but three linked cards instead of a page, since a schematic isn't a document, each with a different mark (bar, square, circle).
+- The app icon (`resources/icon.svg`, made into icon.png and icon.icns by `npm run icons`) is related to SmartDoc's: the same shape, cards and three colours, but three linked cards instead of a page, since a schematic isn't a document: two across the top, one below, each with a different mark (bar, square, circle).
 - The git repo is bare, at `../.git`, with this folder as the `master` worktree.
 - The npm scope is assumed to be `@smartspec`. The user said they have the scope, but its exact
   name and ownership haven't been confirmed. npm isn't logged in on this machine.

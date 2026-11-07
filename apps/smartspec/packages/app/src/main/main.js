@@ -37,6 +37,10 @@ app.on('second-instance', () => {
   lastFocused.win.focus();
 });
 
+// The window's name, which Mission Control shows over it: a development copy says so, so it can be
+// told from the installed app when both are open. The page's own title doesn't replace it.
+const WINDOW_TITLE = app.isPackaged ? 'SmartSpec' : 'SmartSpec Development';
+
 const windows = new Map(); // webContents id → { id, win, ready, session, untouched }
 let lastFocused = null;
 let mcp = null; // { url, token } once the MCP server is listening
@@ -100,7 +104,7 @@ function createWindow({ focus = true } = {}) {
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    title: 'SmartSpec',
+    title: WINDOW_TITLE,
     backgroundColor: colours.background,
     show: focus,
     ...frame,
@@ -123,6 +127,7 @@ function createWindow({ focus = true } = {}) {
   });
   // In full screen macOS moves the traffic lights out of the top bar, so the interface can reclaim
   // the space reserved for them.
+  win.on('page-title-updated', (event) => event.preventDefault());
   win.on('enter-full-screen', () => win.webContents.send('full-screen', true));
   win.on('leave-full-screen', () => win.webContents.send('full-screen', false));
   // A schema's content is written by an AI, and its links must never replace the interface: they

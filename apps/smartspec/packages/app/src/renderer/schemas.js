@@ -82,7 +82,7 @@ const CHANGE_LABELS = { added: 'New', changed: 'Changed', removed: 'Removed' };
 const SIDE_LIMIT = 6; // cards on a side before the rest wait behind "more"
 const smoothly = () => typeof document.startViewTransition === 'function' && document.visibilityState === 'visible' && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focusMenu, viewSwitch, api, onConnect }) {
+export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focusMenu, viewSwitch, api }) {
   // A level: { schemaId, draftId (null for the latest), proposal (showing the proposed change),
   // label, item (what's selected in it), focus (a part of it to bring into view) }.
   let path = [];
@@ -321,11 +321,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       groupsColumn,
       column('Schematics', {
         sort: 'schemas',
-        empty: all.length === 0
-          ? h('div', { className: 'browser-empty' },
-            h('p', {}, 'No schematics yet. Your AI designs them: File › New Schematic gives you a prompt to send it.'),
-            h('button', { className: 'secondary-button', type: 'button', id: 'home-connect', onclick: onConnect }, 'Connect an AI'))
-          : h('p', { className: 'browser-empty' }, `Nothing in ${groupName} yet. Drag a schematic onto it from another group.`),
+        // Placeholder rows, the shape of a schematic's: its name, then its summary.
+        skeleton: [[44, 82], [58, 70], [36, 88]],
       }, ...schemas.map((each) => {
         const one = row({
           attributes: { 'data-schema': each.id, 'aria-pressed': String(each.id === schema.id), draggable: 'true' },
@@ -347,7 +344,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       })),
       column('Drafts', {
         sort: 'drafts',
-        empty: h('p', { className: 'browser-empty' }, schema ? 'No drafts yet.' : 'A schematic’s drafts show here.'),
+        // A draft's: its number, its note, and when.
+        skeleton: [[22, 62, 20], [24, 48, 20], [20, 54, 20]],
       },
         schema?.proposal && row({
           attributes: { 'data-proposal': schema.proposal.id },
@@ -477,13 +475,16 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return label;
   }
 
-  function column(title, { sort, empty }, ...rows) {
+  // A column of rows. With none, it shows placeholder rows instead, fading out, and its sort is
+  // hidden (keeping its room, so the titles stay level), as SmartDoc's home does: `skeleton` is each placeholder's line widths, in percent.
+  function column(title, { sort, skeleton }, ...rows) {
     const shown = rows.filter(Boolean);
-    return h('section', { className: 'browser-column', 'aria-label': title },
+    const placeholder = (widths) => h('div', { className: 'browser-row' }, ...widths.map((width) => h('span', { className: 'skeleton-bar', style: `width: ${width}%` })));
+    return h('section', { className: `browser-column${shown.length ? '' : ' browser-column-unused'}`, 'aria-label': title },
       h('div', { className: 'browser-head' }, h('h2', {}, title), sortControl(sort)),
       shown.length
         ? h('ul', { className: 'browser-list' }, ...shown.map((one) => h('li', {}, one)))
-        : h('div', { className: 'browser-list' }, empty));
+        : h('div', { className: 'browser-list browser-skeleton', 'aria-hidden': 'true' }, ...skeleton.map(placeholder)));
   }
 
   // A new schema: what it's for, and a prompt asking the AI to design it, from the File menu.

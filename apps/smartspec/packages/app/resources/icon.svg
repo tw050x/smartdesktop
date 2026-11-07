@@ -1,7 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!-- Three items joined by their links, as on a schematic's overview: SmartDoc's icon shape, cards,
        shadows and three colours, but cards that link to each other rather than a page, each with a
-       different mark (bar, square, circle) as items are of different kinds.
+       different mark (bar, square, circle) as items are of different kinds. Two cards across the top
+       and one below, so it balances side to side; lowered a little, and the strongest mark (the blue
+       bar) below, as the two above outweigh the one below.
        The source of icon.icns and icon.png (see scripts/make-icons.mjs). -->
   <defs>
     <filter id="lift" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/></filter>
@@ -9,17 +11,19 @@
     <linearGradient id="light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f7f9"/><stop offset="1" stop-color="#dcdce3"/></linearGradient>
   </defs>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)" filter="url(#lift)"/>
-  <g fill="none" stroke="#9a9aa8" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M322 420 V604"/>
-    <path d="M444 320 H658 Q694 320 694 356 V412"/>
-    <path d="M444 704 H658 Q694 704 694 668 V612"/>
+  <g transform="translate(0 16)">
+  <g fill="none" stroke="#9a9aa8" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M448 304 H576"/>
+    <path d="M312 412 V680 Q312 720 352 720 H376"/>
+    <path d="M712 412 V680 Q712 720 672 720 H648"/>
   </g>
   <g filter="url(#paper)" fill="#fff">
-    <rect x="200" y="220" width="244" height="200" rx="44"/>
-    <rect x="572" y="412" width="244" height="200" rx="44"/>
-    <rect x="200" y="604" width="244" height="200" rx="44"/>
+    <rect x="176" y="196" width="272" height="216" rx="48"/>
+    <rect x="576" y="196" width="272" height="216" rx="48"/>
+    <rect x="376" y="612" width="272" height="216" rx="48"/>
   </g>
-  <rect x="247" y="292" width="150" height="56" rx="28" fill="#2f6fde"/>
-  <rect x="654" y="472" width="80" height="80" rx="18" fill="#b45309"/>
-  <circle cx="322" cy="704" r="42" fill="#c7c7cf"/>
+  <circle cx="312" cy="304" r="54" fill="#c7c7cf"/>
+  <rect x="660" y="252" width="104" height="104" rx="22" fill="#b45309"/>
+  <rect x="424" y="688" width="176" height="64" rx="32" fill="#2f6fde"/>
+  </g>
 </svg>
