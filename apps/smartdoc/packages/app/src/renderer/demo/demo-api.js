@@ -258,7 +258,15 @@ export function createDemoApi() {
     },
     updateRequest: async (id, { note }) => {
       const entry = reviews[state.tool].requests.find((q) => q.id === id);
-      if (entry && note) entry.note = note;
+      if (entry && note) {
+        entry.note = note;
+        entry.noFurtherAction = null; // saying more opens it again, as in the app
+      }
+      emit('review', current());
+    },
+    setNoFurtherAction: async (id, on) => {
+      const entry = reviews[state.tool].requests.find((q) => q.id === id);
+      if (entry) entry.noFurtherAction = on ? { by: 'user', at: new Date().toISOString() } : null;
       emit('review', current());
     },
     removeRequest: async (id) => {

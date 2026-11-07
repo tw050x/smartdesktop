@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('smartdoc', {
   reportPageTexts: (docId, draftId, texts, details) => call('page-texts', docId, draftId, texts, details),
   addRequest: (request) => call('add-request', request),
   updateRequest: (id, changes) => call('update-request', id, changes),
+  setNoFurtherAction: (id, on) => call('set-no-further-action', id, on),
   removeRequest: (id) => call('remove-request', id),
   decide: (itemId, decision) => call('decide', itemId, decision),
   mcpSetup: (target) => call('mcp-setup', target),

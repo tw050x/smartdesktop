@@ -633,7 +633,7 @@ export function startApp(appApi) {
     current = { doc, review, tool, preview, newest };
     if (!draft.isPreview) atDraft = { docId: doc.id, variationId: variation.id, draftId: draft.id };
     noteWhereAt();
-    marginReview.update({ document: doc, review, tool, preview, filter: null, commentable: newest || Boolean(preview) });
+    marginReview.update({ document: doc, review, earlier: draft.earlierComments ?? [], tool, preview, filter: null, commentable: newest || Boolean(preview) });
     showView();
     marginReview.reset();
     documentEl.scrollTop = 0;
@@ -651,7 +651,7 @@ export function startApp(appApi) {
     clearPages();
     toolSwitcher.close();
     current = { doc: null, review: null, tool: current.tool, preview: null };
-    marginReview.update({ document: null, review: null, preview: null, filter: null });
+    marginReview.update({ document: null, review: null, earlier: [], preview: null, filter: null });
     showView();
     noteWhereAt();
     updateScrollUi();

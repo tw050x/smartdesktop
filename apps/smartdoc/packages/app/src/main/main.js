@@ -886,6 +886,7 @@ handle('delete-document', async (docId) => {
 handle('page-texts', (docId, draftId, texts, details) => workspace.setPageTexts(docId, draftId, texts, details));
 handle('add-request', (request) => workspace.addRequest(request));
 handle('update-request', (id, changes) => workspace.updateRequest(id, changes));
+handle('set-no-further-action', (id, on) => workspace.setNoFurtherAction(id, on));
 handle('remove-request', (id) => workspace.removeRequest(id));
 handle('decide', (itemId, decision) => workspace.decide(itemId, decision));
 handle('open-preview', () => workspace.openPreview());

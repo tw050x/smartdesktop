@@ -1,6 +1,7 @@
-import { anchorRects, pageContent } from './anchors.js';
+import { anchorRects, pageContent, pageNumbers, pageText } from './anchors.js';
 import { takeOverNote } from './take-over-note.js';
 import { showCopied } from './copied-tip.js';
+import { earlierComments, isDone, notCommentedAgain, onVersion } from '../main/comments.js';
 
 // The review, laid out in the margins either side of the pages. Each item (a finding, a note or a
 // highlight) is a tab beside the line its text starts on: findings about a whole section
@@ -22,6 +23,7 @@ import { showCopied } from './copied-tip.js';
 
 const TAB_HEIGHT = 76; // .margin-tab's height
 const PAGER_HEIGHT = 28; // a deck's tab adds a row for its pager (.multi .margin-tab)
+const FOLDED_HEIGHT = 32; // a comment needing no further action, alone: one line (.margin-tab.folded)
 const PEEK = 10; // how far the cards behind a deck's top card show below it
 const GAP = 8; // the least space between decks
 const LIFT = 7; // a tab's top sits this far above its line, so its title lines up with the text
@@ -42,6 +44,8 @@ const FINDING_KINDS = {
 };
 // The user's own comment on the text they selected.
 const COMMENT = { label: 'Your comment', color: '#0f7c8a', background: 'light-dark(#e8f6f7, #16302f)', tint: 'rgba(15, 160, 175, 0.28)', strong: 'rgba(15, 160, 175, 0.5)' };
+// A comment from before the version showing: dashed and muted, with no colour on the page.
+const EARLIER = { color: '#8a8f98', background: 'var(--bg)' };
 const NOTE = { label: 'Note', color: '#b38a00', kindColor: '#7d5e00', background: 'light-dark(#fffbea, #332d17)', tint: 'rgba(255, 214, 10, 0.32)', strong: 'rgba(255, 214, 10, 0.6)' };
 // A highlights review colours each category, in the order the categories first appear.
 const CATEGORY_COLOURS = ['#2f6fde', '#7c4ddb', '#1f7a45', '#a65a00', '#08778d', '#c2417a'];
@@ -58,7 +62,7 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
 export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onClearFilter }) {
-  let state = { document: null, review: null, tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
+  let state = { document: null, review: null, earlier: [], tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
   let open = null; // the open deck's key (its first item's id)
   let hover = null; // the hovered deck's key
   let stepped = null; // the deck Previous/Next last opened: it shows as if hovered while it stays open
@@ -100,13 +104,50 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       label: NOTE.label, color: NOTE.color, kindColor: NOTE.kindColor, background: NOTE.background, tint: NOTE.tint, strong: NOTE.strong,
       title: note.note || quoteOf(note.anchors), decidable: false, decided: false, status: 'No decision needed',
     }));
-    // A comment on the draft preview is in its text: it only means anything over those pages.
-    const comments = (review.requests ?? []).filter((request) => request.kind === 'comment' && !request.resolved && Boolean(request.onPreview) === Boolean(state.preview)).map((request) => ({
-      id: request.id, type: 'comment', request, side: 'r', anchors: request.anchors,
-      ...COMMENT, title: request.note, decidable: false, decided: false,
-      status: review.items.some((i) => i.inResponseTo === request.id) ? 'Your AI responded' : state.preview ? 'For your AI to change' : committed ? 'For the next draft' : 'For your AI',
-    }));
+    // A comment belongs to the version it was written on, the draft or one draft preview, and only
+    // means anything over its pages. One marked "No further action required" stays, folded to its
+    // outcome, the AI's own words.
+    const comments = (review.requests ?? []).filter((request) => request.kind === 'comment' && onVersion(request, review, { preview: Boolean(state.preview) })).map((request) => {
+      const done = isDone(request);
+      const responded = request.replies?.length || review.items.some((i) => i.inResponseTo === request.id);
+      return {
+        id: request.id, type: 'comment', request, side: 'r', anchors: request.anchors,
+        ...COMMENT, title: request.note, decidable: false, decided: done, done,
+        status: done ? request.outcome ?? 'No further action required'
+          : request.outcome ?? (responded ? 'Your AI responded' : state.preview ? 'For your AI to change' : committed ? 'For the next draft' : 'For your AI'),
+      };
+    });
     return [...findings, ...notes, ...comments];
+  }
+
+  // Comments from before the version showing that nobody answered, where their text is still in
+  // it: dashed cards to see, and to comment again on this version. They count for nothing here.
+  function earlierItems() {
+    if (state.tool !== 'improve' || isHighlights(state.review)) return [];
+    const earlier = state.preview
+      ? earlierComments({ review: state.review, preview: true, draftLabel: () => state.preview.comparesWith })
+      : state.earlier ?? [];
+    return notCommentedAgain(earlier, state.review).flatMap((comment) => {
+      const anchors = comment.anchors.map(findAgain);
+      if (anchors.some((a) => !a)) return [];
+      return [{
+        id: `earlier-${comment.id}`, type: 'earlier', earlier: comment, side: 'r', anchors,
+        label: 'Earlier comment', color: EARLIER.color, background: EARLIER.background,
+        title: comment.note, decidable: false, decided: false, done: false, status: `From ${comment.from}`,
+      }];
+    });
+  }
+
+  // Where an earlier version's quoted text is in the pages drawn so far: on the same page first,
+  // then any other (whitespace-insensitive, like the AI's quotes in src/main/anchors.js).
+  function findAgain(anchor) {
+    const pattern = (anchor.text ?? '').trim().split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+    if (!pattern) return null;
+    for (const page of [anchor.page, ...pageNumbers().filter((n) => n !== anchor.page).sort((a, b) => a - b)]) {
+      const match = new RegExp(pattern).exec(pageText(page));
+      if (match) return { page, start: match.index, end: match.index + match[0].length, text: match[0] };
+    }
+    return null;
   }
 
   function findingStatus(item) {
@@ -160,15 +201,15 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
           last.ids.push(item.id);
           last.height = TAB_HEIGHT + PAGER_HEIGHT + PEEK;
         } else {
-          last = { key: item.id, side, ids: [item.id], top: item.y - LIFT, height: TAB_HEIGHT };
+          last = { key: item.id, side, ids: [item.id], top: item.y - LIFT, height: item.done ? FOLDED_HEIGHT : TAB_HEIGHT };
           result.push(last);
         }
       }
     }
     const byId = new Map(shown.map((i) => [i.id, i]));
     // The user's own comment comes first until it's answered: it's what they've just been working on.
-    const awaitingAnswer = (i) => i.type === 'comment' && !state.review.items.some((f) => f.inResponseTo === i.id);
-    const rank = (i) => (awaitingAnswer(i) ? -1 : i.decided ? 2 : i.decidable ? 0 : 1);
+    const awaitingAnswer = (i) => i.type === 'comment' && !i.done && !i.request.replies?.length && !state.review.items.some((f) => f.inResponseTo === i.id);
+    const rank = (i) => (i.type === 'earlier' ? 3 : awaitingAnswer(i) ? -1 : i.decided ? 2 : i.decidable ? 0 : 1);
     for (const deck of result) {
       deck.items = deck.ids.map((id) => byId.get(id));
       deck.order = [...deck.items].sort((a, b) => rank(a) - rank(b) || deck.items.indexOf(a) - deck.items.indexOf(b));
@@ -191,7 +232,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     // On a draft preview the review steps aside, leaving only the comments made on it.
     items = reviewItems(state.review).filter((i) => !state.preview || i.type === 'comment');
     // Hiding what's done leaves the notes, which have nothing to do.
-    shown = state.hideDone ? items.filter((i) => !i.decided) : items;
+    // Earlier comments are on the page but not in the review: nothing counts them.
+    shown = [...(state.hideDone ? items.filter((i) => !i.decided) : items), ...earlierItems()];
     const geo = shown.length ? geometry() : null;
     decks = geo ? buildDecks(geo) : [];
     if (open && !decks.some((d) => d.key === open)) open = null;
@@ -225,7 +267,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       }
     }
 
-    const slot = el('div', `margin-slot margin-${right ? 'r' : 'l'}${n > 1 ? ' multi' : ''}${cur.decided ? ' decided' : ''}${deck.matches ? '' : ' filtered-out'}${isOpen ? ' open' : ''}${hover === deck.key ? ' hovered' : ''}`);
+    const slot = el('div', `margin-slot margin-${right ? 'r' : 'l'}${n > 1 ? ' multi' : ''}${cur.decided ? ' decided' : ''}${cur.type === 'earlier' ? ' earlier' : ''}${deck.matches ? '' : ' filtered-out'}${isOpen ? ' open' : ''}${hover === deck.key ? ' hovered' : ''}`);
     slot.dataset.key = deck.key;
     Object.assign(slot.style, { top: `${deck.top}px`, width: `${width}px`, left: `${right ? geo.right + PAGE_SPACE : geo.left - width - PAGE_SPACE}px` });
     slot.style.setProperty('--item-color', cur.color);
@@ -244,19 +286,25 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     return elements;
   }
 
-  // A closed deck: its top card's kind, title and status. Clicking it opens the card.
+  // A closed deck: its top card's kind, title and status. Clicking it opens the card. A comment
+  // needing no further action, on its own, folds to one line: its outcome, then the comment.
   function tab(deck) {
     const cur = deck.cur;
-    const button = el('button', 'margin-tab');
+    const folded = cur.done && deck.order.length === 1;
+    const button = el('button', folded ? 'margin-tab folded' : 'margin-tab');
     button.type = 'button';
+    if (folded) {
+      button.append(el('span', 'margin-outcome', cur.status), el('span', 'margin-title', cur.title));
+      button.title = `${cur.status}: ${cur.title}`;
+    }
     const decidable = deck.items.filter((i) => i.decidable);
     const allDecided = deck.order.length > 1 && decidable.length > 0 && decidable.every((i) => i.decided);
-    button.append(
+    if (!folded) button.append(
       el('span', 'margin-kind', deck.whole && deck.order.length > 1 ? 'Whole document' : cur.label),
       el('span', 'margin-title', cur.title),
       el('span', 'margin-status', allDecided ? `✓ All ${decidable.length} decided` : cur.whole && !cur.highlight?.missing ? `Whole document · ${cur.status}` : cur.status),
     );
-    button.title = cur.title;
+    if (!folded) button.title = cur.title;
     const show = () => {
       openDeck(deck.key, deck.page);
       showOpenCard(deck.key);
@@ -303,10 +351,11 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     close.addEventListener('click', () => closeDeck());
     head.append(close);
     card.append(head);
-    if (cur.type !== 'comment') card.append(el('h3', 'margin-card-title', cur.title));
+    if (cur.type !== 'comment' && cur.type !== 'earlier') card.append(el('h3', 'margin-card-title', cur.title));
     if (cur.type === 'finding') findingBody(card, cur.item);
     else if (cur.type === 'note') noteBody(card, cur.note);
     else if (cur.type === 'comment') commentBody(card, cur);
+    else if (cur.type === 'earlier') earlierBody(card, cur);
     else highlightBody(card, cur.highlight);
     // Clicking the card (not its controls) brings its text into view.
     card.addEventListener('click', (e) => {
@@ -354,13 +403,43 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       card.append(el('p', 'finding-body', request.note));
     }
     if (request.anchors.length) card.append(el('blockquote', 'finding-quote', quoteOf(request.anchors)));
-    card.append(el('p', 'finding-reply', cur.status));
+    // The AI's replies, each with how it dealt with the comment, in its own words.
+    for (const reply of request.replies ?? []) {
+      const line = el('p', 'comment-ai-reply');
+      if (reply.outcome) line.append(el('span', 'comment-outcome', reply.outcome));
+      if (reply.text) line.append(document.createTextNode(reply.text));
+      card.append(line);
+    }
+    if (!request.replies?.length) card.append(el('p', 'finding-reply', cur.status));
+    else if (cur.done) card.append(el('p', 'finding-reply', 'No further action required'));
+    // Whether anything more is needed: the AI says when it replies, and the user can say too.
+    const actions = el('div', 'comment-actions');
+    const flag = el('button', 'secondary-button', cur.done ? 'Open again' : 'No further action required');
+    flag.type = 'button';
+    flag.addEventListener('click', () => api.setNoFurtherAction(request.id, !cur.done));
+    actions.append(flag);
     if (state.commentable) {
-      const remove = el('button', 'secondary-button comment-remove', 'Remove');
+      const remove = el('button', 'secondary-button', 'Remove');
       remove.type = 'button';
       remove.addEventListener('click', () => api.removeRequest(request.id));
-      card.append(remove);
+      actions.append(remove);
     }
+    card.append(actions);
+  }
+
+  // A comment from an earlier version, unanswered there, whose text is still here. Commenting again
+  // makes it this version's, anchored where its text is now.
+  function earlierBody(card, cur) {
+    card.append(el('p', 'finding-body', cur.title));
+    card.append(el('blockquote', 'finding-quote', quoteOf(cur.anchors)));
+    card.append(el('p', 'finding-reply', `Written on ${cur.earlier.from}, before this version. It isn’t on this one.`));
+    if (!state.commentable) return;
+    const actions = el('div', 'comment-actions');
+    const again = el('button', 'secondary-button', 'Comment again');
+    again.type = 'button';
+    again.addEventListener('click', () => api.addRequest({ kind: 'comment', anchors: cur.anchors, note: cur.earlier.note, from: cur.earlier.id }));
+    actions.append(again);
+    card.append(actions);
   }
 
   function noteBody(card, note) {
@@ -522,7 +601,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       text.title = sentence;
     };
     if (state.preview) return renderPreviewBar(say, end);
-    const comments = items.filter((i) => i.type === 'comment').length;
+    const comments = items.filter((i) => i.type === 'comment' && !i.done).length;
     const yourComments = comments === 1 ? 'your comment' : `your ${comments} comments`;
     // A review only the user's comments have started: nothing has happened until the AI is told.
     const waitingForAi = review?.status === 'open' && !isHighlights(review) && review.history?.[0]?.who === 'user' && !review.items.length;
@@ -614,7 +693,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   // sentence is the one thing most worth knowing before answering.
   function renderPreviewBar(say, end) {
     const { number, setsAside, comparesWith } = state.preview;
-    const comments = items.length;
+    const comments = items.filter((i) => !i.done).length;
     const yourComments = comments === 1 ? 'your comment' : `your ${comments} comments`;
     const undecided = (state.review?.items ?? []).filter((i) => i.decision.status === 'pending').length;
     if (comments) {
@@ -766,9 +845,10 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const opened = decks.find((d) => d.key === open);
     const focus = hovered ? [hovered.cur.id] : opened ? [opened.cur.id] : [];
     onMarks({
-      items: shown.filter((i) => i.anchors.length).map((i) => ({ id: i.id, anchors: i.anchors, tint: i.tint ?? tint(i.color, 0.14), strong: i.strong ?? tint(i.color, 0.3) })),
+      // A comment needing no further action keeps its card but not its colour on the page.
+      items: shown.filter((i) => i.anchors.length && !i.done && i.type !== 'earlier').map((i) => ({ id: i.id, anchors: i.anchors, tint: i.tint ?? tint(i.color, 0.14), strong: i.strong ?? tint(i.color, 0.3) })),
       focus,
-      veil: Boolean(hovered),
+      veil: Boolean(hovered) && hovered.cur.type !== 'earlier', // an earlier comment has no mark to bring forward
     });
   }
 

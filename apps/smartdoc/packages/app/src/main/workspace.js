@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveQuote } from './anchors.js';
-import { commentsSincePreview, previewComments, unansweredRequests } from './comments.js';
+import { commentsSincePreview, currentRequests, earlierComments, isDone, onEarlierPreview, previewComments, unansweredRequests } from './comments.js';
 import { renderHtmlToPdf } from './render-draft.js';
 import * as folders from './folders.js';
 import * as labels from './labels.js';
@@ -173,6 +173,16 @@ export function createWorkspace(shared) {
     events.emit('review', review);
   }
 
+  // The comments from the draft this one was made from that nobody answered, for the window to show
+  // where their text is still in this one: those of the review whose preview became this draft.
+  async function earlierCommentsOnDraft(number) {
+    if (number < 1) return [];
+    const before = doc.line[number - 1];
+    const madeBy = (await store.listReviews(doc.id, before)).find((r) => r.applications?.some((a) => a.draftId === doc.currentDraftId));
+    const draftLabel = (id) => (id === store.ORIGINAL ? 'Original' : `Draft ${doc.line.indexOf(id)}`);
+    return earlierComments({ madeBy, draftLabel, previewLabel: `Draft ${number} preview` });
+  }
+
   // The review the active tool shows on the current draft. In the highlight tool that's the focus
   // the user (or the AI) last chose on this draft, else its newest; a new draft has none of its own.
   async function newestReview() {
@@ -327,7 +337,7 @@ export function createWorkspace(shared) {
     // and per goal in Review and highlight. Null for a change that needs no claim.
     claimKey(name, args = {}) {
       if (!doc) return null;
-      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'commit_review', 'apply_review'].includes(name)) return null;
+      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'commit_review', 'apply_review', 'reply_to_comment'].includes(name)) return null;
       const type = name === 'start_review' ? args.type ?? 'improve' : review ? typeOf(review) : null;
       if (!type) return null;
       if (type === 'improve') return `${doc.id}:improve:${doc.variationId}`;
@@ -585,7 +595,7 @@ export function createWorkspace(shared) {
             applied: improve.applications.length > 0,
             // A draft preview waiting: when it was written, and the AI's summary of it.
             preview: improve.preview ? { at: improve.preview.at, summary: improve.preview.summary ?? null } : null,
-            comments: improve.requests.length,
+            comments: currentRequests(improve).length, // a draft preview's earlier ones aren't on it
             // Started by the user's comments, with the AI yet to pick it up.
             waitingForAi: improve.status === 'open' && improve.history[0]?.who === 'user' && !improve.items.length,
           },
@@ -644,7 +654,7 @@ export function createWorkspace(shared) {
       const draft = await store.loadDraft(doc.id, doc.currentDraftId);
       return {
         ...shared,
-        draft: { id: draft.id, number, total: doc.line.length - 1, isOriginal: draft.id === store.ORIGINAL, summary: draft.summary },
+        draft: { id: draft.id, number, total: doc.line.length - 1, isOriginal: draft.id === store.ORIGINAL, summary: draft.summary, earlierComments: await earlierCommentsOnDraft(number) },
         pdf: new Uint8Array(await readFile(store.draftPdfPath(doc.id, doc.currentDraftId))),
       };
     },
@@ -743,9 +753,10 @@ export function createWorkspace(shared) {
       return findText(pageTexts, query, Math.min(Math.max(1, limit), FIND_LIMIT));
     },
 
-    getReview() {
+    // The user's comments marked "No further action required" are left out unless all_comments.
+    getReview({ allComments = false } = {}) {
       requireDoc();
-      return review && { ...review, type: typeOf(review) };
+      return review && { ...review, type: typeOf(review), requests: openComments(allComments ? review.requests : currentRequests(review), allComments) };
     },
 
     // Every earlier review of this document, across all its drafts, oldest first: what the AI
@@ -944,9 +955,14 @@ export function createWorkspace(shared) {
       // draft (since deleted) gives way to a new one.
       if (!previewing && (!review || review.applications.length)) await this.startReview('user');
       const entry = { id: `request-${Date.now().toString(36)}-${review.requests.length}`, kind: request.kind, anchors: request.anchors ?? [], note: request.note ?? '', details: request.details ?? {}, createdAt: new Date().toISOString() };
+      // Made again from an earlier version's comment ("Comment again"), which then stops showing.
+      if (typeof request.from === 'string') entry.from = request.from;
       if (review.status === 'committed') {
         entry.afterCommit = true; // carried out with the decisions: the AI has finished responding
-        if (previewing) entry.onPreview = true; // its anchors are in the draft preview's text, not the draft's
+        if (previewing) {
+          entry.onPreview = true; // its anchors are in the draft preview's text, not the draft's
+          entry.previewAt = review.preview.at; // and only this preview's: the AI's next is another version
+        }
         markPreviewCommented(review);
       }
       review.requests.push(entry);
@@ -959,9 +975,49 @@ export function createWorkspace(shared) {
       const r = requireType(requireReview(), 'improve');
       const entry = r.requests.find((q) => q.id === id);
       if (!entry) throw new Error(`No request ${id}.`);
-      if (typeof changes.note === 'string') entry.note = changes.note;
+      if (typeof changes.note === 'string') {
+        entry.note = changes.note;
+        // The user saying more on a comment opens it again for the AI.
+        entry.noFurtherAction = null;
+        delete entry.resolved;
+      }
       if (changes.details) entry.details = { ...entry.details, ...changes.details };
-      if (r.status === 'committed') markPreviewCommented(r);
+      if (r.status === 'committed' && !onEarlierPreview(entry, r)) markPreviewCommented(r); // an earlier preview's says nothing of this one
+      await saveReview();
+    },
+
+    // The AI answers one of the user's comments: a reply, an outcome in its own words ("Actioned",
+    // "Noted", "Answered"…), and whether anything more is needed. Nothing restricts the outcome.
+    async replyToComment({ id, text, outcome, noFurtherAction }) {
+      const r = requireType(requireReview(), 'improve');
+      const entry = r.requests.find((q) => q.id === id);
+      if (!entry) throw new Error(`No comment ${id} in the current review. get_review lists them.`);
+      const said = typeof text === 'string' ? text.trim() : '';
+      const label = typeof outcome === 'string' ? outcome.trim() : '';
+      if (!said && !label && noFurtherAction === undefined) throw new Error('Give a reply, an outcome, or both.');
+      const at = new Date().toISOString();
+      if (said || label) entry.replies = [...(entry.replies ?? []), { who: 'ai', at, ...(said && { text: said }), ...(label && { outcome: label }) }];
+      if (label) entry.outcome = label;
+      if (noFurtherAction !== undefined) {
+        entry.noFurtherAction = noFurtherAction ? { by: 'ai', at } : null;
+        delete entry.resolved;
+        refreshPreviewAfterRemoval(r); // a preview outdated only by this comment isn't any more
+      }
+      logTo(r, 'ai', `answered a comment${label ? ` (${label})` : ''}`);
+      await saveReview();
+      return { comment: id, outcome: entry.outcome ?? null, noFurtherAction: noFurtherAction ? true : Boolean(entry.noFurtherAction) };
+    },
+
+    // The user marks a comment as needing nothing more, or opens it again.
+    async setNoFurtherAction(id, on) {
+      const r = requireType(requireReview(), 'improve');
+      const entry = r.requests.find((q) => q.id === id);
+      if (!entry) throw new Error(`No comment ${id}.`);
+      entry.noFurtherAction = on ? { by: 'user', at: new Date().toISOString() } : null;
+      delete entry.resolved;
+      if (on) refreshPreviewAfterRemoval(r);
+      else if (r.preview && commentsSincePreview(r).some((q) => q.id === id)) markPreviewCommented(r);
+      logTo(r, 'user', on ? 'marked a comment as needing no further action' : 'opened a comment again');
       await saveReview();
     },
 
@@ -1135,12 +1191,12 @@ export function createWorkspace(shared) {
       leavePreview();
     },
 
-    getDecisions() {
+    getDecisions({ allComments = false } = {}) {
       const r = requireType(requireReview(), 'improve');
       return {
         status: r.status,
         preview: r.preview ?? null,
-        requests: r.requests,
+        requests: openComments(allComments ? r.requests : currentRequests(r), allComments),
         changes: r.changes ?? [],
         items: r.items.map(({ id, kind, title, inResponseTo, proposal, options, question, decision }) => ({ id, kind, title, inResponseTo, proposal, options, question, decision })),
       };
@@ -1153,8 +1209,8 @@ export function createWorkspace(shared) {
     async applyReview({ html, summary, appliedItemIds }) {
       const r = requireType(requireReview(), 'improve');
       if (r.status !== 'committed') throw new Error('Commit the review and let the user decide before applying it.');
-      // Written with the comments on the last one in hand: their text is gone with it.
-      for (const request of previewComments(r)) request.resolved = true;
+      // The comments on the last preview stay as they are: the AI says how it dealt with each with
+      // replyToComment, in its own words, and whether anything more is needed.
       const page = withDefaultPage(html);
       const pdf = await renderHtmlToPdf(page);
       await store.savePreview(doc.id, r, { pdf, html: page });
@@ -1276,6 +1332,10 @@ export function createWorkspace(shared) {
     },
   };
 }
+
+// The user's comments the AI still has to deal with: those marked "No further action required" are
+// left out unless all of them are asked for.
+const openComments = (requests, all) => (requests && !all ? requests.filter((q) => !isDone(q)) : requests);
 
 // A4 with sensible margins unless the HTML sets its own @page rules (it comes later, so it wins).
 function withDefaultPage(html) {

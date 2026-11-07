@@ -906,6 +906,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .decided .margin-tab { background: var(--subtle-bg); }
 .decided .margin-title { color: var(--muted); }
 .decided .margin-status { color: var(--decided-text); }
+/* A comment needing no further action, on its own: one line, its outcome then the comment
+   (FOLDED_HEIGHT in margin-review.js). */
+.margin-tab.folded { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; grid-template-rows: none; }
+.margin-tab.folded .margin-title { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; }
+/* A comment from an earlier version, unanswered, whose text is still here: dashed and muted, to see
+   and comment again on, never counted (earlierItems in margin-review.js). */
+.earlier .margin-tab, .earlier .margin-card { border: 1.5px dashed var(--border-strong, var(--muted)); box-shadow: none; }
+.earlier .margin-tab { background: transparent; }
+.earlier .margin-card { background: var(--bg); }
+.earlier .margin-kind { color: var(--muted); }
+.earlier .margin-title, .earlier .finding-body { color: var(--muted); }
+.margin-outcome { flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--decided-text); }
 /* A deck's pager is a row of its own across the bottom of the tab or open card, which leave room
    for it: ‹ at the start, "1 of 3" in the middle, › at the end. No divider above it. */
 .margin-pager {
@@ -1106,7 +1118,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 .comment-composer textarea:focus, .comment-edit:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .comment-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .comment-error { margin: 0; color: light-dark(#b23c3c, #ff8f8f); font-size: 12px; }
-.comment-remove { justify-self: start; margin-top: 8px; }
+.comment-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* The AI's reply to a comment, with how it dealt with it as a tag before it. */
+.comment-ai-reply { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--text); }
+.comment-outcome { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; background: var(--subtle-bg); color: var(--muted); font-size: 10.5px; font-weight: 600; line-height: 16px; vertical-align: 1px; }
 
 /* --- The preview beside the previous draft (see compare.js) ------------------------------- */
 .compare { grid-area: 1 / 1; display: none; overflow: auto; scrollbar-width: none; background: var(--document-bg); }
