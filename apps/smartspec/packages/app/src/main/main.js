@@ -174,6 +174,7 @@ function updateMenu() {
         ctx.win.webContents.send('new-schema');
       },
       showConnectAi,
+      showSettings: () => lastFocused?.win.webContents.send('show-settings'),
     },
   }));
 }
@@ -240,9 +241,13 @@ const schemasFor = (session, ctx) => ({
   getProposal: (id, options) => store.getProposal(id, options),
   listComments: (id, options) => store.listComments(id, options),
   listGroups: () => store.listGroups(),
-  createGroup: (name) => store.createGroup(name),
+  createGroup: (name, folderId) => store.createGroup(name, folderId),
   renameGroup: (id, name) => store.renameGroup(id, name),
   moveSchema: (schemaId, groupId) => store.moveSchema(schemaId, groupId),
+  listFolders: () => store.listFolders(),
+  createFolder: (name, parentId) => store.createFolder(name, parentId),
+  renameFolder: (id, name) => store.renameFolder(id, name),
+  moveGroup: (groupId, folderId) => store.moveGroup(groupId, folderId),
   replyToComment: (id, commentId, text) => store.replyToComment(id, commentId, { text, author: clientLabel(session.client) }),
   async propose(proposal) {
     if (proposal.schemaId) {
@@ -385,15 +390,16 @@ async function discardProposal(ctx, schemaId) {
   sessions.release(schemaClaim(schemaId));
 }
 
-// A group goes, and its schemas go to Ungrouped: asked first, as the group can't be had back.
+// A domain (a group in the store) goes, and its schemas go to No domain: asked first, as it can't be
+// had back.
 async function deleteGroup(ctx, id) {
   const { groups } = await store.listGroups();
   const group = groups.find((one) => one.id === id);
   if (!group) return false;
   const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
     type: 'warning',
-    message: `Delete the group “${group.name}”?`,
-    detail: group.schemas ? `Its ${group.schemas === 1 ? 'schematic moves' : `${group.schemas} schematics move`} to Ungrouped. Nothing in them changes.` : 'It has no schematics in it.',
+    message: `Delete the domain “${group.name}”?`,
+    detail: group.schemas ? `Its ${group.schemas === 1 ? 'schematic moves' : `${group.schemas} schematics move`} to No domain. Nothing in them changes.` : 'It has no schematics in it.',
     buttons: ['Cancel', 'Delete'],
     defaultId: 0,
     cancelId: 0,
@@ -405,10 +411,24 @@ async function deleteGroup(ctx, id) {
 
 handle('list-schemas', () => store.list());
 handle('list-groups', () => store.listGroups());
-handle('create-group', (_ctx, name) => store.createGroup(name));
+handle('create-group', (_ctx, name, folderId) => store.createGroup(name, folderId ?? null));
 handle('rename-group', (_ctx, id, name) => store.renameGroup(id, name));
 handle('delete-group', (ctx, id) => deleteGroup(ctx, id));
 handle('move-schema', (_ctx, schemaId, groupId) => store.moveSchema(schemaId, groupId ?? null));
+// Home's folders, organising the domains (see folders.js).
+handle('folders', () => store.folders());
+handle('create-folder', (_ctx, name, parentId) => store.createFolder(name, parentId ?? null));
+handle('rename-folder', (_ctx, id, name) => store.renameFolder(id, name));
+handle('delete-folder', (_ctx, id) => store.deleteFolder(id));
+handle('move-folder', (_ctx, id, parentId) => store.moveFolder(id, parentId ?? null));
+handle('move-group', (_ctx, groupId, folderId) => store.moveGroup(groupId, folderId ?? null));
+// A right-click menu on home, as SmartDoc's: the chosen item's id, or null if none was chosen.
+handle('home-menu', (ctx, items) => new Promise((resolve) => {
+  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
+    window: ctx?.win ?? undefined,
+    callback: () => setTimeout(() => resolve(null), 100),
+  });
+}));
 handle('list-focuses', (_ctx, id, options) => store.listFocuses(id, options));
 handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
 handle('list-drafts', (_ctx, id) => store.listDrafts(id));

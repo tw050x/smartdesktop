@@ -8,7 +8,9 @@ import { commentCard, composerCard, watchComments } from './comments.js';
 import { cardCommentTag, watchCardComments } from './card-comments.js';
 import { itemView, kindLabel } from './item-views.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
+import { arrowKeysIn } from './menu-keys.js';
 import { plainText, renderMarkdown } from './markdown.js';
+import { levelOf } from './home-level.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
 // Where the window is, is a path of levels: the schema opened from home, then each embedded schema
@@ -36,11 +38,17 @@ const OPEN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="current
 const FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"/></svg>';
 const LEAVE_FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M22 3.41 16.71 8.7 20 12h-8V4l3.29 3.29L20.59 2zM3.41 22l5.29-5.29L12 20v-8H4l3.29 3.29L2 20.59z"/></svg>';
 const HOME_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>';
-// SmartDoc's New folder icon, for a new group.
-const NEW_GROUP_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg>';
+// SmartDoc's folder icons: a folder on home's list, and New folder.
+const FOLDER_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+const NEW_DOMAIN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+const BACK_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
+const HOVER_OPENS_MS = 500; // holding something dragged over a folder or the back arrow
+const PATH_SHOWN = 3; // folders named on the path row; any before them as …
+const DRAG_TYPE = 'application/x-smartspec-item';
+const NEW_FOLDER_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg>';
 const PENCIL_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
 const BIN_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
-const UNGROUPED = 'ungrouped'; // the group a schema is in when it's in none, which always exists
+const UNGROUPED = 'ungrouped'; // No domain: where a schema in no domain (no group) is, which always exists
 const SORT_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3,18V16H9v2H3Zm0-5V11H15v2H3ZM3,8V6H21V8H3Z"/></svg>';
 // Each column's sort orders, the first the default.
 const SORTS = {
@@ -87,11 +95,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // label, item (what's selected in it), focus (a part of it to bring into view) }.
   let path = [];
   let selected = null; // the schema whose drafts home shows
-  let selectedGroup = null; // the group whose schemas home shows, UNGROUPED for those in none
-  let naming = null; // a group being named on home: { id } for a rename, { id: null } for a new one
+  let selectedGroup = null; // the domain (group) whose schemas home shows, UNGROUPED for those in none
+  let naming = null; // a domain or folder being named on home: { kind, id }, with id null for a new one
   const sorts = Object.fromEntries(Object.entries(SORTS).map(([column, options]) => [column, options.find(([id]) => id === rememberedSort(column)) ?? options[0]]));
   const modes = createModeSwitcher({ card: modeCard, onChange: () => render() });
   let rendering = 0;
+  let homeShowing = false; // home's columns rise in only as it arrives, not each time it's drawn again
   // A schema shows one item with what links to it, or a list of everything in it. Remembered on this
   // computer, as a convenience.
   let layout = rememberedView();
@@ -157,7 +166,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return here ? [here.schemaId, here.item, Boolean(here.full), layout, modes.mode()].join(':') : 'home';
   };
 
-  const KEYS = ['data-group', 'data-schema', 'data-draft', 'data-proposal']; // home's rows
+  const KEYS = ['data-folder', 'data-group', 'data-schema', 'data-draft', 'data-proposal']; // home's rows
   function focusKey(element) {
     if (!element || element === document.body) return null;
     if (element.id) return `#${CSS.escape(element.id)}`;
@@ -178,6 +187,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const focused = focusKey(document.activeElement);
     const show = () => {
       focusMenu.hidden = true;
+      holdDragged();
+      // Home arriving (at launch, or back from a schematic): its columns rise in, as SmartDoc's do.
+      if (!path.length && !homeShowing) view.classList.add('arriving');
+      homeShowing = !path.length;
       el.replaceChildren(view);
       bottomBar.replaceChildren(...(view.bottomBar ?? []));
       bottomBar.hidden = !view.bottomBar;
@@ -262,27 +275,77 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
   // --- Home ---------------------------------------------------------------------------------
 
-  // Home: the groups schemas are organised into, the schemas in the chosen one, and the drafts of the
-  // chosen schema. Ungrouped is always first, for schemas in no group. Groups only organise the list,
-  // so the user makes, renames and deletes them here, and moves schemas between them by dragging one
-  // onto a group, or with a schema's right-click menu.
+  // Home: the domains schemas belong to, the schemas in the chosen one, and the drafts of the chosen
+  // schema. A domain is a group in the store. The first column shows one folder at a time, its
+  // folders and domains sorted together, as SmartDoc's documents column does: opening one replaces
+  // the list, and a row under the column's title shows the path back, so folders can nest to any
+  // depth. No domain is always first at the top level, for schemas in none. Things move by dragging:
+  // a domain or folder onto a folder, the path or the list, where holding it over a folder or the back
+  // arrow opens it on the way; a schema onto a domain. Or by a right-click menu's Cut and Paste, or a
+  // schema's Move to. Domains and folders only organise the list (see main/folders.js).
+  let folderState = { folders: [], placement: {} };
+  let shownFolder = null; // the folder the domains column shows, null for the top level
+  let cut = null; // { kind: 'domain' | 'folder', id }, waiting to be pasted
+  let drag = null; // { kind: 'domain' | 'folder' | 'schema', id, from, itemEl, dropped }
+  let hover = null; // { key, timer }: something dragged, held over something that opens
+  const folderById = (id) => folderState.folders.find((f) => f.id === id);
+  const folderOfGroup = (id) => (id === UNGROUPED ? null : folderState.placement[id] ?? null);
+  function pathTo(folderId) {
+    const path = [];
+    const seen = new Set();
+    for (let f = folderById(folderId); f && !seen.has(f.id); f = folderById(f.parentId)) {
+      seen.add(f.id);
+      path.unshift(f);
+    }
+    return path;
+  }
+  // Whether a domain or folder can go to a place: not where it is already, nor a folder inside itself.
+  function canGo({ kind, id }, place) {
+    if (kind === 'domain') return folderOfGroup(id) !== place;
+    if (kind !== 'folder' || (folderById(id)?.parentId ?? null) === place) return false;
+    return !pathTo(place).some((f) => f.id === id);
+  }
+  const moveItem = ({ kind, id }, place) => (kind === 'domain' ? api.moveGroup(id, place) : api.moveFolder(id, place));
+
+  // Opening a folder shows its first domain; held over by a drag, what's chosen stays.
+  function showFolder(id, { keepSelection = false } = {}) {
+    shownFolder = id;
+    naming = null;
+    if (!keepSelection) {
+      selected = null;
+      selectedGroup = null;
+    }
+    render();
+  }
+
   async function homeView() {
-    const [all, { groups }] = await Promise.all([api.listSchemas(), api.listGroups()]);
+    const [all, { groups }, folders] = await Promise.all([api.listSchemas(), api.listGroups(), api.folders()]);
+    folderState = folders;
+    if (shownFolder && !folderById(shownFolder)) shownFolder = null;
+    if (cut && !(cut.kind === 'folder' ? folderById(cut.id) : groups.some((group) => group.id === cut.id))) cut = null;
     const groupOf = (one) => one.group ?? UNGROUPED;
-    // The chosen schema's group is the one showing, wherever it was chosen (here, an AI's proposal, or
-    // coming back home), and wherever it's moved to. Choosing a group lets go of the schema.
+    // The chosen schema's domain is the one showing, in its folder, wherever it was chosen (here, an
+    // AI's proposal, or coming back home), and wherever it's moved to; but not while something is
+    // dragged, as a folder held open on the way stays open. Choosing a domain lets go of the schema.
     const chosen = all.find((each) => each.id === selected);
-    if (chosen) selectedGroup = groupOf(chosen);
-    if (selectedGroup !== UNGROUPED && !groups.some((group) => group.id === selectedGroup)) selectedGroup = UNGROUPED;
-    const schemas = sorts.schemas[2](all.filter((each) => groupOf(each) === selectedGroup));
+    if (chosen && !drag) {
+      selectedGroup = groupOf(chosen);
+      shownFolder = folderOfGroup(selectedGroup);
+    }
+    if (selectedGroup && selectedGroup !== UNGROUPED && !groups.some((group) => group.id === selectedGroup)) selectedGroup = null;
+    const here = sorts.groups[2](levelOf(folderState, groups, shownFolder));
+    // The chosen domain is one on this level: with none chosen, the first (No domain at the top).
+    if (!drag && selectedGroup && (selectedGroup === UNGROUPED ? shownFolder !== null : folderOfGroup(selectedGroup) !== shownFolder)) selectedGroup = null;
+    if (!drag && !selectedGroup) selectedGroup = shownFolder === null ? UNGROUPED : here.find((one) => one.kind === 'domain')?.id ?? null;
+    const schemas = selectedGroup ? sorts.schemas[2](all.filter((each) => groupOf(each) === selectedGroup)) : [];
     const schema = schemas.find((each) => each.id === selected) ?? schemas[0] ?? null;
-    selected = schema?.id ?? null;
+    if (!drag) selected = schema?.id ?? null;
     const drafts = schema ? sorts.drafts[2](await api.listDrafts(schema.id)) : [];
     const ungrouped = all.filter((each) => !each.group).length;
     const count = (n) => (n === 1 ? '1 schematic' : `${n} schematics`);
 
-    const groupRow = (id, name, schemasIn) => {
-      if (naming && naming.id === id) return namingRow(name);
+    const domainRow = (id, name, schemasIn) => {
+      if (naming?.kind === 'domain' && naming.id === id) return namingRow(name);
       const button = row({
         attributes: { 'data-group': id, 'aria-pressed': String(id === selectedGroup) },
         onclick: () => {
@@ -293,49 +356,133 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         title: name,
         meta: count(schemasIn),
       });
-      acceptDrops(button, id);
+      dropTarget(button, { domain: id });
       if (id === UNGROUPED) return button;
+      if (cut?.kind === 'domain' && cut.id === id) button.classList.add('browser-cut');
+      makeDraggable(button, 'domain', id);
+      button.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMenu([
+          { id: 'rename', label: 'Rename' },
+          { id: 'cut', label: 'Cut' },
+          { separator: true },
+          { id: 'delete', label: 'Delete Domain…' },
+        ], {
+          rename: () => startNaming({ kind: 'domain', id }),
+          cut: () => cutItem({ kind: 'domain', id }),
+          delete: async () => { if (await api.deleteGroup(id)) render(); },
+        });
+      });
       const action = (label, icon, run) => {
         const one = h('button', { className: 'icon-button group-action', type: 'button', title: label, 'aria-label': `${label} ${name}`, onclick: run });
         one.innerHTML = icon;
         return one;
       };
       return h('div', { className: 'group-row' }, button, h('span', { className: 'group-actions' },
-        action('Rename', PENCIL_ICON, () => { naming = { id }; render(); }),
+        action('Rename', PENCIL_ICON, () => startNaming({ kind: 'domain', id })),
         action('Delete', BIN_ICON, async () => { if (await api.deleteGroup(id)) render(); })));
     };
-    const groupsColumn = h('section', { className: 'browser-column groups-column', 'aria-label': 'Groups' },
-      h('div', { className: 'browser-head' }, h('h2', {}, 'Groups'), (() => {
-        const add = h('button', { className: 'icon-button', type: 'button', id: 'new-group', title: 'New group', 'aria-label': 'New group', onclick: () => { naming = { id: null }; render(); } });
-        add.innerHTML = NEW_GROUP_ICON;
-        return add;
-      })(), sortControl('groups')),
-      h('ul', { className: 'browser-list' },
-        h('li', {}, groupRow(UNGROUPED, 'Ungrouped', ungrouped)),
-        // Ungrouped stays first, whatever the order.
-        ...sorts.groups[2](groups).map((group) => h('li', {}, groupRow(group.id, group.name, group.schemas))),
-        naming && naming.id === null && h('li', {}, namingRow(''))));
+    const folderRow = (folder, item) => {
+      if (naming?.kind === 'folder' && naming.id === folder.id) return namingRow(folder.name);
+      const inside = item.domains + folderState.folders.filter((f) => f.parentId === folder.id).length;
+      const title = h('span', { className: 'title-row folder-title' }, h('strong', {}, folder.name));
+      title.insertAdjacentHTML('afterbegin', FOLDER_ICON);
+      const button = h('button', { className: `browser-row folder-row${cut?.kind === 'folder' && cut.id === folder.id ? ' browser-cut' : ''}`, type: 'button', 'data-folder': folder.id, title: folder.name, onclick: () => showFolder(folder.id) },
+        title,
+        h('span', { className: 'browser-row-meta' }, inside ? `${inside} item${inside === 1 ? '' : 's'}` : 'Empty'));
+      button.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMenu([
+          { id: 'open', label: 'Open' },
+          { id: 'rename', label: 'Rename' },
+          { id: 'cut', label: 'Cut' },
+          { separator: true },
+          { id: 'delete', label: 'Delete Folder' },
+        ], {
+          open: () => showFolder(folder.id),
+          rename: () => startNaming({ kind: 'folder', id: folder.id }),
+          cut: () => cutItem({ kind: 'folder', id: folder.id }),
+          delete: () => api.deleteFolder(folder.id),
+        });
+      });
+      makeDraggable(button, 'folder', folder.id);
+      dropTarget(button, { place: folder.id, opens: true });
+      return button;
+    };
 
-    const groupName = selectedGroup === UNGROUPED ? 'Ungrouped' : groups.find((group) => group.id === selectedGroup)?.name;
+    // The column's title is the way back to the top level, and a row under it the way to any folder
+    // on the path, with the back arrow first.
+    const folderPath = pathTo(shownFolder);
+    const crumb = (name, id) => {
+      const button = h('button', { className: 'browser-crumb', type: 'button', title: name, onclick: () => showFolder(id) }, name);
+      dropTarget(button, { place: id });
+      return button;
+    };
+    const iconButton = (id, label, icon, onclick) => {
+      const button = h('button', { className: 'icon-button', type: 'button', id, title: label, 'aria-label': label, onclick });
+      button.innerHTML = icon;
+      return button;
+    };
+    let pathRow = null;
+    if (folderPath.length) {
+      const back = iconButton('domains-back', 'Back', BACK_ICON, () => showFolder(folderById(shownFolder)?.parentId ?? null));
+      back.classList.add('browser-back');
+      dropTarget(back, { place: folderById(shownFolder)?.parentId ?? null, opens: true, key: 'back' });
+      const hidden = folderPath.length - PATH_SHOWN;
+      pathRow = h('nav', { className: 'browser-path', 'aria-label': 'Folder path' }, back,
+        hidden > 0 && h('span', { className: 'browser-crumb-more' }, '…'),
+        ...folderPath.slice(Math.max(hidden, 0)).map((f) => (f.id === shownFolder ? h('span', { className: 'browser-crumb-here', title: f.name }, f.name) : crumb(f.name, f.id))));
+    }
+
+    const newRow = naming && !naming.id && h('li', {}, namingRow(''));
+    const rows = here.map((item) => h('li', {}, item.kind === 'folder' ? folderRow(folderById(item.id), item) : domainRow(item.id, item.name, item.schemas)));
+    const list = h('ul', { className: 'browser-list' },
+      // A new one's name is written at the very top, as in SmartDoc; then No domain, first whatever
+      // the order.
+      newRow,
+      shownFolder === null && h('li', {}, domainRow(UNGROUPED, 'No domain', ungrouped)),
+      ...rows,
+      shownFolder !== null && !rows.length && !newRow && h('li', { className: 'browser-empty' }, 'This folder is empty. Drag domains here, or right-click to paste.'));
+    dropTarget(list, { place: shownFolder });
+    list.addEventListener('contextmenu', (event) => {
+      if (event.target.closest('.browser-row, .group-naming')) return;
+      event.preventDefault();
+      openMenu([
+        { id: 'domain', label: 'New Domain' },
+        { id: 'folder', label: 'New Folder' },
+        { id: 'paste', label: 'Paste', enabled: Boolean(cut && canGo(cut, shownFolder)) },
+      ], {
+        domain: () => startNaming({ kind: 'domain', id: null }),
+        folder: () => startNaming({ kind: 'folder', id: null }),
+        paste,
+      });
+    });
+    const domainsColumn = h('section', { className: 'browser-column groups-column', 'aria-label': 'Domains' },
+      h('div', { className: 'browser-head' }, h('h2', {}, folderPath.length ? crumb('Domains', null) : 'Domains'),
+        iconButton('new-folder', 'New folder', NEW_FOLDER_ICON, () => startNaming({ kind: 'folder', id: null })),
+        iconButton('new-group', 'New domain', NEW_DOMAIN_ICON, () => startNaming({ kind: 'domain', id: null })),
+        sortControl('groups')),
+      pathRow,
+      list);
+
     return h('div', { className: 'browser' },
-      groupsColumn,
+      domainsColumn,
       column('Schematics', {
         sort: 'schemas',
         // Placeholder rows, the shape of a schematic's: its name, then its summary.
         skeleton: [[44, 82], [58, 70], [36, 88]],
       }, ...schemas.map((each) => {
         const one = row({
-          attributes: { 'data-schema': each.id, 'aria-pressed': String(each.id === schema.id), draggable: 'true' },
+          attributes: { 'data-schema': each.id, 'aria-pressed': String(each.id === schema.id) },
           onclick: () => { selected = each.id; render(); },
           title: each.name,
           arrow: true,
           tag: each.proposal && WAITING(),
           text: each.summary,
         });
-        one.addEventListener('dragstart', (event) => {
-          event.dataTransfer.setData('application/x-smartspec-schema', each.id);
-          event.dataTransfer.effectAllowed = 'move';
-        });
+        makeDraggable(one, 'schema', each.id);
         one.addEventListener('contextmenu', (event) => {
           event.preventDefault();
           moveMenu(each, groups, event);
@@ -351,7 +498,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
           attributes: { 'data-proposal': schema.proposal.id },
           className: 'proposal-row',
           onclick: () => go([level(schema.id, { proposal: true, label: schema.name })]),
-          title: schema.drafts ? 'Proposed change' : 'Proposed schematic',
+          // Named as the top bar names it, and as SmartDoc names its draft preview.
+          title: `Draft ${(schema.drafts ?? 0) + 1} preview`,
           tag: WAITING(),
           text: schema.proposal.note,
           meta: when(schema.proposal.createdAt),
@@ -366,10 +514,48 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         }))));
   }
 
-  // A group's name being written: a new group's, or a rename. Enter or leaving it saves, Escape
-  // doesn't, and a name that's refused says why, keeping what was typed.
+  async function openMenu(items, actions) {
+    const chosen = await api.showHomeMenu(items);
+    actions[chosen]?.();
+  }
+  function cutItem(item) {
+    cut = item;
+    render();
+  }
+  async function paste() {
+    if (!cut || !canGo(cut, shownFolder)) return;
+    const item = cut;
+    cut = null;
+    await moveItem(item, shownFolder);
+  }
+  // The Edit menu's Cut and Paste, and their keys, on home, outside anything being typed in.
+  const typing = (event) => event.target.closest?.('input, textarea, select, [contenteditable]') || path.length || document.querySelector('dialog[open]');
+  document.addEventListener('cut', (event) => {
+    if (typing(event) || window.getSelection()?.toString()) return;
+    const on = document.activeElement?.closest?.('[data-folder], [data-group]');
+    if (on?.dataset.folder) cutItem({ kind: 'folder', id: on.dataset.folder });
+    else if (on?.dataset.group && on.dataset.group !== UNGROUPED) cutItem({ kind: 'domain', id: on.dataset.group });
+  });
+  document.addEventListener('paste', (event) => {
+    if (!typing(event) && cut) paste();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && cut && !path.length) cutItem(null);
+  });
+
+  function startNaming(target) {
+    naming = target;
+    render();
+  }
+
+  // A domain's or folder's name being written: a new one's, or a rename. Enter or leaving it saves,
+  // Escape doesn't, and a name that's refused says why, keeping what was typed. A new one goes in the
+  // folder showing.
   function namingRow(name) {
-    const field = h('input', { className: 'group-name-input', type: 'text', value: name, 'aria-label': naming.id ? 'Group name' : 'New group name', placeholder: 'Group name, such as Auth or Payments team', maxlength: '80' });
+    const target = naming;
+    const folder = target.kind === 'folder';
+    const words = folder ? 'Folder name' : 'Domain name';
+    const field = h('input', { className: 'group-name-input', type: 'text', value: name, 'aria-label': target.id ? words : `New ${words.toLowerCase()}`, placeholder: folder ? 'Folder name, such as a department' : 'Domain name, such as Auth or Payments', maxlength: '80' });
     const said = h('span', { className: 'group-name-error', role: 'alert' });
     let done = false;
     const finish = async (save) => {
@@ -382,8 +568,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       }
       try {
         done = true;
-        const made = naming.id ? await api.renameGroup(naming.id, named) : await api.createGroup(named);
-        if (!naming.id) {
+        if (folder) {
+          if (target.id) await api.renameFolder(target.id, named);
+          else await api.createFolder(named, shownFolder);
+        } else if (target.id) await api.renameGroup(target.id, named);
+        else {
+          const made = await api.createGroup(named, shownFolder);
           selectedGroup = made.id;
           selected = null;
         }
@@ -396,11 +586,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       }
     };
     field.addEventListener('keydown', (event) => {
+      event.stopPropagation();
       if (event.key === 'Enter') finish(true);
-      else if (event.key === 'Escape') {
-        event.stopPropagation();
-        finish(false);
-      }
+      else if (event.key === 'Escape') finish(false);
     });
     field.addEventListener('blur', () => setTimeout(() => document.activeElement !== field && finish(true)));
     setTimeout(() => {
@@ -410,38 +598,101 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return h('div', { className: 'group-naming' }, field, said);
   }
 
-  // A group takes a schema dropped on it.
-  function acceptDrops(target, groupId) {
-    const carrying = (event) => event.dataTransfer?.types.includes('application/x-smartspec-schema');
-    target.addEventListener('dragover', (event) => {
-      if (!carrying(event)) return;
+  // Something dragged can be dropped on: a place (a folder, or null for the top level) takes a domain
+  // or a folder, and a domain takes a schema. With `opens`, held over it for a moment, a folder opens
+  // there instead, whatever is dragged, and the drag carries on.
+  function dropTarget(node, { place, domain, opens = false, key = null }) {
+    const takes = () => {
+      if (!drag) return false;
+      if (drag.kind === 'schema') return domain !== undefined;
+      return place !== undefined && canGo(drag, place);
+    };
+    const leave = () => {
+      node.classList.remove('drop-here');
+      if (opens && hover?.key === (key ?? place)) stopHover();
+    };
+    node.addEventListener('dragover', (event) => {
+      if (!drag) return;
+      event.stopPropagation();
+      // A folder doesn't open as itself is dragged over it.
+      if (opens && !hover && place !== drag.id) {
+        hover = { key: key ?? place, timer: setTimeout(() => {
+          hover = null;
+          showFolder(place, { keepSelection: true });
+        }, HOVER_OPENS_MS) };
+      }
+      if (!takes()) {
+        event.dataTransfer.dropEffect = 'none';
+        return;
+      }
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      target.classList.add('drop-here');
+      node.classList.add('drop-here');
     });
-    target.addEventListener('dragleave', () => target.classList.remove('drop-here'));
-    target.addEventListener('drop', async (event) => {
-      target.classList.remove('drop-here');
-      const schemaId = event.dataTransfer.getData('application/x-smartspec-schema');
-      if (!schemaId) return;
+    // Moving between a target's own parts fires dragleave too; only leaving its bounds counts.
+    node.addEventListener('dragleave', (event) => {
+      const box = node.getBoundingClientRect();
+      if (event.clientX < box.left || event.clientX >= box.right || event.clientY < box.top || event.clientY >= box.bottom) leave();
+    });
+    node.addEventListener('drop', async (event) => {
+      if (!drag) return;
       event.preventDefault();
-      await api.moveSchema(schemaId, groupId === UNGROUPED ? null : groupId);
+      event.stopPropagation();
+      leave();
+      stopHover();
+      if (!takes()) return;
+      drag.dropped = true;
+      if (drag.kind === 'schema') {
+        selected = drag.id;
+        await api.moveSchema(drag.id, domain === UNGROUPED ? null : domain);
+      } else await moveItem(drag, place);
+    });
+  }
+  function stopHover() {
+    clearTimeout(hover?.timer);
+    hover = null;
+  }
+  function makeDraggable(node, kind, id) {
+    node.draggable = true;
+    node.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData(DRAG_TYPE, id);
+      event.dataTransfer.effectAllowed = 'move';
+      drag = { kind, id, from: shownFolder, itemEl: node, dropped: false };
+      node.classList.add('browser-dragging');
+    });
+    node.addEventListener('dragend', () => {
+      const { kind: was, id: which, from, dropped } = drag ?? {};
+      drag = null;
+      stopHover();
+      node.remove();
+      // Called off: back where it started, with nothing moved.
+      if (!dropped) {
+        shownFolder = from ?? null;
+        if (was === 'schema') selected = which;
+      }
       render();
     });
   }
+  // A dragged row stays in the page while home is drawn again under it, or the drag would end.
+  let holder = null;
+  function holdDragged() {
+    if (!drag?.itemEl) return;
+    holder ??= Object.assign(document.body.appendChild(document.createElement('div')), { className: 'browser-drag-holder' });
+    holder.append(drag.itemEl);
+  }
 
-  // A schema's right-click menu: the groups it can move to.
+  // A schema's right-click menu: the domains it can move to, each with its folder's path.
   function moveMenu(schema, groups, event) {
     document.querySelector('.move-menu')?.remove();
     const here = schema.group ?? UNGROUPED;
-    const choices = [[UNGROUPED, 'Ungrouped'], ...groups.map((group) => [group.id, group.name])].filter(([id]) => id !== here);
+    const choices = [[UNGROUPED, 'No domain', null], ...groups.map((group) => [group.id, group.name, group.path])].filter(([id]) => id !== here);
     const menu = h('div', { className: 'move-menu', role: 'menu', 'aria-label': `Move ${schema.name} to` },
       h('span', { className: 'move-menu-head' }, 'Move to'),
-      ...(choices.length ? choices.map(([id, name]) => h('button', { type: 'button', role: 'menuitem', 'data-move-to': id, onclick: async () => {
+      ...(choices.length ? choices.map(([id, name, folder]) => h('button', { type: 'button', role: 'menuitem', 'data-move-to': id, onclick: async () => {
         menu.remove();
         await api.moveSchema(schema.id, id === UNGROUPED ? null : id);
         render();
-      } }, name)) : [h('span', { className: 'move-menu-none' }, 'Make a group first, with the button above Groups.')]));
+      } }, name, folder && h('span', { className: 'move-menu-path' }, folder))) : [h('span', { className: 'move-menu-none' }, 'Make a domain first, with the button above Domains.')]));
     document.body.append(menu);
     const { width, height } = menu.getBoundingClientRect();
     Object.assign(menu.style, { left: `${Math.min(event.clientX, innerWidth - width - 8)}px`, top: `${Math.min(event.clientY, innerHeight - height - 8)}px` });
@@ -459,20 +710,61 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
   const when = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
+  // A column's sort, as on SmartDoc's home: a button at the right of its title with the sort's name,
+  // then its icon, opening a menu of the sorts like the MCP panel's app picker.
   function sortControl(column) {
-    const select = h('select', { id: `sort-${column}`, 'aria-label': 'Sort by' });
-    for (const [id, text] of SORTS[column]) select.append(new Option(text, id, false, id === sorts[column][0]));
-    select.addEventListener('change', () => {
-      sorts[column] = SORTS[column].find(([id]) => id === select.value);
+    const options = SORTS[column];
+    const button = h('button', { className: 'browser-sort', id: `sort-${column}`, type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': `Sort by: ${sorts[column][1]}` },
+      h('span', { className: 'browser-sort-text' }, sorts[column][1]));
+    button.insertAdjacentHTML('beforeend', SORT_ICON);
+    const items = options.map(([id, label]) => h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': String(id === sorts[column][0]), onclick: () => choose(id) }, label));
+    const menu = h('div', { className: 'app-picker-menu browser-sort-menu', role: 'menu' }, ...items);
+    menu.hidden = true;
+    const picker = h('div', { className: 'browser-sort-picker' }, button, menu);
+    // A press elsewhere closes it. Home is drawn again on each change, so this only listens while open.
+    const outside = (event) => {
+      if (!picker.contains(event.target)) setOpen(false);
+    };
+    function setOpen(open) {
+      menu.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+      if (open) {
+        document.addEventListener('pointerdown', outside, true);
+        items.find((item) => item.getAttribute('aria-checked') === 'true')?.focus();
+      } else document.removeEventListener('pointerdown', outside, true);
+    }
+    function choose(id) {
+      setOpen(false);
+      sorts[column] = options.find(([one]) => one === id);
       try {
-        localStorage.setItem(`sort-${column}`, select.value);
+        localStorage.setItem(`sort-${column}`, id);
       } catch {}
       render();
+      // Drawn again: the focus goes back to this column's new button.
+      requestAnimationFrame(() => document.getElementById(`sort-${column}`)?.focus());
+    }
+    button.addEventListener('click', () => setOpen(menu.hidden));
+    // Up or Down on the button opens the menu too.
+    button.addEventListener('keydown', (event) => {
+      if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && menu.hidden) {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(true);
+      }
     });
-    // The order chosen, then its icon at the column's right edge.
-    const label = h('label', { className: 'browser-sort' }, select);
-    label.insertAdjacentHTML('beforeend', SORT_ICON);
-    return label;
+    // The focus moving on closes it; Escape closes it back onto the button. Its keys stay its own,
+    // not home's arrow keys between rows.
+    picker.addEventListener('focusout', (event) => {
+      if (!menu.hidden && event.relatedTarget && !picker.contains(event.relatedTarget)) setOpen(false);
+    });
+    menu.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      button.focus();
+    });
+    arrowKeysIn(menu);
+    return picker;
   }
 
   // A column of rows. With none, it shows placeholder rows instead, fading out, and its sort is
@@ -591,8 +883,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     h('h1', {}, 'Testing isn’t built yet'),
     h('p', {}, `This is where ${shown.name} will link to its implementation and run its contract tests, and you’ll see what’s passing or failing.`));
 
-  // In the top bar, with a schema open: home, the mode, the schemas open if one's embedded in another,
-  // and the focus: what the AI's work on this draft is for.
+  // In the top bar, with a schema open: home, the mode, and the focus: what the AI's work on this
+  // draft is for.
   function breadcrumb() {
     if (!path.length) return [];
     const home = h('button', { className: 'icon-button crumb-home', type: 'button', id: 'crumb-home', 'aria-label': 'Home', title: 'Home', onclick: () => go([]) });
@@ -723,30 +1015,43 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     draftNav.classList.add('collapsed');
   }
 
-  // The bottom bar is about this view, and only shows when there's something to say. Its text explains
-  // what's going on in plain sentences, with no bold labels; its buttons are what to do about it.
-  // Today that's a proposal waiting: what it is, the AI's note on it, and the user's answer or the
-  // way to it.
-  const sentence = (text) => (text && !/[.!?]$/.test(text) ? `${text}.` : text ?? '');
-  const reviewLine = (said, note) => {
-    const full = [said, sentence(note)].filter(Boolean).join(' ');
-    return h('p', { className: 'review-bar-text', title: full }, said, note ? ' ' : '', note ? h('span', {}, sentence(note)) : '');
-  };
+  // The bottom bar is about this view. It shows everywhere but home, so it always has something to
+  // say: the app's own short sentence on what's being done now or what needs doing, not the AI's note
+  // and not what each button does, on one line that never wraps (the full sentence is on hover). Its
+  // buttons, if any, are the way to do it. The first of these that applies is what it says.
+  const reviewLine = (said) => h('p', { className: 'review-bar-text', title: said }, said);
   function reviewBar(here, shown) {
+    const name = shown.name;
+    // A proposal under review, and its answers.
     if (here.proposal) {
       return [
-        reviewLine(shown.total
-          ? `You're looking at a change the AI has proposed. Accepting it makes it draft ${shown.total + 1}.`
-          : "You're looking at a new schematic the AI has proposed. Accepting it makes it the first draft.", shown.note),
+        reviewLine(shown.total ? `You're reviewing changes the AI has proposed to ${name}.` : `You're reviewing ${name}, a new schematic the AI has proposed.`),
         h('button', { className: 'secondary-button', type: 'button', id: 'proposal-discard', onclick: () => answer(() => api.discardProposal(here.schemaId)) }, 'Discard'),
         h('button', { className: 'primary-button', type: 'button', id: 'proposal-accept', onclick: () => answer(() => api.acceptProposal(here.schemaId)) }, 'Accept'),
       ];
     }
-    if (!shown.proposal) return null;
-    return [
-      reviewLine('The AI has proposed a change to this schematic.', shown.proposal.note),
-      h('button', { className: 'primary-button', type: 'button', id: 'view-proposal', onclick: () => { here.proposal = true; render(); } }, 'Review'),
-    ];
+    // A proposal waiting on this schematic.
+    if (shown.proposal) {
+      return [
+        reviewLine(`The AI has proposed changes to ${name} for you to review.`),
+        h('button', { className: 'primary-button', type: 'button', id: 'view-proposal', onclick: () => { here.proposal = true; render(); } }, 'Review'),
+      ];
+    }
+    if (modes.mode() === 'test') return [reviewLine(`Contract tests for ${name} aren't built yet.`)];
+    // An earlier draft, with the way back to the latest.
+    if (shown.number < shown.total) {
+      return [
+        reviewLine(`You're looking at draft ${shown.number} of ${name}. Draft ${shown.total} is the latest.`),
+        h('button', { className: 'secondary-button', type: 'button', id: 'latest-draft', onclick: () => { here.draftId = null; remember(); render(); } }, 'Go to the latest'),
+      ];
+    }
+    // Inside a schematic embedded in another.
+    const within = path.length > 1 ? `, inside ${path[path.length - 2].label}` : '';
+    if (layout === 'overview') return [reviewLine(`You're looking at everything in ${name}${within}.`)];
+    const use = shown.uses.find((one) => one.id === here.item);
+    if (use) return [reviewLine(use.missing ? `The schematic embedded here is no longer available.` : `${use.name} is embedded in ${name}, at its draft ${use.number}.`)];
+    const what = here.item === CONTRACT ? `the contract of ${name}` : `${shown.items.find((one) => one.id === here.item)?.title ?? here.item}, in ${name}${within}`;
+    return [reviewLine(here.full ? `You're looking at ${what}, full screen.` : `You're looking at ${what}, and what links to it.`)];
   }
 
   // Where this is in the schema's drafts.

@@ -384,7 +384,7 @@ describe('cards', () => {
   });
 });
 
-describe('groups', () => {
+describe('domains (groups in the store)', () => {
   test('schemas start ungrouped, and move between groups without counting as a change', async () => {
     const store = newStore();
     const { schema } = await accepted(store);
@@ -409,14 +409,15 @@ describe('groups', () => {
     const { schema } = await accepted(store);
     await assert.rejects(store.createGroup(' '), /needs a name/);
     await assert.rejects(store.createGroup('ungrouped'), /can't take that name/);
+    await assert.rejects(store.createGroup('No Domain'), /can't take that name/);
     const team = await store.createGroup('Payments team');
-    await assert.rejects(store.createGroup('payments TEAM'), /already a group/);
+    await assert.rejects(store.createGroup('payments TEAM'), /already a domain/);
     await store.renameGroup(team.id, 'Payments');
     await store.moveSchema(schema, team.id);
     await store.deleteGroup(team.id);
     assert.equal((await store.list())[0].group, null);
     assert.deepEqual(await store.listGroups(), { groups: [], ungrouped: 1 });
-    await assert.rejects(store.moveSchema(schema, team.id), /no group/);
+    await assert.rejects(store.moveSchema(schema, team.id), /no domain/);
   });
 
   test('a new schema can be proposed straight into a group', async () => {
@@ -424,6 +425,36 @@ describe('groups', () => {
     const group = await store.createGroup('Auth');
     const { schema } = await store.propose(proposal({ groupId: group.id }));
     assert.equal((await store.list()).find((one) => one.id === schema).group, group.id);
-    await assert.rejects(store.propose(proposal({ groupId: 'nope' })), /no group nope/);
+    await assert.rejects(store.propose(proposal({ groupId: 'nope' })), /no domain nope/);
+  });
+
+  test("domains are organised in folders, which nest, and a deleted folder's contents move up", async () => {
+    const store = newStore();
+    const department = await store.createFolder('  Platform  ');
+    assert.equal(department.name, 'Platform');
+    const team = await store.createFolder('Identity team', department.id);
+    assert.equal(team.path, 'Platform / Identity team');
+    const auth = await store.createGroup('Auth', team.id);
+    assert.equal(auth.path, 'Platform / Identity team');
+    let [listed] = (await store.listGroups()).groups;
+    assert.equal(listed.folder, team.id);
+    assert.equal(listed.path, 'Platform / Identity team');
+    assert.deepEqual((await store.listFolders()).map(({ name, path: at, folders, domains }) => ({ name, at, folders, domains })), [
+      { name: 'Platform', at: 'Platform', folders: 1, domains: 0 },
+      { name: 'Identity team', at: 'Platform / Identity team', folders: 0, domains: 1 },
+    ]);
+    await assert.rejects(store.moveFolder(department.id, team.id), /inside itself/);
+    await assert.rejects(store.createGroup('Billing', 'nope'), /no folder nope/);
+    assert.equal((await store.listGroups()).groups.length, 1);
+    await store.deleteFolder(team.id);
+    [listed] = (await store.listGroups()).groups;
+    assert.equal(listed.folder, department.id);
+    await store.moveGroup(auth.id, null);
+    [listed] = (await store.listGroups()).groups;
+    assert.equal(listed.folder, null);
+    await store.moveGroup(auth.id, department.id);
+    await store.deleteGroup(auth.id);
+    assert.deepEqual((await store.folders()).placement, {});
+    await assert.rejects(store.moveGroup('nope', null), /no domain nope/);
   });
 });

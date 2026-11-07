@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import * as folders from './folders.js';
 import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGraph, parseLink, partName, partsOf } from './items.js';
 
 // Schemas live in the app's data folder, one folder each:
@@ -12,7 +13,8 @@ import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGr
 //     proposal.json            the change the AI proposes, waiting for the user; not yet a draft
 //     comments.json            the user's comments, and the AI's replies (see below)
 //   proposals/<proposal id>.json   what became of each proposal, for `smartspec wait`
-//   groups.json                    the groups schemas are organised into (see below)
+//   groups.json                    the domains schemas belong to (see below)
+//   folders.json                   the folders domains are organised in (see folders.js)
 //
 // A draft holds a name, a summary and a contract, which are what show when it's collapsed inside
 // another schema; its items (see items.js); the parameters a use of it can set; and the schemas it
@@ -20,9 +22,11 @@ import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGr
 // user set it, which belongs to that draft and isn't carried to the next. Every change is an
 // AI's, and waits as a proposal until the user accepts it.
 //
-// Schemas are organised into groups: a team, a department, or just a set that belongs together, such
-// as "Auth". A schema is in one group, named in its schema.json, or in none: Ungrouped, which always
-// exists. Groups only organise the list; nothing about a schema's design depends on them.
+// Schemas belong to domains: a set of schemas owned by one team or one department, such as "Auth".
+// Everything a person or an AI sees says domain; here and on disk it's a group, so saved data didn't
+// have to move. A schema is in one group, named in its schema.json, or in none ("No domain"), which
+// always exists. Groups are organised in folders, which nest; neither changes anything about a
+// schema's design.
 //
 // A comment is the user's, on one thing in a draft or the proposal: an item, a part of it, words
 // they selected in it, quoted, or its card (its title, description and card lines). The AI reads them and replies. A comment on the proposal stays with it
@@ -77,10 +81,24 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   const writeGroups = (groups) => writeJson(groupsFile, { groups });
   const groupName = (name) => {
     const named = String(name ?? '').trim().replace(/\s+/g, ' ');
-    if (!named) throw new Error('A group needs a name.');
-    if (named.length > 80) throw new Error('A group\'s name can be up to 80 characters.');
-    if (/^ungrouped$/i.test(named)) throw new Error('Ungrouped is where schematics in no group are, so a group can\'t take that name.');
+    if (!named) throw new Error('A domain needs a name.');
+    if (named.length > 80) throw new Error('A domain\'s name can be up to 80 characters.');
+    if (/^(no domain|ungrouped)$/i.test(named)) throw new Error('No domain is where schematics in no domain are, so a domain can\'t take that name.');
     return named;
+  };
+  // The folders groups are organised in, written whole each time (see folders.js).
+  const foldersFile = path.join(root, 'folders.json');
+  const readFolderState = async () => folders.readFolders(await readJson(foldersFile));
+  const changeFolders = async (next) => {
+    await writeJson(foldersFile, next);
+    events.emit('changed', null);
+    return next;
+  };
+  const folderPath = (state, folderId) => folders.pathOf(state, folderId).map((f) => f.name).join(' / ') || null;
+  const requireGroup = async (id) => {
+    const group = (await readGroups()).find((one) => one.id === id);
+    if (!group) throw new Error(`There's no domain ${id}. list_domains shows the ones there are.`);
+    return group;
   };
   const readDraft = (schemaId, draftId) => readJson(draftFile(schemaId, draftId));
   const readProposal = (schemaId) => readJson(proposalFile(schemaId));
@@ -279,8 +297,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       return rows.filter(Boolean).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
 
-    // The groups, by name, each with when it was made and how many schemas are in it; and Ungrouped's
-    // count.
+    // The groups, by name, each with when it was made, how many schemas are in it and the folder it's
+    // in (null for the top level, with its path); and the count of schemas in none.
     async listGroups() {
       const groups = await readGroups();
       const names = await readdir(path.join(root, 'schemas')).catch(() => []);
@@ -291,21 +309,29 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const group = groups.some((one) => one.id === schema.group) ? schema.group : null;
         counts.set(group, (counts.get(group) ?? 0) + 1);
       }
+      const state = await readFolderState();
       return {
-        groups: groups.map(({ id, name, createdAt }) => ({ id, name, createdAt, schemas: counts.get(id) ?? 0 })).sort((a, b) => a.name.localeCompare(b.name)),
+        groups: groups.map(({ id, name, createdAt }) => {
+          const folder = state.placement[id] ?? null;
+          return { id, name, createdAt, schemas: counts.get(id) ?? 0, folder, path: folderPath(state, folder) };
+        }).sort((a, b) => a.name.localeCompare(b.name)),
         ungrouped: counts.get(null) ?? 0,
       };
     },
 
-    createGroup(name) {
+    // A new group, at the top level or in a folder.
+    createGroup(name, folderId = null) {
       return serial(async () => {
         const named = groupName(name);
         const groups = await readGroups();
-        if (groups.some((group) => group.name.toLowerCase() === named.toLowerCase())) throw new Error(`There's already a group called ${named}.`);
+        if (groups.some((group) => group.name.toLowerCase() === named.toLowerCase())) throw new Error(`There's already a domain called ${named}.`);
+        const state = await readFolderState();
         const group = { id: newId(), name: named, createdAt: now() };
+        const placed = folderId ? folders.moveDomain(state, group.id, folderId) : null; // checks the folder first
         await writeGroups([...groups, group]);
+        if (placed) await writeJson(foldersFile, placed);
         events.emit('changed', null);
-        return { id: group.id, name: group.name };
+        return { id: group.id, name: group.name, folder: folderId ?? null, path: folderPath(state, folderId) };
       });
     },
 
@@ -314,8 +340,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const named = groupName(name);
         const groups = await readGroups();
         const group = groups.find((one) => one.id === id);
-        if (!group) throw new Error(`There's no group ${id}.`);
-        if (groups.some((one) => one.id !== id && one.name.toLowerCase() === named.toLowerCase())) throw new Error(`There's already a group called ${named}.`);
+        if (!group) throw new Error(`There's no domain ${id}. list_domains shows the ones there are.`);
+        if (groups.some((one) => one.id !== id && one.name.toLowerCase() === named.toLowerCase())) throw new Error(`There's already a domain called ${named}.`);
         group.name = named;
         await writeGroups(groups);
         events.emit('changed', null);
@@ -323,12 +349,14 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       });
     },
 
-    // A group goes; its schemas go to Ungrouped, and nothing else changes.
+    // A group goes; its schemas go to none, and nothing else changes.
     deleteGroup(id) {
       return serial(async () => {
         const groups = await readGroups();
-        if (!groups.some((one) => one.id === id)) throw new Error(`There's no group ${id}.`);
+        if (!groups.some((one) => one.id === id)) throw new Error(`There's no domain ${id}. list_domains shows the ones there are.`);
         await writeGroups(groups.filter((one) => one.id !== id));
+        const state = await readFolderState();
+        if (id in state.placement) await writeJson(foldersFile, folders.removeDomain(state, id));
         events.emit('changed', null);
         return { deleted: id };
       });
@@ -339,11 +367,67 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     moveSchema(schemaId, groupId) {
       return serial(async () => {
         const schema = await requireSchema(schemaId);
-        if (groupId && !(await readGroups()).some((one) => one.id === groupId)) throw new Error(`There's no group ${groupId}. list_groups shows the ones there are.`);
+        if (groupId && !(await readGroups()).some((one) => one.id === groupId)) throw new Error(`There's no domain ${groupId}. list_domains shows the ones there are.`);
         const { group, ...rest } = schema;
         await writeJson(path.join(schemaDir(schemaId), 'schema.json'), groupId ? { ...rest, group: groupId } : rest);
         events.emit('changed', schemaId);
         return { schema: schemaId, group: groupId ?? null };
+      });
+    },
+
+    // --- Folders, organising the groups (see folders.js) ---
+
+    folders: () => readFolderState(),
+
+    // Every folder, for the AI: its path and how much is directly in it.
+    async listFolders() {
+      const state = await readFolderState();
+      return state.folders.map((f) => ({
+        id: f.id,
+        name: f.name,
+        path: folderPath(state, f.id),
+        folders: state.folders.filter((one) => one.parentId === f.id).length,
+        domains: Object.values(state.placement).filter((folderId) => folderId === f.id).length,
+      }));
+    },
+
+    createFolder(name, parentId = null) {
+      return serial(async () => {
+        const state = await readFolderState();
+        const id = `folder-${newId()}`;
+        const next = await changeFolders(folders.createFolder(state, { id, name, parentId: parentId ?? null }));
+        return { id, name: next.folders.find((f) => f.id === id).name, path: folderPath(next, id) };
+      });
+    },
+
+    renameFolder(id, name) {
+      return serial(async () => {
+        const next = await changeFolders(folders.renameFolder(await readFolderState(), id, name));
+        return { id, name: next.folders.find((f) => f.id === id).name };
+      });
+    },
+
+    // What was in it moves up a level.
+    deleteFolder(id) {
+      return serial(async () => {
+        await changeFolders(folders.deleteFolder(await readFolderState(), id));
+        return { deleted: id };
+      });
+    },
+
+    moveFolder(id, parentId) {
+      return serial(async () => {
+        const next = await changeFolders(folders.moveFolder(await readFolderState(), id, parentId ?? null));
+        return { id, folder: parentId ?? null, path: folderPath(next, id) };
+      });
+    },
+
+    // Puts a group in a folder, or at the top level (null).
+    moveGroup(groupId, folderId) {
+      return serial(async () => {
+        const group = await requireGroup(groupId);
+        const next = await changeFolders(folders.moveDomain(await readFolderState(), groupId, folderId ?? null));
+        return { id: groupId, name: group.name, folder: folderId ?? null, path: folderPath(next, folderId ?? null) };
       });
     },
 
@@ -444,7 +528,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     propose({ schemaId, note, goal, goalTitle, groupId, ...change }) {
       return serial(async () => {
         const existing = schemaId ? await requireSchema(schemaId) : null;
-        if (groupId && !(await readGroups()).some((group) => group.id === groupId)) throw new Error(`There's no group ${groupId}. list_groups shows the ones there are.`);
+        if (groupId && !(await readGroups()).some((group) => group.id === groupId)) throw new Error(`There's no domain ${groupId}. list_domains shows the ones there are.`);
         const replaced = existing ? await readProposal(schemaId) : null;
         const record = await buildRecord(replaced ?? (existing && await latestRecord(existing)), { ...change, note });
         const focus = goal?.trim() ? { goal: goal.trim(), title: focusTitle(goal, goalTitle) } : replaced?.focus;

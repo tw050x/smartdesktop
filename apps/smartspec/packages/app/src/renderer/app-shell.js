@@ -12,7 +12,7 @@ export function startApp(api) {
   api.onFullScreenChange((isFullScreen) => document.body.classList.toggle('full-screen', isFullScreen));
   const serverStatus = createServerStatus({ api });
   api.onAiControl((name) => serverStatus.setAiControl(name));
-  createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog'), api });
+  createSettings({ dialog: document.getElementById('settings-dialog'), api });
   createSchemas({ el: document.getElementById('content'), bottomBar: document.getElementById('review-bar'), crumbs: document.getElementById('breadcrumb'), draftNav: document.getElementById('draft-nav'), modeCard: document.getElementById('mode-card'), focusMenu: document.getElementById('focus-menu'), viewSwitch: document.getElementById('view-switch'), api });
   watchArrowKeys();
 }

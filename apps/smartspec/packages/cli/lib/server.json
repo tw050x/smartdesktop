@@ -11,7 +11,7 @@
       "listChanged": true
     }
   },
-  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics are organised into groups, such as a team, a department or a set like \"Auth\"; a schematic in none is Ungrouped. list_groups shows them. create_group, rename_group and move_schematic take effect straight away, so only use them when the user asks. A new schematic can go straight into a group with propose_schematic's group_id.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many comments there are, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment, saying what you changed or why you didn't. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.",
+  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics belong to domains: a domain is a set of schematics owned by one team or one department, such as \"Auth\". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many comments there are, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment, saying what you changed or why you didn't. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.",
   "tools": [
     {
       "name": "use_window",
@@ -40,7 +40,7 @@
     },
     {
       "name": "list_schematics",
-      "description": "Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the group it's in (null for Ungrouped), and any proposal waiting for the user.",
+      "description": "Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the domain it's in (null for No domain), and any proposal waiting for the user.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -56,8 +56,8 @@
       }
     },
     {
-      "name": "list_groups",
-      "description": "The groups schematics are organised into, by name: each with its id, name and how many schematics are in it, and how many schematics are Ungrouped.",
+      "name": "list_domains",
+      "description": "The domains schematics belong to, by name: each with its id, name, how many schematics are in it and the folder it's in (null for the top level, with the folder's path), and how many schematics are in No domain.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -73,8 +73,8 @@
       }
     },
     {
-      "name": "create_group",
-      "description": "Makes a group to organise schematics into, such as a team, a department or a set like \"Auth\", straight away. Only use it when the user asks.",
+      "name": "create_domain",
+      "description": "Makes a domain, a set of schematics owned by one team or one department, such as \"Auth\", straight away: at the top level or in a folder. Only use it when the user asks.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -82,6 +82,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 80
+          },
+          "folder_id": {
+            "description": "The folder to put it in, from list_folders (default: the top level)",
+            "type": "string"
           }
         },
         "required": [
@@ -99,14 +103,14 @@
       }
     },
     {
-      "name": "rename_group",
-      "description": "Renames a group, straight away. Only use it when the user asks.",
+      "name": "rename_domain",
+      "description": "Renames a domain, straight away. Only use it when the user asks.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "group_id": {
+          "domain_id": {
             "type": "string",
-            "description": "From list_groups"
+            "description": "From list_domains"
           },
           "name": {
             "type": "string",
@@ -115,7 +119,7 @@
           }
         },
         "required": [
-          "group_id",
+          "domain_id",
           "name"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -131,15 +135,15 @@
     },
     {
       "name": "move_schematic",
-      "description": "Puts a schematic in a group, or back in Ungrouped, straight away. Only its place on the list changes: its drafts stay as they are. Only use it when the user asks.",
+      "description": "Puts a schematic in a domain, or in No domain, straight away. Only its place on the list changes: its drafts stay as they are. Only use it when the user asks.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "schematic_id": {
             "type": "string"
           },
-          "group_id": {
-            "description": "From list_groups, or null for Ungrouped",
+          "domain_id": {
+            "description": "From list_domains, or null for No domain",
             "type": [
               "string",
               "null"
@@ -148,7 +152,118 @@
         },
         "required": [
           "schematic_id",
-          "group_id"
+          "domain_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "The folders organising the domains in the app: each with its id, name, path and how many folders and domains are directly in it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Makes a folder to organise domains in, at the top level or inside another, straight away. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "parent_folder_id": {
+            "description": "The folder to put it in, from list_folders (default: the top level)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rename_folder",
+      "description": "Renames a folder, straight away. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string",
+            "description": "From list_folders"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "folder_id",
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "move_domain",
+      "description": "Moves a domain into a folder, or back to the top level, straight away. Only its place on the list changes: its schematics stay as they are. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "domain_id": {
+            "type": "string",
+            "description": "From list_domains"
+          },
+          "folder_id": {
+            "description": "The folder, from list_folders, or null for the top level",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "domain_id",
+          "folder_id"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
@@ -1026,8 +1141,8 @@
               ]
             }
           },
-          "group_id": {
-            "description": "For a new schematic: the group to put it in, from list_groups (default: Ungrouped)",
+          "domain_id": {
+            "description": "For a new schematic: the domain to put it in, from list_domains (default: No domain)",
             "type": "string"
           },
           "goal": {

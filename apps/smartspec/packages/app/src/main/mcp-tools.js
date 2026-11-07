@@ -14,7 +14,7 @@ Schematics embed other schematics: a standard structure, such as machine to mach
 Read only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.
 A focus is what the user wants this work to be for: their prompt may say "focusing on" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.
 Only the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.
-Schematics are organised into groups, such as a team, a department or a set like "Auth"; a schematic in none is Ungrouped. list_groups shows them. create_group, rename_group and move_schematic take effect straight away, so only use them when the user asks. A new schematic can go straight into a group with propose_schematic's group_id.
+Schematics belong to domains: a domain is a set of schematics owned by one team or one department, such as "Auth". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.
 The user comments on what you propose, and on drafts: get_schematic and get_proposal say how many comments there are, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment, saying what you changed or why you didn't. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.`;
 
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
@@ -22,7 +22,7 @@ const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value,
 // Each tool's safety label, for the AI app to show the user and decide when to ask them: the
 // tools that only read, and the ones that change or remove something the user can't get back (the
 // rest change something, without loss). Every tool works only with the app, on this computer.
-const READ_ONLY = new Set(['list_schematics', 'get_schematic', 'get_schematic_item', 'get_proposal', 'get_comments', 'list_groups']);
+const READ_ONLY = new Set(['list_schematics', 'get_schematic', 'get_schematic_item', 'get_proposal', 'get_comments', 'list_domains', 'list_folders']);
 const DESTRUCTIVE = new Set();
 const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
 
@@ -94,23 +94,48 @@ export function buildServer(call, { version }) {
     window_id: z.string().describe('The window named in the prompt, such as w-7f3a'),
   }, ({ window_id }, schemas) => schemas.useWindow(window_id));
 
-  tool('list_schematics', 'Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the group it\'s in (null for Ungrouped), and any proposal waiting for the user.', {}, (_args, schemas) => schemas.list());
+  // A domain is a group in the store: everything the AI sees says domain.
+  tool('list_schematics', 'Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the domain it\'s in (null for No domain), and any proposal waiting for the user.', {}, async (_args, schemas) => (await schemas.list()).map(({ group, ...one }) => ({ ...one, domain: group })));
 
-  tool('list_groups', 'The groups schematics are organised into, by name: each with its id, name and how many schematics are in it, and how many schematics are Ungrouped.', {}, (_args, schemas) => schemas.listGroups());
+  tool('list_domains', 'The domains schematics belong to, by name: each with its id, name, how many schematics are in it and the folder it\'s in (null for the top level, with the folder\'s path), and how many schematics are in No domain.', {}, async (_args, schemas) => {
+    const { groups, ungrouped } = await schemas.listGroups();
+    return { domains: groups.map(({ schemas: count, ...domain }) => ({ ...domain, schematics: count })), noDomain: ungrouped };
+  });
 
-  tool('create_group', 'Makes a group to organise schematics into, such as a team, a department or a set like "Auth", straight away. Only use it when the user asks.', {
+  tool('create_domain', 'Makes a domain, a set of schematics owned by one team or one department, such as "Auth", straight away: at the top level or in a folder. Only use it when the user asks.', {
     name: z.string().trim().min(1).max(80),
-  }, ({ name }, schemas) => schemas.createGroup(name));
+    folder_id: z.string().optional().describe('The folder to put it in, from list_folders (default: the top level)'),
+  }, ({ name, folder_id }, schemas) => schemas.createGroup(name, folder_id ?? null));
 
-  tool('rename_group', 'Renames a group, straight away. Only use it when the user asks.', {
-    group_id: z.string().describe('From list_groups'),
+  tool('rename_domain', 'Renames a domain, straight away. Only use it when the user asks.', {
+    domain_id: z.string().describe('From list_domains'),
     name: z.string().trim().min(1).max(80),
-  }, ({ group_id, name }, schemas) => schemas.renameGroup(group_id, name));
+  }, ({ domain_id, name }, schemas) => schemas.renameGroup(domain_id, name));
 
-  tool('move_schematic', 'Puts a schematic in a group, or back in Ungrouped, straight away. Only its place on the list changes: its drafts stay as they are. Only use it when the user asks.', {
+  tool('move_schematic', 'Puts a schematic in a domain, or in No domain, straight away. Only its place on the list changes: its drafts stay as they are. Only use it when the user asks.', {
     schematic_id: z.string(),
-    group_id: z.string().nullable().describe('From list_groups, or null for Ungrouped'),
-  }, ({ schematic_id, group_id }, schemas) => schemas.moveSchema(schematic_id, group_id));
+    domain_id: z.string().nullable().describe('From list_domains, or null for No domain'),
+  }, async ({ schematic_id, domain_id }, schemas) => {
+    const { schema, group } = await schemas.moveSchema(schematic_id, domain_id);
+    return { schematic: schema, domain: group };
+  });
+
+  tool('list_folders', 'The folders organising the domains in the app: each with its id, name, path and how many folders and domains are directly in it.', {}, (_args, schemas) => schemas.listFolders());
+
+  tool('create_folder', 'Makes a folder to organise domains in, at the top level or inside another, straight away. Only use it when the user asks.', {
+    name: z.string().trim().min(1).max(80),
+    parent_folder_id: z.string().optional().describe('The folder to put it in, from list_folders (default: the top level)'),
+  }, ({ name, parent_folder_id }, schemas) => schemas.createFolder(name, parent_folder_id ?? null));
+
+  tool('rename_folder', 'Renames a folder, straight away. Only use it when the user asks.', {
+    folder_id: z.string().describe('From list_folders'),
+    name: z.string().trim().min(1).max(80),
+  }, ({ folder_id, name }, schemas) => schemas.renameFolder(folder_id, name));
+
+  tool('move_domain','Moves a domain into a folder, or back to the top level, straight away. Only its place on the list changes: its schematics stay as they are. Only use it when the user asks.', {
+    domain_id: z.string().describe('From list_domains'),
+    folder_id: z.string().nullable().describe('The folder, from list_folders, or null for the top level'),
+  }, ({ domain_id, folder_id }, schemas) => schemas.moveGroup(domain_id, folder_id));
 
   tool('get_schematic', 'One schematic\'s accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and pinned draft, saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic\'s id and draft. proposal says if a change is waiting for the user.', {
     schematic_id: z.string(),
@@ -160,13 +185,13 @@ export function buildServer(call, { version }) {
       draft_id: z.string().optional().describe('The draft to pin to (default: its latest)'),
       with: z.record(z.string(), z.string()).optional().describe('Values for the parameters it declares'),
     })).optional().describe('The schematics this one embeds. Replaces the list.'),
-    group_id: z.string().optional().describe('For a new schematic: the group to put it in, from list_groups (default: Ungrouped)'),
+    domain_id: z.string().optional().describe('For a new schematic: the domain to put it in, from list_domains (default: No domain)'),
     goal: z.string().trim().min(1).optional().describe('The focus the user gave you for this work, in their words'),
     goal_title: z.string().trim().min(1).max(60).optional().describe('A short name for that focus'),
     note: z.string().trim().min(1).describe('What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as "Proposed change:"'),
-  }, ({ schematic_id, uses, remove_items, item_order, goal_title, group_id, ...proposal }, schemas) => schemas.propose({
+  }, ({ schematic_id, uses, remove_items, item_order, goal_title, domain_id, ...proposal }, schemas) => schemas.propose({
     ...proposal,
-    groupId: group_id,
+    groupId: domain_id,
     goalTitle: goal_title,
     schemaId: schematic_id,
     removeItems: remove_items,
