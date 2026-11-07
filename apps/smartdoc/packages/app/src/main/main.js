@@ -126,6 +126,10 @@ nativeTheme.on('updated', () => {
     if (process.platform !== 'darwin') browser.setTitleBarOverlay({ color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT });  }
 });
 
+// The windows' title, which Mission Control shows: a development build's says so, to tell it
+// apart from the installed app.
+const WINDOW_TITLE = app.isPackaged ? 'SmartDoc' : 'SmartDoc Development';
+
 // Frameless window: the interface draws its own top bar. macOS keeps its traffic lights,
 // placed in the top bar; Windows and Linux get the system window controls drawn over it.
 function createWindow({ focus = true } = {}) {
@@ -140,7 +144,7 @@ function createWindow({ focus = true } = {}) {
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    title: 'SmartDoc',
+    title: WINDOW_TITLE,
     backgroundColor: colours.background,
     show: focus,
     ...frame,
@@ -152,6 +156,8 @@ function createWindow({ focus = true } = {}) {
       additionalArguments: [`--smartdoc-window=${id}`],
     },
   });
+  // The window keeps its own title, not the page's, so a development build's is told apart.
+  browser.on('page-title-updated', (e) => e.preventDefault());
   const ctx = { id, win: browser, workspace: createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true };
   windows.set(browser.webContents.id, ctx);
   lastFocused = ctx;
