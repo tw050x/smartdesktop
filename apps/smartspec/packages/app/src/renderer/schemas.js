@@ -305,11 +305,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         action('Delete', BIN_ICON, async () => { if (await api.deleteGroup(id)) render(); })));
     };
     const groupsColumn = h('section', { className: 'browser-column groups-column', 'aria-label': 'Groups' },
-      h('div', { className: 'browser-head' }, h('h2', {}, 'Groups'), sortControl('groups'), (() => {
+      h('div', { className: 'browser-head' }, h('h2', {}, 'Groups'), (() => {
         const add = h('button', { className: 'icon-button', type: 'button', id: 'new-group', title: 'New group', 'aria-label': 'New group', onclick: () => { naming = { id: null }; render(); } });
         add.innerHTML = NEW_GROUP_ICON;
         return add;
-      })()),
+      })(), sortControl('groups')),
       h('ul', { className: 'browser-list' },
         h('li', {}, groupRow(UNGROUPED, 'Ungrouped', ungrouped)),
         // Ungrouped stays first, whatever the order.
@@ -471,9 +471,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       } catch {}
       render();
     });
-    const label = h('label', { className: 'browser-sort' });
-    label.innerHTML = SORT_ICON;
-    label.append(select);
+    // The order chosen, then its icon at the column's right edge.
+    const label = h('label', { className: 'browser-sort' }, select);
+    label.insertAdjacentHTML('beforeend', SORT_ICON);
     return label;
   }
 
