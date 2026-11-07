@@ -39,7 +39,7 @@ export function startApp(appApi) {
     serverStatus.setAiControl(name);
     requestAnimationFrame(placeDraftNav);
   });
-  createSettings({ button: document.getElementById('settings-button'), dialog: document.getElementById('settings-dialog'), api });
+  createSettings({ dialog: document.getElementById('settings-dialog'), api });
   const toolSwitcher = createToolSwitcher({
     button: document.getElementById('tool-button'),
     label: document.getElementById('tool-label'),

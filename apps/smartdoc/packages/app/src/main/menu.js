@@ -76,8 +76,26 @@ export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBac
     ],
   };
 
+  // The standard app menu, with Settings in its usual place.
+  const appMenu = {
+    role: 'appMenu',
+    submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      { label: 'Settings…', accelerator: 'CmdOrCtrl+,', enabled: hasWindow, click: actions.showSettings },
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ],
+  };
+
   return Menu.buildFromTemplate([
-    ...(isMac ? [{ role: 'appMenu' }] : []),
+    ...(isMac ? [appMenu] : []),
     fileMenu,
     editMenu,
     reviewMenu,

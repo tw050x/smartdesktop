@@ -743,7 +743,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .variation-dialog textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .variation-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
-/* Settings: a modal in the window, opened from the top bar's gear. */
+/* Settings: a modal in the window, opened from the SmartDoc menu. */
 .settings-dialog { width: 560px; max-width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; flex-direction: column; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); font-size: 13px; }
 .settings-dialog[open] { display: flex; }
 .settings-dialog:focus { outline: none; }

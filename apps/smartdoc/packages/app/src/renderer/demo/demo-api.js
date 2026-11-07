@@ -223,6 +223,7 @@ export function createDemoApi() {
     installUpdate: async () => {},
     onShowConnect: () => {},
     onUpdates: () => {},
+    onShowSettings: () => {}, // the demo has no menu, so Settings never opens
     copyText: async () => {},
     getAppearance: async () => 'system',
     setAppearance: async () => {},

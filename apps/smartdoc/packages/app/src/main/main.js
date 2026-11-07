@@ -278,6 +278,7 @@ function updateMenu() {
       close: () => (workspace.document ? workspace.close() : win()?.close()),
       stepDraft: (delta) => workspace.stepDraft(delta),
       find: (which) => send('find', which),
+      showSettings: () => send('show-settings'),
       resetReview,
       showConnectAi,
     },

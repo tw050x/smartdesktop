@@ -90,5 +90,7 @@ contextBridge.exposeInMainWorld('smartdoc', {
   onMcpStatus: on('mcp-status'),
   onShowConnect: on('show-connect'),
   onUpdates: on('updates'),
+  // The SmartDoc menu's Settings….
+  onShowSettings: on('show-settings'),
   onFullScreenChange: on('full-screen'),
 });

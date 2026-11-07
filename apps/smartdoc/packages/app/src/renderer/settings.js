@@ -1,10 +1,10 @@
-// Settings: a modal in the window, opened from the top bar's gear. Closes with its close button,
+// Settings: a modal in the window, opened from the SmartDoc menu (Settings…, ⌘,). Closes with its close button,
 // Escape, or a click outside it. Holds the app's Appearance: as the system is, light or dark,
 // applied at once (main.js keeps it); and its Updates (updates.js), which download by themselves.
 // Once one has downloaded, a notice at the bottom of the window offers to restart into it; Later
 // puts it away until the next launch or the next version.
 
-export function createSettings({ button, dialog, api }) {
+export function createSettings({ dialog, api }) {
   const appearance = dialog.querySelector('#appearance');
   const choices = [...appearance.querySelectorAll('[data-appearance]')];
   const show = (value) => choices.forEach((c) => c.setAttribute('aria-checked', String(c.dataset.appearance === value)));
@@ -49,7 +49,8 @@ export function createSettings({ button, dialog, api }) {
   api.getUpdates().then((u) => showUpdates((updates = u)));
 
   // The dialog takes focus itself, not its close button, so nothing shows a focus ring on opening.
-  button.addEventListener('click', () => {
+  api.onShowSettings(() => {
+    if (dialog.open) return;
     api.getAppearance().then(show); // as it is now, wherever it was last set
     dialog.showModal();
     dialog.focus();
