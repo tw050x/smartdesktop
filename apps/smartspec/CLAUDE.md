@@ -128,7 +128,7 @@ These are decisions the user has made.
   "publish" is ticked). Release hasn't run yet.
 - After changing the tools in `mcp-tools.js`, run `npm run server-snapshot`; a test checks the copy.
 - SmartSpec's MCP ports are 47825 (installed) and 47826 (development), so it runs beside SmartDoc.
-- The app icon (`resources/icon.svg`, made into icon.png and icon.icns by `npm run icons`) is related to SmartDoc's: the same shape, cards and three bar colours, but three linked cards instead of a page, since a schematic isn't a document.
+- The app icon (`resources/icon.svg`, made into icon.png and icon.icns by `npm run icons`) is related to SmartDoc's: the same shape, cards and three colours, but three linked cards instead of a page, since a schematic isn't a document, each with a different mark (bar, square, circle).
 - The git repo is bare, at `../.git`, with this folder as the `master` worktree.
 - The npm scope is assumed to be `@smartspec`. The user said they have the scope, but its exact
   name and ownership haven't been confirmed. npm isn't logged in on this machine.
