@@ -8,6 +8,7 @@
 import { isInternalLink, parseLink } from '../main/items.js';
 import { fitPage, PAGE_HEIGHT, pageZoom } from './page-view.js';
 import { addResizers, centreGrips } from './resizers.js';
+import { commentEnds } from './comments.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const narrow = () => matchMedia('(max-width: 900px)').matches;
@@ -47,9 +48,10 @@ function placeCards(stage, middle, body) {
     const left = column.classList.contains('left');
     const box = column.getBoundingClientRect();
     const rows = [...column.children].map((element, order) => {
-      const ends = element.dataset?.item ? endsFor(element, middle, stage.dataset.focus) : [];
+      // A comment's card sits level with what it's on, as a link card does (see comments.js).
+      const ends = element.dataset?.item ? endsFor(element, middle, stage.dataset.focus) : element.dataset?.comment ? commentEnds(element, middle) : [];
       const heights = ends.map((end) => clamp(heightOf(end, left), body.top, body.bottom) - box.top);
-      const wanted = !element.dataset?.item ? Infinity : heights.length ? heights.reduce((sum, one) => sum + one, 0) / heights.length : (body.top + body.bottom) / 2 - box.top;
+      const wanted = !element.dataset?.item && !element.dataset?.comment ? Infinity : heights.length ? heights.reduce((sum, one) => sum + one, 0) / heights.length : (body.top + body.bottom) / 2 - box.top;
       return { element, order, wanted, height: element.offsetHeight };
     }).sort((a, b) => a.wanted - b.wanted || a.order - b.order);
     const total = rows.reduce((sum, row) => sum + row.height + CARD_GAP, -CARD_GAP);

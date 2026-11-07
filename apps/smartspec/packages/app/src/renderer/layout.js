@@ -115,3 +115,144 @@ export function layoutSequence({ participants, messages = [], groups = [], activ
     boxes: laidBoxes,
   };
 }
+
+// Where the cards of a schematic's overview go: each { id, width, height } (all the same width), joined
+// by `pairs` of ids, in a grid shaped like `room`, the space it's shown in, so it fills it whichever
+// way the window is drawn. The most linked card goes in the middle, and each card after it goes as near
+// as it can to the cards it links to; cards nothing links to fill what's left. Lines run in the gaps
+// between cards, never across one: straight to a card beside or below, otherwise along the gaps, each
+// line in its own lane where several share a gap.
+const GAP_X = 96;
+const GAP_Y = 64;
+const LANE = 7;
+
+export function layoutCards(cards, pairs, room = { width: 1280, height: 720 }) {
+  if (!cards.length) return { width: 2 * GAP_X, height: 2 * GAP_Y, columns: 0, cards: [], lines: [] };
+  const width = cards[0].width;
+  const colW = width + GAP_X;
+  const rowH = cards.reduce((sum, card) => sum + card.height, 0) / cards.length + GAP_Y;
+  const n = cards.length;
+  const aspect = Math.max(0.2, room.width / Math.max(1, room.height));
+  const C = Math.min(n, Math.max(1, Math.round(Math.sqrt((n * aspect * rowH) / colW))));
+  const R = Math.ceil(n / C);
+
+  const linked = new Map(cards.map(({ id }) => [id, new Set()]));
+  for (const [a, b] of pairs) {
+    linked.get(a)?.add(b);
+    linked.get(b)?.add(a);
+  }
+  const middle = { r: (R - 1) / 2, c: (C - 1) / 2 };
+  const apart = (one, other) => Math.hypot((one.c - other.c) * colW, (one.r - other.r) * rowH);
+  const free = [];
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) free.push({ r, c });
+  const at = new Map();
+  const left = [...cards];
+  while (left.length) {
+    // Next, the card with most links to cards already placed; then the most linked; then in order.
+    const reach = (card) => [...linked.get(card.id)].filter((id) => at.has(id)).length;
+    let best = 0;
+    for (let i = 1; i < left.length; i++) {
+      const [one, other] = [left[i], left[best]];
+      if (reach(one) > reach(other) || (reach(one) === reach(other) && linked.get(one.id).size > linked.get(other.id).size)) best = i;
+    }
+    const [card] = left.splice(best, 1);
+    const near = [...linked.get(card.id)].filter((id) => at.has(id)).map((id) => at.get(id));
+    const cost = (cell) => near.reduce((sum, other) => sum + apart(cell, other), 0) + apart(cell, middle) * (near.length ? 0.01 : 1);
+    let cell = 0;
+    for (let i = 1; i < free.length; i++) if (cost(free[i]) < cost(free[cell])) cell = i;
+    at.set(card.id, free.splice(cell, 1)[0]);
+  }
+
+  // Rows and columns left empty go.
+  const rowsUsed = [...new Set([...at.values()].map(({ r }) => r))].sort((a, b) => a - b);
+  const colsUsed = [...new Set([...at.values()].map(({ c }) => c))].sort((a, b) => a - b);
+  for (const cell of at.values()) Object.assign(cell, { r: rowsUsed.indexOf(cell.r), c: colsUsed.indexOf(cell.c) });
+  const rows = rowsUsed.length;
+  const columns = colsUsed.length;
+  const rowHeights = Array.from({ length: rows }, (_, r) => Math.max(...cards.filter(({ id }) => at.get(id).r === r).map(({ height }) => height)));
+  const rowTop = [GAP_Y];
+  for (let r = 0; r < rows; r++) rowTop.push(rowTop[r] + rowHeights[r] + GAP_Y);
+  const colX = (c) => GAP_X + c * colW;
+  const gutterX = (k) => GAP_X / 2 + k * colW; // the gap left of column k
+  const gutterY = (k) => rowTop[k] - GAP_Y / 2; // the gap above row k
+
+  const box = new Map(cards.map(({ id, height }) => {
+    const { r, c } = at.get(id);
+    return [id, { r, c, left: colX(c), top: rowTop[r], width, height }];
+  }));
+
+  // Each line: the side it leaves from, the gaps it runs along (a vertical gap, then a horizontal one,
+  // and so on, ending on a vertical one), and the side it arrives at.
+  const routes = pairs.filter(([a, b]) => box.has(a) && box.has(b) && a !== b).map((pair) => {
+    let [a, b] = pair.map((id) => box.get(id));
+    let [from, to] = pair;
+    if (a.c > b.c || (a.c === b.c && a.r > b.r)) [a, b, from, to] = [b, a, to, from];
+    if (a.c === b.c && b.r === a.r + 1) return { pair, ends: [{ id: from, side: 'bottom' }, { id: to, side: 'top' }], gaps: [] };
+    if (a.c === b.c) return { pair, ends: [{ id: from, side: 'right' }, { id: to, side: 'right' }], gaps: [`v${a.c + 1}`] };
+    if (b.c === a.c + 1) return { pair, ends: [{ id: from, side: 'right' }, { id: to, side: 'left' }], gaps: [`v${b.c}`] };
+    const across = b.r < a.r ? a.r : a.r + 1;
+    return { pair, ends: [{ id: from, side: 'right' }, { id: to, side: 'left' }], gaps: [`v${a.c + 1}`, `h${across}`, `v${b.c}`] };
+  });
+
+  // Lanes: the lines sharing a gap spread across it.
+  const sharing = new Map();
+  routes.forEach((route) => route.gaps.forEach((gap) => sharing.set(gap, [...(sharing.get(gap) ?? []), route])));
+  const lane = (gap, route) => {
+    const all = sharing.get(gap);
+    const room = (gap[0] === 'v' ? GAP_X : GAP_Y) - 16;
+    const step = Math.min(LANE, room / Math.max(1, all.length - 1));
+    return (all.indexOf(route) - (all.length - 1) / 2) * step;
+  };
+  const gapAt = (gap, route) => (gap[0] === 'v' ? gutterX(Number(gap.slice(1))) : gutterY(Number(gap.slice(1)))) + lane(gap, route);
+
+  // Where lines meet a card: spread along its side, in the order of where they go, so they don't cross there.
+  const meeting = new Map();
+  for (const route of routes) {
+    route.ends.forEach((end, i) => {
+      const other = box.get(route.ends[1 - i].id);
+      const key = `${end.id} ${end.side}`;
+      meeting.set(key, [...(meeting.get(key) ?? []), { route, end, toward: end.side === 'top' || end.side === 'bottom' ? other.left : other.top + other.height / 2 }]);
+    });
+  }
+  const point = new Map();
+  for (const all of meeting.values()) {
+    all.sort((one, other) => one.toward - other.toward);
+    all.forEach(({ end }, i) => {
+      const card = box.get(end.id);
+      const share = (i + 1) / (all.length + 1);
+      point.set(end, {
+        left: { x: card.left, y: card.top + card.height * share },
+        right: { x: card.left + width, y: card.top + card.height * share },
+        top: { x: card.left + width * share, y: card.top },
+        bottom: { x: card.left + width * share, y: card.top + card.height },
+      }[end.side]);
+    });
+  }
+
+  const lines = routes.map((route) => {
+    const start = point.get(route.ends[0]);
+    const end = point.get(route.ends[1]);
+    const points = [start];
+    let y = start.y;
+    route.gaps.forEach((gap, i) => {
+      if (gap[0] !== 'v') return;
+      const x = gapAt(gap, route);
+      const next = route.gaps[i + 1] ? gapAt(route.gaps[i + 1], route) : end.y;
+      points.push({ x, y }, { x, y: next });
+      y = next;
+    });
+    points.push(end);
+    return { pair: route.pair, points: points.filter((one, i) => i === 0 || one.x !== points[i - 1].x || one.y !== points[i - 1].y) };
+  });
+
+  return {
+    width: GAP_X + columns * colW,
+    height: rowTop[rows],
+    columns,
+    cards: cards.map(({ id }) => {
+      const { left: x, top: y, height } = box.get(id);
+      return { id, x: x + width / 2, y: y + height / 2, width, height };
+    }),
+    lines,
+  };
+}

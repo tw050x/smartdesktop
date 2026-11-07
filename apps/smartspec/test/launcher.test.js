@@ -239,7 +239,7 @@ describe('bridge', () => {
         env: { SMARTSPEC_PORT: String(app.port), SMARTSPEC_USER_DATA: withTokenFile('secret') },
         ensure: async () => {},
         offline,
-        messages: [{ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'get_schema' } }],
+        messages: [{ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'get_schematic' } }],
       });
       assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 4, result: { echo: 'tools/call' } }]);
       await app.close();
@@ -250,7 +250,7 @@ describe('bridge', () => {
         env: { SMARTSPEC_PORT: '1', SMARTSPEC_USER_DATA: withTokenFile('secret') },
         ensure: async () => { throw new NotInstalled(); },
         offline,
-        messages: [{ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'get_schema' } }],
+        messages: [{ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'get_schematic' } }],
       });
       assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 5, result: { isError: true, content: [{ type: 'text', text: new NotInstalled().message }] } }]);
     });

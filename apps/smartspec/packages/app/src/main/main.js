@@ -233,10 +233,16 @@ const schemasFor = (session, ctx) => ({
   getSchema: (id, options) => store.getSchema(id, options),
   getItem: (id, itemId, options) => store.getItem(id, itemId, options),
   getProposal: (id, options) => store.getProposal(id, options),
+  listComments: (id, options) => store.listComments(id, options),
+  listGroups: () => store.listGroups(),
+  createGroup: (name) => store.createGroup(name),
+  renameGroup: (id, name) => store.renameGroup(id, name),
+  moveSchema: (schemaId, groupId) => store.moveSchema(schemaId, groupId),
+  replyToComment: (id, commentId, text) => store.replyToComment(id, commentId, { text, author: clientLabel(session.client) }),
   async propose(proposal) {
     if (proposal.schemaId) {
       const holder = sessions.claim(session, schemaClaim(proposal.schemaId));
-      if (holder) throw new Error(`${clientLabel(holder.client)} is already proposing a change to this schema, so this one wasn't made. You can still read it. Tell the user: they can answer its proposal, or release its window from the status pill's panel.`);
+      if (holder) throw new Error(`${clientLabel(holder.client)} is already proposing a change to this schematic, so this one wasn't made. You can still read it. Tell the user: they can answer its proposal, or release its window from the status pill's panel.`);
     }
     const made = await store.propose(proposal);
     sessions.claim(session, schemaClaim(made.schema));
@@ -246,7 +252,7 @@ const schemasFor = (session, ctx) => ({
       ...made,
       status: 'waiting_for_user',
       wait: waitCommand('proposal', '--id', made.proposal),
-      message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schema later.',
+      message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schematic later.',
     };
   },
 });
@@ -364,7 +370,7 @@ async function discardProposal(ctx, schemaId) {
   const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
     type: 'warning',
     message: proposal.total ? 'Discard this proposed change?' : `Discard “${proposal.name}”?`,
-    detail: proposal.total ? 'The schema stays as it is. Your AI would have to propose the change again.' : 'It has no accepted draft, so the schema goes with it. Your AI would have to propose it again.',
+    detail: proposal.total ? 'The schematic stays as it is. Your AI would have to propose the change again.' : 'It has no accepted draft, so the schematic goes with it. Your AI would have to propose it again.',
     buttons: ['Cancel', 'Discard'],
     defaultId: 0,
     cancelId: 0,
@@ -374,7 +380,30 @@ async function discardProposal(ctx, schemaId) {
   sessions.release(schemaClaim(schemaId));
 }
 
+// A group goes, and its schemas go to Ungrouped: asked first, as the group can't be had back.
+async function deleteGroup(ctx, id) {
+  const { groups } = await store.listGroups();
+  const group = groups.find((one) => one.id === id);
+  if (!group) return false;
+  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+    type: 'warning',
+    message: `Delete the group “${group.name}”?`,
+    detail: group.schemas ? `Its ${group.schemas === 1 ? 'schematic moves' : `${group.schemas} schematics move`} to Ungrouped. Nothing in them changes.` : 'It has no schematics in it.',
+    buttons: ['Cancel', 'Delete'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response !== 1) return false;
+  await store.deleteGroup(id);
+  return true;
+}
+
 handle('list-schemas', () => store.list());
+handle('list-groups', () => store.listGroups());
+handle('create-group', (_ctx, name) => store.createGroup(name));
+handle('rename-group', (_ctx, id, name) => store.renameGroup(id, name));
+handle('delete-group', (ctx, id) => deleteGroup(ctx, id));
+handle('move-schema', (_ctx, schemaId, groupId) => store.moveSchema(schemaId, groupId ?? null));
 handle('list-focuses', (_ctx, id, options) => store.listFocuses(id, options));
 handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
 handle('list-drafts', (_ctx, id) => store.listDrafts(id));
@@ -382,6 +411,9 @@ handle('get-schema', (_ctx, id, draftId) => store.getSchema(id, { draftId: draft
 handle('get-proposal', (_ctx, id) => store.getProposal(id));
 handle('get-item', (_ctx, id, itemId, options) => store.getItem(id, itemId, options));
 handle('get-connections', (_ctx, id, options) => store.getConnections(id, options));
+handle('list-comments', (_ctx, id, options) => store.listComments(id, options));
+handle('add-comment', (_ctx, id, comment) => store.addComment(id, comment));
+handle('delete-comment', (_ctx, id, commentId) => store.deleteComment(id, commentId));
 handle('accept-proposal', async (_ctx, id) => {
   await store.accept(id);
   sessions.release(schemaClaim(id));

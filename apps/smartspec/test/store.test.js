@@ -89,7 +89,7 @@ describe('proposing and accepting', () => {
     const { schema } = await accepted(store, { items: [doc('a')] });
     await assert.rejects(store.propose({ schemaId: schema, removeItems: ['nope'], note: 'n' }), /no item nope to remove/);
     await assert.rejects(store.propose({ schemaId: schema, itemOrder: ['nope'], note: 'n' }), /no item nope to put/);
-    await assert.rejects(store.propose({ schemaId: schema, items: [doc('contract')], note: 'n' }), /is the schema's contract/);
+    await assert.rejects(store.propose({ schemaId: schema, items: [doc('contract')], note: 'n' }), /is the schematic's contract/);
     await assert.rejects(store.propose({ schemaId: schema, items: [doc('x'), doc('x')], note: 'n' }), /Two items/);
     await assert.rejects(store.propose({ name: 'No summary', note: 'n' }), /name and a summary/);
     assert.equal(await store.getProposal(schema), null);
@@ -139,7 +139,7 @@ describe('proposing and accepting', () => {
 });
 
 describe('reading only what\'s needed', () => {
-  test('get_schema lists items and links without their content', async () => {
+  test('get_schematic lists items and links without their content', async () => {
     const store = newStore();
     const { schema } = await accepted(store, { items: [doc('a', 'See [b](b#top).', { description: 'The first' }), doc('b', '# Top')] });
     const shown = await store.getSchema(schema);
@@ -300,10 +300,130 @@ describe('embedding', () => {
     const uses = (use) => store.propose(proposal({ uses: [{ schemaId: auth.schema, id: 'a', ...use }] }));
     await assert.rejects(uses({ with: { secret: 'x' } }), /no parameter "secret"/);
     await assert.rejects(uses({ draftId: 'nope' }), /no draft nope/);
-    await assert.rejects(uses({ schemaId: 'missing' }), /No schema missing/);
+    await assert.rejects(uses({ schemaId: 'missing' }), /No schematic missing/);
     await assert.rejects(uses({ schemaId: draftless.schema }), /no accepted draft/);
     await assert.rejects(uses({ id: 'not ok' }), /can't be a use's id/);
     await assert.rejects(store.propose(proposal({ uses: [{ id: 'a', schemaId: auth.schema }, { id: 'a', schemaId: auth.schema }] })), /Two uses/);
     assert.equal((await store.list()).length, 2); // nothing new came of those
+  });
+});
+
+describe('comments', () => {
+  const rules = doc('rules', '# Rules\n\nPrices are fixed.\n\n## Pricing\n\nIn pence.');
+
+  test('a comment on the proposal follows it as the AI revises it, and goes into the draft it becomes', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [rules] });
+    await store.propose({ schemaId: schema, summary: 'Changed.', note: 'Tighter' });
+    const comment = await store.addComment(schema, { proposal: true, target: { item: 'rules', part: 'pricing', quote: 'In pence.' }, text: 'Say which currency.' });
+    assert.equal((await store.getProposal(schema)).comments, 1);
+    const [listed] = await store.listComments(schema, { proposal: true });
+    assert.deepEqual(listed.target, { item: 'rules', part: 'pricing', quote: 'In pence.', title: 'rules', partName: 'Pricing' });
+    assert.equal((await store.listComments(schema)).length, 0, 'not on the draft');
+
+    await store.replyToComment(schema, comment.id, { text: 'Now says GBP.', author: 'Claude Code' });
+    await store.propose({ schemaId: schema, summary: 'Changed again.', note: 'Revised' });
+    const [kept] = await store.listComments(schema, { proposal: true });
+    assert.equal(kept.replies[0].text, 'Now says GBP.');
+    assert.equal(kept.replies[0].author, 'Claude Code');
+
+    const { draft } = await store.accept(schema);
+    assert.equal((await store.listComments(schema, { draftId: draft })).length, 1);
+    assert.equal((await store.getSchema(schema)).comments, 1);
+  });
+
+  test('discarding the proposal takes its comments, and leaves those on drafts', async () => {
+    const store = newStore();
+    const { schema, draft } = await accepted(store, { items: [rules] });
+    await store.addComment(schema, { draftId: draft, target: { item: 'rules' }, text: 'On the draft.' });
+    await store.propose({ schemaId: schema, summary: 'Changed.', note: 'Tighter' });
+    await store.addComment(schema, { proposal: true, target: { item: 'contract' }, text: 'On the proposal.' });
+    await store.discard(schema);
+    const left = await store.listComments(schema);
+    assert.deepEqual(left.map((one) => one.text), ['On the draft.']);
+  });
+
+  test('a comment needs words and something to be on, and the user can take it back', async () => {
+    const store = newStore();
+    const { schema, draft } = await accepted(store, { items: [rules] });
+    await assert.rejects(store.addComment(schema, { target: { item: 'rules' }, text: '  ' }), /something said/);
+    await assert.rejects(store.addComment(schema, { target: { item: 'nowhere' }, text: 'Hm' }), /no nowhere/);
+    await assert.rejects(store.addComment(schema, { proposal: true, target: { item: 'rules' }, text: 'Hm' }), /no proposal/);
+    const comment = await store.addComment(schema, { target: { item: 'rules' }, text: 'Hm' });
+    assert.equal(comment.on, draft);
+    await store.deleteComment(schema, comment.id);
+    assert.equal((await store.listComments(schema)).length, 0);
+    await assert.rejects(store.replyToComment(schema, comment.id, { text: 'Late' }), /no comment/);
+  });
+
+  test('a comment whose part has gone says so', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [rules] });
+    await store.propose({ schemaId: schema, note: 'Rename', items: [doc('rules', '# Rules\n\n## Prices\n\nIn pence.')] });
+    await store.addComment(schema, { proposal: true, target: { item: 'rules', part: 'pricing' }, text: 'Old heading' });
+    const [one] = await store.listComments(schema, { proposal: true });
+    assert.equal(one.target.partMissing, true);
+  });
+});
+
+describe('cards', () => {
+  test('an item can say what its card shows, listed with it', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [doc('rules', '# Rules', { card: [' Prices in pence ', '', 'Tax at checkout'] })] });
+    const [rules] = (await store.getSchema(schema)).items;
+    assert.deepEqual(rules.card, ['Prices in pence', 'Tax at checkout']);
+    await assert.rejects(store.propose({ schemaId: schema, note: 'n', items: [doc('rules', '# Rules', { card: ['1', '2', '3', '4', '5'] })] }), /fits 4/);
+  });
+
+  test('a comment can be on an item\'s card', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [doc('rules')] });
+    await store.addComment(schema, { target: { item: 'rules', card: true, part: 'ignored' }, text: 'Show the currency here.' });
+    const [one] = await store.listComments(schema);
+    assert.deepEqual(one.target, { item: 'rules', card: true, title: 'rules' });
+  });
+});
+
+describe('groups', () => {
+  test('schemas start ungrouped, and move between groups without counting as a change', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store);
+    const before = (await store.list())[0];
+    assert.equal(before.group, null);
+    const auth = await store.createGroup('  Auth  ');
+    assert.equal(auth.name, 'Auth');
+    await store.moveSchema(schema, auth.id);
+    const after = (await store.list())[0];
+    assert.equal(after.group, auth.id);
+    assert.equal(after.updatedAt, before.updatedAt);
+    const listed = await store.listGroups();
+    assert.deepEqual(listed.groups.map(({ id, name, schemas }) => ({ id, name, schemas })), [{ id: auth.id, name: 'Auth', schemas: 1 }]);
+    assert.equal(listed.ungrouped, 0);
+    assert.ok(listed.groups[0].createdAt);
+    await store.moveSchema(schema, null);
+    assert.equal((await store.list())[0].group, null);
+  });
+
+  test('names are checked, and a deleted group leaves its schemas ungrouped', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store);
+    await assert.rejects(store.createGroup(' '), /needs a name/);
+    await assert.rejects(store.createGroup('ungrouped'), /can't take that name/);
+    const team = await store.createGroup('Payments team');
+    await assert.rejects(store.createGroup('payments TEAM'), /already a group/);
+    await store.renameGroup(team.id, 'Payments');
+    await store.moveSchema(schema, team.id);
+    await store.deleteGroup(team.id);
+    assert.equal((await store.list())[0].group, null);
+    assert.deepEqual(await store.listGroups(), { groups: [], ungrouped: 1 });
+    await assert.rejects(store.moveSchema(schema, team.id), /no group/);
+  });
+
+  test('a new schema can be proposed straight into a group', async () => {
+    const store = newStore();
+    const group = await store.createGroup('Auth');
+    const { schema } = await store.propose(proposal({ groupId: group.id }));
+    assert.equal((await store.list()).find((one) => one.id === schema).group, group.id);
+    await assert.rejects(store.propose(proposal({ groupId: 'nope' })), /no group nope/);
   });
 });

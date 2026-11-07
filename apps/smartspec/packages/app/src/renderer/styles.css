@@ -17,6 +17,8 @@
   --window-bg: light-dark(#ebebef, #161618);
   --top-bar-bg: light-dark(#dcdce1, #1f1f22); /* a shade apart from the background below it (and main.js's title bar overlay) */
   --accent: light-dark(#2f6fde, #4a86ee);
+  --comment: light-dark(#c98a00, #e3b341); /* the user's comments, and what they're on */
+  --removed: light-dark(#c43c3c, #e05a5a); /* what a proposal removes */
   --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
   --card-radius: 12px;
 }
@@ -283,7 +285,26 @@ body:not(.platform-darwin) .top-bar {
 
 /* Home: schemas › drafts, each list scrolling on its own. A row is shaded while it's hovered or
    selected, the selected one's title in the accent colour. */
-.browser { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; height: 100%; max-width: 1200px; margin: 0 auto; padding: 24px; }
+.browser { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; height: 100%; max-width: 1400px; margin: 0 auto; padding: 24px; }
+/* Groups (see homeView): rename and delete show while pointing at a group, and a schema dragged over
+   one marks it as where it will go. */
+.browser-head .icon-button { width: 26px; height: 26px; margin: -4px 0; }
+.group-row { position: relative; }
+.group-actions { position: absolute; top: 50%; right: 6px; display: flex; gap: 2px; opacity: 0; transform: translateY(-50%); }
+.group-row:hover .group-actions, .group-row:focus-within .group-actions { opacity: 1; }
+.group-row:hover .browser-row, .group-row:focus-within .browser-row { padding-right: 66px; }
+.group-action { width: 26px; height: 26px; }
+.browser-row.drop-here { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
+.group-naming { display: grid; gap: 4px; padding: 4px 6px; }
+.group-name-input { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; user-select: text; }
+.group-name-input:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.group-name-error { color: var(--removed); font-size: 11.5px; }
+.group-name-error:empty { display: none; }
+.move-menu { position: fixed; z-index: 70; display: grid; min-width: 180px; padding: 4px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); font-size: 13px; }
+.move-menu-head { padding: 4px 8px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.move-menu button { padding: 6px 8px; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.move-menu button:hover, .move-menu button:focus-visible { background: var(--hover-tint); outline: none; }
+.move-menu-none { padding: 6px 8px; color: var(--muted); }
 .browser-column { display: flex; flex-direction: column; min-height: 0; }
 .browser-head { display: flex; align-items: center; gap: 10px; padding: 14px 10px 10px 16px; }
 .browser-head h2 { flex: 1; margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -450,12 +471,6 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .diagram-group-divider { stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 5 4; }
 .diagram-group.alt .diagram-group-word, .diagram-group.opt .diagram-group-word { fill: var(--text); }
 /* What a part of a diagram means, under the pointer (see item-views.js). */
-.diagram-tip { position: fixed; z-index: 60; display: grid; gap: 3px; max-width: 280px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); color: var(--text-2); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.35; pointer-events: none; }
-.diagram-tip[hidden] { display: none; }
-.diagram-tip strong { color: var(--text); font-weight: 600; }
-.diagram-tip-here { display: grid; gap: 3px; margin: 4px -10px 0; padding: 7px 10px 0; border-top: 1px solid var(--border); }
-.diagram-tip-name { color: var(--text); font-weight: 500; }
-.diagram-tip-said { color: var(--text); }
 .diagram-lifeline { stroke: var(--border-strong); stroke-dasharray: 3 4; }
 .diagram-label { fill: var(--text-2); font-size: 12px; }
 .diagram-label-bg { fill: var(--bg); }
@@ -526,6 +541,58 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .focus-lines circle { fill: var(--border-strong); transition: fill 0.12s; }
 .focus-lines path.lit { stroke: var(--accent); stroke-width: 2; }
 .focus-lines circle.lit { fill: var(--accent); }
+/* What the AI wrote for an item's card, below its line, instead of what the app works out. */
+.focus-preview.card-lines { display: grid; gap: 2px; color: var(--text-2); font-size: 11.5px; line-height: 1.35; }
+/* Comments on a card (see card-comments.js): a speech bubble in the comment colour, right of the kind
+   tag on its line, opening them in a
+   box beside it. */
+.overview-card { position: relative; }
+.has-card-comments { overflow: visible; }
+.card-comment-tag { position: absolute; top: 10px; right: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px; margin: 0; cursor: pointer; letter-spacing: 0; }
+.overview-card.embedded > .card-comment-tag, .focus-neighbour.embedded > .card-comment-tag { top: 9px; right: 11px; }
+.card-comment-tag svg { display: block; }
+.card-comment-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pill.kind-pill.comment-pill { margin: 0; background: var(--comment); color: #1f1a0e; } /* dark text reads on the yellow in both themes */
+.card-comments { position: fixed; z-index: 65; display: grid; gap: 10px; width: 300px; max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; padding: 12px; border: 1px solid var(--border-strong); border-left: 3px solid var(--comment); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); font-size: 12.5px; }
+.card-comments-head { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.card-comment { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.card-comment .comment-top { align-items: flex-start; }
+.card-comment .comment-text { flex: 1; }
+.card-comment:hover .comment-delete { opacity: 1; }
+.card-comment .comment-replies { width: auto; margin: 0; padding: 6px 0 0 10px; border-top: 0; border-left: 2px solid var(--border); }
+.card-comments-writer { display: grid; gap: 8px; }
+.card-comments-add { justify-self: start; }
+
+/* Comments (see comments.js): a card among the link cards, with an edge in the comment colour, and
+   what it's on marked in the middle in the same colour. */
+.focus-neighbour.comment-card { gap: 6px; padding-left: 11px; border-left: 3px solid var(--comment); cursor: default; }
+.focus-neighbour.comment-card.composing { border-color: var(--comment); box-shadow: 0 0 0 1px var(--comment); }
+.comment-top { display: flex; align-items: flex-start; gap: 6px; width: 100%; }
+.comment-about { display: -webkit-box; flex: 1; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.comment-about.quote { font-style: italic; }
+.comment-delete { flex: none; width: 22px; height: 22px; margin: -3px -5px -3px 0; opacity: 0; }
+.comment-card:hover .comment-delete, .comment-delete:focus-visible { opacity: 1; }
+.comment-gone { color: var(--muted); font-size: 11px; }
+.comment-text { margin: 0; font-size: 12.5px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-replies { display: grid; gap: 6px; box-sizing: border-box; width: calc(100% + 23px); margin: 2px -12px 0 -11px; padding: 8px 12px 0 11px; border-top: 1px solid var(--border); }
+.comment-reply { display: grid; gap: 1px; font-size: 12px; line-height: 1.4; }
+.comment-reply strong { color: var(--text-2); font-size: 11px; font-weight: 600; }
+.comment-input { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.4; resize: vertical; user-select: text; }
+.comment-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.comment-actions { display: flex; gap: 6px; justify-self: end; }
+.comment-actions button { height: 26px; padding: 0 10px; font-size: 12px; }
+.comment-start { position: fixed; z-index: 70; height: 26px; padding: 0 10px; border: 1px solid var(--comment); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+.comment-start[hidden] { display: none; }
+.comment-start:hover { background: color-mix(in srgb, var(--comment) 16%, var(--bg)); }
+.focus-neighbour.comment-card.comment-pointed { border-color: var(--comment); }
+.hover-card ::highlight(comments) { background-color: color-mix(in srgb, var(--comment) 22%, transparent); }
+::highlight(comment-lit) { background-color: color-mix(in srgb, var(--comment) 45%, transparent); }
+.commented.diagram-node .diagram-box, .commented.diagram-edge .diagram-line, .picked.diagram-node .diagram-box, .picked.diagram-edge .diagram-line, .commented.diagram-activation, .picked.diagram-activation { stroke: var(--comment); }
+.comment-lit.diagram-node .diagram-box, .comment-lit.diagram-edge .diagram-line, .comment-lit.diagram-activation { stroke: var(--comment); stroke-width: 2.5; }
+tr.commented, tr.picked { box-shadow: inset 3px 0 0 var(--comment); }
+tr.comment-lit { background: color-mix(in srgb, var(--comment) 16%, transparent); }
+.markdown .commented { box-shadow: inset 3px 0 0 var(--comment); }
+
 /* Each card placed level with what it links to (see focus-view.js). */
 .focus-side.placed > * { position: absolute; left: var(--side-inset, 0px); right: var(--side-inset, 0px); width: auto; }
 .focus-side { display: flex; flex-direction: column; justify-content: safe center; gap: 10px; min-height: 0; overflow: auto; scrollbar-width: none; }
@@ -540,7 +607,7 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .focus-neighbour { position: relative; display: grid; flex: none; gap: 3px; justify-items: start; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; text-align: left; }
 /* Another schema, on this one's cards and rows: a heavier dashed edge. The padding gives back the
    extra pixel, so its words line up with those of the cards beside it. */
-.focus-neighbour.embedded, .list-row.embedded { border: 2px dashed var(--border-strong); }
+.focus-neighbour.embedded, .overview-card.embedded { border: 2px dashed var(--border-strong); }
 button.focus-neighbour { cursor: pointer; }
 button.focus-neighbour:hover, .focus-neighbour.lit { border-color: var(--accent); }
 button.focus-neighbour:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -555,36 +622,17 @@ button.focus-neighbour:focus-visible { outline: 2px solid var(--accent); outline
 /* Its line runs to the card's edges, past the card's own padding. */
 .focus-preview { display: block; box-sizing: border-box; width: calc(100% + 24px); margin: 7px -12px 0; padding: 10px 12px 0; border-top: 1px solid var(--border); }
 .focus-preview.text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-2); font-size: 11px; line-height: 1.35; }
-.focus-preview.picture { pointer-events: none; }
 .focus-preview.table-preview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 11px; line-height: 1.35; }
 .table-preview-row { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .table-preview-name { color: var(--text-2); font-weight: 500; }
 .table-preview-totals { color: var(--muted); }
-.focus-preview .item-image { max-height: 52px; margin: 0 auto; }
 .lit.diagram-node .diagram-box, .lit.diagram-edge .diagram-line { stroke: var(--accent); }
 tr.lit, .markdown .lit { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; }
 /* Everything in a schema, as a list (see schemas.js). */
-.list-page { position: relative; max-width: 760px; }
-/* Down both sides of the rows, a line for each pair of connected items (see list-lines.js). */
-.list-lines { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.list-lines path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
-.list-lines path.hit { stroke: transparent; stroke-width: 12; pointer-events: stroke; }
-.list-lines circle { fill: var(--border-strong); }
-.list-lines.picking path:not(.lit) { opacity: 0.35; }
-.list-lines path.lit { stroke: var(--accent); stroke-width: 2; }
-.list-lines circle.lit { fill: var(--accent); }
-.list-page .list-rows .list-row.lit { border-color: var(--accent); }
 /* What's behind a line, while pointing at it. */
 .hover-card { position: fixed; z-index: 60; display: grid; gap: 10px; width: max-content; max-width: 340px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); color: var(--text-2); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.35; pointer-events: none; }
 .hover-card[hidden] { display: none; }
 /* A link's destination, while pointing at the link. */
-.hover-card.link-tip { gap: 4px; justify-items: start; }
-.link-tip .kind-pill { margin-bottom: 2px; }
-.link-tip-title { color: var(--text); font-weight: 600; }
-.link-tip-part { color: var(--text-2); }
-.link-tip-url { color: var(--text-2); overflow-wrap: anywhere; }
-.link-tip-said { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: var(--muted); }
-.link-tip-hint { margin-top: 4px; color: var(--muted); font-size: 11px; }
 .link-card-count { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .link-card section { display: grid; gap: 4px; }
 .link-card-head strong { color: var(--text); font-weight: 600; }
@@ -592,26 +640,37 @@ tr.lit, .markdown .lit { background: color-mix(in srgb, var(--accent) 12%, trans
 .link-card-arrow, .link-card-whole, .link-card-more { color: var(--muted); }
 .link-card-label { display: block; color: var(--muted); }
 /* The window's margin is too small to hold them: they get room of their own. */
-@media (max-width: 900px) { .list-page { padding-right: 64px; padding-left: 64px; } }
-.list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.page > .list-head h1 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.list-section { margin: 24px 0 12px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.list-rows { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.list-row { display: grid; gap: 3px; justify-items: start; width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; text-align: left; }
-button.list-row { cursor: pointer; }
-button.list-row:hover { border-color: var(--border-strong); }
-.list-row.embedded { padding: 9px 13px; }
-button.list-row.embedded:hover { border-color: var(--muted); }
-button.list-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.list-row strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
-.list-row.removed { color: var(--muted); }
-.list-row-name { text-decoration: line-through; }
+.overview-card { display: grid; gap: 3px; justify-items: start; width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; text-align: left; }
+/* The overview (see overview-view.js): the item cards on a canvas filling the space under the top
+   bar, joined by a line for each connected pair. */
+.page.overview-page { position: relative; max-width: none; height: 100%; padding: 0; }
+.overview-page .diagram.diagram-canvas { position: absolute; inset: 0; overflow: hidden; padding: 0; border: 0; border-radius: 0; background: none; cursor: grab; touch-action: none; }
+.overview-svg foreignObject { overflow: visible; }
+.overview-measuring { position: absolute; top: 0; left: -10000px; width: 280px; visibility: hidden; }
+.overview-lines path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; pointer-events: none; } /* the wider hit lines take the pointer */
+.overview-lines path.hit { stroke: transparent; stroke-width: 12; pointer-events: stroke; }
+.overview.picking .overview-lines path[data-pair]:not(.lit) { opacity: 0.35; }
+.overview-lines path.lit { stroke: var(--accent); stroke-width: 2; }
+.overview-card.lit { border-color: var(--accent); }
+.overview-svg .overview-card, .overview-measuring .overview-card { box-sizing: border-box; width: 280px; user-select: none; }
+.overview-svg .comment-card, .overview-measuring .comment-card { box-sizing: border-box; width: 280px; }
+button.overview-card { cursor: pointer; }
+button.overview-card:hover { border-color: var(--border-strong); }
+.overview-card.embedded { padding: 9px 13px; }
+button.overview-card.embedded:hover { border-color: var(--muted); }
+button.overview-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.overview-card strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+/* What a proposal removes: red stripes across it, and "Removed" over them. It still opens, to see what goes. */
+.overview-card.removed { position: relative; overflow: hidden; border-color: color-mix(in srgb, var(--removed) 55%, var(--border)); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--removed) 16%, var(--bg)) 0 10px, var(--bg) 10px 20px); color: var(--muted); }
+button.overview-card.removed:hover { border-color: var(--removed); }
+.removed-over { position: absolute; inset: 0; display: grid; place-items: center; color: var(--removed); font-size: 18px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; text-shadow: 0 0 6px var(--bg), 0 0 12px var(--bg); pointer-events: none; }
+.overview-card-name { text-decoration: line-through; }
 /* Beneath the line, as on a side card: a look inside, then how it's linked. The card's padding is
    14px (13px inside an embedded schema's thicker border), so the line runs edge to edge. */
-.list-row-foot { display: grid; gap: 6px; box-sizing: border-box; width: calc(100% + 28px); margin: 7px -14px 0; padding: 10px 14px 0; border-top: 1px solid var(--border); }
-.list-row.embedded .list-row-foot { width: calc(100% + 26px); margin-inline: -13px; padding-inline: 13px; }
-.list-row-foot > .focus-preview { width: auto; margin: 0; padding: 0; border: 0; }
-.list-row-links { color: var(--muted); font-size: 11.5px; }
+.overview-card-foot { display: grid; gap: 6px; box-sizing: border-box; width: calc(100% + 28px); margin: 7px -14px 0; padding: 10px 14px 0; border-top: 1px solid var(--border); }
+.overview-card.embedded .overview-card-foot { width: calc(100% + 26px); margin-inline: -13px; padding-inline: 13px; }
+.overview-card-foot > .focus-preview { width: auto; margin: 0; padding: 0; border: 0; }
+.overview-card-links { color: var(--muted); font-size: 11.5px; }
 /* Item | List, a two-part switch: the two parts are the same width, and a thumb slides between them. */
 .view-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 2px; border-radius: 8px; background: light-dark(#c9c9cf, #2c2c31); -webkit-app-region: no-drag; }
 .view-switch[hidden] { display: none; }

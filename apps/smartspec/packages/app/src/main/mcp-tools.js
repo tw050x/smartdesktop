@@ -6,32 +6,35 @@ import { z } from 'zod';
 // (packages/cli/lib/server.json), to answer AI apps before the app is running, and a test checks
 // the copy matches.
 
-const INSTRUCTIONS = `This server is SmartSpec: a desktop app holding the design of a system as schemas, for the user and for other agents to act on. It's about system design at any scale: a schema can describe a whole business, one service, or one module inside a single application.
-A schema has a name, a summary and a contract, which are what show when it's collapsed inside another schema, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.
-A schema's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.
-Items link to each other, so a schema is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schemas this one embeds, but not inside them. Links that go nowhere are refused.
-Schemas embed other schemas: a standard structure, such as machine to machine auth, is one schema, and shows as a single element in each schema that uses it. Each use is pinned to a draft and can only set the parameters the embedded schema declares. To change anything else, propose a new draft of that schema, or a separate schema.
-Read only what you need: get_schema lists a schema's items and links without their content, with its uses collapsed. Fetch an item with get_schema_item when you need it, and open further levels by asking for them.
-A focus is what the user wants this work to be for: their prompt may say "focusing on" a goal. Keep to it, and pass it to propose_schema as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.
-Only the user accepts what you propose: propose_schema creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schema later to see where it stands. A schema you embed must have an accepted draft, so wait for the acceptance before building on it.`;
+const INSTRUCTIONS = `This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.
+A schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.
+A schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.
+Items link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.
+Schematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.
+Read only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.
+A focus is what the user wants this work to be for: their prompt may say "focusing on" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.
+Only the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.
+Schematics are organised into groups, such as a team, a department or a set like "Auth"; a schematic in none is Ungrouped. list_groups shows them. create_group, rename_group and move_schematic take effect straight away, so only use them when the user asks. A new schematic can go straight into a group with propose_schematic's group_id.
+The user comments on what you propose, and on drafts: get_schematic and get_proposal say how many comments there are, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment, saying what you changed or why you didn't. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.`;
 
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
 
 // Each tool's safety label, for the AI app to show the user and decide when to ask them: the
 // tools that only read, and the ones that change or remove something the user can't get back (the
 // rest change something, without loss). Every tool works only with the app, on this computer.
-const READ_ONLY = new Set(['list_schemas', 'get_schema', 'get_schema_item', 'get_proposal']);
+const READ_ONLY = new Set(['list_schematics', 'get_schematic', 'get_schematic_item', 'get_proposal', 'get_comments', 'list_groups']);
 const DESTRUCTIVE = new Set();
 const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
 
 const DEPTH = z.number().int().min(0).max(10).optional();
 const LINK = z.string().optional().describe('Where it links: an item id, or item#part');
-const EXPLAIN = z.string().optional().describe('What this one does here and why, which the diagram can\'t show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don\'t repeat those.');
+const EXPLAIN = z.string().optional().describe('What this one does here and why, which the diagram can\'t show by itself, for agents reading the schematic. Don\'t repeat what the diagram already shows: who it joins and what it wraps.');
 const ITEM_BASE = {
-  id: z.string().describe('Its id within this schema. Sending an id that exists replaces that item.'),
+  id: z.string().describe('Its id within this schematic. Sending an id that exists replaces that item.'),
   title: z.string().trim().min(1),
-  description: z.string().optional().describe('One line saying what it is, listed by get_schema'),
+  description: z.string().optional().describe('One line saying what it is, listed by get_schematic'),
   links: z.array(z.object({ to: z.string(), label: z.string().optional() })).optional().describe('Links from the item as a whole'),
+  card: z.array(z.string()).max(4).optional().describe('Up to 4 short lines for the item\'s card, the summary shown wherever it appears around the schematic, below its title and description. Instead of what the app works out (such as a table\'s row count), so write them when the user asks for details there, or when a few facts say more. Leave out to let the app summarise.'),
 };
 const ITEM = z.discriminatedUnion('kind', [
   z.object({ ...ITEM_BASE, kind: z.literal('document'), markdown: z.string() }),
@@ -91,30 +94,58 @@ export function buildServer(call, { version }) {
     window_id: z.string().describe('The window named in the prompt, such as w-7f3a'),
   }, ({ window_id }, schemas) => schemas.useWindow(window_id));
 
-  tool('list_schemas', 'Every schema, most recently changed first: its id, name, summary, number of accepted drafts, status, and any proposal waiting for the user.', {}, (_args, schemas) => schemas.list());
+  tool('list_schematics', 'Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the group it\'s in (null for Ungrouped), and any proposal waiting for the user.', {}, (_args, schemas) => schemas.list());
 
-  tool('get_schema', 'One schema\'s accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schemas it embeds, each collapsed to its name, summary, contract and pinned draft, saying if a newer draft exists. Fetch an item with get_schema_item. Open further levels with depth, or by calling this for an embedded schema\'s id and draft. proposal says if a change is waiting for the user.', {
-    schema_id: z.string(),
+  tool('list_groups', 'The groups schematics are organised into, by name: each with its id, name and how many schematics are in it, and how many schematics are Ungrouped.', {}, (_args, schemas) => schemas.listGroups());
+
+  tool('create_group', 'Makes a group to organise schematics into, such as a team, a department or a set like "Auth", straight away. Only use it when the user asks.', {
+    name: z.string().trim().min(1).max(80),
+  }, ({ name }, schemas) => schemas.createGroup(name));
+
+  tool('rename_group', 'Renames a group, straight away. Only use it when the user asks.', {
+    group_id: z.string().describe('From list_groups'),
+    name: z.string().trim().min(1).max(80),
+  }, ({ group_id, name }, schemas) => schemas.renameGroup(group_id, name));
+
+  tool('move_schematic', 'Puts a schematic in a group, or back in Ungrouped, straight away. Only its place on the list changes: its drafts stay as they are. Only use it when the user asks.', {
+    schematic_id: z.string(),
+    group_id: z.string().nullable().describe('From list_groups, or null for Ungrouped'),
+  }, ({ schematic_id, group_id }, schemas) => schemas.moveSchema(schematic_id, group_id));
+
+  tool('get_schematic', 'One schematic\'s accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and pinned draft, saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic\'s id and draft. proposal says if a change is waiting for the user.', {
+    schematic_id: z.string(),
     draft_id: z.string().optional().describe('The draft to read (default: the latest)'),
-    depth: DEPTH.describe('How many levels of embedded schemas to open (default 0: all collapsed)'),
-  }, ({ schema_id, draft_id, depth }, schemas) => schemas.getSchema(schema_id, { draftId: draft_id, depth }));
+    depth: DEPTH.describe('How many levels of embedded schematics to open (default 0: all collapsed)'),
+  }, ({ schematic_id, draft_id, depth }, schemas) => schemas.getSchema(schematic_id, { draftId: draft_id, depth }));
 
-  tool('get_schema_item', 'One item\'s full content, with the links out of it and into it.', {
-    schema_id: z.string(),
+  tool('get_schematic_item', 'One item\'s full content, with the links out of it and into it.', {
+    schematic_id: z.string(),
     item_id: z.string(),
     draft_id: z.string().optional().describe('The draft to read (default: the latest)'),
-    proposal: z.boolean().optional().describe('Read it from the proposal waiting on the schema instead'),
-  }, ({ schema_id, item_id, draft_id, proposal }, schemas) => schemas.getItem(schema_id, item_id, { draftId: draft_id, proposal }));
+    proposal: z.boolean().optional().describe('Read it from the proposal waiting on the schematic instead'),
+  }, ({ schematic_id, item_id, draft_id, proposal }, schemas) => schemas.getItem(schematic_id, item_id, { draftId: draft_id, proposal }));
 
-  tool('get_proposal', 'The change waiting for the user on a schema, in the same form as get_schema, with which items it adds, changes and removes. Fetch an item from it with get_schema_item and proposal. Null if nothing is waiting.', {
-    schema_id: z.string(),
-    depth: DEPTH.describe('How many levels of embedded schemas to open (default 0: all collapsed)'),
-  }, ({ schema_id, depth }, schemas) => schemas.getProposal(schema_id, { depth }));
+  tool('get_proposal', 'The change waiting for the user on a schematic, in the same form as get_schematic, with which items it adds, changes and removes. Fetch an item from it with get_schematic_item and proposal. Null if nothing is waiting.', {
+    schematic_id: z.string(),
+    depth: DEPTH.describe('How many levels of embedded schematics to open (default 0: all collapsed)'),
+  }, ({ schematic_id, depth }, schemas) => schemas.getProposal(schematic_id, { depth }));
 
-  tool('propose_schema', 'Proposes a new schema, or with schema_id a change to one, and shows it in the app for the user to accept or discard. For a change, send only what changes: everything else carries over, from the proposal already waiting (which this replaces) or else the latest draft. Links are checked, and the proposal is refused if one goes nowhere.', {
-    schema_id: z.string().optional().describe('The schema to change (leave out to propose a new one)'),
-    name: z.string().trim().min(1).max(200).optional().describe('Needed for a new schema'),
-    summary: z.string().trim().min(1).optional().describe('What this is, in a sentence or two. Shows when it\'s collapsed. Needed for a new schema.'),
+  tool('get_comments', 'The user\'s comments on a schematic\'s draft (the latest unless you name one) or on the proposal waiting on it, oldest first. Each says what it\'s on (target: the item and its title, the part and its name, any words the user quoted, or card: true for the item\'s card; missing or partMissing if that\'s no longer there), what the user said, and the replies so far.', {
+    schematic_id: z.string(),
+    draft_id: z.string().optional().describe('The draft whose comments to read (default: the latest)'),
+    proposal: z.boolean().optional().describe('Read the comments on the proposal waiting on the schematic instead'),
+  }, ({ schematic_id, draft_id, proposal }, schemas) => schemas.listComments(schematic_id, { draftId: draft_id, proposal }));
+
+  tool('reply_to_comment', 'Answers one of the user\'s comments, shown under it in the app: say what you changed, or why you didn\'t. A comment can have several replies, so reply again after a further revision.', {
+    schematic_id: z.string(),
+    comment_id: z.string(),
+    text: z.string().trim().min(1).describe('Your reply, in a sentence or two'),
+  }, ({ schematic_id, comment_id, text }, schemas) => schemas.replyToComment(schematic_id, comment_id, text));
+
+  tool('propose_schematic', 'Proposes a new schematic, or with schematic_id a change to one, and shows it in the app for the user to accept or discard. For a change, send only what changes: everything else carries over, from the proposal already waiting (which this replaces) or else the latest draft. Links are checked, and the proposal is refused if one goes nowhere.', {
+    schematic_id: z.string().optional().describe('The schematic to change (leave out to propose a new one)'),
+    name: z.string().trim().min(1).max(200).optional().describe('Needed for a new schematic'),
+    summary: z.string().trim().min(1).optional().describe('What this is, in a sentence or two. Shows when it\'s collapsed. Needed for a new schematic.'),
     contract: z.string().optional().describe('Markdown: what it promises and what it needs. Shows when it\'s collapsed.'),
     items: z.array(ITEM).optional().describe('Items to add, or to replace by id'),
     remove_items: z.array(z.string()).optional().describe('The ids of items to remove'),
@@ -122,23 +153,25 @@ export function buildServer(call, { version }) {
     parameters: z.array(z.object({
       name: z.string().trim().min(1),
       description: z.string().optional(),
-    })).optional().describe('What each use of this schema can set. Replaces the list.'),
+    })).optional().describe('What each use of this schematic can set. Replaces the list.'),
     uses: z.array(z.object({
-      id: z.string().describe('Its name within this schema, which links use'),
-      schema_id: z.string().describe('The schema to embed, which must have an accepted draft'),
+      id: z.string().describe('Its name within this schematic, which links use'),
+      schematic_id: z.string().describe('The schematic to embed, which must have an accepted draft'),
       draft_id: z.string().optional().describe('The draft to pin to (default: its latest)'),
       with: z.record(z.string(), z.string()).optional().describe('Values for the parameters it declares'),
-    })).optional().describe('The schemas this one embeds. Replaces the list.'),
+    })).optional().describe('The schematics this one embeds. Replaces the list.'),
+    group_id: z.string().optional().describe('For a new schematic: the group to put it in, from list_groups (default: Ungrouped)'),
     goal: z.string().trim().min(1).optional().describe('The focus the user gave you for this work, in their words'),
     goal_title: z.string().trim().min(1).max(60).optional().describe('A short name for that focus'),
     note: z.string().trim().min(1).describe('What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as "Proposed change:"'),
-  }, ({ schema_id, uses, remove_items, item_order, goal_title, ...proposal }, schemas) => schemas.propose({
+  }, ({ schematic_id, uses, remove_items, item_order, goal_title, group_id, ...proposal }, schemas) => schemas.propose({
     ...proposal,
+    groupId: group_id,
     goalTitle: goal_title,
-    schemaId: schema_id,
+    schemaId: schematic_id,
     removeItems: remove_items,
     itemOrder: item_order,
-    uses: uses?.map(({ schema_id: target, draft_id, ...use }) => ({ ...use, schemaId: target, draftId: draft_id })),
+    uses: uses?.map(({ schematic_id: target, draft_id, ...use }) => ({ ...use, schemaId: target, draftId: draft_id })),
   }));
 
   return server;

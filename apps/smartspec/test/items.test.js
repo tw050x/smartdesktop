@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { connectedPairs, connectionDetails, checkItem, checkLinks, itemChanges, linkGraph, linksOf, neighboursOf, pairKey, parseLink, partName, partsOf, tableSummary, previewsFor, slug } from '../packages/app/src/main/items.js';
 import { layoutFlow, layoutSequence } from '../packages/app/src/renderer/layout.js';
-import { chooseSides } from '../packages/app/src/renderer/list-lines.js';
 
 const flow = { id: 'overview', kind: 'flow', title: 'Overview', nodes: [{ id: 'a', label: 'A', link: 'rules#backoff' }, { id: 'b', label: 'B' }], edges: [{ from: 'a', to: 'b', label: 'calls' }] };
 const doc = { id: 'rules', kind: 'document', title: 'Rules', markdown: '# Top\n\n## Back_off **now**\n\nSee [the flow](overview#a), [web](https://x.dev), ![pic](overview) and [here](#top).\n\n```\n[not](a-link)\n```\n' };
@@ -296,24 +295,3 @@ describe('connectionDetails', () => {
   });
 });
 
-describe('chooseSides', () => {
-  test('lines that would cross go on opposite sides', () => {
-    const [one, other] = chooseSides([[0, 2], [1, 3]]);
-    assert.notEqual(one, other);
-  });
-  test('lines that would not cross still share themselves out', () => {
-    const sides = chooseSides([[0, 1], [1, 2], [2, 3], [3, 4]]);
-    assert.equal(sides.filter((side) => side === 'left').length, 2);
-  });
-  test('a line inside another does not count as crossing it', () => {
-    assert.equal(chooseSides([[0, 3], [1, 2]]).length, 2);
-  });
-  test('answers in the order given, whatever the lengths', () => {
-    assert.deepEqual(chooseSides([[0, 5], [0, 1]]), ['left', 'right']);
-  });
-  test('three lines that all cross put no more than necessary together', () => {
-    const spans = [[0, 3], [1, 4], [2, 5]];
-    const sides = chooseSides(spans);
-    assert.ok(new Set(sides).size === 2);
-  });
-});

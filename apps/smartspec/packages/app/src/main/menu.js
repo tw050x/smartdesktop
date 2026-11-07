@@ -8,7 +8,7 @@ export function buildMenu({ hasWindow, actions }) {
   const fileMenu = {
     label: 'File',
     submenu: [
-      { label: 'New Schema…', accelerator: 'CmdOrCtrl+Shift+N', click: actions.newSchema },
+      { label: 'New Schematic…', accelerator: 'CmdOrCtrl+Shift+N', click: actions.newSchema },
       { type: 'separator' },
       { label: 'Connect an AI…', click: actions.showConnectAi },
       { type: 'separator' },

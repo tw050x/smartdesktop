@@ -73,6 +73,8 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
     show();
   };
   const zoomBy = (factor) => {
+    if (!view) fit();
+    if (!view) return;
     const { x, y } = centre();
     moveTo(zoomedAt(view, factor, x, y));
   };
@@ -92,8 +94,13 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
   controls.addEventListener('pointerdown', (event) => event.stopPropagation());
   holder.append(controls);
 
+  // Before it has shown anywhere, there's no view to move from: it's fitted first.
+  const ready = () => {
+    if (!view) fit();
+    return Boolean(view);
+  };
   holder.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || !ready()) return;
     const start = { x: event.clientX, y: event.clientY, view };
     let dragging = false;
     const onMove = (move) => {
@@ -121,6 +128,7 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
 
   holder.addEventListener('wheel', (event) => {
     event.preventDefault();
+    if (!ready()) return;
     if (!event.ctrlKey && !event.metaKey) return moveTo({ ...view, x: view.x - event.deltaX, y: view.y - event.deltaY });
     const box = holder.getBoundingClientRect();
     return moveTo(zoomedAt(view, Math.exp(-event.deltaY * 0.01), event.clientX - box.left, event.clientY - box.top));

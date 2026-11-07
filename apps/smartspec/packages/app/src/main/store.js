@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGraph, parseLink } from './items.js';
+import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGraph, parseLink, partName, partsOf } from './items.js';
 
 // Schemas live in the app's data folder, one folder each:
 //
@@ -10,13 +10,23 @@ import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGr
 //     schema.json              its line of drafts, oldest first, and when it last changed
 //     drafts/<draft id>.json   one accepted version; never changed once written
 //     proposal.json            the change the AI proposes, waiting for the user; not yet a draft
+//     comments.json            the user's comments, and the AI's replies (see below)
 //   proposals/<proposal id>.json   what became of each proposal, for `smartspec wait`
+//   groups.json                    the groups schemas are organised into (see below)
 //
 // A draft holds a name, a summary and a contract, which are what show when it's collapsed inside
 // another schema; its items (see items.js); the parameters a use of it can set; and the schemas it
 // embeds, each pinned to one of their drafts; and its focus, if the AI was given one: the goal the
 // user set it, which belongs to that draft and isn't carried to the next. Every change is an
 // AI's, and waits as a proposal until the user accepts it.
+//
+// Schemas are organised into groups: a team, a department, or just a set that belongs together, such
+// as "Auth". A schema is in one group, named in its schema.json, or in none: Ungrouped, which always
+// exists. Groups only organise the list; nothing about a schema's design depends on them.
+//
+// A comment is the user's, on one thing in a draft or the proposal: an item, a part of it, words
+// they selected in it, quoted, or its card (its title, description and card lines). The AI reads them and replies. A comment on the proposal stays with it
+// as the AI revises it, goes with it into the draft it becomes, and goes when it's discarded.
 
 const USE_ID = /^[a-z0-9][\w-]*$/i;
 const FILE_ID = /^[\w-]+$/;
@@ -31,7 +41,7 @@ const focusTitle = (goal, title) => title?.trim() || (goal.trim().length > 48 ? 
 
 export function createStore(root, { events = new EventEmitter() } = {}) {
   const schemaDir = (id) => {
-    if (!FILE_ID.test(id)) throw new Error(`No schema ${id}.`);
+    if (!FILE_ID.test(id)) throw new Error(`No schematic ${id}.`);
     return path.join(root, 'schemas', id);
   };
   const draftFile = (schemaId, draftId) => {
@@ -39,6 +49,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     return path.join(schemaDir(schemaId), 'drafts', `${draftId}.json`);
   };
   const proposalFile = (schemaId) => path.join(schemaDir(schemaId), 'proposal.json');
+  const commentsFile = (schemaId) => path.join(schemaDir(schemaId), 'comments.json');
   const outcomeFile = (id) => {
     if (!FILE_ID.test(id)) throw new Error(`No proposal ${id}.`);
     return path.join(root, 'proposals', `${id}.json`);
@@ -61,13 +72,28 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   }
 
   const readSchema = (id) => readJson(path.join(schemaDir(id), 'schema.json'));
+  const groupsFile = path.join(root, 'groups.json');
+  const readGroups = async () => (await readJson(groupsFile))?.groups ?? [];
+  const writeGroups = (groups) => writeJson(groupsFile, { groups });
+  const groupName = (name) => {
+    const named = String(name ?? '').trim().replace(/\s+/g, ' ');
+    if (!named) throw new Error('A group needs a name.');
+    if (named.length > 80) throw new Error('A group\'s name can be up to 80 characters.');
+    if (/^ungrouped$/i.test(named)) throw new Error('Ungrouped is where schematics in no group are, so a group can\'t take that name.');
+    return named;
+  };
   const readDraft = (schemaId, draftId) => readJson(draftFile(schemaId, draftId));
   const readProposal = (schemaId) => readJson(proposalFile(schemaId));
+  const readComments = async (schemaId) => (await readJson(commentsFile(schemaId)))?.comments ?? [];
+  const writeComments = (schemaId, comments) => writeJson(commentsFile(schemaId), { comments });
+  // What a comment is on: the proposal, or a draft by its id.
+  const ON_PROPOSAL = 'proposal';
+  const commentsOn = async (schemaId, on) => (await readComments(schemaId)).filter((comment) => comment.on === on);
   const writeSchema = (schema) => writeJson(path.join(schemaDir(schema.id), 'schema.json'), { ...schema, updatedAt: now() });
 
   async function requireSchema(id) {
     const schema = await readSchema(id);
-    if (!schema) throw new Error(`No schema ${id}. list_schemas shows the ones there are.`);
+    if (!schema) throw new Error(`No schematic ${id}. list_schematics shows the ones there are.`);
     return schema;
   }
 
@@ -80,7 +106,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   };
 
   const brief = (proposal) => proposal && { id: proposal.id, note: proposal.note, createdAt: proposal.createdAt };
-  const itemBrief = ({ id, kind, title, description, mediaType }) => ({ id, kind, title, ...(description && { description }), ...(mediaType && { mediaType }) });
+  const itemBrief = ({ id, kind, title, description, mediaType, card }) => ({ id, kind, title, ...(description && { description }), ...(mediaType && { mediaType }), ...(card && { card }) });
 
   // What a schema shows for a record (a draft or a proposal): its items listed but not their
   // content, the links between them, and each use collapsed, or with `depth` levels opened.
@@ -142,12 +168,12 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       seen.add(use.id);
       const target = await requireSchema(use.schemaId);
       const draftId = use.draftId ?? target.line.at(-1);
-      if (!draftId) throw new Error(`Schema ${use.schemaId} has no accepted draft yet, so it can't be embedded. The user has to accept its proposal first.`);
-      if (!target.line.includes(draftId)) throw new Error(`Schema ${use.schemaId} has no draft ${draftId}.`);
+      if (!draftId) throw new Error(`Schematic ${use.schemaId} has no accepted draft yet, so it can't be embedded. The user has to accept its proposal first.`);
+      if (!target.line.includes(draftId)) throw new Error(`Schematic ${use.schemaId} has no draft ${draftId}.`);
       const draft = await readDraft(use.schemaId, draftId);
       const declared = new Set(draft.parameters.map((parameter) => parameter.name));
       for (const key of Object.keys(use.with ?? {})) {
-        if (!declared.has(key)) throw new Error(`${draft.name} has no parameter "${key}". A use can only set the parameters its schema declares: ${[...declared].join(', ') || 'it has none'}.`);
+        if (!declared.has(key)) throw new Error(`${draft.name} has no parameter "${key}". A use can only set the parameters its schematic declares: ${[...declared].join(', ') || 'it has none'}.`);
       }
       pinned.push({ id: use.id, schemaId: use.schemaId, draftId, with: use.with ?? {} });
     }
@@ -167,7 +193,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       items: base?.items ?? [],
       note,
     };
-    if (!record.name || !record.summary) throw new Error('A schema needs a name and a summary.');
+    if (!record.name || !record.summary) throw new Error('A schematic needs a name and a summary.');
     const names = record.parameters.map((parameter) => parameter.name);
     if (new Set(names).size !== names.length) throw new Error('Two parameters have the same name.');
 
@@ -177,7 +203,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     const next = record.items.filter((item) => !removeItems.includes(item.id));
     for (const item of items) {
       if (!USE_ID.test(item.id ?? '')) throw new Error(`"${item.id}" can't be an item's id: use letters, numbers, - and _.`);
-      if (item.id === CONTRACT) throw new Error(`"${CONTRACT}" is the schema's contract, so it can't be an item's id.`);
+      if (item.id === CONTRACT) throw new Error(`"${CONTRACT}" is the schematic's contract, so it can't be an item's id.`);
       if (items.filter((other) => other.id === item.id).length > 1) throw new Error(`Two items have the id ${item.id}.`);
       checkItem(item);
       const at = next.findIndex((other) => other.id === item.id);
@@ -191,7 +217,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     }
     record.items = next;
     for (const use of record.uses) {
-      if (record.items.some((item) => item.id === use.id)) throw new Error(`An item and an embedded schema are both called ${use.id}. Give each its own id.`);
+      if (record.items.some((item) => item.id === use.id)) throw new Error(`An item and an embedded schematic are both called ${use.id}. Give each its own id.`);
     }
     checkLinks(record);
     return record;
@@ -206,6 +232,18 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     if (proposalId) events.emit('proposal', proposalId);
   };
 
+  // A comment's target in words, from the record it's on: what the item is called, and the part,
+  // or that it's no longer there.
+  function describeTarget(record, target) {
+    if (target.item === CONTRACT) return { ...target, title: 'Contract' };
+    const use = record.uses.find((one) => one.id === target.item);
+    if (use) return { ...target, title: use.id };
+    const item = record.items.find((one) => one.id === target.item);
+    if (!item) return { ...target, missing: true };
+    const found = !target.part || partsOf(item).includes(target.part);
+    return { ...target, title: item.title, ...(target.part && found && { partName: partName(item, target.part) }), ...(!found && { partMissing: true }) };
+  }
+
   async function latestRecord(schema) {
     const latest = schema.line.at(-1);
     return latest ? readDraft(schema.id, latest) : null;
@@ -219,6 +257,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         if (error.code === 'ENOENT') return [];
         throw error;
       });
+      const groups = new Set((await readGroups()).map((group) => group.id));
       const rows = await Promise.all(names.filter((name) => FILE_ID.test(name)).map(async (id) => {
         const schema = await readSchema(id);
         if (!schema) return null;
@@ -233,10 +272,79 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
           latestDraftId: latest ?? null,
           proposal: brief(proposal),
           status: STATUS,
+          group: groups.has(schema.group) ? schema.group : null,
           updatedAt: schema.updatedAt,
         };
       }));
       return rows.filter(Boolean).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
+
+    // The groups, by name, each with when it was made and how many schemas are in it; and Ungrouped's
+    // count.
+    async listGroups() {
+      const groups = await readGroups();
+      const names = await readdir(path.join(root, 'schemas')).catch(() => []);
+      const counts = new Map();
+      for (const name of names.filter((one) => FILE_ID.test(one))) {
+        const schema = await readSchema(name);
+        if (!schema) continue;
+        const group = groups.some((one) => one.id === schema.group) ? schema.group : null;
+        counts.set(group, (counts.get(group) ?? 0) + 1);
+      }
+      return {
+        groups: groups.map(({ id, name, createdAt }) => ({ id, name, createdAt, schemas: counts.get(id) ?? 0 })).sort((a, b) => a.name.localeCompare(b.name)),
+        ungrouped: counts.get(null) ?? 0,
+      };
+    },
+
+    createGroup(name) {
+      return serial(async () => {
+        const named = groupName(name);
+        const groups = await readGroups();
+        if (groups.some((group) => group.name.toLowerCase() === named.toLowerCase())) throw new Error(`There's already a group called ${named}.`);
+        const group = { id: newId(), name: named, createdAt: now() };
+        await writeGroups([...groups, group]);
+        events.emit('changed', null);
+        return { id: group.id, name: group.name };
+      });
+    },
+
+    renameGroup(id, name) {
+      return serial(async () => {
+        const named = groupName(name);
+        const groups = await readGroups();
+        const group = groups.find((one) => one.id === id);
+        if (!group) throw new Error(`There's no group ${id}.`);
+        if (groups.some((one) => one.id !== id && one.name.toLowerCase() === named.toLowerCase())) throw new Error(`There's already a group called ${named}.`);
+        group.name = named;
+        await writeGroups(groups);
+        events.emit('changed', null);
+        return { id, name: named };
+      });
+    },
+
+    // A group goes; its schemas go to Ungrouped, and nothing else changes.
+    deleteGroup(id) {
+      return serial(async () => {
+        const groups = await readGroups();
+        if (!groups.some((one) => one.id === id)) throw new Error(`There's no group ${id}.`);
+        await writeGroups(groups.filter((one) => one.id !== id));
+        events.emit('changed', null);
+        return { deleted: id };
+      });
+    },
+
+    // Puts a schema in a group, or in none (null). Only the list changes, so it isn't a change to the
+    // schema, and doesn't make it the most recently changed.
+    moveSchema(schemaId, groupId) {
+      return serial(async () => {
+        const schema = await requireSchema(schemaId);
+        if (groupId && !(await readGroups()).some((one) => one.id === groupId)) throw new Error(`There's no group ${groupId}. list_groups shows the ones there are.`);
+        const { group, ...rest } = schema;
+        await writeJson(path.join(schemaDir(schemaId), 'schema.json'), groupId ? { ...rest, group: groupId } : rest);
+        events.emit('changed', schemaId);
+        return { schema: schemaId, group: groupId ?? null };
+      });
     },
 
     // A schema's drafts, newest first, for browsing them.
@@ -272,8 +380,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       const schema = await requireSchema(id);
       const proposal = await readProposal(id);
       const which = draftId ?? schema.line.at(-1);
-      if (!which) throw new Error(`Schema ${id} has no accepted draft yet: its first is still waiting for the user to accept it.`);
-      if (!schema.line.includes(which)) throw new Error(`Schema ${id} has no draft ${which}.`);
+      if (!which) throw new Error(`Schematic ${id} has no accepted draft yet: its first is still waiting for the user to accept it.`);
+      if (!schema.line.includes(which)) throw new Error(`Schematic ${id} has no draft ${which}.`);
       const record = await readDraft(id, which);
       return {
         id,
@@ -282,6 +390,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         total: schema.line.length,
         line: schema.line,
         ...(await describe(record, depth)),
+        comments: (await commentsOn(id, which)).length,
         proposal: brief(proposal),
       };
     },
@@ -299,6 +408,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         total: schema.line.length,
         line: schema.line,
         ...(await describe(proposal, depth)),
+        comments: (await commentsOn(id, ON_PROPOSAL)).length,
         changes: itemChanges(await latestRecord(schema), proposal),
       };
     },
@@ -308,9 +418,9 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     async getItem(schemaId, itemId, { draftId, proposal = false } = {}) {
       const schema = await requireSchema(schemaId);
       const record = proposal ? await readProposal(schemaId) : await readDraft(schemaId, draftId ?? schema.line.at(-1) ?? 'none');
-      if (!record) throw new Error(proposal ? `Schema ${schemaId} has no proposal waiting.` : `Schema ${schemaId} has no such draft.`);
+      if (!record) throw new Error(proposal ? `Schematic ${schemaId} has no proposal waiting.` : `Schematic ${schemaId} has no such draft.`);
       const item = record.items.find((each) => each.id === itemId);
-      if (!item) throw new Error(`Schema ${schemaId} has no item ${itemId}. get_schema lists its items.`);
+      if (!item) throw new Error(`Schematic ${schemaId} has no item ${itemId}. get_schematic lists its items.`);
       const links = linkGraph(record);
       return {
         ...item,
@@ -324,24 +434,25 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     async getConnections(schemaId, { draftId, proposal = false } = {}) {
       const schema = await requireSchema(schemaId);
       const record = proposal ? await readProposal(schemaId) : await readDraft(schemaId, draftId ?? schema.line.at(-1) ?? 'none');
-      if (!record) throw new Error(proposal ? `Schema ${schemaId} has no proposal waiting.` : `Schema ${schemaId} has no such draft.`);
+      if (!record) throw new Error(proposal ? `Schematic ${schemaId} has no proposal waiting.` : `Schematic ${schemaId} has no such draft.`);
       const uses = await Promise.all(record.uses.map((use) => describeUse(use, 0)));
       return connectionDetails({ items: record.items, uses, links: linkGraph(record) });
     },
 
     // Proposes a new schema, or a change to one (`schemaId`), for the user to accept or discard. A
     // change builds on the proposal already waiting, which it replaces, or else the latest draft.
-    propose({ schemaId, note, goal, goalTitle, ...change }) {
+    propose({ schemaId, note, goal, goalTitle, groupId, ...change }) {
       return serial(async () => {
         const existing = schemaId ? await requireSchema(schemaId) : null;
+        if (groupId && !(await readGroups()).some((group) => group.id === groupId)) throw new Error(`There's no group ${groupId}. list_groups shows the ones there are.`);
         const replaced = existing ? await readProposal(schemaId) : null;
         const record = await buildRecord(replaced ?? (existing && await latestRecord(existing)), { ...change, note });
         const focus = goal?.trim() ? { goal: goal.trim(), title: focusTitle(goal, goalTitle) } : replaced?.focus;
         if (focus) record.focus = focus;
-        if (existing && await embeds(record, existing.id)) throw new Error(`${record.name} can't embed itself, directly or through another schema.`);
+        if (existing && await embeds(record, existing.id)) throw new Error(`${record.name} can't embed itself, directly or through another schematic.`);
 
         const id = existing?.id ?? `${Date.now().toString(36)}-${newId()}`;
-        if (!existing) await writeSchema({ id, createdAt: now(), line: [] });
+        if (!existing) await writeSchema({ id, createdAt: now(), line: [], ...(groupId && { group: groupId }) });
         if (replaced) await recordOutcome(replaced, 'replaced', id);
         const proposal = { ...record, id: newId(), createdAt: now(), basedOn: existing?.line.at(-1) ?? null };
         await writeJson(proposalFile(id), proposal);
@@ -362,6 +473,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         await writeJson(draftFile(schemaId, draftId), { ...record, id: draftId, parentId: schema.line.at(-1) ?? null, createdAt: now() });
         await writeSchema({ ...schema, line: [...schema.line, draftId] });
         await rm(proposalFile(schemaId), { force: true });
+        const comments = await readComments(schemaId);
+        if (comments.some((comment) => comment.on === ON_PROPOSAL)) await writeComments(schemaId, comments.map((comment) => (comment.on === ON_PROPOSAL ? { ...comment, on: draftId } : comment)));
         await recordOutcome(proposal, 'accepted', schemaId, draftId);
         finished(schemaId, proposalId);
         return { schema: schemaId, draft: draftId };
@@ -376,6 +489,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         if (!proposal) throw new Error('There is no proposed change to discard.');
         if (schema.line.length) {
           await rm(proposalFile(schemaId), { force: true });
+          const comments = await readComments(schemaId);
+          if (comments.some((comment) => comment.on === ON_PROPOSAL)) await writeComments(schemaId, comments.filter((comment) => comment.on !== ON_PROPOSAL));
           await writeSchema(schema);
         } else {
           await rm(schemaDir(schemaId), { recursive: true, force: true });
@@ -383,6 +498,69 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         await recordOutcome(proposal, 'discarded', schemaId);
         finished(schemaId, proposal.id);
         return { schema: schemaId, removed: !schema.line.length };
+      });
+    },
+
+    // The comments on a draft (its latest unless told which) or the proposal, oldest first, each
+    // saying what it's on: the item and its title, the part and what it's called, and any words quoted.
+    async listComments(schemaId, { draftId, proposal = false } = {}) {
+      const schema = await requireSchema(schemaId);
+      const on = proposal ? ON_PROPOSAL : draftId ?? schema.line.at(-1);
+      const record = proposal ? await readProposal(schemaId) : on && await readDraft(schemaId, on);
+      if (!record) throw new Error(proposal ? `Schematic ${schemaId} has no proposal waiting.` : `Schematic ${schemaId} has no such draft.`);
+      return (await commentsOn(schemaId, on)).map((comment) => ({ ...comment, target: describeTarget(record, comment.target) }));
+    },
+
+    // The user comments on something in a draft or the proposal.
+    addComment(schemaId, { draftId, proposal = false, target, text }) {
+      return serial(async () => {
+        const schema = await requireSchema(schemaId);
+        const on = proposal ? ON_PROPOSAL : draftId ?? schema.line.at(-1);
+        const record = proposal ? await readProposal(schemaId) : on && schema.line.includes(on) && await readDraft(schemaId, on);
+        if (!record) throw new Error(proposal ? 'There is no proposal to comment on.' : `Schematic ${schemaId} has no such draft.`);
+        const said = String(text ?? '').trim();
+        if (!said) throw new Error('A comment needs something said.');
+        const item = String(target?.item ?? '');
+        if (item !== CONTRACT && !record.items.some((one) => one.id === item) && !record.uses.some((use) => use.id === item)) throw new Error(`There's no ${item} to comment on.`);
+        const comment = {
+          id: newId(),
+          on,
+          // On the item's card (what it shows around the schema), or on its content.
+          target: target.card ? { item, card: true } : { item, ...(target.part && { part: String(target.part) }), ...(target.quote?.trim() && { quote: target.quote.trim().slice(0, 500) }) },
+          text: said,
+          createdAt: now(),
+          replies: [],
+        };
+        await writeComments(schemaId, [...await readComments(schemaId), comment]);
+        events.emit('changed', schemaId);
+        return comment;
+      });
+    },
+
+    // The user takes back one of their comments, with any replies to it.
+    deleteComment(schemaId, commentId) {
+      return serial(async () => {
+        const comments = await readComments(schemaId);
+        if (!comments.some((comment) => comment.id === commentId)) throw new Error(`There's no comment ${commentId}.`);
+        await writeComments(schemaId, comments.filter((comment) => comment.id !== commentId));
+        events.emit('changed', schemaId);
+        return { deleted: commentId };
+      });
+    },
+
+    // The AI answers a comment. `author` is who it is, as the user would know it.
+    replyToComment(schemaId, commentId, { text, author = 'AI' }) {
+      return serial(async () => {
+        const comments = await readComments(schemaId);
+        const comment = comments.find((one) => one.id === commentId);
+        if (!comment) throw new Error(`There's no comment ${commentId} on schematic ${schemaId}. get_comments lists them.`);
+        const said = String(text ?? '').trim();
+        if (!said) throw new Error('A reply needs something said.');
+        const reply = { id: newId(), author, text: said, createdAt: now() };
+        comment.replies = [...(comment.replies ?? []), reply];
+        await writeComments(schemaId, comments);
+        events.emit('changed', schemaId);
+        return { comment: commentId, reply: reply.id };
       });
     },
 

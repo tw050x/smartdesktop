@@ -27,7 +27,7 @@ function headingTexts(markdown) {
 
 const headings = (markdown) => headingTexts(markdown).map(slug);
 
-// Whether a link in Markdown is to something in the schema: no scheme, and not a path.
+// Whether a link in Markdown is to something in the schematic: no scheme, and not a path.
 export const isInternalLink = (href) => Boolean(href) && !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith('/') && !href.startsWith('//');
 
 // The internal links in some Markdown, leaving out images and code.
@@ -123,10 +123,19 @@ function uniqueIds(what, ids) {
 }
 
 // Throws saying what's wrong with an item, naming the part.
+export const CARD_LINES = 4;
+
 export function checkItem(item) {
   const where = `Item ${item.id}`;
   if (!KINDS.includes(item.kind)) throw new Error(`${where} has an unknown kind, "${item.kind}". The kinds are: ${KINDS.join(', ')}.`);
   if (!item.title?.trim()) throw new Error(`${where} needs a title.`);
+  // What its card shows below the line, instead of what the app works out (see CARD_LINES).
+  if (item.card !== undefined) {
+    if (!Array.isArray(item.card) || item.card.some((line) => typeof line !== 'string')) throw new Error(`${where}'s card should be a list of short lines.`);
+    item.card = item.card.map((line) => line.trim()).filter(Boolean);
+    if (item.card.length > CARD_LINES) throw new Error(`${where}'s card has ${item.card.length} lines; it fits ${CARD_LINES}.`);
+    if (!item.card.length) delete item.card;
+  }
   if (item.kind === 'document' && typeof item.markdown !== 'string') throw new Error(`${where} is a document, so it needs markdown.`);
   if (item.kind === 'flow') {
     if (!item.nodes?.length) throw new Error(`${where} is a flow diagram, so it needs nodes.`);
@@ -218,9 +227,9 @@ export function checkLinks(record) {
     if (target === CONTRACT) {
       if (part) throw new Error(`The link from ${from} to ${to} can't work: the contract has no parts to link to.`);
     } else if (uses.has(target)) {
-      if (part && part !== CONTRACT) throw new Error(`The link from ${from} to ${to} reaches inside an embedded schema. Link to ${target}, or to ${target}#${CONTRACT}.`);
+      if (part && part !== CONTRACT) throw new Error(`The link from ${from} to ${to} reaches inside an embedded schematic. Link to ${target}, or to ${target}#${CONTRACT}.`);
     } else if (!items.has(target)) {
-      throw new Error(`The link from ${from} goes to ${target}, which isn't an item or embedded schema here.`);
+      throw new Error(`The link from ${from} goes to ${target}, which isn't an item or embedded schematic here.`);
     } else if (part && !partsOf(items.get(target)).includes(part)) {
       throw new Error(`The link from ${from} goes to ${to}, but ${target} has no part ${part}. Its parts are: ${partsOf(items.get(target)).join(', ') || 'none'}.`);
     }
@@ -321,7 +330,7 @@ export function itemChanges(before, after) {
   const ids = new Set(after.items.map((item) => item.id));
   return {
     items: changes,
-    removed: [...was.values()].filter((item) => !ids.has(item.id)).map(({ id, title, kind }) => ({ id, title, kind })),
+    removed: [...was.values()].filter((item) => !ids.has(item.id)).map(({ id, title, kind, mediaType }) => ({ id, title, kind, ...(mediaType && { mediaType }) })),
     contract: Boolean(before) && before.contract !== after.contract,
   };
 }

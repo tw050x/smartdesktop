@@ -11,7 +11,7 @@
       "listChanged": true
     }
   },
-  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schemas, for the user and for other agents to act on. It's about system design at any scale: a schema can describe a whole business, one service, or one module inside a single application.\nA schema has a name, a summary and a contract, which are what show when it's collapsed inside another schema, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schema's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schema is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schemas this one embeds, but not inside them. Links that go nowhere are refused.\nSchemas embed other schemas: a standard structure, such as machine to machine auth, is one schema, and shows as a single element in each schema that uses it. Each use is pinned to a draft and can only set the parameters the embedded schema declares. To change anything else, propose a new draft of that schema, or a separate schema.\nRead only what you need: get_schema lists a schema's items and links without their content, with its uses collapsed. Fetch an item with get_schema_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schema as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schema creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schema later to see where it stands. A schema you embed must have an accepted draft, so wait for the acceptance before building on it.",
+  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics are organised into groups, such as a team, a department or a set like \"Auth\"; a schematic in none is Ungrouped. list_groups shows them. create_group, rename_group and move_schematic take effect straight away, so only use them when the user asks. A new schematic can go straight into a group with propose_schematic's group_id.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many comments there are, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment, saying what you changed or why you didn't. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.",
   "tools": [
     {
       "name": "use_window",
@@ -39,8 +39,8 @@
       }
     },
     {
-      "name": "list_schemas",
-      "description": "Every schema, most recently changed first: its id, name, summary, number of accepted drafts, status, and any proposal waiting for the user.",
+      "name": "list_schematics",
+      "description": "Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the group it's in (null for Ungrouped), and any proposal waiting for the user.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -56,12 +56,118 @@
       }
     },
     {
-      "name": "get_schema",
-      "description": "One schema's accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schemas it embeds, each collapsed to its name, summary, contract and pinned draft, saying if a newer draft exists. Fetch an item with get_schema_item. Open further levels with depth, or by calling this for an embedded schema's id and draft. proposal says if a change is waiting for the user.",
+      "name": "list_groups",
+      "description": "The groups schematics are organised into, by name: each with its id, name and how many schematics are in it, and how many schematics are Ungrouped.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "create_group",
+      "description": "Makes a group to organise schematics into, such as a team, a department or a set like \"Auth\", straight away. Only use it when the user asks.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "schema_id": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rename_group",
+      "description": "Renames a group, straight away. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "description": "From list_groups"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "group_id",
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "move_schematic",
+      "description": "Puts a schematic in a group, or back in Ungrouped, straight away. Only its place on the list changes: its drafts stay as they are. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schematic_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "description": "From list_groups, or null for Ungrouped",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "schematic_id",
+          "group_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_schematic",
+      "description": "One schematic's accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and pinned draft, saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic's id and draft. proposal says if a change is waiting for the user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schematic_id": {
             "type": "string"
           },
           "draft_id": {
@@ -69,14 +175,14 @@
             "type": "string"
           },
           "depth": {
-            "description": "How many levels of embedded schemas to open (default 0: all collapsed)",
+            "description": "How many levels of embedded schematics to open (default 0: all collapsed)",
             "type": "integer",
             "minimum": 0,
             "maximum": 10
           }
         },
         "required": [
-          "schema_id"
+          "schematic_id"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
@@ -90,12 +196,12 @@
       }
     },
     {
-      "name": "get_schema_item",
+      "name": "get_schematic_item",
       "description": "One item's full content, with the links out of it and into it.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "schema_id": {
+          "schematic_id": {
             "type": "string"
           },
           "item_id": {
@@ -106,12 +212,12 @@
             "type": "string"
           },
           "proposal": {
-            "description": "Read it from the proposal waiting on the schema instead",
+            "description": "Read it from the proposal waiting on the schematic instead",
             "type": "boolean"
           }
         },
         "required": [
-          "schema_id",
+          "schematic_id",
           "item_id"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -127,22 +233,22 @@
     },
     {
       "name": "get_proposal",
-      "description": "The change waiting for the user on a schema, in the same form as get_schema, with which items it adds, changes and removes. Fetch an item from it with get_schema_item and proposal. Null if nothing is waiting.",
+      "description": "The change waiting for the user on a schematic, in the same form as get_schematic, with which items it adds, changes and removes. Fetch an item from it with get_schematic_item and proposal. Null if nothing is waiting.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "schema_id": {
+          "schematic_id": {
             "type": "string"
           },
           "depth": {
-            "description": "How many levels of embedded schemas to open (default 0: all collapsed)",
+            "description": "How many levels of embedded schematics to open (default 0: all collapsed)",
             "type": "integer",
             "minimum": 0,
             "maximum": 10
           }
         },
         "required": [
-          "schema_id"
+          "schematic_id"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
@@ -156,23 +262,89 @@
       }
     },
     {
-      "name": "propose_schema",
-      "description": "Proposes a new schema, or with schema_id a change to one, and shows it in the app for the user to accept or discard. For a change, send only what changes: everything else carries over, from the proposal already waiting (which this replaces) or else the latest draft. Links are checked, and the proposal is refused if one goes nowhere.",
+      "name": "get_comments",
+      "description": "The user's comments on a schematic's draft (the latest unless you name one) or on the proposal waiting on it, oldest first. Each says what it's on (target: the item and its title, the part and its name, any words the user quoted, or card: true for the item's card; missing or partMissing if that's no longer there), what the user said, and the replies so far.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "schema_id": {
-            "description": "The schema to change (leave out to propose a new one)",
+          "schematic_id": {
+            "type": "string"
+          },
+          "draft_id": {
+            "description": "The draft whose comments to read (default: the latest)",
+            "type": "string"
+          },
+          "proposal": {
+            "description": "Read the comments on the proposal waiting on the schematic instead",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schematic_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "reply_to_comment",
+      "description": "Answers one of the user's comments, shown under it in the app: say what you changed, or why you didn't. A comment can have several replies, so reply again after a further revision.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schematic_id": {
+            "type": "string"
+          },
+          "comment_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Your reply, in a sentence or two"
+          }
+        },
+        "required": [
+          "schematic_id",
+          "comment_id",
+          "text"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "propose_schematic",
+      "description": "Proposes a new schematic, or with schematic_id a change to one, and shows it in the app for the user to accept or discard. For a change, send only what changes: everything else carries over, from the proposal already waiting (which this replaces) or else the latest draft. Links are checked, and the proposal is refused if one goes nowhere.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schematic_id": {
+            "description": "The schematic to change (leave out to propose a new one)",
             "type": "string"
           },
           "name": {
-            "description": "Needed for a new schema",
+            "description": "Needed for a new schematic",
             "type": "string",
             "minLength": 1,
             "maxLength": 200
           },
           "summary": {
-            "description": "What this is, in a sentence or two. Shows when it's collapsed. Needed for a new schema.",
+            "description": "What this is, in a sentence or two. Shows when it's collapsed. Needed for a new schematic.",
             "type": "string",
             "minLength": 1
           },
@@ -190,14 +362,14 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                      "description": "Its id within this schematic. Sending an id that exists replaces that item."
                     },
                     "title": {
                       "type": "string",
                       "minLength": 1
                     },
                     "description": {
-                      "description": "One line saying what it is, listed by get_schema",
+                      "description": "One line saying what it is, listed by get_schematic",
                       "type": "string"
                     },
                     "links": {
@@ -216,6 +388,14 @@
                         "required": [
                           "to"
                         ]
+                      }
+                    },
+                    "card": {
+                      "description": "Up to 4 short lines for the item's card, the summary shown wherever it appears around the schematic, below its title and description. Instead of what the app works out (such as a table's row count), so write them when the user asks for details there, or when a few facts say more. Leave out to let the app summarise.",
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
                       }
                     },
                     "kind": {
@@ -238,14 +418,14 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                      "description": "Its id within this schematic. Sending an id that exists replaces that item."
                     },
                     "title": {
                       "type": "string",
                       "minLength": 1
                     },
                     "description": {
-                      "description": "One line saying what it is, listed by get_schema",
+                      "description": "One line saying what it is, listed by get_schematic",
                       "type": "string"
                     },
                     "links": {
@@ -264,6 +444,14 @@
                         "required": [
                           "to"
                         ]
+                      }
+                    },
+                    "card": {
+                      "description": "Up to 4 short lines for the item's card, the summary shown wherever it appears around the schematic, below its title and description. Instead of what the app works out (such as a table's row count), so write them when the user asks for details there, or when a few facts say more. Leave out to let the app summarise.",
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
                       }
                     },
                     "kind": {
@@ -290,7 +478,7 @@
                             "type": "string"
                           },
                           "description": {
-                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "description": "What this one does here and why, which the diagram can't show by itself, for agents reading the schematic. Don't repeat what the diagram already shows: who it joins and what it wraps.",
                             "type": "string"
                           },
                           "link": {
@@ -323,7 +511,7 @@
                             "type": "string"
                           },
                           "description": {
-                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "description": "What this one does here and why, which the diagram can't show by itself, for agents reading the schematic. Don't repeat what the diagram already shows: who it joins and what it wraps.",
                             "type": "string"
                           },
                           "link": {
@@ -350,14 +538,14 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                      "description": "Its id within this schematic. Sending an id that exists replaces that item."
                     },
                     "title": {
                       "type": "string",
                       "minLength": 1
                     },
                     "description": {
-                      "description": "One line saying what it is, listed by get_schema",
+                      "description": "One line saying what it is, listed by get_schematic",
                       "type": "string"
                     },
                     "links": {
@@ -378,6 +566,14 @@
                         ]
                       }
                     },
+                    "card": {
+                      "description": "Up to 4 short lines for the item's card, the summary shown wherever it appears around the schematic, below its title and description. Instead of what the app works out (such as a table's row count), so write them when the user asks for details there, or when a few facts say more. Leave out to let the app summarise.",
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "kind": {
                       "type": "string",
                       "const": "sequence"
@@ -394,7 +590,7 @@
                             "type": "string"
                           },
                           "description": {
-                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "description": "What this one does here and why, which the diagram can't show by itself, for agents reading the schematic. Don't repeat what the diagram already shows: who it joins and what it wraps.",
                             "type": "string"
                           },
                           "link": {
@@ -430,7 +626,7 @@
                             "type": "boolean"
                           },
                           "description": {
-                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "description": "What this one does here and why, which the diagram can't show by itself, for agents reading the schematic. Don't repeat what the diagram already shows: who it joins and what it wraps.",
                             "type": "string"
                           },
                           "link": {
@@ -500,7 +696,7 @@
                             }
                           },
                           "description": {
-                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "description": "What this one does here and why, which the diagram can't show by itself, for agents reading the schematic. Don't repeat what the diagram already shows: who it joins and what it wraps.",
                             "type": "string"
                           },
                           "link": {
@@ -535,7 +731,7 @@
                             "type": "string"
                           },
                           "description": {
-                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "description": "What this one does here and why, which the diagram can't show by itself, for agents reading the schematic. Don't repeat what the diagram already shows: who it joins and what it wraps.",
                             "type": "string"
                           },
                           "link": {
@@ -571,7 +767,7 @@
                             "description": "Next to each other in participants"
                           },
                           "description": {
-                            "description": "What this one does here and why, which the diagram can't show by itself. The user sees it on hover, beside the facts the app already works out: who it joins and what it wraps. Don't repeat those.",
+                            "description": "What this one does here and why, which the diagram can't show by itself, for agents reading the schematic. Don't repeat what the diagram already shows: who it joins and what it wraps.",
                             "type": "string"
                           },
                           "link": {
@@ -598,14 +794,14 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                      "description": "Its id within this schematic. Sending an id that exists replaces that item."
                     },
                     "title": {
                       "type": "string",
                       "minLength": 1
                     },
                     "description": {
-                      "description": "One line saying what it is, listed by get_schema",
+                      "description": "One line saying what it is, listed by get_schematic",
                       "type": "string"
                     },
                     "links": {
@@ -624,6 +820,14 @@
                         "required": [
                           "to"
                         ]
+                      }
+                    },
+                    "card": {
+                      "description": "Up to 4 short lines for the item's card, the summary shown wherever it appears around the schematic, below its title and description. Instead of what the app works out (such as a table's row count), so write them when the user asks for details there, or when a few facts say more. Leave out to let the app summarise.",
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
                       }
                     },
                     "kind": {
@@ -690,14 +894,14 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "description": "Its id within this schema. Sending an id that exists replaces that item."
+                      "description": "Its id within this schematic. Sending an id that exists replaces that item."
                     },
                     "title": {
                       "type": "string",
                       "minLength": 1
                     },
                     "description": {
-                      "description": "One line saying what it is, listed by get_schema",
+                      "description": "One line saying what it is, listed by get_schematic",
                       "type": "string"
                     },
                     "links": {
@@ -716,6 +920,14 @@
                         "required": [
                           "to"
                         ]
+                      }
+                    },
+                    "card": {
+                      "description": "Up to 4 short lines for the item's card, the summary shown wherever it appears around the schematic, below its title and description. Instead of what the app works out (such as a table's row count), so write them when the user asks for details there, or when a few facts say more. Leave out to let the app summarise.",
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
                       }
                     },
                     "kind": {
@@ -761,7 +973,7 @@
             }
           },
           "parameters": {
-            "description": "What each use of this schema can set. Replaces the list.",
+            "description": "What each use of this schematic can set. Replaces the list.",
             "type": "array",
             "items": {
               "type": "object",
@@ -780,18 +992,18 @@
             }
           },
           "uses": {
-            "description": "The schemas this one embeds. Replaces the list.",
+            "description": "The schematics this one embeds. Replaces the list.",
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
                 "id": {
                   "type": "string",
-                  "description": "Its name within this schema, which links use"
+                  "description": "Its name within this schematic, which links use"
                 },
-                "schema_id": {
+                "schematic_id": {
                   "type": "string",
-                  "description": "The schema to embed, which must have an accepted draft"
+                  "description": "The schematic to embed, which must have an accepted draft"
                 },
                 "draft_id": {
                   "description": "The draft to pin to (default: its latest)",
@@ -810,9 +1022,13 @@
               },
               "required": [
                 "id",
-                "schema_id"
+                "schematic_id"
               ]
             }
+          },
+          "group_id": {
+            "description": "For a new schematic: the group to put it in, from list_groups (default: Ungrouped)",
+            "type": "string"
           },
           "goal": {
             "description": "The focus the user gave you for this work, in their words",
