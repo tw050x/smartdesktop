@@ -1,14 +1,42 @@
-// Comments in the item view. The user picks something in the middle (a diagram's part or a table's
-// row by clicking it, or words by selecting them; right-clicking works on anything, links too), and a
-// Comment button by it starts a comment card in a side column, level with it, among the link cards.
-// What has comments is marked in the middle, and pointing at it lights up their cards; pointing at a
-// comment's card lights up what it's on.
-// Each card says what it's on (the words quoted, or the part), what the user said, and the AI's
-// replies. The store keeps them (see store.js); schemas.js decides which comments show where.
+// Comments on what's in an item. On the board, the user picks something in an item's content (a
+// diagram's part or a table's row by clicking it, or words by selecting them; right-clicking works on
+// anything, links too), and a Comment button by it opens the item's comments box to write one (see
+// card-comments.js). What has comments needing something is marked in the content.
+// Each says what it's on (the words quoted, or the part), what the user said, and the AI's replies.
+// The store keeps them (see store.js); schemas.js decides which comments show where.
 
 
 const TRASH_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
 const MOST_QUOTED = 500;
+const CHECK_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
+
+// A comment still needs something done about it until it's marked "No further action required",
+// by the AI when it replies or by the user (see store.js).
+export const isOpen = (comment) => !comment.noFurtherAction;
+
+// How the AI dealt with a comment, in its own words, as a tag.
+export const outcomeTag = (comment) => comment.outcome && h('span', { className: 'comment-outcome', title: `How it was dealt with: ${comment.outcome}` }, comment.outcome);
+
+// What a comment is waiting for: the AI's answer, or nothing.
+export const waitingLine = (comment) => isOpen(comment) && !comment.replies?.length && h('span', { className: 'comment-waiting' }, 'Waiting for the AI');
+
+// The button that marks a comment as needing no further action, or opens it again.
+export function noFurtherActionButton(comment, onNoFurtherAction) {
+  if (!onNoFurtherAction) return null;
+  const done = !isOpen(comment);
+  const words = done ? 'Needs more: open it again' : 'No further action required';
+  const button = h('button', { className: 'icon-button comment-done', type: 'button', title: words, 'aria-label': words, 'aria-pressed': String(done) });
+  button.innerHTML = CHECK_ICON;
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onNoFurtherAction(comment, !done);
+  });
+  return button;
+}
+
+// The AI's replies under a comment: who, what it said, and any outcome it gave with it.
+export const repliesOf = (comment) => comment.replies?.length > 0 && h('div', { className: 'comment-replies' }, ...comment.replies.map((reply) => h('div', { className: 'comment-reply' },
+  h('strong', {}, reply.author), reply.text && h('span', {}, reply.text), !reply.text && reply.outcome && h('span', { className: 'comment-reply-outcome' }, reply.outcome))));
 
 function h(tag, props = {}, ...children) {
   const element = document.createElement(tag);
@@ -82,19 +110,6 @@ export function findQuote(root, quote, after = null) {
   return range;
 }
 
-const partIn = (middle, part) => (part ? middle.querySelector(`.focus-body [data-part="${CSS.escape(part)}"]`) : null);
-
-// What a comment card sits level with in the middle: the words it quotes, else its part, else
-// nothing (it's on the item as a whole). Worked out once, while the page stays as it is.
-export function commentEnds(card, middle) {
-  if (!card.anchor || (card.anchor.nodeType && !card.anchor.isConnected)) {
-    const part = partIn(middle, card.dataset.part);
-    const body = middle.querySelector('.focus-body');
-    card.anchor = (card.dataset.quote && body && findQuote(body, card.dataset.quote, part)) || part || 'none';
-  }
-  return card.anchor === 'none' ? [] : [card.anchor];
-}
-
 // The heading a place in a document comes under, or the part (a table's row) it's inside.
 function partFor(node, body) {
   const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
@@ -147,49 +162,61 @@ function offerAt(rect, target, element, start) {
   Object.assign(offer.style, { left: `${left}px`, top: `${top}px` });
 }
 
-// Lets the user pick something in the stage's middle to comment on. `start(target)` begins a comment
-// on `{ item, part, quote }`.
-function watchPicking(stage, item, start) {
-  const middle = stage.querySelector(':scope > .focus-card');
-  const body = middle?.querySelector('.focus-body');
-  if (!body) return;
+// Lets the user pick something in an item's content on the board to comment on. `start(target)`
+// begins a comment on `{ item, part, quote }`.
+const BODIES = '.board-item > .board-full .focus-body';
+function watchPicking(root, start) {
+  const bodyAt = (node) => {
+    const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    const body = element?.closest?.(BODIES);
+    return body && root.contains(body) ? body : null;
+  };
+  const itemOf = (body) => body.closest('.board-item').dataset.item;
   const selected = () => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
     const range = selection.getRangeAt(0);
-    if (!body.contains(range.commonAncestorContainer)) return null;
+    const body = bodyAt(range.commonAncestorContainer);
+    if (!body) return null;
     const quote = squash(selection.toString()).slice(0, MOST_QUOTED);
-    return quote ? { range, quote } : null;
+    return quote ? { range, quote, body } : null;
   };
   const offerSelection = () => {
     const chosen = selected();
     if (!chosen) return false;
     const rects = chosen.range.getClientRects();
     const rect = rects[rects.length - 1] ?? chosen.range.getBoundingClientRect();
-    offerAt(rect, { item, part: partFor(chosen.range.startContainer, body), quote: chosen.quote }, null, start);
+    offerAt(rect, { item: itemOf(chosen.body), part: partFor(chosen.range.startContainer, chosen.body), quote: chosen.quote }, null, start);
     return true;
   };
   // Words, once the mouse lets go of them, or the keyboard has selected them.
-  body.addEventListener('mouseup', () => setTimeout(() => {
-    if (!offerSelection() && !picked?.element) forget();
-  }));
-  body.addEventListener('keyup', (event) => {
-    if (event.shiftKey) offerSelection();
+  root.addEventListener('mouseup', (event) => {
+    if (!bodyAt(event.target)) return;
+    setTimeout(() => {
+      if (!offerSelection() && !picked?.element) forget();
+    });
+  });
+  root.addEventListener('keyup', (event) => {
+    if (event.shiftKey && bodyAt(event.target)) offerSelection();
   });
   // A part, by clicking it: not one that links somewhere, which a click follows (right-click those).
-  body.addEventListener('click', (event) => {
-    if (event.target.closest('a[href]')) return;
+  root.addEventListener('click', (event) => {
+    const body = bodyAt(event.target);
+    if (!body || event.target.closest('a[href]')) return;
     const part = event.target.closest('[data-part]');
     if (!part || !body.contains(part) || part.classList.contains('part-link') || /^H[1-6]$/.test(part.tagName)) {
       if (!selected()) forget();
       return;
     }
     if (selected()) return;
-    offerAt(part.getBoundingClientRect(), { item, part: part.dataset.part }, part, start);
+    offerAt(part.getBoundingClientRect(), { item: itemOf(body), part: part.dataset.part }, part, start);
   });
-  body.addEventListener('contextmenu', (event) => {
+  root.addEventListener('contextmenu', (event) => {
+    const body = bodyAt(event.target);
+    if (!body) return;
     if (offerSelection()) return event.preventDefault();
     const part = event.target.closest('[data-part]');
+    const item = itemOf(body);
     const target = part && body.contains(part) ? { item, part: part.dataset.part } : { item };
     event.preventDefault();
     offerAt({ left: event.clientX, right: event.clientX, top: event.clientY, bottom: event.clientY }, target, part && body.contains(part) ? part : null, start);
@@ -206,14 +233,14 @@ function watchWindow() {
   });
   document.addEventListener('scroll', () => picked && forget(), true);
   document.addEventListener('mousedown', (event) => {
-    if (picked && !event.target.closest?.('.comment-start, .focus-card .focus-body')) forget();
+    if (picked && !event.target.closest?.('.comment-start, .focus-body')) forget();
   });
 }
 
 // --- Cards ----------------------------------------------------------------------------------------
 
 // What a comment is on, in a line at its top: the words quoted, else the part's name.
-function about(target) {
+export function about(target) {
   if (target.quote) return h('span', { className: 'comment-about quote' }, `“${target.quote}”`);
   if (target.part) return h('span', { className: 'comment-about' }, `→ ${target.partName ?? target.part}`);
   return null;
@@ -221,113 +248,76 @@ function about(target) {
 
 const anchorAttributes = (target) => ({ 'data-part': target.part ?? null, 'data-quote': target.quote ?? null });
 
-export function commentCard(comment, { onDelete }) {
+// A comment marked "No further action required" folds to one line, its outcome and what it's on,
+// and opens again on a click to show what was said.
+export function commentCard(comment, { onDelete, onNoFurtherAction }) {
   const gone = comment.target.partMissing || comment.target.missing;
-  const remove = h('button', { className: 'icon-button comment-delete', type: 'button', title: 'Delete comment', 'aria-label': 'Delete comment', onclick: () => onDelete(comment) });
+  const done = !isOpen(comment);
+  const remove = h('button', { className: 'icon-button comment-delete', type: 'button', title: 'Delete comment', 'aria-label': 'Delete comment', onclick: (event) => {
+    event.stopPropagation();
+    onDelete(comment);
+  } });
   remove.innerHTML = TRASH_ICON;
-  return h('div', { className: 'focus-neighbour comment-card', 'data-comment': comment.id, ...anchorAttributes(gone ? {} : comment.target), role: 'note', 'aria-label': 'Comment' },
-    h('span', { className: 'comment-top' }, about(comment.target) ?? h('span', { className: 'comment-about' }, 'On all of it'), remove),
+  const card = h('div', { className: `focus-neighbour comment-card${done ? ' done' : ''}`, 'data-comment': comment.id, ...anchorAttributes(gone ? {} : comment.target), role: 'note', 'aria-label': done ? 'Comment, no further action required' : 'Comment' },
+    h('span', { className: 'comment-top' }, done && (outcomeTag(comment) || h('span', { className: 'comment-outcome' }, 'No further action')), about(comment.target) ?? h('span', { className: 'comment-about' }, 'On all of it'), noFurtherActionButton(comment, onNoFurtherAction), remove),
     gone && h('span', { className: 'comment-gone' }, comment.target.missing ? `It was on ${comment.target.item}, which has been removed.` : 'That part is no longer here.'),
     h('p', { className: 'comment-text' }, comment.text),
-    comment.replies?.length > 0 && h('div', { className: 'comment-replies' }, ...comment.replies.map((reply) => h('div', { className: 'comment-reply' },
-      h('strong', {}, reply.author), h('span', {}, reply.text)))));
+    !done && (outcomeTag(comment) || waitingLine(comment)),
+    repliesOf(comment));
+  if (done) {
+    card.title = 'No further action required. Click to see it.';
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('button')) return;
+      card.classList.toggle('unfolded');
+    });
+  }
+  return card;
 }
 
-// A comment being written: `draft` is { target, text }, kept by the caller so a redraw keeps it.
-export function composerCard(draft, { onSave, onCancel }) {
-  const field = h('textarea', { className: 'comment-input', rows: '3', 'aria-label': 'Your comment', placeholder: 'What should change, or what do you want to ask?' });
-  field.value = draft.text ?? '';
-  const save = h('button', { className: 'primary-button', type: 'button', disabled: !field.value.trim() || null }, 'Comment');
-  field.addEventListener('input', () => {
-    draft.text = field.value;
-    save.disabled = !field.value.trim();
-  });
-  const send = () => field.value.trim() && onSave(field.value.trim());
-  save.addEventListener('click', send);
-  field.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      send();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      onCancel();
-    }
-  });
-  const card = h('div', { className: 'focus-neighbour comment-card composing', 'data-comment': 'new', ...anchorAttributes(draft.target) },
-    about(draft.target),
-    field,
-    h('span', { className: 'comment-actions' }, h('button', { className: 'secondary-button', type: 'button', onclick: onCancel }, 'Cancel'), save));
-  card.focusField = () => field.focus({ preventScroll: true });
-  return card;
+// Where an earlier comment is from, as a line on its card.
+export const earlierLine = (comment) => h('span', { className: 'comment-earlier-from' }, `Earlier comment · from Draft ${comment.earlier.draft}`);
+
+// The button that says an earlier comment again, on what's showing; none where nothing can be commented.
+export function againButton(comment, onAgain) {
+  if (!onAgain) return null;
+  return h('button', { className: 'link-button comment-again', type: 'button', onclick: (event) => {
+    event.stopPropagation();
+    onAgain(comment);
+  } }, 'Comment again');
 }
 
 // --- Marking what has comments --------------------------------------------------------------------
 
 const HIGHLIGHTS = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
 
-// Marks what each comment card in the stage is on, and lights one up while pointing at its card.
-// Without a stage, takes the marks away. `start(target)` begins a comment, `item` being what's in
-// the middle; with neither, nothing can be picked (full screen).
-export function watchComments(stage, { item = null, start = null } = {}) {
-  if (HIGHLIGHTS) {
-    CSS.highlights.delete('comments');
-    CSS.highlights.delete('comment-lit');
-  }
+// Lets the user pick things to comment on in the items on the board `root`, and marks what each of
+// `marks` ({ item, part, quote }: open comments on this draft or proposal) is on. Without a root,
+// takes the marks away. Returns a function that marks them again, for an item whose content has
+// only just been drawn.
+export function watchComments(root, { start = null, marks = [] } = {}) {
   forget();
-  if (!stage) return;
-  watchWindow();
-  const middle = stage.querySelector(':scope > .focus-card');
-  if (!middle) return;
-  if (item && start) watchPicking(stage, item, start);
-  const cards = [...stage.querySelectorAll('.focus-side .comment-card')];
-  const ranges = [];
-  for (const card of cards) {
-    const [end] = commentEnds(card, middle);
-    if (!end) continue;
-    if (end.nodeType) end.classList.add('commented');
-    else ranges.push(end);
-  }
-  if (HIGHLIGHTS && ranges.length) CSS.highlights.set('comments', new Highlight(...ranges));
-  watchMarks(middle, cards);
-  for (const card of cards) {
-    card.addEventListener('mouseenter', () => {
-      const [end] = commentEnds(card, middle);
-      if (!end) return;
-      if (end.nodeType) end.classList.add('comment-lit');
-      else if (HIGHLIGHTS) CSS.highlights.set('comment-lit', new Highlight(end));
-    });
-    card.addEventListener('mouseleave', () => {
-      for (const lit of middle.querySelectorAll('.comment-lit')) lit.classList.remove('comment-lit');
-      if (HIGHLIGHTS) CSS.highlights.delete('comment-lit');
-    });
-  }
-}
-
-// Pointing at something with comments lights up their side cards. Words have no element of their
-// own, so where the pointer is is checked against where they are.
-function watchMarks(middle, cards) {
-  const body = middle.querySelector('.focus-body');
-  if (!body || !cards.length) return;
-  let showing = '';
-  const stop = () => {
-    if (!showing) return;
-    showing = '';
-    for (const card of cards) card.classList.remove('comment-pointed');
+  const clear = () => {
+    if (HIGHLIGHTS) CSS.highlights.delete('comments');
+    for (const one of root?.querySelectorAll('.commented') ?? []) one.classList.remove('commented');
   };
-  const under = (event) => cards.filter((card) => {
-    const [end] = commentEnds(card, middle);
-    if (!end) return false;
-    if (end.nodeType) return end.contains(event.target);
-    return [...end.getClientRects()].some((r) => event.clientX >= r.left - 1 && event.clientX <= r.right + 1 && event.clientY >= r.top - 1 && event.clientY <= r.bottom + 1);
-  });
-  body.addEventListener('mousemove', (event) => {
-    const found = under(event);
-    const key = found.map((card) => card.dataset.comment).join();
-    if (key === showing) return;
-    stop();
-    showing = key;
-    for (const card of found) card.classList.add('comment-pointed');
-  });
-  body.addEventListener('mouseleave', stop);
+  if (HIGHLIGHTS) CSS.highlights.delete('comments');
+  if (!root) return () => {};
+  watchWindow();
+  if (start) watchPicking(root, start);
+  const mark = () => {
+    clear();
+    const ranges = [];
+    for (const { item, part, quote } of marks) {
+      const body = root.querySelector(`.board-item[data-item="${CSS.escape(item)}"] > .board-full .focus-body`);
+      if (!body) continue;
+      const element = part ? body.querySelector(`[data-part="${CSS.escape(part)}"]`) : null;
+      const end = (quote && findQuote(body, quote, element)) || element;
+      if (!end) continue;
+      if (end.nodeType) end.classList.add('commented');
+      else ranges.push(end);
+    }
+    if (HIGHLIGHTS && ranges.length) CSS.highlights.set('comments', new Highlight(...ranges));
+  };
+  mark();
+  return mark;
 }

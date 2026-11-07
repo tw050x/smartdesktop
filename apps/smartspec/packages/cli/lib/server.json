@@ -11,7 +11,7 @@
       "listChanged": true
     }
   },
-  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics belong to domains: a domain is a set of schematics owned by one team or one department, such as \"Auth\". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many comments there are, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment, saying what you changed or why you didn't. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.",
+  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics belong to domains: a domain is a set of schematics owned by one team or one department, such as \"Auth\". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many are open, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment: say what you changed or why you didn't, and give its outcome, how you dealt with it in a word or two of your own (\"Actioned\", \"Noted\", \"Answered\", \"Not changed\"). Some comments only need reading. When nothing more is needed, set no_further_action: the comment then folds away and get_comments leaves it out. The user can set or clear that too, so one that comes back open needs another look. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.",
   "tools": [
     {
       "name": "use_window",
@@ -378,7 +378,7 @@
     },
     {
       "name": "get_comments",
-      "description": "The user's comments on a schematic's draft (the latest unless you name one) or on the proposal waiting on it, oldest first. Each says what it's on (target: the item and its title, the part and its name, any words the user quoted, or card: true for the item's card; missing or partMissing if that's no longer there), what the user said, and the replies so far.",
+      "description": "The user's open comments on a schematic's draft (the latest unless you name one) or on the proposal waiting on it, oldest first: those not marked \"No further action required\", unless you ask for all. Each says what it's on (target: the item and its title, the part and its name, any words the user quoted, or card: true for the item's card; missing or partMissing if that's no longer there), what the user said, the replies so far, its outcome (how it was last dealt with) and noFurtherAction (who marked it so, and when).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -391,6 +391,10 @@
           },
           "proposal": {
             "description": "Read the comments on the proposal waiting on the schematic instead",
+            "type": "boolean"
+          },
+          "all": {
+            "description": "Include the comments marked \"No further action required\"",
             "type": "boolean"
           }
         },
@@ -410,7 +414,7 @@
     },
     {
       "name": "reply_to_comment",
-      "description": "Answers one of the user's comments, shown under it in the app: say what you changed, or why you didn't. A comment can have several replies, so reply again after a further revision.",
+      "description": "Answers one of the user's comments, shown under it in the app: say what you changed, or why you didn't, and how you dealt with it. Give text, an outcome, or both. A comment can have several replies, so reply again after a further revision.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -421,15 +425,24 @@
             "type": "string"
           },
           "text": {
+            "description": "Your reply, in a sentence or two. Can be left out when the outcome says it all, such as \"Noted\"",
+            "type": "string",
+            "minLength": 1
+          },
+          "outcome": {
+            "description": "How you dealt with it, in a word or two of your own, shown as a tag on the comment: such as \"Actioned\", \"Noted\", \"Answered\", \"Partly done\" or \"Not changed\"",
             "type": "string",
             "minLength": 1,
-            "description": "Your reply, in a sentence or two"
+            "maxLength": 40
+          },
+          "no_further_action": {
+            "description": "True when nothing more is needed on it (a comment that only needed reading, or one you've fully dealt with): it folds away and get_comments leaves it out. False takes that back. Leave it out to keep it as it is",
+            "type": "boolean"
           }
         },
         "required": [
           "schematic_id",
-          "comment_id",
-          "text"
+          "comment_id"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },

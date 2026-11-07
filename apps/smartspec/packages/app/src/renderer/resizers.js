@@ -1,6 +1,6 @@
 // A handle at each edge of something centred, which it resizes from both sides at once. Dragged past
 // its limits it follows with growing resistance, and springs back when let go. Double-clicking goes
-// back to its usual size. The middle card and a full screen page both work this way.
+// back to its usual size. A full screen page works this way.
 
 const STRETCH = 48; // the most it goes past a limit, however far it's pulled
 const SPRING_BACK = 260; // ms
@@ -29,24 +29,6 @@ function springBack(parent, from, to, show, done) {
     else done();
   });
   return () => cancelAnimationFrame(frame);
-}
-
-// Puts each handle's grip at the middle of the part of `parent` in view: the middle of a short card,
-// and of the window for a card taller than it. `view` is the box it scrolls within.
-const GRIP = 108; // px, as in styles.css
-// `surface` is what's seen of it, when that's only part of its box, as a table on a card with no
-// background.
-export function centreGrips(parent, view, surface = parent) {
-  const box = parent.getBoundingClientRect();
-  const shown = surface.getBoundingClientRect();
-  const seen = view.getBoundingClientRect();
-  const top = Math.max(shown.top, seen.top);
-  const bottom = Math.min(shown.bottom, seen.bottom);
-  const at = Math.min(Math.max(0, (top + bottom) / 2 - box.top - GRIP / 2), Math.max(0, box.height - GRIP));
-  for (const handle of parent.querySelectorAll(':scope > .focus-resizer')) {
-    handle.style.setProperty('--grip-top', `${at}px`);
-    handle.classList.add('placed');
-  }
 }
 
 // Adds the two handles to `parent`. `width()` is the size now, `limits()` gives [smallest, largest],

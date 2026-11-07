@@ -546,47 +546,99 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .item-table a { color: var(--accent); }
 .item-image { display: block; max-width: 100%; height: auto; border-radius: 8px; }
 
-/* A schema: the focused item in the middle, with what links to it around it (see focus-view.js). The
-   page fits the window, and the middle scrolls inside itself. */
+/* A schematic in focus: a board the size of the window, where the user places each item (see
+   board-view.js). The middle shows things at full size; out to the sides they're smaller (a scale set
+   inline), and at the edges they're cards. Lines join linked items, behind them. */
 .schema-page { display: flex; flex-direction: column; max-width: 1440px; min-height: 100%; padding-bottom: 16px; }
-/* A canvas moves inside itself, so its page fits the window. */
-.schema-page:has(.canvas-body) { height: 100%; }
-.content:has(.focus-stage) { scrollbar-gutter: stable; }
-.focus-page { display: flex; flex: 1 0 auto; flex-direction: column; gap: 12px; min-height: 420px; }
-/* Just clear of the top bar: the room goes to what's in the middle. */
-.schema-page:has(> .focus-page) { padding-top: 8px; }
-.focus-stage { position: relative; display: grid; flex: 1 0 auto; grid-template-columns: minmax(180px, 250px) minmax(0, 1fr) minmax(180px, 250px); gap: 56px; min-height: 0; }
-.focus-stage.sized { grid-template-columns: minmax(180px, 1fr) var(--focus-width) minmax(180px, 1fr); }
-.focus-resizing .focus-stage.sized { grid-template-columns: minmax(0, 1fr) var(--focus-width) minmax(0, 1fr); }
-/* The handles that resize the middle card: the whole column beside it can be dragged, wherever you'd
-   expect to, and the grip stays nearly invisible until the pointer is there (see focus-view.js). */
-.focus-resizer { position: absolute; z-index: 2; top: 0; bottom: 0; display: grid; place-items: center; width: 48px; cursor: col-resize; touch-action: none; }
-.focus-resizer.left { left: -49px; justify-items: end; }
-.focus-resizer.right { right: -49px; justify-items: start; }
-.focus-resizer::after { content: ""; position: sticky; top: calc(var(--side-top, 0px) + var(--side-room, 100vh) / 2 - 54px); align-self: start; width: 4px; height: 108px; margin: 0 5px; border-radius: 2px; background: var(--border-strong); opacity: 0.12; transition: opacity 0.15s, background-color 0.15s; }
-/* Placed by centreGrips: the middle of the part of the card in view, not the window's. */
-.focus-resizer.placed::after { position: relative; top: var(--grip-top, 0px); }
-.focus-resizer:hover::after { opacity: 1; }
-.focus-resizing .focus-resizer::after { background: var(--accent); opacity: 1; }
-.focus-resizing, .focus-resizing * { cursor: col-resize !important; user-select: none !important; }
+.page.schema-page.board-page { max-width: none; height: 100%; min-height: 0; padding: 0; }
+.board { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+/* An item is the size it shows at; inside, its card and its full view (laid out at its full size and
+   scaled) sit at its top left and fade into each other as it moves between the edge and the middle.
+   Everything glides to a new place, except what's being dragged or resized (board-view.js). */
+.board-item { position: absolute; top: 0; left: 0; z-index: 1; box-sizing: border-box; width: 220px;
+  transition: left 0.22s ease, top 0.22s ease, width 0.22s ease, height 0.22s ease; }
+/* The item is the one frame you see, card or full view: it grows and shrinks smoothly, and what's
+   inside fades and scales within it, its own frame taken off. */
+.board > .board-item { overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--card-radius); background: var(--bg);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06), 0 10px 28px rgba(0, 0, 0, 0.12); transition: left 0.22s ease, top 0.22s ease, width 0.22s ease, height 0.22s ease, border-radius 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease; }
+.board > .board-item.card-only { border-color: var(--border); box-shadow: none; }
+.board > .board-item:has(> .board-card.embedded) { border: 2px dashed var(--border-strong); }
+.board > .board-item:has(> .board-card.removed) { border-color: color-mix(in srgb, var(--removed) 55%, var(--border)); }
+.board > .board-item > .board-full, .board > .board-item > .board-card { border: 0; border-radius: 0; box-shadow: none; } /* the item's frame is the only border, dashed for an embedded schematic */
+.board-item > .board-card:not(.removed), .board-item > .board-full { background: transparent; }
+.board.stacked > .board-item { overflow: visible; border: 0; background: none; box-shadow: none; }
+.board.stacked > .board-item > .board-full, .board.stacked > .board-item > .board-card { border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); }
+.board-item > .board-full { position: absolute; top: 0; left: 0; display: flex; box-sizing: border-box; transform-origin: top left;
+  transition: transform 0.22s ease, opacity 0.12s ease, visibility 0s; }
+/* At its smallest an item's content is its card's, laid out to fill its frame (board-view.js). */
+.board-item > .board-card { position: absolute; top: 0; left: 0; box-sizing: border-box; overflow: hidden; align-content: start; transform-origin: top left;
+  transition: transform 0.22s ease, width 0.22s ease, height 0.22s ease, opacity 0.12s ease, visibility 0s; }
+.board-item > .board-card .title-row strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.board-item.is-card > .board-full, .board-item:not(.is-card) > .board-card { pointer-events: none; }
+.board-item.card-only > .board-full, .board-item.full-only > .board-card { visibility: hidden; transition: transform 0.22s ease, opacity 0.12s ease, visibility 0s 0.12s; }
+.board-item.held > * { transition: opacity 0.12s ease, visibility 0s 0.12s !important; } /* the swap still fades while dragging */
+.board-item.full-only.held > .board-full, .board-item.card-only.held > .board-card { transition: opacity 0.12s ease !important; }
+.board-item.held, .board.resizing .board-item, .board.resizing .board-item > *,
+.board.settling .board-item, .board.settling .board-item > *, .board.measuring .board-item, .board.measuring .board-item > * { transition: none !important; }
+.board.measuring .board-card { height: auto !important; }
+.board-card { cursor: grab; touch-action: none; user-select: none; }
+.board-item.is-card:hover { border-color: var(--accent); }
+/* On the board a card is only its kind, title and comments: the user wanted what's in an item
+   hidden until it's in the middle. */
+.board-item > .board-card > :not(.kind-pill, .title-row, .card-comment-tag) { display: none; }
+/* Cards at the sides are small: the user found them too big for the room there. */
+.board-item > .board-card { gap: 2px; padding: 6px 9px; }
+.board-item > .board-card > .kind-pill { margin-bottom: 1px; padding: 1px 5px; font-size: 8.5px; }
+.board-item > .board-card .title-row strong { font-size: 12px; }
+.board-item > .board-card .title-row .pill { font-size: 10px; padding: 0 6px; }
+.board-item > .board-card > .card-comment-tag { height: 15px; padding: 0 5px; font-size: 10px; }
+/* Its comment count has a row of its own, under the title, on the left. */
+.board-item > .board-card > .card-comment-tag { position: static; order: 1; justify-self: start; margin-top: 4px; }
+.board-item.lit { border-color: var(--accent); }
+.board-full { position: relative; overflow: hidden; }
+.board-full > .pane-head { cursor: grab; touch-action: none; user-select: none; }
+/* An item's title bar on the board is a slim strip: the user found the full-size one took up too
+   much room. */
+.board-full > .pane-head, .focus-card.board-full .pane-head { min-height: 0; margin: 0; padding: 4px 6px 4px 10px; gap: 6px; }
+.board-full > .pane-head .pane-title h2 { font-size: 12.5px; line-height: 1.3; }
+.board-full > .pane-head .pill { font-size: 10px; padding: 0 6px; }
+.board-full > .pane-head .icon-button { width: 22px; height: 22px; }
+.board-full > .pane-head .icon-button svg { width: 13px; height: 13px; }
+.board-full > .pane-head .pane-actions { cursor: default; }
+.board-full > .focus-body { overflow: auto; }
+.board-full > .focus-body.canvas-body { overflow: hidden; }
+.board-full > .focus-body.sheet-body { padding: 0; }
+.board-full .document-sheet { box-shadow: none; border-radius: 0; }
+.board.dragging, .board.dragging * { cursor: grabbing !important; user-select: none !important; }
+.board.resizing, .board.resizing * { user-select: none !important; }
+/* Filling the middle, or about to: no shadow jumps as it settles. */
+.board-item.filling { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+/* Its edges and corners, in the middle only, resize it. Double-clicking one lets go of the size. */
+.board-grip { position: absolute; z-index: 3; display: none; touch-action: none; }
+.board-item.full-only > .board-grip { display: block; } /* anything open can be resized, wherever it is */
+.board-grip.n, .board-grip.s { left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+.board-grip.e, .board-grip.w { top: 12px; bottom: 12px; width: 8px; cursor: ew-resize; }
+.board-grip.n { top: 0; } .board-grip.s { bottom: 0; } .board-grip.e { right: 0; } .board-grip.w { left: 0; }
+.board-grip.ne, .board-grip.nw, .board-grip.se, .board-grip.sw { width: 14px; height: 14px; }
+.board-grip.ne { top: 0; right: 0; cursor: nesw-resize; } .board-grip.sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.board-grip.nw { top: 0; left: 0; cursor: nwse-resize; } .board-grip.se { bottom: 0; right: 0; cursor: nwse-resize; }
+.pane-actions .card-comment-tag { position: static; }
+/* What the proposal removes, striped, with "Removed" over it. */
+.board-item.removed > .board-full > .focus-body { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--removed) 10%, var(--bg)) 0 10px, var(--bg) 10px 20px); opacity: 0.75; }
+.board-card.removed { position: relative; overflow: hidden; border-color: color-mix(in srgb, var(--removed) 55%, var(--border)); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--removed) 16%, var(--bg)) 0 10px, var(--bg) 10px 20px); color: var(--muted); }
+/* Too narrow to arrange: things in the middle first, at full size, then the rest as cards. */
+.board.stacked { display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: auto; }
+.board.stacked .board-grip { display: none; }
+.board-item.small-open > .board-grip.n, .board-item.small-open > .board-grip.ne, .board-item.small-open > .board-grip.nw { display: none; } /* its top is for dragging */
+.board-item.small-open > .board-grip.e, .board-item.small-open > .board-grip.w { top: 24px; }
+.board-item.small-open > .board-full > .pane-head { cursor: grab; }
+.board.stacked > .board-item { position: relative; width: auto; transform: none; }
+.board.stacked > .board-item > .board-full, .board.stacked > .board-item > .board-card { position: relative; width: 100%; opacity: 1; visibility: visible; }
+.board.stacked > .board-item:not(.as-full) > .board-full, .board.stacked > .board-item.as-full > .board-card { display: none; }
+.board.stacked > .board-item.as-full { height: 480px; }
+.board.stacked > .board-item.as-full > .board-full { height: 100%; }
 /* Full screen, at the page's edges (see page-view.js), and beneath the buttons floating there. */
 .page-resizer { z-index: 1; }
-.focus-resizing .focus-full .sheet-body { overflow-x: hidden; }
-.focus-lines { position: sticky; z-index: 0; top: var(--side-top, 0px); grid-area: 1 / 1 / 2 / -1; align-self: start; width: 100%; height: var(--side-room, 100%); overflow: visible; pointer-events: none; }
-/* The lines run behind the cards, and stop at their edges. */
-.focus-stage > .focus-card { position: relative; z-index: 1; }
-/* All in one row, as the lines' layer spans it, holding still with the side columns. */
-.focus-stage > .focus-card:not(.focus-ghost) { grid-area: 1 / 2; }
-.focus-side.left { grid-area: 1 / 1; }
-.focus-side.right { grid-area: 1 / 3; }
-/* The window scrolls the middle, and these stay beside it. */
-/* From the window's top edge to its bottom, through what's above the stage and the page's bottom
-   margin, without moving anything or making the page any taller. */
-.focus-side { position: sticky; z-index: 1; top: 0; align-self: start; box-sizing: border-box; height: calc(var(--side-top, 0px) + var(--side-room, 100%) + var(--side-margin, 0px)); margin: calc(-1 * var(--side-top, 0px)) 0 calc(-1 * var(--side-margin, 0px)); padding: var(--side-top, 0px) 0 var(--side-margin, 0px); }
-.focus-lines path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; transition: stroke 0.12s; }
-.focus-lines circle { fill: var(--border-strong); transition: fill 0.12s; }
-.focus-lines path.lit { stroke: var(--accent); stroke-width: 2; }
-.focus-lines circle.lit { fill: var(--accent); }
 /* What the AI wrote for an item's card, below its line, instead of what the app works out. */
 .focus-preview.card-lines { display: grid; gap: 2px; color: var(--text-2); font-size: 11.5px; line-height: 1.35; }
 /* Comments on a card (see card-comments.js): a speech bubble in the comment colour, right of the kind
@@ -618,6 +670,31 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .comment-about.quote { font-style: italic; }
 .comment-delete { flex: none; width: 22px; height: 22px; margin: -3px -5px -3px 0; opacity: 0; }
 .comment-card:hover .comment-delete, .comment-delete:focus-visible { opacity: 1; }
+/* How the AI dealt with a comment, in its words, as a small tag; or, before it has, that it's
+   waiting for the AI. */
+.comment-outcome { flex: none; justify-self: start; max-width: 100%; overflow: hidden; padding: 1px 7px; border-radius: 9px; background: var(--subtle-bg); color: var(--text-2); font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; text-overflow: ellipsis; }
+.comment-waiting { color: var(--muted); font-size: 11px; }
+.comment-reply-outcome { color: var(--muted); font-style: italic; }
+/* Marking it as needing no further action: shows while pointing at the card, and stays lit once set. */
+.comment-done { flex: none; width: 22px; height: 22px; margin: -3px -2px -3px 0; opacity: 0; }
+.comment-card:hover .comment-done, .card-comment:hover .comment-done, .comment-done:focus-visible, .comment-done[aria-pressed="true"] { opacity: 1; }
+.comment-done[aria-pressed="true"] { color: var(--accent); }
+/* No further action required: folded to one line, its outcome and what it's on, without the comment
+   colour; a click opens it again to read. */
+.focus-neighbour.comment-card.done { border-left-color: var(--border-strong); cursor: pointer; }
+.comment-card.done .comment-top { align-items: center; }
+.comment-card.done .comment-about { -webkit-line-clamp: 1; }
+.comment-card.done:not(.unfolded) > :not(.comment-top) { display: none; }
+.card-comment.done { opacity: 0.7; }
+/* An earlier comment, from the draft this came from: dashed and faded, no comment colour, counted
+   nowhere, with a button to say it again here. */
+.focus-neighbour.comment-card.earlier { border: 1px dashed var(--border-strong); padding-left: 13px; background: transparent; box-shadow: none; }
+.comment-card.earlier .comment-text, .card-comment.earlier .comment-text { color: var(--text-2); }
+.comment-earlier-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.comment-earlier-from { min-width: 0; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.comment-again { flex: none; font-size: 11.5px; }
+.card-comment.earlier { padding: 8px 10px; border: 1px dashed var(--border-strong); border-radius: 6px; }
+.pill.kind-pill.comment-pill.earlier { background: transparent; color: var(--muted); outline: 1px dashed var(--border-strong); outline-offset: -1px; }
 .comment-gone { color: var(--muted); font-size: 11px; }
 .comment-text { margin: 0; font-size: 12.5px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .comment-replies { display: grid; gap: 6px; box-sizing: border-box; width: calc(100% + 23px); margin: 2px -12px 0 -11px; padding: 8px 12px 0 11px; border-top: 1px solid var(--border); }
@@ -639,16 +716,9 @@ tr.commented, tr.picked { box-shadow: inset 3px 0 0 var(--comment); }
 tr.comment-lit { background: color-mix(in srgb, var(--comment) 16%, transparent); }
 .markdown .commented { box-shadow: inset 3px 0 0 var(--comment); }
 
-/* Each card placed level with what it links to (see focus-view.js). */
-.focus-side.placed > * { position: absolute; left: var(--side-inset, 0px); right: var(--side-inset, 0px); width: auto; }
-.focus-side { display: flex; flex-direction: column; justify-content: safe center; gap: 10px; min-height: 0; overflow: auto; scrollbar-width: none; }
-/* The column scrolls, so it clips: room at its sides for a card's focus outline, given back by the
-   margin so the cards stay put. */
-.focus-side { --side-inset: 4px; padding-inline: var(--side-inset); margin-inline: calc(-1 * var(--side-inset)); }
 .focus-card { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--border-strong); border-radius: var(--card-radius); background: var(--bg); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06), 0 10px 28px rgba(0, 0, 0, 0.12); }
 .focus-card .pane-head { flex: none; margin: 0; padding: 12px 16px 10px; }
 .focus-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 18px; }
-.focus-stage .focus-body:not(.canvas-body) { flex: 1 0 auto; overflow: visible; }
 .focus-body .diagram { padding: 4px; border: 0; }
 .focus-neighbour { position: relative; display: grid; flex: none; gap: 3px; justify-items: start; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; text-align: left; }
 /* Another schema, on this one's cards and rows: a heavier dashed edge. The padding gives back the
@@ -663,7 +733,6 @@ button.focus-neighbour:focus-visible { outline: 2px solid var(--accent); outline
 .focus-kind { color: var(--text-2); font-size: 11.5px; font-weight: 500; }
 .focus-meta:empty { display: none; }
 .focus-meta { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
-.focus-more { align-self: center; flex: none; }
 /* Previews are few and very small: a glance, not a reading. */
 /* Its line runs to the card's edges, past the card's own padding. */
 .focus-preview { display: block; box-sizing: border-box; width: calc(100% + 24px); margin: 7px -12px 0; padding: 10px 12px 0; border-top: 1px solid var(--border); }
@@ -726,21 +795,6 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .view-switch button[aria-pressed="true"] { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .view-switch::before, .view-switch button { transition: none; } }
 ::view-transition-group(*) { animation-duration: 0.22s; }
-/* While the focus moves: cards slide past their columns' edges, and nothing can be clicked. */
-.focus-animating { pointer-events: none; }
-.focus-animating .focus-side { overflow: visible; }
-.focus-animating-page { overflow: hidden; }
-.focus-stage > .focus-ghost { position: absolute; z-index: 3; overflow: hidden; }
-.focus-ghost-words { position: absolute; top: 0; left: 0; box-sizing: border-box; margin: 0; border-color: transparent; background: none; box-shadow: none; pointer-events: none; }
-/* Too narrow for the lines: what links here above, what it links to below. */
-@media (max-width: 900px) {
-  .schema-page { height: auto; }
-  .focus-stage { display: flex; flex-direction: column; gap: 10px; }
-  .focus-lines, .focus-resizer { display: none; }
-  .focus-card { min-height: 360px; }
-  .focus-side { --side-inset: 0px; position: relative; top: auto; height: auto; margin: 0; padding: 0; overflow: visible; }
-  .focus-side > * { top: auto !important; }
-}
 .item-change { font-size: 11.5px; font-weight: 600; }
 .item-change.added, .item-change.changed { color: var(--accent); }
 .item-change.removed { color: light-dark(#b23c3c, #ff8f8f); text-decoration: none; }
@@ -760,11 +814,8 @@ button.overview-card.removed:hover { border-color: var(--removed); }
    stay, unseen, so that nothing moves. */
 .focus-card.embeds { border-color: transparent; background: none; box-shadow: none; }
 .focus-card.embeds .pane-head { padding-top: 0; padding-bottom: 8px; border-bottom-color: transparent; }
-/* With nothing around it, the title runs level with the tops of the side cards. */
-/* In the middle, a canvas is a sheet like a page, and a table or image a sheet of its own size. Full
-   screen, a canvas is the window's own background. */
-.focus-stage .focus-body.table-body, .focus-stage .focus-body.image-body { flex: none; }
-.focus-stage .canvas-body, .focus-stage .table-body, .focus-stage .image-body { border-radius: var(--card-radius); background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06); }
+/* A canvas, table or image is a sheet of its own; full screen, a canvas is the window's own background. */
+.board-full .canvas-body, .board-full .table-body, .board-full .image-body { background: var(--bg); }
 .focus-full .focus-card, .focus-full .focus-card.embeds { flex: 1; min-width: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .focus-full .focus-card { position: relative; z-index: 1; }
 .full-actions { position: absolute; top: 12px; right: 16px; z-index: 2; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
@@ -772,14 +823,9 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .canvas-body { position: relative; padding: 0; overflow: hidden; }
 .focus-body .diagram.diagram-canvas { position: absolute; inset: 0; overflow: hidden; padding: 0; border: 0; border-radius: 0; background: none; cursor: grab; touch-action: none; }
 .diagram-heads-band { display: none; fill: var(--window-bg); stroke: var(--border); }
-.focus-stage .diagram-heads-band { fill: var(--bg); }
+.board-full .diagram-heads-band { fill: var(--bg); }
 .diagram-heads.pinned .diagram-heads-band { display: block; }
 .canvas-dots { position: absolute; inset: 0; background-image: radial-gradient(var(--border) 1px, transparent 1px); pointer-events: none; }
-.morphing .focus-card, .morphing .focus-stage .canvas-body, .morphing .table-body, .morphing .image-body { background: transparent; border-color: transparent; box-shadow: none; }
-.morphing .sheet-head, .morphing .focus-side, .morphing .focus-lines, .morphing .focus-resizer, .morphing .pane-head, .morphing .full-actions, .morphing .canvas-controls, .morphing .canvas-dots { opacity: 0; pointer-events: none; }
-.morph-moving .focus-body, .morph-moving .diagram, .morph-moving .focus-body .diagram.diagram-canvas { overflow: visible; }
-.morphing .focus-body { scrollbar-width: none; }
-.morph-surface { position: fixed; z-index: 0; box-sizing: border-box; border: 1px solid transparent; pointer-events: none; }
 .diagram-canvas.panning { cursor: grabbing; }
 .diagram-canvas .diagram-svg { position: absolute; top: 0; left: 0; max-width: none; height: revert-layer; overflow: visible; transform-origin: 0 0; user-select: none; }
 .canvas-controls { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); cursor: default; }

@@ -15,7 +15,7 @@ Read only what you need: get_schematic lists a schematic's items and links witho
 A focus is what the user wants this work to be for: their prompt may say "focusing on" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.
 Only the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.
 Schematics belong to domains: a domain is a set of schematics owned by one team or one department, such as "Auth". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.
-The user comments on what you propose, and on drafts: get_schematic and get_proposal say how many comments there are, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment, saying what you changed or why you didn't. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.`;
+The user comments on what you propose, and on drafts: get_schematic and get_proposal say how many are open, and get_comments reads them, each on an item, a part of it or words they quoted. Answer each one with reply_to_comment: say what you changed or why you didn't, and give its outcome, how you dealt with it in a word or two of your own ("Actioned", "Noted", "Answered", "Not changed"). Some comments only need reading. When nothing more is needed, set no_further_action: the comment then folds away and get_comments leaves it out. The user can set or clear that too, so one that comes back open needs another look. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. Comments on a proposal stay with it as you revise it.`;
 
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
 
@@ -155,17 +155,26 @@ export function buildServer(call, { version }) {
     depth: DEPTH.describe('How many levels of embedded schematics to open (default 0: all collapsed)'),
   }, ({ schematic_id, depth }, schemas) => schemas.getProposal(schematic_id, { depth }));
 
-  tool('get_comments', 'The user\'s comments on a schematic\'s draft (the latest unless you name one) or on the proposal waiting on it, oldest first. Each says what it\'s on (target: the item and its title, the part and its name, any words the user quoted, or card: true for the item\'s card; missing or partMissing if that\'s no longer there), what the user said, and the replies so far.', {
+  tool('get_comments', 'The user\'s open comments on a schematic\'s draft (the latest unless you name one) or on the proposal waiting on it, oldest first: those not marked "No further action required", unless you ask for all. Each says what it\'s on (target: the item and its title, the part and its name, any words the user quoted, or card: true for the item\'s card; missing or partMissing if that\'s no longer there), what the user said, the replies so far, its outcome (how it was last dealt with) and noFurtherAction (who marked it so, and when).', {
     schematic_id: z.string(),
     draft_id: z.string().optional().describe('The draft whose comments to read (default: the latest)'),
     proposal: z.boolean().optional().describe('Read the comments on the proposal waiting on the schematic instead'),
-  }, ({ schematic_id, draft_id, proposal }, schemas) => schemas.listComments(schematic_id, { draftId: draft_id, proposal }));
+    all: z.boolean().optional().describe('Include the comments marked "No further action required"'),
+  }, async ({ schematic_id, draft_id, proposal, all }, schemas) => {
+    const comments = await schemas.listComments(schematic_id, { draftId: draft_id, proposal });
+    return (all ? comments : comments.filter((comment) => !comment.noFurtherAction)).map((comment) => ({ ...comment, outcome: comment.outcome ?? null, noFurtherAction: comment.noFurtherAction ?? null }));
+  });
 
-  tool('reply_to_comment', 'Answers one of the user\'s comments, shown under it in the app: say what you changed, or why you didn\'t. A comment can have several replies, so reply again after a further revision.', {
+  tool('reply_to_comment', 'Answers one of the user\'s comments, shown under it in the app: say what you changed, or why you didn\'t, and how you dealt with it. Give text, an outcome, or both. A comment can have several replies, so reply again after a further revision.', {
     schematic_id: z.string(),
     comment_id: z.string(),
-    text: z.string().trim().min(1).describe('Your reply, in a sentence or two'),
-  }, ({ schematic_id, comment_id, text }, schemas) => schemas.replyToComment(schematic_id, comment_id, text));
+    text: z.string().trim().min(1).optional().describe('Your reply, in a sentence or two. Can be left out when the outcome says it all, such as "Noted"'),
+    outcome: z.string().trim().min(1).max(40).optional().describe('How you dealt with it, in a word or two of your own, shown as a tag on the comment: such as "Actioned", "Noted", "Answered", "Partly done" or "Not changed"'),
+    no_further_action: z.boolean().optional().describe('True when nothing more is needed on it (a comment that only needed reading, or one you\'ve fully dealt with): it folds away and get_comments leaves it out. False takes that back. Leave it out to keep it as it is'),
+  }, ({ schematic_id, comment_id, text, outcome, no_further_action }, schemas) => {
+    if (!text && !outcome) throw new Error('Give text, an outcome, or both.');
+    return schemas.replyToComment(schematic_id, comment_id, { text, outcome, noFurtherAction: no_further_action });
+  });
 
   tool('propose_schematic', 'Proposes a new schematic, or with schematic_id a change to one, and shows it in the app for the user to accept or discard. For a change, send only what changes: everything else carries over, from the proposal already waiting (which this replaces) or else the latest draft. Links are checked, and the proposal is refused if one goes nowhere.', {
     schematic_id: z.string().optional().describe('The schematic to change (leave out to propose a new one)'),

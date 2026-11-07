@@ -1,11 +1,11 @@
-import { CONTRACT, connectedPairs, isInternalLink, neighboursOf, parseLink, partsOf, previewsFor, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
+import { CONTRACT, connectedPairs, isInternalLink, neighboursOf, parseLink, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
 import { makeCanvas } from './canvas-view.js';
-import { captureMorph, leaveAround, morphInto } from './morph.js';
-import { arrive, canChoreograph, drawLines, leaveFor, watchStage } from './focus-view.js';
+import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
+import { watchBoard } from './board-view.js';
 import { watchPage } from './page-view.js';
 import { drawOverview, watchOverview } from './overview-view.js';
-import { commentCard, composerCard, watchComments } from './comments.js';
-import { cardCommentTag, watchCardComments } from './card-comments.js';
+import { commentCard, isOpen, watchComments } from './comments.js';
+import { cardCommentTag, startComment, watchCardComments } from './card-comments.js';
 import { itemView, kindLabel } from './item-views.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
@@ -14,9 +14,9 @@ import { levelOf } from './home-level.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
 // Where the window is, is a path of levels: the schema opened from home, then each embedded schema
-// opened from the one before. Each level has one item in focus, with what it links to around it (see
-// focus-view.js). The main process owns the schemas; this asks for what it shows, again whenever
-// they change.
+// opened from the one before. Each level shows its items on a board the user arranges (see
+// board-view.js), or an overview of them. The main process owns the schemas; this asks for what it
+// shows, again whenever they change.
 
 function h(tag, props = {}, ...children) {
   const element = document.createElement(tag);
@@ -87,7 +87,6 @@ const rememberedView = () => {
 };
 
 const CHANGE_LABELS = { added: 'New', changed: 'Changed', removed: 'Removed' };
-const SIDE_LIMIT = 6; // cards on a side before the rest wait behind "more"
 const smoothly = () => typeof document.startViewTransition === 'function' && document.visibilityState === 'visible' && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focusMenu, viewSwitch, api }) {
@@ -104,8 +103,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // A schema shows one item with what links to it, or a list of everything in it. Remembered on this
   // computer, as a convenience.
   let layout = rememberedView();
-  let morphing = false; // the next drawing opens or closes full screen
-  let moving = false; // the item the focus is moving to, so the next drawing animates to it
+  let moving = false; // the next drawing animates, as the browser can, to what it shows next
   const top = () => path.at(-1);
 
   // Back and forward: where this window has been, as a browser keeps it. Each stop is the levels open,
@@ -135,17 +133,17 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const wasLayout = layout;
     visiting = next;
     const stopped = JSON.parse(visited[next]);
-    path = stopped.path.map((one) => ({ ...one, focus: null, expanded: false }));
+    path = stopped.path.map((one) => ({ ...one, focus: null }));
     if (stopped.layout && stopped.layout !== layout) {
       layout = stopped.layout;
       rememberView();
     }
     showHistory();
-    // Within one level, in focus, it moves as following a card does.
+    // Within one level, in focus, an item stepped back or on to comes to the middle again.
     const now = top();
     const sameView = wasLayout === 'focus' && layout === 'focus';
-    moving = sameView && was && now && was.schemaId === now.schemaId && path.length && was.item !== now.item ? now.item : false;
-    morphing = Boolean(sameView && was && now && path.length && was.schemaId === now.schemaId && was.item === now.item && Boolean(was.full) !== Boolean(now.full));
+    if (sameView && was && now && was.schemaId === now.schemaId && was.item !== now.item && !now.full) now.bring = true;
+    moving = Boolean(sameView && was && now && was.schemaId === now.schemaId && Boolean(was.full) !== Boolean(now.full));
     if (path.length) selected = path[0].schemaId;
     closeFocus();
     render();
@@ -158,7 +156,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     if (event.key === '[') travel(-1);
     else if (event.key === ']') travel(1);
   });
-  const level = (schemaId, { draftId = null, proposal = false, label = '', item = CONTRACT } = {}) => ({ schemaId, draftId, proposal, label, item, full: false, focus: null, expanded: false });
+  const level = (schemaId, { draftId = null, proposal = false, label = '', item = CONTRACT } = {}) => ({ schemaId, draftId, proposal, label, item, full: false, focus: null });
 
   let showingPlace = null;
   const placeShowing = () => {
@@ -205,47 +203,24 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       el.scrollTop = scroll;
       showingPlace = place;
       el.querySelectorAll('.browser-list').forEach((list, index) => { list.scrollTop = lists[index] ?? 0; });
-      // The stage first: it sets the card's size, which the page is fitted to.
-      const stage = el.querySelector('.focus-stage');
-      if (stage) watchStage(stage);
-      watchComments(stage, stage?.comments);
-      const withCards = stage ?? el.querySelector('.overview-page .diagram.overview');
+      // The board first: it sets each item's size, which a page is fitted to.
+      const board = el.querySelector('.board');
+      if (board) showBoard(board);
+      else watchComments(null);
+      const withCards = board ?? el.querySelector('.overview-page .diagram.overview');
       watchCardComments(withCards, withCards?.cardComments);
-      const writing = el.querySelector('.comment-card.composing');
-      if (writing && top()?.composing?.fresh) {
-        top().composing.fresh = false;
-        writing.focusField();
-      }
-      const pageSpace = el.querySelector('.sheet-body');
-      if (pageSpace) watchPage(pageSpace);
+      const fullPage = el.querySelector('.focus-full .sheet-body');
+      if (fullPage) watchPage(fullPage);
       const overview = el.querySelector('.overview-page .diagram.overview');
       if (overview) watchOverview(overview, overview.pairs, overview.connections);
       bringFocusIntoView();
     };
-    // Moving to a card around the focus has its own choreography (see focus-view.js). Any other move
-    // of the focus, say to an item in the row beneath, is left to the browser. A move that can't be
-    // animated, as in a hidden window, still happens: only the animation is lost.
-    const target = typeof moving === 'string' ? moving : null;
-    const oldStage = el.querySelector('.focus-stage');
-    const card = target && view.classList.contains('schema-page') && oldStage?.querySelector(`.focus-side [data-item="${target}"]`);
+    // Opening or closing full screen, the browser carries the item between its two places, as each
+    // has the same name (see moves). A move that can't be animated, as in a hidden window, still
+    // happens: only the animation is lost.
     const animate = moving && smoothly();
     moving = false;
-    // Opening or closing full screen: the content itself turns into its other form (see morph.js).
-    const turning = morphing && layout === 'focus' && view.classList.contains('schema-page') && el.querySelector('.focus-card .focus-body') && canChoreograph();
-    morphing = false;
-    if (turning) {
-      const from = captureMorph(el);
-      await leaveAround(el);
-      if (ticket !== rendering) return;
-      show();
-      morphInto(view, from);
-    } else if (card && canChoreograph()) {
-      await leaveFor(oldStage, card, view.querySelector('.focus-card'));
-      if (ticket !== rendering) return;
-      show();
-      const stage = el.querySelector('.focus-stage');
-      if (stage) arrive(stage);
-    } else if (animate) {
+    if (animate) {
       const transition = document.startViewTransition(show);
       transition.ready.catch(() => {});
       transition.finished.catch(() => {});
@@ -255,7 +230,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   function bringFocusIntoView() {
     const here = top();
     if (!here?.focus) return;
-    const part = [...el.querySelectorAll('[data-part]')].find((element) => element.dataset.part === here.focus);
+    const within = el.querySelector(`.board-item[data-item="${CSS.escape(here.item)}"]`) ?? el;
+    const part = [...within.querySelectorAll('[data-part]')].find((element) => element.dataset.part === here.focus);
     here.focus = null;
     if (!part) return;
     const canvas = part.closest('.diagram-canvas');
@@ -844,13 +820,13 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const openUse = (use, item) => {
       if (!use.missing) go([...path, level(use.schemaId, { draftId: use.draftId, label: use.name, item })]);
     };
-    const follow = (link) => {
-      const { target, part } = parseLink(link, here.item);
+    // A link followed brings what it goes to into the middle. `from` is the item it's in.
+    const follow = (link, from = here.item) => {
+      const { target, part } = parseLink(link, from);
       if (!known(target)) return undefined;
-      moving = target !== here.item && target;
-      if (moving) here.expanded = false;
       here.item = target;
       here.focus = part;
+      here.bring = true;
       remember();
       return render();
     };
@@ -871,8 +847,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return page;
     }
 
-    const page = h('div', { className: `page schema-page${here.full ? ' full' : ''}` },
-      await stageView(here, shown, uses, follow, openUse));
+    const page = h('div', { className: `page schema-page${here.full ? ' full' : ' board-page'}` },
+      await boardView(here, shown, uses, follow, openUse));
     page.draftNav = draftControls(here, shown);
     page.bottomBar = reviewBar(here, shown);
     return page;
@@ -1048,10 +1024,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // Inside a schematic embedded in another.
     const within = path.length > 1 ? `, inside ${path[path.length - 2].label}` : '';
     if (layout === 'overview') return [reviewLine(`You're looking at everything in ${name}${within}.`)];
+    if (!here.full) return [reviewLine(`You're working on ${name}${within}.`)];
     const use = shown.uses.find((one) => one.id === here.item);
     if (use) return [reviewLine(use.missing ? `The schematic embedded here is no longer available.` : `${use.name} is embedded in ${name}, at its draft ${use.number}.`)];
     const what = here.item === CONTRACT ? `the contract of ${name}` : `${shown.items.find((one) => one.id === here.item)?.title ?? here.item}, in ${name}${within}`;
-    return [reviewLine(here.full ? `You're looking at ${what}, full screen.` : `You're looking at ${what}, and what links to it.`)];
+    return [reviewLine(`You're looking at ${what}, full screen.`)];
   }
 
   // Where this is in the schema's drafts.
@@ -1085,72 +1062,150 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   const moves = (id) => `view-transition-name: item-${id}`;
   const marker = (mark) => mark && pill(CHANGE_LABELS[mark], `item-change ${mark}`);
 
-  // The focused item in the middle, what links to it on the left, what it links to on the right, and
-  // the rest of the schema beneath.
-  async function stageView(here, shown, uses, follow, openUse) {
-    const use = uses.get(here.item);
-    // Something the proposal removes is shown as it was, from the draft the proposal changes.
-    const gone = Boolean(here.proposal && shown.changes?.removed.some((one) => one.id === here.item));
-    const item = here.item === CONTRACT || use ? null : await api.getItem(here.schemaId, here.item, gone ? { draftId: shown.basedOn } : here.proposal ? { proposal: true } : { draftId: shown.draftId });
-    const around = neighboursOf(here.item, shown.links, item ? partsOf(item) : []);
-    // A table's card always says what's in it, and an image's never shows it, so neither takes one of
-    // the few previews.
-    const kindOf = (entry) => shown.items.find((one) => one.id === entry.id)?.kind;
-    const isTable = (entry) => kindOf(entry) === 'table';
-    const previewed = (entry) => !['table', 'image'].includes(kindOf(entry));
-    const previews = new Set(previewsFor({ left: around.left.filter(previewed), right: around.right.filter(previewed) }));
-    const content = (id) => (id === CONTRACT || uses.has(id) ? null : api.getItem(here.schemaId, id, here.proposal ? { proposal: true } : { draftId: shown.draftId }));
-    const mark = (id) => (id === CONTRACT ? (shown.changes?.contract ? 'changed' : null) : gone && id === here.item ? 'removed' : shown.changes?.items[id]);
+  // Where the user has placed each schematic's items on the board, as loaded, or as changed here
+  // since (see board.js). Kept on this computer a moment after the user stops moving things, never
+  // with the schematic.
+  const layouts = new Map();
+  async function layoutOf(schemaId) {
+    if (!layouts.has(schemaId)) layouts.set(schemaId, cleanLayout(await api.getLayout(schemaId).catch(() => null)));
+    return layouts.get(schemaId);
+  }
+  const saving = new Map();
+  function keepLayout(schemaId, layout) {
+    layouts.set(schemaId, layout);
+    clearTimeout(saving.get(schemaId));
+    saving.set(schemaId, setTimeout(() => api.saveLayout(schemaId, layoutToSave(layout, Object.keys(layout.boxes))).catch(() => {}), 400));
+  }
 
-    // The user's comments on what's in the middle, among the link cards: each on the side with fewer
-    // cards so far. Full screen has no sides, so none show there.
+  // The item linked with the most others: what a schematic with no layout yet starts on.
+  const mostLinked = (ids, pairs) => {
+    const counts = new Map();
+    for (const pair of pairs) for (const id of pair) counts.set(id, (counts.get(id) ?? 0) + 1);
+    return [...ids].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))[0];
+  };
+
+  // The focus view: every item in the schematic on a board, where the user has placed it (see
+  // board-view.js). The middle is for working on things; out to the sides they're smaller, and at the
+  // edges they're cards. Full screen, one item has the whole window.
+  async function boardView(here, shown, uses, follow, openUse) {
+    // Under review, what the proposal removes is still here, as it was in the draft it changes.
+    const removed = here.proposal ? shown.changes?.removed ?? [] : [];
+    const isRemoved = (id) => removed.some((one) => one.id === id);
+    const ids = [CONTRACT, ...shown.items.map((one) => one.id), ...shown.uses.map((use) => use.id), ...removed.map((one) => one.id)];
+    if (!ids.includes(here.item)) here.item = CONTRACT;
     const on = here.proposal ? { proposal: true } : { draftId: shown.draftId };
-    const record = here.proposal ? 'proposal' : shown.draftId;
-    const everyComment = await api.listComments(here.schemaId, on).catch(() => []);
-    const comments = here.full ? [] : everyComment.filter((comment) => comment.target.item === here.item && !comment.target.card);
-    const onCards = everyComment.filter((comment) => comment.target.card);
-    if (here.composing && (here.composing.record !== record || here.composing.target.item !== here.item)) here.composing = null;
-    const counts = { left: Math.min(around.left.length, here.expanded ? Infinity : SIDE_LIMIT), right: Math.min(around.right.length, here.expanded ? Infinity : SIDE_LIMIT) };
-    const sideFor = () => {
-      const name = counts.left < counts.right ? 'left' : 'right';
-      counts[name] += 1;
-      return name;
+    const contents = new Map();
+    const content = (id) => {
+      if (id === CONTRACT || uses.has(id)) return Promise.resolve(null);
+      if (!contents.has(id)) contents.set(id, api.getItem(here.schemaId, id, isRemoved(id) ? { draftId: shown.basedOn } : on).catch(() => null));
+      return contents.get(id);
     };
-    const commentsBy = { left: [], right: [] };
-    for (const comment of comments) {
-      commentsBy[sideFor()].push(commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render) }));
-    }
-    if (here.composing && !here.full) {
-      const draft = here.composing;
-      commentsBy[sideFor()].push(composerCard(draft, {
-        onSave: async (text) => {
-          await api.addComment(here.schemaId, { ...on, target: draft.target, text });
-          if (here.composing === draft) here.composing = null;
-          render();
-        },
-        onCancel: () => {
-          here.composing = null;
-          render();
-        },
-      }));
-    }
+    const mark = (id) => (id === CONTRACT ? (shown.changes?.contract ? 'changed' : null) : isRemoved(id) ? 'removed' : shown.changes?.items[id]);
+    const views = { shown, uses, content, mark, follow, openUse, isRemoved };
 
-    const side = async (name, entries) => {
-      const shownEntries = here.expanded ? entries : entries.slice(0, SIDE_LIMIT);
-      const cards = await Promise.all(shownEntries.map(async (entry) => {
-        // What the AI wrote for the card, else what the app works out.
-        const preview = cardLines(shown.items.find((one) => one.id === entry.id)) ?? (isTable(entry) ? tablePreview(await content(entry.id), here.item, shown.links)
-          : previews.has(entry.id) ? await previewOf(entry.id, shown, uses, content) : null);
-        return withCardComments(uses.has(entry.id) ? useCard(uses.get(entry.id), entry, follow) : itemCard(entry, shown, mark(entry.id), preview, follow), onCards);
-      }));
-      const hidden = entries.length - shownEntries.length;
-      return h('section', { className: `focus-side ${name}`, 'aria-label': name === 'left' ? 'Links here' : 'Links from here' },
-        ...cards,
-        ...commentsBy[name],
-        hidden > 0 && h('button', { className: 'link-button focus-more', type: 'button', onclick: () => { here.expanded = true; render(); } }, `+${hidden} more`));
+    if (here.full) return h('div', { className: 'focus-full' }, await fullView(here, here.item, { ...views, full: true }));
+
+    // Every comment on this draft or proposal, and the earlier ones still about something here (see
+    // store.js), each in its item's box. Only this one's open comments count, and are marked.
+    const [comments, earlier] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
+    const everything = [...comments, ...earlier];
+    const tagFor = (id) => {
+      const mine = everything.filter((comment) => comment.target.item === id);
+      if (!mine.length) return null;
+      const count = mine.filter((comment) => !comment.earlier && isOpen(comment)).length;
+      return cardCommentTag(count, { earlierOnly: mine.every((comment) => comment.earlier), on: 'this item' });
     };
+    const marks = comments.filter((comment) => isOpen(comment) && !comment.target.card && !comment.target.missing && (comment.target.part || comment.target.quote))
+      .map(({ target }) => ({ item: target.item, part: target.partMissing ? null : target.part, quote: target.quote }));
 
-    const middle = h('article', { className: 'focus-card', style: moves(here.item), 'aria-label': use ? use.name ?? use.id : item?.title ?? 'Contract' });
+    let layout = await layoutOf(here.schemaId);
+    const fresh = !Object.keys(layout.boxes).length;
+    const asked = here.bring || here.item !== CONTRACT;
+    // Brought to the middle (with no layout yet, it starts there anyway).
+    if (here.bring && !fresh) {
+      layout = bringToMiddle(layout, here.item, { width: el.clientWidth, height: el.clientHeight }, { alone: here.bring === 'alone' });
+      keepLayout(here.schemaId, layout);
+    }
+    here.bring = false;
+    const pairs = connectedPairs(shown.links).filter((pair) => pair.every((id) => ids.includes(id)));
+    // With no layout yet: the item asked for (or the most linked) in the middle, what links to it
+    // down the left edge, and the rest down the right.
+    const centre = asked ? here.item : mostLinked(ids.filter((id) => !isRemoved(id)), pairs) ?? CONTRACT;
+    const into = neighboursOf(centre, shown.links).left.map((entry) => entry.id).filter((id) => ids.includes(id));
+    const showsFull = (id) => (fresh ? id === centre : layout.boxes[id] && !isCard(layout.boxes[id]));
+
+    const build = async (id) => {
+      const full = await fullView(here, id, views);
+      const tag = tagFor(id);
+      if (tag) actionsOf(full).prepend(tag);
+      return full;
+    };
+    const items = await Promise.all(ids.map(async (id) => {
+      const card = await boardCard(id, { ...views, removed });
+      const tag = tagFor(id);
+      if (tag) {
+        card.classList.add('has-card-comments');
+        card.append(tag);
+      }
+      const element = h('article', { className: `board-item${isRemoved(id) ? ' removed' : ''}`, 'data-item': id, style: moves(id), 'aria-label': titleOf(id, shown, uses, removed) }, card);
+      // What shows at full size is drawn now, so it doesn't arrive a moment after.
+      if (showsFull(id)) {
+        const full = await build(id);
+        full.classList.add('board-full');
+        element.prepend(full);
+      }
+      return element;
+    }));
+    const board = h('div', { className: 'board' }, ...items);
+    board.watch = { schemaId: here.schemaId, ids, centre, left: into, right: ids.filter((id) => id !== centre && !into.includes(id)), build, marks };
+    board.cardComments = {
+      ...cardCommenting(here, on, everything, '.board-item'),
+      menuOn: '.board-card, .board-full > .pane-head',
+      heading: (title) => `Comments on ${title}`,
+    };
+    return board;
+  }
+
+  // Once the board is on the page: anything without a place yet is given one, now its card can be
+  // measured, and the board is watched for the user moving things.
+  function showBoard(board) {
+    const { schemaId, ids, centre, left, right, build, marks } = board.watch;
+    let layout = layouts.get(schemaId) ?? emptyLayout();
+    if (ids.some((id) => !layout.boxes[id])) {
+      const heights = Object.fromEntries([...board.querySelectorAll(':scope > .board-item')].map((one) => [one.dataset.item, one.querySelector(':scope > .board-card')?.offsetHeight || 80]));
+      const size = { width: board.clientWidth, height: board.clientHeight };
+      layout = Object.keys(layout.boxes).length ? placeNew(layout, ids, heights, size) : { boxes: { ...layout.boxes, ...defaultLayout({ centre, left, right }, heights, size).boxes } };
+      keepLayout(schemaId, layout);
+    }
+    let remark = () => {};
+    watchBoard(board, {
+      layout,
+      // Something dragged in from the edge is drawn in full, and its comments marked.
+      build: async (id) => {
+        const built = await build(id);
+        setTimeout(() => remark());
+        return built;
+      },
+      onChange: (next) => keepLayout(schemaId, next),
+      // A card clicked comes to the middle, which is a step back and forward go through.
+      onBring: (id) => {
+        const here = top();
+        if (!here || here.schemaId !== schemaId) return;
+        here.item = id;
+        remember();
+      },
+    });
+    remark = watchComments(board, { start: startComment, marks });
+  }
+
+  const titleOf = (id, shown, uses, removed = []) => (id === CONTRACT ? 'Contract' : shown.items.find((one) => one.id === id)?.title ?? removed.find((one) => one.id === id)?.title ?? uses.get(id)?.name ?? id);
+
+  // An item at full size: its title along the top, which it's dragged by, and its content. Full
+  // screen, the same thing with the window to itself.
+  async function fullView(here, id, { shown, uses, content, mark, follow, openUse, isRemoved, full = false }) {
+    const use = uses.get(id);
+    const item = id === CONTRACT || use ? null : await content(id);
+    const middle = h('article', { className: 'focus-card', ...(full && { style: moves(id) }), 'aria-label': use ? use.name ?? use.id : id === CONTRACT ? 'Contract' : item?.title ?? id });
     // Links in Markdown are followed here, whichever kind of item they're in.
     middle.addEventListener('click', (event) => {
       const anchor = event.target.closest?.('a[href]');
@@ -1160,28 +1215,24 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       event.preventDefault();
       // An embedded schema's contract links within that schema, so they lead into it.
       if (use) openUse(use, parseLink(href).target);
-      else follow(href);
+      else follow(href, id);
     });
     const body = h('div', { className: 'focus-body' });
     if (use) {
       await useOverview(use, middle, body, openUse);
     } else if (item) {
       middle.append(paneHead(item.title, item.description, mark(item.id), pill(kindLabel(item), 'kind-pill')));
-      const view = itemView(item, follow);
+      const view = itemView(item, (link) => follow(link, id));
       // Where a canvas has been moved to is kept for each size it shows at.
-      const place = `${item.id}:${Boolean(here.full)}`;
+      const place = `${item.id}:${Boolean(full)}`;
       here.views ??= {};
       body.append(view.classList.contains('diagram')
         ? makeCanvas(view, {
           saved: here.views[place] ?? null,
           onChange: (kept) => { here.views[place] = kept; },
-          onShow: () => {
-            const stage = view.closest('.focus-stage');
-            if (stage) drawLines(stage);
-          },
         })
         : view);
-    } else {
+    } else if (id === CONTRACT) {
       middle.append(paneHead('Contract', shown.summary, mark(CONTRACT)));
       const contract = h('div', {});
       if (shown.contract) renderMarkdown(contract, shown.contract);
@@ -1193,13 +1244,15 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
           h('dd', {}, parameter.description ?? ''),
         ])));
       }
+    } else {
+      middle.append(paneHead(id, null, null));
+      body.append(h('p', { className: 'muted' }, 'This item couldn’t be read.'));
     }
     middle.append(body);
-    actionsOf(middle).append(fullButton(here));
+    if (isRemoved?.(id)) middle.append(h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed'));
+    actionsOf(middle).append(fullButton(here, id));
 
-    // There's no card around what's in the middle: a diagram is a canvas, writing is a page, and a table
-    // or image sits on a surface of its own size. Opened full screen, they're the same thing with the
-    // space to themselves.
+    // A diagram is a canvas, writing is a page, and a table or image sits on a surface of its own.
     const canvas = body.querySelector(':scope > .diagram-canvas');
     const writing = !canvas && (use || !item || item.kind === 'document');
     if (canvas) body.classList.add('canvas-body');
@@ -1209,9 +1262,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       body.append(sheet);
       body.classList.add('sheet-body');
     } else body.classList.add(`${item.kind}-body`);
-    middle.classList.add('embeds');
 
-    if (here.full) {
+    if (full) {
+      middle.classList.add('embeds');
       // The card's title stays apart from the writing, above the page.
       if (writing) body.prepend(h('div', { className: 'sheet-head' }, middle.querySelector('.pane-title')));
       // No bar across the top: what it held floats over the content.
@@ -1219,25 +1272,40 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const pills = middle.querySelector('.pane-title .status-pills');
       middle.append(h('div', { className: 'full-actions' }, pills, ...actionsOf(head).children));
       head.remove();
-      return h('div', { className: 'focus-full' }, middle);
     }
+    return middle;
+  }
 
-    const stage = h('div', { className: 'focus-stage', 'data-focus': here.item },
-      await side('left', around.left),
-      middle,
-      await side('right', around.right),
-      linesLayer());
-    // Picking something in the middle starts a comment on it.
-    stage.cardComments = cardCommenting(here, on, onCards, '.focus-side .focus-neighbour[data-item]');
-    // There's nothing to comment on in what's being removed: the proposal no longer has it.
-    if (!gone) stage.comments = {
-      item: here.item,
-      start: (target) => {
-        here.composing = { record, target, text: '', fresh: true };
-        render();
-      },
-    };
-    return h('div', { className: 'focus-page' }, stage);
+  // An item's compact card, for the edges of the board: its kind, title and description, and below a
+  // line what the AI wrote for it, or a look inside.
+  async function boardCard(id, { shown, uses, content, mark, removed }) {
+    const gone = removed.find((one) => one.id === id);
+    if (gone) {
+      return h('div', { className: 'focus-neighbour board-card removed' },
+        pill(kindLabel(gone), 'kind-pill'),
+        h('span', { className: 'title-row' }, h('strong', {}, gone.title)),
+        h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed'));
+    }
+    const use = uses.get(id);
+    if (use) {
+      if (use.missing) return h('div', { className: 'focus-neighbour board-card embedded' }, pill('Embedded schematic', 'kind-pill schema-pill'), h('span', { className: 'title-row' }, h('strong', {}, use.id)), h('span', { className: 'focus-meta' }, 'This schematic is no longer available.'));
+      const settings = Object.entries(use.with ?? {});
+      return h('div', { className: 'focus-neighbour board-card embedded' },
+        pill('Embedded schematic', 'kind-pill schema-pill'),
+        h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, `Draft ${use.number}`), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
+        h('span', { className: 'focus-meta' }, use.summary),
+        settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
+        use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)));
+    }
+    const contract = id === CONTRACT;
+    const item = shown.items.find((one) => one.id === id);
+    const preview = cardLines(item) ?? (item?.kind === 'table' ? await content(id).then((table) => table && tablePreview(table, null, shown.links))
+      : await previewOf(id, shown, uses, content).catch(() => null));
+    return h('div', { className: 'focus-neighbour board-card' },
+      !contract && item && pill(kindLabel(item), 'kind-pill'),
+      h('span', { className: 'title-row' }, h('strong', {}, contract ? 'Contract' : item?.title ?? id), statusPills(marker(mark(id)))),
+      h('span', { className: 'focus-meta' }, contract ? 'What it promises and needs' : item?.description),
+      preview);
   }
 
   const actionsOf = (card) => card.querySelector('.pane-actions');
@@ -1245,14 +1313,17 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   function setFull(here, full) {
     here.full = full;
     moving = true;
-    morphing = true;
     remember();
     return render();
   }
 
-  function fullButton(here) {
+  // Full screen for one item, from its title bar on the board, and back.
+  function fullButton(here, id = here.item) {
     const name = here.full ? 'Leave full screen' : 'Full screen';
-    const button = h('button', { className: 'icon-button', type: 'button', id: 'full-toggle', title: name, 'aria-label': name, onclick: () => setFull(here, !here.full) });
+    const button = h('button', { className: 'icon-button', type: 'button', ...(here.full && { id: 'full-toggle' }), title: name, 'aria-label': name, onclick: () => {
+      here.item = id;
+      setFull(here, !here.full);
+    } });
     button.innerHTML = here.full ? LEAVE_FULL_ICON : FULL_ICON;
     return button;
   }
@@ -1306,19 +1377,21 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return [out.size && `Links to ${out.size}`, into.size && `Linked from ${into.size}`].filter(Boolean).join(' · ');
     };
     const change = (id) => (id === CONTRACT ? (shown.changes?.contract ? 'changed' : null) : shown.changes?.items[id]);
+    // Chosen here, it's brought to the middle of the focus view, alone: the rest go to the sides.
     const open = (id) => () => {
       layout = 'focus';
       rememberView();
       here.item = id;
+      here.bring = 'alone';
       remember();
       render();
     };
     const content = (id) => api.getItem(here.schemaId, id, here.proposal ? { proposal: true } : { draftId: shown.draftId }).catch(() => null);
     const on = here.proposal ? { proposal: true } : { draftId: shown.draftId };
-    const comments = await api.listComments(here.schemaId, on).catch(() => []);
-    const onCards = comments.filter((comment) => comment.target.card);
+    const [comments, earlierComments] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
+    const onCards = withEarlier(comments, earlierComments);
     const commentCount = (id) => {
-      const count = comments.filter((comment) => comment.target.item === id && !comment.target.card).length;
+      const count = comments.filter((comment) => comment.target.item === id && !comment.target.card && isOpen(comment)).length;
       return count ? ` · ${count} ${count === 1 ? 'comment' : 'comments'}` : '';
     };
     // What's inside, then how it's linked, beneath the line.
@@ -1349,7 +1422,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       pill(kindLabel(item), 'kind-pill'),
       h('span', { className: 'title-row' }, h('strong', { className: 'overview-card-name' }, item.title)),
       h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed')));
-    const orphans = comments.filter((comment) => comment.target.missing).map((comment) => commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render) }));
+    const orphans = comments.filter((comment) => comment.target.missing).map((comment) => commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render), onNoFurtherAction: flagComment(here) }));
     const cards = [...(await Promise.all([card(CONTRACT, null), ...shown.items.map((item) => card(item.id, item))])).map((one) => withCardComments(one, onCards)), ...shown.uses.map((use) => withCardComments(useCard(use), onCards)), ...removed, ...orphans];
     const pairs = connectedPairs(shown.links);
     // Laid out to fill the window as it is now; a place kept from a different layout would be lost in this one.
@@ -1382,51 +1455,55 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     } catch {}
   };
 
-  function linesLayer() {
-    const layer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    layer.setAttribute('class', 'focus-lines');
-    layer.setAttribute('aria-hidden', 'true');
-    return layer;
-  }
-
   // The lines the AI wrote for an item's card, below its line, if it wrote any.
   const cardLines = (item) => (item?.card?.length ? h('span', { className: 'focus-preview card-lines' }, ...item.card.map((line) => h('span', {}, line))) : null);
 
   // A card with comments on it has a speech bubble saying so, right of its kind tag (see
   // card-comments.js).
+  // Only open comments count: those marked "No further action required" are still in its box, and
+  // earlier comments, from the draft this came from, count for nothing: with only those, the bubble
+  // is dashed and has no number.
   function withCardComments(card, onCards) {
-    const count = onCards.filter((comment) => comment.target.item === card.dataset.item).length;
-    if (count) {
+    const mine = onCards.filter((comment) => comment.target.item === card.dataset.item);
+    const count = mine.filter((comment) => !comment.earlier && isOpen(comment)).length;
+    if (count || mine.some((comment) => comment.earlier)) {
       card.classList.add('has-card-comments');
       card.append(cardCommentTag(count));
     }
     return card;
   }
 
+  // The comments on cards: this draft's, then the earlier ones still about a card that's here.
+  const withEarlier = (comments, earlier) => [...comments.filter((comment) => comment.target.card), ...earlier.filter((comment) => comment.target.card)];
+
+  // The user says an earlier comment again, on what's showing.
+  const commentAgain = (here, on) => async (comment) => {
+    const { item, part, quote, card } = comment.target;
+    await api.addComment(here.schemaId, { ...on, target: { item, ...(card ? { card: true } : { part, quote }) }, text: comment.text, from: comment.id });
+    render();
+  };
+
   // What right-clicking a card, or its comment tag, works with.
   const cardCommenting = (here, on, onCards, cards) => ({
     cards,
     commentsOn: (item) => onCards.filter((comment) => comment.target.item === item),
-    save: async (item, text) => {
-      await api.addComment(here.schemaId, { ...on, target: { item, card: true }, text });
+    save: async (item, text, target = null) => {
+      await api.addComment(here.schemaId, { ...on, target: target ?? { item, card: true }, text });
       render();
     },
     remove: async (comment) => {
       await api.deleteComment(here.schemaId, comment.id);
       render();
     },
+    flag: flagComment(here),
+    again: commentAgain(here, on),
   });
 
-  // A card for an item around the focus. Its lines start from `parts`.
-  function itemCard(entry, shown, mark, preview, follow) {
-    const contract = entry.id === CONTRACT;
-    const item = shown.items.find((one) => one.id === entry.id);
-    return h('button', { className: 'focus-neighbour', type: 'button', 'data-item': entry.id, 'data-parts': JSON.stringify(entry.parts), style: moves(entry.id), onclick: () => follow(entry.id) },
-      !contract && item && pill(kindLabel(item), 'kind-pill'),
-      h('span', { className: 'title-row' }, h('strong', {}, contract ? 'Contract' : item?.title ?? entry.id), statusPills(marker(mark))),
-      h('span', { className: 'focus-meta' }, contract ? 'What it promises and needs' : item?.description),
-      preview);
-  }
+  // The user marks a comment as needing no further action, or opens it again.
+  const flagComment = (here) => async (comment, flag) => {
+    await api.setNoFurtherAction(here.schemaId, comment.id, flag);
+    render();
+  };
 
   // What a table beside the focus holds: the rows the links are about, if any, then how much there is.
   function tablePreview(table, focus, links) {
@@ -1466,21 +1543,6 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         about),
       h('div', { className: 'pane-actions' }));
   };
-
-  // An embedded schema around the focus, collapsed. Clicking brings its overview to the middle.
-  function useCard(use, entry, follow) {
-    if (use.missing) return h('div', { className: 'focus-neighbour embedded', 'data-item': use.id, 'data-parts': JSON.stringify(entry.parts) }, pill('Embedded schematic', 'kind-pill schema-pill'), h('strong', {}, use.id), h('span', { className: 'focus-meta' }, 'This schematic is no longer available.'));
-    const settings = Object.entries(use.with ?? {});
-    return h('button', { className: 'focus-neighbour embedded', type: 'button', 'data-item': use.id, 'data-use': use.id, 'data-parts': JSON.stringify(entry.parts), onclick: () => follow(use.id) },
-      pill('Embedded schematic', 'kind-pill schema-pill'),
-      h('span', { className: 'title-row' },
-        h('strong', {}, use.name),
-        h('span', { className: 'card-meta' }, `Draft ${use.number}`),
-        statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
-      h('span', { className: 'focus-meta' }, use.summary),
-      settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
-      use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)));
-  }
 
   new ResizeObserver(placeDraftNav).observe(draftNav.parentElement);
   for (const button of viewSwitch.querySelectorAll('button')) {

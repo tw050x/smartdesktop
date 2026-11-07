@@ -356,6 +356,59 @@ describe('comments', () => {
     await assert.rejects(store.replyToComment(schema, comment.id, { text: 'Late' }), /no comment/);
   });
 
+  test('the AI says how it dealt with a comment in its own words, and whether anything more is needed', async () => {
+    const store = newStore();
+    const { schema, draft } = await accepted(store, { items: [rules] });
+    const read = await store.addComment(schema, { target: { item: 'rules' }, text: 'FYI, prices change in April.' });
+    const fix = await store.addComment(schema, { target: { item: 'rules' }, text: 'Say which currency.' });
+    assert.equal((await store.getSchema(schema)).comments, 2);
+
+    // An outcome alone is a reply: some comments only need reading.
+    const noted = await store.replyToComment(schema, read.id, { outcome: 'Noted', noFurtherAction: true, author: 'Claude' });
+    assert.deepEqual([noted.outcome, noted.noFurtherAction], ['Noted', true]);
+    await store.replyToComment(schema, fix.id, { text: 'Now says GBP.', outcome: 'Actioned' });
+    const [first, second] = await store.listComments(schema);
+    assert.equal(first.outcome, 'Noted');
+    assert.equal(first.noFurtherAction.by, 'ai');
+    assert.deepEqual(first.replies[0], { ...first.replies[0], author: 'Claude', outcome: 'Noted' });
+    assert.equal(first.replies[0].text, undefined);
+    assert.equal(second.outcome, 'Actioned');
+    assert.equal(second.noFurtherAction, undefined, 'left open: the AI didn\'t say it was done');
+    assert.equal((await store.getSchema(schema)).comments, 1, 'only open comments count');
+
+    // The user can set the flag too, or clear it to open a comment again.
+    await store.setNoFurtherAction(schema, fix.id, true);
+    assert.equal((await store.listComments(schema))[1].noFurtherAction.by, 'user');
+    assert.equal((await store.getSchema(schema, { draftId: draft })).comments, 0);
+    await store.setNoFurtherAction(schema, read.id, false);
+    assert.equal((await store.listComments(schema))[0].noFurtherAction, null);
+    assert.equal((await store.getSchema(schema)).comments, 1);
+    // The AI can take its own flag back.
+    await store.replyToComment(schema, fix.id, { outcome: 'Reopened', noFurtherAction: false });
+    assert.equal((await store.listComments(schema))[1].noFurtherAction, null);
+  });
+
+  test('a reply needs words or an outcome, and an outcome is a word or two', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [rules] });
+    const comment = await store.addComment(schema, { target: { item: 'rules' }, text: 'Hm' });
+    await assert.rejects(store.replyToComment(schema, comment.id, { text: ' ', outcome: ' ' }), /something said, or an outcome/);
+    await assert.rejects(store.replyToComment(schema, comment.id, { outcome: 'x'.repeat(41) }), /40 characters/);
+    await assert.rejects(store.setNoFurtherAction(schema, 'nope', true), /no comment nope/);
+  });
+
+  test('a flag on a proposal\'s comment goes with it into the draft', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [rules] });
+    await store.propose({ schemaId: schema, summary: 'Changed.', note: 'Tighter' });
+    const comment = await store.addComment(schema, { proposal: true, target: { item: 'rules' }, text: 'Looks right.' });
+    await store.replyToComment(schema, comment.id, { outcome: 'Noted', noFurtherAction: true });
+    assert.equal((await store.getProposal(schema)).comments, 0);
+    const { draft } = await store.accept(schema);
+    const [kept] = await store.listComments(schema, { draftId: draft });
+    assert.deepEqual([kept.outcome, kept.noFurtherAction.by], ['Noted', 'ai']);
+  });
+
   test('a comment whose part has gone says so', async () => {
     const store = newStore();
     const { schema } = await accepted(store, { items: [rules] });
@@ -363,6 +416,68 @@ describe('comments', () => {
     await store.addComment(schema, { proposal: true, target: { item: 'rules', part: 'pricing' }, text: 'Old heading' });
     const [one] = await store.listComments(schema, { proposal: true });
     assert.equal(one.target.partMissing, true);
+  });
+});
+
+describe('earlier comments', () => {
+  const rules = doc('rules', '# Rules\n\nPrices are **fixed** for a [year](contract).\n\n## Pricing\n\nIn pence.');
+
+  // A draft with comments on it, then a proposal changing it.
+  async function commented(store, items = [rules]) {
+    const { schema, draft } = await accepted(store, { items: [rules] });
+    const say = (target, text) => store.addComment(schema, { draftId: draft, target, text });
+    const comments = {
+      quote: await say({ item: 'rules', quote: 'Prices are fixed for a year' }, 'Which year?'),
+      part: await say({ item: 'rules', part: 'pricing' }, 'Name the currency.'),
+      card: await say({ item: 'rules', card: true }, 'Show the price.'),
+      answered: await say({ item: 'rules' }, 'Answered one.'),
+      done: await say({ item: 'rules' }, 'Done with.'),
+    };
+    await store.replyToComment(schema, comments.answered.id, { text: 'Did it.' });
+    await store.setNoFurtherAction(schema, comments.done.id, true);
+    await store.propose({ schemaId: schema, note: 'Next', items });
+    return { schema, draft, comments };
+  }
+
+  test('the proposal shows the unanswered comments on its draft that are still about something there, counting none', async () => {
+    const store = newStore();
+    const { schema, draft } = await commented(store);
+    const earlier = await store.listEarlierComments(schema, { proposal: true });
+    assert.deepEqual(earlier.map((one) => one.text), ['Which year?', 'Name the currency.', 'Show the price.']);
+    assert.deepEqual(earlier[0].earlier, { draftId: draft, draft: 1 });
+    assert.equal((await store.getProposal(schema)).comments, 0);
+    assert.equal((await store.listComments(schema, { proposal: true })).length, 0);
+    assert.equal((await store.listEarlierComments(schema, { draftId: draft })).length, 0, 'the first draft came from none');
+  });
+
+  test('one whose words, part or item has gone is not shown', async () => {
+    const store = newStore();
+    const { schema } = await commented(store, [doc('rules', '# Rules\n\nPrices change.\n\n## Prices\n\nIn pence.')]);
+    assert.deepEqual((await store.listEarlierComments(schema, { proposal: true })).map((one) => one.text), ['Show the price.']);
+    const gone = newStore();
+    const { schema: other } = await commented(gone, []);
+    await gone.propose({ schemaId: other, note: 'Without', removeItems: ['rules'] });
+    assert.deepEqual(await gone.listEarlierComments(other, { proposal: true }), []);
+  });
+
+  test('commenting again puts it on what is showing, and the earlier one goes', async () => {
+    const store = newStore();
+    const { schema, comments } = await commented(store);
+    const again = await store.addComment(schema, { proposal: true, target: { item: 'rules', part: 'pricing' }, text: 'Name the currency.', from: comments.part.id });
+    assert.equal(again.from, comments.part.id);
+    assert.equal((await store.getProposal(schema)).comments, 1);
+    assert.deepEqual((await store.listEarlierComments(schema, { proposal: true })).map((one) => one.text), ['Which year?', 'Show the price.']);
+  });
+
+  test('a draft shows those on the draft before it, and no further back', async () => {
+    const store = newStore();
+    const { schema } = await commented(store);
+    const { draft: second } = await store.accept(schema);
+    assert.equal((await store.listEarlierComments(schema, { draftId: second })).length, 3);
+    assert.equal((await store.listComments(schema, { draftId: second })).length, 0);
+    await store.propose({ schemaId: schema, note: 'Again' });
+    const { draft: third } = await store.accept(schema);
+    assert.equal((await store.listEarlierComments(schema, { draftId: third })).length, 0);
   });
 });
 

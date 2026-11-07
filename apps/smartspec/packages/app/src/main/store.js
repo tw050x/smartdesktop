@@ -31,17 +31,40 @@ import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGr
 // A comment is the user's, on one thing in a draft or the proposal: an item, a part of it, words
 // they selected in it, quoted, or its card (its title, description and card lines). The AI reads them and replies. A comment on the proposal stays with it
 // as the AI revises it, goes with it into the draft it becomes, and goes when it's discarded.
+// When the AI replies it can say how it dealt with the comment in its own words (outcome: "Actioned",
+// "Noted"…), and that nothing more is needed (noFurtherAction: { by, at }), which the user can also
+// set or clear. Only comments without that flag count as open.
+//
+// A comment applies only to what it was written on. The next draft, or a proposal, shows the ones on
+// the draft it came from that nobody answered, where what they're on is still there, as earlier
+// comments: the user can comment again with the same words (a new comment, `from` the old one), and
+// they count for nothing on what's showing.
 
 const USE_ID = /^[a-z0-9][\w-]*$/i;
 const FILE_ID = /^[\w-]+$/;
 const now = () => new Date().toISOString();
 const newId = () => randomUUID().slice(0, 8);
+const OUTCOME_MAX = 40; // a comment's outcome, in the AI's words: a word or two
 
 // Until implementations can be linked and tested, every schema is a design.
 const STATUS = 'design-only';
 
 // A focus's name: its title, else its goal cut short.
 const focusTitle = (goal, title) => title?.trim() || (goal.trim().length > 48 ? `${goal.trim().slice(0, 47).trimEnd()}…` : goal.trim());
+
+// The words of something, as they read: every piece of text in it, Markdown links reduced to their
+// words, Markdown's marks taken out and spacing squashed, so words selected in the app can be looked for in it.
+const plainWords = (text) => String(text).replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`#>|~]/g, '').replace(/\s+/g, ' ').trim();
+function plainText(thing) {
+  const pieces = [];
+  const walk = (value) => {
+    if (typeof value === 'string') pieces.push(value);
+    else if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === 'object') Object.values(value).forEach(walk);
+  };
+  walk(thing);
+  return pieces.map(plainWords).join(' ');
+}
 
 export function createStore(root, { events = new EventEmitter() } = {}) {
   const schemaDir = (id) => {
@@ -107,6 +130,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   // What a comment is on: the proposal, or a draft by its id.
   const ON_PROPOSAL = 'proposal';
   const commentsOn = async (schemaId, on) => (await readComments(schemaId)).filter((comment) => comment.on === on);
+  // The comments something still needs doing about: those without "No further action required".
+  const openCount = async (schemaId, on) => (await commentsOn(schemaId, on)).filter((comment) => !comment.noFurtherAction).length;
   const writeSchema = (schema) => writeJson(path.join(schemaDir(schema.id), 'schema.json'), { ...schema, updatedAt: now() });
 
   async function requireSchema(id) {
@@ -260,6 +285,16 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     if (!item) return { ...target, missing: true };
     const found = !target.part || partsOf(item).includes(target.part);
     return { ...target, title: item.title, ...(target.part && found && { partName: partName(item, target.part) }), ...(!found && { partMissing: true }) };
+  }
+
+  // Whether what a comment is on is still in `record`: the item, its part, and the words it quotes.
+  function stillThere(record, target) {
+    const described = describeTarget(record, target);
+    if (described.missing || described.partMissing) return false;
+    if (!target.quote || target.card) return true;
+    const thing = target.item === CONTRACT ? { contract: record.contract, parameters: record.parameters }
+      : record.items.find((one) => one.id === target.item) ?? record.uses.find((one) => one.id === target.item);
+    return plainText(thing).includes(plainWords(target.quote));
   }
 
   async function latestRecord(schema) {
@@ -474,7 +509,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         total: schema.line.length,
         line: schema.line,
         ...(await describe(record, depth)),
-        comments: (await commentsOn(id, which)).length,
+        comments: await openCount(id, which),
         proposal: brief(proposal),
       };
     },
@@ -492,7 +527,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         total: schema.line.length,
         line: schema.line,
         ...(await describe(proposal, depth)),
-        comments: (await commentsOn(id, ON_PROPOSAL)).length,
+        comments: await openCount(id, ON_PROPOSAL),
         changes: itemChanges(await latestRecord(schema), proposal),
       };
     },
@@ -595,8 +630,27 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       return (await commentsOn(schemaId, on)).map((comment) => ({ ...comment, target: describeTarget(record, comment.target) }));
     },
 
-    // The user comments on something in a draft or the proposal.
-    addComment(schemaId, { draftId, proposal = false, target, text }) {
+    // The unanswered comments on the draft that a draft, or the proposal, came from, where what each
+    // is on is still there, oldest first: for the user to see, and comment again if they want to.
+    // Each says which draft it's from. One the user has commented again is left out.
+    async listEarlierComments(schemaId, { draftId, proposal = false } = {}) {
+      const schema = await requireSchema(schemaId);
+      const on = proposal ? ON_PROPOSAL : draftId ?? schema.line.at(-1);
+      const record = proposal ? await readProposal(schemaId) : on && schema.line.includes(on) && await readDraft(schemaId, on);
+      if (!record) return [];
+      const earlier = proposal ? record.basedOn : schema.line[schema.line.indexOf(on) - 1];
+      if (!earlier) return [];
+      const comments = await readComments(schemaId);
+      const again = new Set(comments.filter((comment) => comment.on === on && comment.from).map((comment) => comment.from));
+      const draft = schema.line.indexOf(earlier) + 1;
+      return comments
+        .filter((comment) => comment.on === earlier && !comment.noFurtherAction && !comment.replies?.length && !again.has(comment.id) && stillThere(record, comment.target))
+        .map((comment) => ({ ...comment, target: describeTarget(record, comment.target), earlier: { draftId: earlier, draft } }));
+    },
+
+    // The user comments on something in a draft or the proposal: `from`, an earlier comment they're
+    // saying again here (see listEarlierComments).
+    addComment(schemaId, { draftId, proposal = false, target, text, from }) {
       return serial(async () => {
         const schema = await requireSchema(schemaId);
         const on = proposal ? ON_PROPOSAL : draftId ?? schema.line.at(-1);
@@ -612,6 +666,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
           // On the item's card (what it shows around the schema), or on its content.
           target: target.card ? { item, card: true } : { item, ...(target.part && { part: String(target.part) }), ...(target.quote?.trim() && { quote: target.quote.trim().slice(0, 500) }) },
           text: said,
+          ...(typeof from === 'string' && from && { from }),
           createdAt: now(),
           replies: [],
         };
@@ -632,19 +687,39 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       });
     },
 
-    // The AI answers a comment. `author` is who it is, as the user would know it.
-    replyToComment(schemaId, commentId, { text, author = 'AI' }) {
+    // The AI answers a comment. `author` is who it is, as the user would know it. It says something,
+    // or how it dealt with the comment in a word or two (`outcome`, its own words), or both; with
+    // `noFurtherAction` true it judges nothing more is needed, and false takes that back.
+    replyToComment(schemaId, commentId, { text, outcome, noFurtherAction, author = 'AI' }) {
       return serial(async () => {
         const comments = await readComments(schemaId);
         const comment = comments.find((one) => one.id === commentId);
         if (!comment) throw new Error(`There's no comment ${commentId} on schematic ${schemaId}. get_comments lists them.`);
         const said = String(text ?? '').trim();
-        if (!said) throw new Error('A reply needs something said.');
-        const reply = { id: newId(), author, text: said, createdAt: now() };
+        const how = String(outcome ?? '').trim().replace(/\s+/g, ' ');
+        if (!said && !how) throw new Error('A reply needs something said, or an outcome.');
+        if (how.length > OUTCOME_MAX) throw new Error(`An outcome is a word or two: ${OUTCOME_MAX} characters at most.`);
+        const reply = { id: newId(), author, ...(said && { text: said }), ...(how && { outcome: how }), createdAt: now() };
         comment.replies = [...(comment.replies ?? []), reply];
+        if (how) comment.outcome = how;
+        if (noFurtherAction === true) comment.noFurtherAction = { by: 'ai', at: now() };
+        else if (noFurtherAction === false) comment.noFurtherAction = null;
         await writeComments(schemaId, comments);
         events.emit('changed', schemaId);
-        return { comment: commentId, reply: reply.id };
+        return { comment: commentId, reply: reply.id, ...(comment.outcome && { outcome: comment.outcome }), noFurtherAction: Boolean(comment.noFurtherAction) };
+      });
+    },
+
+    // The user marks a comment as needing no further action, or takes that back to reopen it.
+    setNoFurtherAction(schemaId, commentId, flag) {
+      return serial(async () => {
+        const comments = await readComments(schemaId);
+        const comment = comments.find((one) => one.id === commentId);
+        if (!comment) throw new Error(`There's no comment ${commentId}.`);
+        comment.noFurtherAction = flag ? { by: 'user', at: now() } : null;
+        await writeComments(schemaId, comments);
+        events.emit('changed', schemaId);
+        return { comment: commentId, noFurtherAction: Boolean(comment.noFurtherAction) };
       });
     },
 

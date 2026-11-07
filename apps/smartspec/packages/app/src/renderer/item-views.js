@@ -246,6 +246,6 @@ export function itemView(item, onLink) {
 }
 
 // What an item is, as a person would say it.
-const KIND_LABELS = { document: 'Markdown document', flow: 'Flow diagram', sequence: 'Sequence diagram', table: 'Table' };
+const KIND_LABELS = { document: 'Markdown', flow: 'Flow diagram', sequence: 'Sequence diagram', table: 'Table' };
 const IMAGE_LABELS = { 'image/svg+xml': 'SVG image', 'image/png': 'PNG image', 'image/jpeg': 'JPEG image', 'image/webp': 'WebP image' };
 export const kindLabel = (item) => (item.kind === 'image' ? IMAGE_LABELS[item.mediaType] ?? 'Image' : KIND_LABELS[item.kind]);

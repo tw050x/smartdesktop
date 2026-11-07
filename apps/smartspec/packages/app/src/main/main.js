@@ -8,6 +8,7 @@ import { MCP_PORT, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
 import { createStore } from './store.js';
+import { createLayouts } from './layouts.js';
 import { createUpdates } from './updates.js';
 import { WaitRefused, createWaits } from './waits.js';
 
@@ -46,6 +47,8 @@ let lastFocused = null;
 let mcp = null; // { url, token } once the MCP server is listening
 let mcpStarting = true;
 const store = createStore(app.getPath('userData'));
+// Where the user has placed things in each schematic's focus view, on this computer only.
+const layouts = createLayouts(path.join(app.getPath('userData'), 'layouts'));
 const waits = createWaits({ store });
 
 // For every window: what's the same in all of them.
@@ -248,7 +251,7 @@ const schemasFor = (session, ctx) => ({
   createFolder: (name, parentId) => store.createFolder(name, parentId),
   renameFolder: (id, name) => store.renameFolder(id, name),
   moveGroup: (groupId, folderId) => store.moveGroup(groupId, folderId),
-  replyToComment: (id, commentId, text) => store.replyToComment(id, commentId, { text, author: clientLabel(session.client) }),
+  replyToComment: (id, commentId, reply) => store.replyToComment(id, commentId, { ...reply, author: clientLabel(session.client) }),
   async propose(proposal) {
     if (proposal.schemaId) {
       const holder = sessions.claim(session, schemaClaim(proposal.schemaId));
@@ -410,6 +413,8 @@ async function deleteGroup(ctx, id) {
 }
 
 handle('list-schemas', () => store.list());
+handle('get-layout', (_ctx, schemaId) => layouts.get(schemaId));
+handle('save-layout', (_ctx, schemaId, layout) => layouts.save(schemaId, layout));
 handle('list-groups', () => store.listGroups());
 handle('create-group', (_ctx, name, folderId) => store.createGroup(name, folderId ?? null));
 handle('rename-group', (_ctx, id, name) => store.renameGroup(id, name));
@@ -437,8 +442,10 @@ handle('get-proposal', (_ctx, id) => store.getProposal(id));
 handle('get-item', (_ctx, id, itemId, options) => store.getItem(id, itemId, options));
 handle('get-connections', (_ctx, id, options) => store.getConnections(id, options));
 handle('list-comments', (_ctx, id, options) => store.listComments(id, options));
+handle('list-earlier-comments', (_ctx, id, options) => store.listEarlierComments(id, options));
 handle('add-comment', (_ctx, id, comment) => store.addComment(id, comment));
 handle('delete-comment', (_ctx, id, commentId) => store.deleteComment(id, commentId));
+handle('set-no-further-action', (_ctx, id, commentId, flag) => store.setNoFurtherAction(id, commentId, flag));
 handle('accept-proposal', async (_ctx, id) => {
   await store.accept(id);
   sessions.release(schemaClaim(id));

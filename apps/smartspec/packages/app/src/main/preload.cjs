@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('smartspec', {
   getItem: (id, itemId, options) => call('get-item', id, itemId, options),
   getConnections: (id, options) => call('get-connections', id, options),
   listComments: (id, options) => call('list-comments', id, options),
+  listEarlierComments: (id, options) => call('list-earlier-comments', id, options),
+  // Where the user has placed things in a schematic's focus view, kept on this computer only.
+  getLayout: (id) => call('get-layout', id),
+  saveLayout: (id, layout) => call('save-layout', id, layout),
   listGroups: () => call('list-groups'),
   createGroup: (name, folderId) => call('create-group', name, folderId),
   renameGroup: (id, name) => call('rename-group', id, name),
@@ -38,6 +42,7 @@ contextBridge.exposeInMainWorld('smartspec', {
   showHomeMenu: (items) => call('home-menu', items),
   addComment: (id, comment) => call('add-comment', id, comment),
   deleteComment: (id, commentId) => call('delete-comment', id, commentId),
+  setNoFurtherAction: (id, commentId, flag) => call('set-no-further-action', id, commentId, flag),
   acceptProposal: (id) => call('accept-proposal', id),
   discardProposal: (id) => call('discard-proposal', id),
   onSchemasChanged: on('schemas-changed'),
