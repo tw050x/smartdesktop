@@ -6,6 +6,7 @@ import { watchPage } from './page-view.js';
 import { drawOverview, watchOverview } from './overview-view.js';
 import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from './comments.js';
 import { closeThread, openThread, refreshThread } from './comment-overlay.js';
+import { shadeScrolling } from './scroll-shade.js';
 import { watchLongPress } from './long-press.js';
 import { itemView, kindLabel } from './item-views.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
@@ -33,6 +34,23 @@ const pill = (text, kind = '') => h('span', { className: `pill ${kind}` }, text)
 // they all fit, else all of them go beneath it (see .status-pills). The normal state shows nothing.
 const WAITING = () => pill('Waiting for you', 'proposed');
 const statusPills = (...pills) => (pills.some(Boolean) ? h('span', { className: 'status-pills' }, ...pills) : null);
+
+// The kind of item on a small card at the sides, as an icon rather than a pill, so the card's
+// title has the room. Its name is still there, for pointing at and for screen readers.
+const KIND_ICONS = {
+  // The Markdown mark: an M and a down arrow in a rounded box.
+  document: '<rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M6 15V9l3 3 3-3v6M17 9v6M14.5 12.5L17 15l2.5-2.5"/>',
+  flow: '<rect x="8.5" y="3" width="7" height="5" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/><rect x="14" y="16" width="7" height="5" rx="1"/><path d="M12 8v4M6.5 16v-4h11v4"/>',
+  sequence: '<rect x="3" y="2.5" width="6" height="4" rx="1"/><rect x="15" y="2.5" width="6" height="4" rx="1"/><path d="M6 6.5V22M18 6.5V22" stroke-dasharray="2 2.5"/><path d="M6 11.5h11M15 9.5l2 2-2 2M18 17H7M9 15l-2 2 2 2"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 15h18M9.5 9.5V20"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  schematic: '<rect x="3" y="3" width="7" height="6" rx="1"/><rect x="14" y="3" width="7" height="6" rx="1"/><rect x="8.5" y="15" width="7" height="6" rx="1"/><path d="M10 6h4M6.5 9v3h5.5v3M17.5 9v3H12"/>',
+};
+function kindIcon(kind, label) {
+  const icon = h('span', { className: 'kind-icon', role: 'img', 'aria-label': label, title: label });
+  icon.innerHTML = `<svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${KIND_ICONS[kind] ?? KIND_ICONS.document}</svg>`;
+  return icon;
+}
 
 const ARROW_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
 const OPEN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5,21q-0.83,0-1.41-0.59T3,19V5Q3,4.17 3.59,3.59T5,3h7V5H5V19H19V12h2v7q0,0.82-0.59,1.41T19,21H5Zm4.7-5.3L8.3,14.3L17.6,5H14V3h7v7H19V6.4L9.7,15.7Z"/></svg>';
@@ -1286,6 +1304,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       middle.append(h('div', { className: 'full-actions' }, pills, ...actionsOf(head).children));
       head.remove();
     }
+    // Where its content goes on out of sight, an inner shadow says so (a canvas pans instead).
+    if (!canvas) shadeScrolling(body);
+    const holder = body.querySelector(':scope > .item-table-holder');
+    if (holder) shadeScrolling(holder);
     return middle;
   }
 
@@ -1295,16 +1317,16 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const gone = removed.find((one) => one.id === id);
     if (gone) {
       return h('div', { className: 'focus-neighbour board-card removed' },
-        pill(kindLabel(gone), 'kind-pill'),
+        kindIcon(gone.kind, kindLabel(gone)),
         h('span', { className: 'title-row' }, h('strong', {}, gone.title)),
         h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed'));
     }
     const use = uses.get(id);
     if (use) {
-      if (use.missing) return h('div', { className: 'focus-neighbour board-card embedded' }, pill('Embedded schematic', 'kind-pill schema-pill'), h('span', { className: 'title-row' }, h('strong', {}, use.id)), h('span', { className: 'focus-meta' }, 'This schematic is no longer available.'));
+      if (use.missing) return h('div', { className: 'focus-neighbour board-card embedded' }, kindIcon('schematic', 'Embedded schematic'), h('span', { className: 'title-row' }, h('strong', {}, use.id)), h('span', { className: 'focus-meta' }, 'This schematic is no longer available.'));
       const settings = Object.entries(use.with ?? {});
       return h('div', { className: 'focus-neighbour board-card embedded' },
-        pill('Embedded schematic', 'kind-pill schema-pill'),
+        kindIcon('schematic', 'Embedded schematic'),
         h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, `Draft ${use.number}`), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
         h('span', { className: 'focus-meta' }, use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
@@ -1315,7 +1337,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const preview = cardLines(item) ?? (item?.kind === 'table' ? await content(id).then((table) => table && tablePreview(table, null, shown.links))
       : await previewOf(id, shown, uses, content).catch(() => null));
     return h('div', { className: 'focus-neighbour board-card' },
-      !contract && item && pill(kindLabel(item), 'kind-pill'),
+      !contract && item && kindIcon(item.kind, kindLabel(item)),
       h('span', { className: 'title-row' }, h('strong', {}, contract ? 'Contract' : item?.title ?? id), statusPills(marker(mark(id)))),
       h('span', { className: 'focus-meta' }, contract ? 'What it promises and needs' : item?.description),
       preview);

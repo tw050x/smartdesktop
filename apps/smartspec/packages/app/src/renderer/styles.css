@@ -551,7 +551,7 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
    inline), and at the edges they're cards. Lines join linked items, behind them. */
 .schema-page { display: flex; flex-direction: column; max-width: 1440px; min-height: 100%; padding-bottom: 16px; }
 .page.schema-page.board-page { max-width: none; height: 100%; min-height: 0; padding: 0; }
-.board { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.board { position: relative; flex: 1; min-height: 0; overflow: hidden; isolation: isolate; } /* items stack among themselves, never over boxes on the page */
 /* An item is the size it shows at; inside, its card and its full view (laid out at its full size and
    scaled) sit at its top left and fade into each other as it moves between the edge and the middle.
    Everything glides to a new place, except what's being dragged or resized (board-view.js). */
@@ -585,10 +585,14 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .board-item.is-card:hover { border-color: var(--accent); }
 /* On the board a card is only its kind, title and comments: the user wanted what's in an item
    hidden until it's in the middle. */
-.board-item:not(.board-comment) > .board-card > :not(.kind-pill, .title-row) { display: none; }
+.board-item:not(.board-comment) > .board-card > :not(.kind-icon, .title-row) { display: none; }
+/* Its kind (an icon) and title in the middle of the card, the way the user wanted them. */
+.board-item:not(.board-comment) > .board-card { justify-items: center; align-content: center; padding: 6px 9px; text-align: center; } /* the same padding either side, embedded or not */
+/* Its title on a line of its own, then the draft of an embedded schematic, then New or Changed. */
+.board-item:not(.board-comment) > .board-card > .title-row { flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+.board-card > .kind-icon { display: block; margin-bottom: 4px; color: var(--muted); line-height: 0; }
 /* Cards at the sides are small: the user found them too big for the room there. */
 .board-item > .board-card { gap: 2px; padding: 6px 9px; }
-.board-item > .board-card > .kind-pill { margin-bottom: 1px; padding: 1px 5px; font-size: 8.5px; }
 .board-item > .board-card .title-row strong { font-size: 12px; }
 .board-item > .board-card .title-row .pill { font-size: 10px; padding: 0 6px; }
 .board-item.lit { border-color: var(--accent); }
@@ -639,7 +643,7 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .focus-preview.card-lines { display: grid; gap: 2px; color: var(--text-2); font-size: 11.5px; line-height: 1.35; }
 /* A box of comments on one thing (see comment-overlay.js), over the page by where it was opened. */
 .overview-card { position: relative; }
-.card-comments { position: fixed; z-index: 65; display: grid; gap: 10px; width: 300px; max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; padding: 12px; border: 1px solid var(--border-strong); border-left: 3px solid var(--comment); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); font-size: 12.5px; }
+.card-comments { position: fixed; z-index: 90; display: grid; gap: 10px; width: 300px; max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; padding: 12px; border: 1px solid var(--border-strong); border-left: 3px solid var(--comment); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); font-size: 12.5px; }
 .card-comments-head { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .card-comment { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .card-comment .comment-top { align-items: flex-start; }
@@ -697,11 +701,14 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 @keyframes long-press { from { transform: scale(0.3); opacity: 0.2; } to { transform: scale(1); opacity: 1; } }
 /* Where an item has comments: a marker in the comment colour, with how many if more than one (see
    comments.js). Clicking it opens them. Faded when none needs anything; dashed for an earlier one. */
-.comment-marker { position: absolute; top: 0; left: 0; z-index: 4; display: inline-flex; align-items: center; gap: 3px; height: 18px; min-width: 18px; box-sizing: border-box; padding: 0 5px; border: 0; border-radius: 9px; background: var(--comment); color: #1f1a0e; font: inherit; font-size: 10.5px; font-weight: 700; cursor: pointer; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
-.comment-marker[hidden] { display: none; }
+.comment-marker { position: absolute; top: 0; left: 0; z-index: 4; display: inline-flex; align-items: center; gap: 3px; height: 18px; min-width: 18px; box-sizing: border-box; padding: 0 2.5px; border: 1px solid color-mix(in srgb, var(--comment) 55%, #000); border-radius: 5px; background: var(--comment); color: #1f1a0e; font: inherit; font-size: 10.5px; font-weight: 700; cursor: pointer; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: opacity 0.15s ease; }
 .comment-marker svg { display: block; }
 .comment-marker.settled { opacity: 0.55; }
-.comment-marker.earlier { background: var(--bg); color: var(--muted); outline: 1px dashed var(--border-strong); outline-offset: -1px; box-shadow: none; }
+/* An earlier one is yellow too, so it stands out from the card, but with a dashed border, not solid. */
+.comment-marker.earlier { border-style: dashed; box-shadow: none; }
+/* Kept on the board, so it can hang over its item's edge; faded out while what it's on can't be seen
+   (scrolled away, or under another item), and in again when it can. */
+.comment-marker.away { opacity: 0; pointer-events: none; }
 .comment-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 ::highlight(comments) { background-color: color-mix(in srgb, var(--comment) 30%, transparent); }
 /* A comment on the whole schematic, as a card on the board, the comment's own card filling it. */
@@ -845,6 +852,18 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .document-sheet { display: flow-root; flex: none; width: 794px; min-height: 1123px; box-sizing: border-box; margin: 0 auto; padding: 60px; zoom: var(--page-zoom, 1); border-radius: var(--card-radius); background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06); font-size: 16px; line-height: 1.6; }
 .document-sheet .markdown { font-size: inherit; line-height: inherit; }
 .table-body, .image-body { background: var(--bg); }
+/* A table fills its card and scrolls itself, both ways, so its sideways scrollbar is along the
+   bottom of the card, not under the last row. */
+.focus-body.table-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.table-body > .item-table-holder { flex: 1 1 auto; min-height: 0; margin: 0; overflow: auto; }
+
+/* Anything that scrolls in an item has a thin scrollbar, its track stopping short of the card's
+   rounded corners (the open view is scaled as a whole, so its corners are --card-radius inside it). */
+.board-item ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+.board-item ::-webkit-scrollbar-track { margin: var(--card-radius); background: transparent; }
+.board-item ::-webkit-scrollbar-thumb { border-radius: 3px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+.board-item ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 60%, transparent); }
+.board-item ::-webkit-scrollbar-corner { background: transparent; }
 .image-body { display: grid; place-items: center; }
 .use-summary { margin: 0; user-select: text; }
 .use-contents { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; user-select: text; }
@@ -908,3 +927,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .segmented button:hover { color: var(--text); }
 .segmented button[aria-checked="true"] { background: light-dark(var(--bg), #46464c); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 .segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Where an item's content goes on out of sight, an inner shadow along that edge (scroll-shade.js). */
+.table-body { position: relative; }
+.scroll-shade { position: absolute; z-index: 2; pointer-events: none; border-radius: inherit;
+  --shade: light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.5)); transition: box-shadow 0.15s ease; }

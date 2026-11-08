@@ -109,10 +109,15 @@ export function refreshThread(find) {
   else closeThread();
 }
 
-// Anything else the user does puts the box away.
+// Anything else the user does puts the box away: Escape, a key pressed elsewhere, pressing, clicking
+// or scrolling anywhere but in it (a comment marker opens its own box instead).
+const outside = (event) => box && !box.contains(event.target) && !event.target.closest?.('.comment-marker');
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && box) closeThread();
-});
-document.addEventListener('pointerdown', (event) => {
-  if (box && !box.contains(event.target) && !event.target.closest?.('.comment-marker')) closeThread();
+  if (box && (event.key === 'Escape' || outside(event))) closeThread();
 }, true);
+document.addEventListener('pointerdown', (event) => {
+  if (outside(event)) closeThread();
+}, true);
+document.addEventListener('wheel', (event) => {
+  if (outside(event)) closeThread();
+}, { capture: true, passive: true });

@@ -195,6 +195,16 @@ export function keyOf(target) {
 // the item's content as laid out.
 const pointBox = (body) => body.querySelector('svg.diagram-svg') ?? body.firstElementChild ?? body;
 
+// Where a point's fractions are measured, in the window. Something that scrolls itself (a table's
+// holder) counts as all it scrolls through, so the point moves with what's in it.
+function pointRect(body) {
+  const box = pointBox(body);
+  const rect = box.getBoundingClientRect();
+  const scrolls = box.scrollWidth > box.clientWidth || box.scrollHeight > box.clientHeight;
+  if (!scrolls) return rect;
+  return { left: rect.left - box.scrollLeft, top: rect.top - box.scrollTop, width: box.scrollWidth, height: box.scrollHeight };
+}
+
 // The text inside `element` is under (x, y): over the words themselves, not just their box.
 function overText(element, x, y) {
   const range = document.createRange();
@@ -229,7 +239,7 @@ export function targetAt(element, event) {
   }
   const part = event.target.closest('[data-part]');
   if (part && body.contains(part)) return { item, part: part.dataset.part };
-  const box = pointBox(body).getBoundingClientRect();
+  const box = pointRect(body);
   if (!box.width || !box.height) return { item };
   return { item, point: { x: Math.min(1, Math.max(0, (x - box.left) / box.width)), y: Math.min(1, Math.max(0, (y - box.top) / box.height)) } };
 }
@@ -248,13 +258,15 @@ function spotOf(element, group) {
     const range = document.createRange();
     range.selectNodeContents(title);
     const rect = range.getBoundingClientRect();
-    return { x: rect.right + 6, y: rect.top + rect.height / 2, align: 'left' };
+    return { x: rect.right + 6, y: rect.top + rect.height / 2, align: 'left', probe: [rect.right - 3, rect.top + rect.height / 2] };
   }
   const body = full.querySelector('.focus-body');
   const headSpot = () => {
     const rect = head?.getBoundingClientRect();
-    const actions = head?.querySelector('.pane-actions')?.getBoundingClientRect();
-    return rect && { x: (actions?.width ? actions.left : rect.right) - 6, y: rect.top + rect.height / 2, align: 'right' };
+    if (!rect) return null;
+    const actions = head.querySelector('.pane-actions')?.getBoundingClientRect();
+    const x = (actions?.width ? actions.left : rect.right) - 6;
+    return { x, y: rect.top + rect.height / 2, align: 'right', probe: [x - 3, rect.top + rect.height / 2] };
   };
   if (!body) return headSpot();
   if (target.quote) {
@@ -263,16 +275,16 @@ function spotOf(element, group) {
     if (!range) return headSpot();
     const rects = range.getClientRects();
     const last = rects[rects.length - 1];
-    return last && { x: last.right + 2, y: last.top, align: 'left' };
+    return last && { x: last.right + 2, y: last.top, align: 'left', probe: [last.right - 2, last.top + 2] };
   }
   if (target.part && !target.partMissing) {
     const part = body.querySelector(`[data-part="${CSS.escape(target.part)}"]`);
     if (!part) return headSpot();
     const rect = part.getBoundingClientRect();
-    return { x: rect.right, y: rect.top, align: 'right' };
+    return { x: rect.right, y: rect.top, align: 'right', probe: [rect.right - 2, rect.top + 2] };
   }
   if (target.point) {
-    const box = pointBox(body).getBoundingClientRect();
+    const box = pointRect(body);
     return { x: box.left + target.point.x * box.width, y: box.top + target.point.y * box.height, align: 'centre' };
   }
   return headSpot();
@@ -286,6 +298,10 @@ function spotOf(element, group) {
 export function watchComments(root, { groups = [], open = () => {} } = {}) {
   if (HIGHLIGHTS) CSS.highlights.delete('comments');
   if (!root) return () => {};
+  // One watch per board: a new one (the board drawn again) stops the one before, or the two would
+  // each set the markers every frame and they'd flicker.
+  root.stopComments?.();
+  let stopped = false;
   let words = []; // { range, group }: the marked words
   const markers = new Map(); // key -> marker
   const mark = () => {
@@ -318,8 +334,11 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
         const rect = marker.getBoundingClientRect();
         open(group, rect.right, rect.top);
       });
+      // On the board, not in the item, so it can hang over the item's edge rather than be cut off.
       marker.group = group;
-      element.append(marker);
+      marker.item = element;
+      marker.classList.add('away');
+      root.append(marker);
       markers.set(group.key, marker);
     }
     if (HIGHLIGHTS) {
@@ -329,43 +348,51 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
   };
   // Markers follow what they're on, every frame, as items glide, scroll, pan and zoom.
   const follow = () => {
+    if (stopped) return;
     if (!root.isConnected) {
       if (HIGHLIGHTS) CSS.highlights.delete('comments');
       return;
     }
+    const board = root.getBoundingClientRect();
     for (const marker of markers.values()) {
-      const element = marker.parentElement;
-      if (!element || element.classList.contains('is-card')) {
-        marker.hidden = true;
-        continue;
-      }
-      const spot = spotOf(element, marker.group);
-      if (!spot) {
-        marker.hidden = true;
-        continue;
-      }
-      const frame = element.getBoundingClientRect();
+      const element = marker.item;
+      const spot = element?.isConnected && !element.classList.contains('is-card') ? spotOf(element, marker.group) : null;
+      // Shown only while what it's on can be seen: not scrolled or panned out of its item, nor
+      // under another item. It fades in and out, and may hang over the item's edge.
+      const [px, py] = spot?.probe ?? [spot?.x, spot?.y];
+      const under = spot ? document.elementsFromPoint(px, py).find((hit) => !hit.closest('.comment-marker')) : null;
+      const seen = Boolean(under && element.contains(under));
+      marker.classList.toggle('away', !seen);
+      marker.style.zIndex = element?.style.zIndex || '1';
+      if (!spot) continue;
       const width = marker.offsetWidth || 18;
       const height = marker.offsetHeight || 18;
       const left = spot.align === 'right' ? spot.x - width : spot.align === 'centre' ? spot.x - width / 2 : spot.x;
       const top = spot.y - height / 2;
-      const x = left - frame.left;
-      const y = top - frame.top;
-      marker.hidden = x < -width || y < -height || x > frame.width || y > frame.height;
-      marker.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+      marker.style.transform = `translate(${Math.round(left - board.left)}px, ${Math.round(top - board.top)}px)`;
     }
     requestAnimationFrame(follow);
   };
   // Clicking marked words opens their comments, unless the click was picking words.
-  root.addEventListener('click', (event) => {
+  const onClick = (event) => {
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) return;
     const hit = words.find(({ range }) => [...range.getClientRects()].some((rect) => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom));
     if (!hit || event.target.closest('a[href]')) return;
     event.stopPropagation();
     open(hit.group, event.clientX, event.clientY);
-  });
+  };
+  root.addEventListener('click', onClick);
+  root.stopComments = () => {
+    stopped = true;
+    for (const marker of markers.values()) marker.remove();
+    markers.clear();
+    root.removeEventListener('click', onClick);
+  };
   mark();
   requestAnimationFrame(follow);
-  return mark;
+  // Marking again after stopping would put back markers nothing moves.
+  return () => {
+    if (!stopped) mark();
+  };
 }
