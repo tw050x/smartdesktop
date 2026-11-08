@@ -28,8 +28,9 @@ import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGr
 // always exists. Groups are organised in folders, which nest; neither changes anything about a
 // schema's design.
 //
-// A comment is the user's, on one thing in a draft or the proposal: an item, a part of it, words
-// they selected in it, quoted, or its card (its title, description and card lines). The AI reads them and replies. A comment on the proposal stays with it
+// A comment is the user's, on one thing in a draft or the proposal: the whole schematic, an item, a
+// part of it, a point in it, words they selected in it, quoted, or its card (its title, description
+// and card lines). The AI reads them and replies. A comment on the proposal stays with it
 // as the AI revises it, goes with it into the draft it becomes, and goes when it's discarded.
 // When the AI replies it can say how it dealt with the comment in its own words (outcome: "Actioned",
 // "Noted"…), and that nothing more is needed (noFurtherAction: { by, at }), which the user can also
@@ -275,9 +276,25 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     if (proposalId) events.emit('proposal', proposalId);
   };
 
+  // What a new comment is on, checked against `record`: the whole schematic (`schematic`, with where
+  // it was put on the overview, `at`, as fractions of it), or an item: its card (`card`, its title,
+  // description and card lines), a part of it (`part`), words in it (`quote`, with the part they're
+  // in), a point in its content (`point`, as fractions of it), or all of it.
+  function commentTarget(record, target) {
+    const fraction = (value) => Math.min(1, Math.max(0, Number(value) || 0));
+    const at = (value) => value && typeof value === 'object' && { x: fraction(value.x), y: fraction(value.y) };
+    if (target?.schematic) return { schematic: true, ...(at(target.at) && { at: at(target.at) }) };
+    const item = String(target?.item ?? '');
+    if (item !== CONTRACT && !record.items.some((one) => one.id === item) && !record.uses.some((use) => use.id === item)) throw new Error(`There's no ${item} to comment on.`);
+    if (target.card) return { item, card: true };
+    if (target.point && !target.part && !target.quote) return { item, point: at(target.point) };
+    return { item, ...(target.part && { part: String(target.part) }), ...(target.quote?.trim() && { quote: target.quote.trim().slice(0, 500) }) };
+  }
+
   // A comment's target in words, from the record it's on: what the item is called, and the part,
   // or that it's no longer there.
   function describeTarget(record, target) {
+    if (target.schematic) return { ...target, title: record.name };
     if (target.item === CONTRACT) return { ...target, title: 'Contract' };
     const use = record.uses.find((one) => one.id === target.item);
     if (use) return { ...target, title: use.id };
@@ -289,6 +306,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
 
   // Whether what a comment is on is still in `record`: the item, its part, and the words it quotes.
   function stillThere(record, target) {
+    if (target.schematic) return true;
     const described = describeTarget(record, target);
     if (described.missing || described.partMissing) return false;
     if (!target.quote || target.card) return true;
@@ -658,13 +676,10 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         if (!record) throw new Error(proposal ? 'There is no proposal to comment on.' : `Schematic ${schemaId} has no such draft.`);
         const said = String(text ?? '').trim();
         if (!said) throw new Error('A comment needs something said.');
-        const item = String(target?.item ?? '');
-        if (item !== CONTRACT && !record.items.some((one) => one.id === item) && !record.uses.some((use) => use.id === item)) throw new Error(`There's no ${item} to comment on.`);
         const comment = {
           id: newId(),
           on,
-          // On the item's card (what it shows around the schema), or on its content.
-          target: target.card ? { item, card: true } : { item, ...(target.part && { part: String(target.part) }), ...(target.quote?.trim() && { quote: target.quote.trim().slice(0, 500) }) },
+          target: commentTarget(record, target),
           text: said,
           ...(typeof from === 'string' && from && { from }),
           createdAt: now(),

@@ -356,6 +356,26 @@ describe('comments', () => {
     await assert.rejects(store.replyToComment(schema, comment.id, { text: 'Late' }), /no comment/);
   });
 
+  test('a comment can be on the whole schematic, or a point in an item, as well as on a part, words or a card', async () => {
+    const store = newStore();
+    const { schema, draft } = await accepted(store, { items: [rules] });
+    const whole = await store.addComment(schema, { target: { schematic: true, at: { x: 0.25, y: 2 } }, text: 'Is this the whole of checkout?' });
+    assert.deepEqual(whole.target, { schematic: true, at: { x: 0.25, y: 1 } });
+    const point = await store.addComment(schema, { target: { item: 'rules', point: { x: 0.5, y: 0.1 } }, text: 'Something is missing here.' });
+    assert.deepEqual(point.target, { item: 'rules', point: { x: 0.5, y: 0.1 } });
+    const card = await store.addComment(schema, { target: { item: 'rules', card: true, part: 'pricing' }, text: 'Call it Pricing rules.' });
+    assert.deepEqual(card.target, { item: 'rules', card: true });
+    const listed = await store.listComments(schema);
+    assert.equal(listed.find((one) => one.id === whole.id).target.title, 'M2M auth');
+    assert.equal(listed.find((one) => one.id === point.id).target.title, 'rules');
+    // On the next draft, unanswered ones on the schematic as a whole, or a point in an item still
+    // there, are earlier comments.
+    await store.propose({ schemaId: schema, summary: 'Changed.', note: 'Tighter' });
+    const earlier = await store.listEarlierComments(schema, { proposal: true });
+    assert.deepEqual(earlier.map((one) => one.id).sort(), [whole.id, point.id, card.id].sort());
+    assert.ok(earlier.every((one) => one.earlier.draftId === draft));
+  });
+
   test('the AI says how it dealt with a comment in its own words, and whether anything more is needed', async () => {
     const store = newStore();
     const { schema, draft } = await accepted(store, { items: [rules] });

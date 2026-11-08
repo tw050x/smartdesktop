@@ -12,8 +12,10 @@
 
 import { bringToMiddle, cardnessAtEdge, groupCards, fillBox, fills, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, toFront, zoneAt, zoneAtEdge } from './board.js';
 import { watchPage } from './page-view.js';
+import { longPressed } from './long-press.js';
 
 const RADIUS = 12; // px, an item's corners at full size (--card-radius in styles.css)
+const COMMENT_WIDTH = 260; // px, a card for a comment on the whole schematic
 const SMALL_TOP = 20; // px along the top of a small open item that pick it up
 const SMALL_OPEN = 0.6; // an open item scaled below this is moved by its top edge, not resized
 const MIN_RADIUS = 4; // px, and at its smallest, as a card
@@ -69,6 +71,8 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   // width): always its full size's shape, scaled down the nearer the edge is to the side, to its
   // smallest, where its content becomes its card's. A side too full shrinks it further (shrink).
   function sizeAt(one, e) {
+    // A comment on the whole schematic is a card of its own size wherever it is.
+    if (one.fixed) return { width: one.fixed.width * one.shrink, height: one.fixed.height * one.shrink, scale: one.shrink, cardness: 1 };
     const scale = scaleAtEdge(e) * one.shrink;
     return { width: one.full.width * scale, height: one.full.height * scale, scale, cardness: cardnessAtEdge(e) };
   }
@@ -94,13 +98,14 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const one = {
       id, element, cx: box.cx * width, cy: box.cy * height,
       full: { width: box.w * width, height: box.h * height },
+      fixed: element.classList.contains('board-comment') ? commentSize(element) : null,
       shrink: id === dragging || id === placed ? element.keepShrink ?? 1 : 1,
     };
     // An item with no edge kept, whose centre is where cards go, is a card.
     one.e = box.ex != null && !filling ? box.ex : zoneAt(box.cx) === 'edge' ? 0 : edgeFromCentre(one);
     const zone = zoneAtEdge(one.e);
     one.side = zone === 'middle' ? null : box.cx < 0.5 ? 'left' : 'right';
-    one.cardness = cardnessAtEdge(one.e);
+    one.cardness = one.fixed ? 1 : cardnessAtEdge(one.e);
     // The open view is built the first time it's needed; until it's there, the card shows.
     one.built = one.cardness < 1 ? Boolean(fullOf(element)) : Boolean(element.querySelector(':scope > .board-full'));
     element.classList.toggle('in-middle', zone === 'middle');
@@ -119,6 +124,22 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   }
 
   const seenSize = (one) => sizeAt(one, one.e);
+
+  // A comment card's size: its own width, and as tall as what's in it. Measured once, on a hidden
+  // copy: measuring the card itself, on every move, stopped everything gliding mid-way and made
+  // cards jump to their new places.
+  function commentSize(element) {
+    if (element.commentSize) return element.commentSize;
+    const card = element.querySelector(':scope > .board-card');
+    const copy = card.cloneNode(true);
+    Object.assign(copy.style, { position: 'absolute', visibility: 'hidden', pointerEvents: 'none', left: '-10000px', top: '0', width: `${COMMENT_WIDTH}px`, height: 'auto', transform: 'none', transition: 'none' });
+    board.append(copy);
+    const height = copy.offsetHeight || 120;
+    copy.remove();
+    const measured = { width: COMMENT_WIDTH + FRAME, height: height + FRAME };
+    if (height) element.commentSize = measured;
+    return measured;
+  }
 
   // Where an item's frame goes, `top` being where its side put it (or where it is, if left out).
   // It keeps inside the board, out from the middle, except while it's being dragged: then it goes
@@ -308,7 +329,7 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const small = event.target.closest?.('.board-item.small-open');
     const atTop = small && event.clientY - small.getBoundingClientRect().top < SMALL_TOP;
     const handle = atTop ? small : event.target.closest?.('.board-full > .pane-head, .board-card');
-    if (!handle || (!atTop && event.target.closest('.pane-actions, .card-comment-tag, .title-card, h2[tabindex]:focus-visible'))) return;
+    if (!handle || (!atTop && event.target.closest('.pane-actions, .title-card, h2[tabindex]:focus-visible, .board-comment button, .comment-marker'))) return;
     const element = handle.closest('.board-item');
     const id = element.dataset.item;
     const start = { x: event.clientX, y: event.clientY };
@@ -322,6 +343,8 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       const dx = move.clientX - start.x;
       const dy = move.clientY - start.y;
       if (!from) {
+        // A long press is a comment starting, not a drag (see long-press.js).
+        if (longPressed()) return onEnd();
         if (Math.hypot(dx, dy) < DRAG_FROM) return;
         settleFilling();
         from = { ...layout.boxes[id] };
@@ -435,7 +458,7 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   // Double-clicking a card, or an item's title bar, brings it to the middle.
   board.addEventListener('dblclick', (event) => {
     const handle = event.target.closest?.('.board-card, .board-full > .pane-head');
-    if (!handle || event.target.closest('.pane-actions, .card-comment-tag') || narrow()) return;
+    if (!handle || handle.closest('.board-comment') || event.target.closest('.pane-actions') || narrow()) return;
     event.preventDefault();
     bring(handle.closest('.board-item').dataset.item);
   });

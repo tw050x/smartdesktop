@@ -4,8 +4,9 @@ import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutT
 import { watchBoard } from './board-view.js';
 import { watchPage } from './page-view.js';
 import { drawOverview, watchOverview } from './overview-view.js';
-import { commentCard, isOpen, watchComments } from './comments.js';
-import { cardCommentTag, startComment, watchCardComments } from './card-comments.js';
+import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from './comments.js';
+import { closeThread, openThread, refreshThread } from './comment-overlay.js';
+import { watchLongPress } from './long-press.js';
 import { itemView, kindLabel } from './item-views.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
@@ -207,8 +208,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const board = el.querySelector('.board');
       if (board) showBoard(board);
       else watchComments(null);
-      const withCards = board ?? el.querySelector('.overview-page .diagram.overview');
-      watchCardComments(withCards, withCards?.cardComments);
+      // A box of comments open before the page was drawn again opens again on the same thing.
+      const threads = (board ?? el.querySelector('.overview-page .diagram.overview'))?.threads;
+      if (threads) refreshThread(threads);
+      else closeThread();
       const fullPage = el.querySelector('.focus-full .sheet-body');
       if (fullPage) watchPage(fullPage);
       const overview = el.querySelector('.overview-page .diagram.overview');
@@ -1060,6 +1063,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
   // Each item keeps its own name through a move, so the browser can carry its card to its new place.
   const moves = (id) => `view-transition-name: item-${id}`;
+  // A comment on the whole schematic has a place on the board like an item's, under this and its id.
+  const WHOLE = 'comment:';
   const marker = (mark) => mark && pill(CHANGE_LABELS[mark], `item-change ${mark}`);
 
   // Where the user has placed each schematic's items on the board, as loaded, or as changed here
@@ -1106,17 +1111,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     if (here.full) return h('div', { className: 'focus-full' }, await fullView(here, here.item, { ...views, full: true }));
 
     // Every comment on this draft or proposal, and the earlier ones still about something here (see
-    // store.js), each in its item's box. Only this one's open comments count, and are marked.
+    // store.js). Those on an item gather by what they're on, each lot with a marker there (see
+    // comments.js); those on the schematic as a whole are cards on the board, placed like items.
     const [comments, earlier] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
     const everything = [...comments, ...earlier];
-    const tagFor = (id) => {
-      const mine = everything.filter((comment) => comment.target.item === id);
-      if (!mine.length) return null;
-      const count = mine.filter((comment) => !comment.earlier && isOpen(comment)).length;
-      return cardCommentTag(count, { earlierOnly: mine.every((comment) => comment.earlier), on: 'this item' });
-    };
-    const marks = comments.filter((comment) => isOpen(comment) && !comment.target.card && !comment.target.missing && (comment.target.part || comment.target.quote))
-      .map(({ target }) => ({ item: target.item, part: target.partMissing ? null : target.part, quote: target.quote }));
+    const groups = groupComments(everything.filter((comment) => !comment.target.schematic && !comment.target.missing && ids.includes(comment.target.item)));
+    const onWhole = everything.filter((comment) => comment.target.schematic);
 
     let layout = await layoutOf(here.schemaId);
     const fresh = !Object.keys(layout.boxes).length;
@@ -1134,19 +1134,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const into = neighboursOf(centre, shown.links).left.map((entry) => entry.id).filter((id) => ids.includes(id));
     const showsFull = (id) => (fresh ? id === centre : layout.boxes[id] && !isCard(layout.boxes[id]));
 
-    const build = async (id) => {
-      const full = await fullView(here, id, views);
-      const tag = tagFor(id);
-      if (tag) actionsOf(full).prepend(tag);
-      return full;
-    };
+    const build = async (id) => (id.startsWith(WHOLE) ? null : fullView(here, id, views));
     const items = await Promise.all(ids.map(async (id) => {
       const card = await boardCard(id, { ...views, removed });
-      const tag = tagFor(id);
-      if (tag) {
-        card.classList.add('has-card-comments');
-        card.append(tag);
-      }
       const element = h('article', { className: `board-item${isRemoved(id) ? ' removed' : ''}`, 'data-item': id, style: moves(id), 'aria-label': titleOf(id, shown, uses, removed) }, card);
       // What shows at full size is drawn now, so it doesn't arrive a moment after.
       if (showsFull(id)) {
@@ -1156,25 +1146,48 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       }
       return element;
     }));
-    const board = h('div', { className: 'board' }, ...items);
-    board.watch = { schemaId: here.schemaId, ids, centre, left: into, right: ids.filter((id) => id !== centre && !into.includes(id)), build, marks };
-    board.cardComments = {
-      ...cardCommenting(here, on, everything, '.board-item'),
-      menuOn: '.board-card, .board-full > .pane-head',
-      heading: (title) => `Comments on ${title}`,
-    };
+    // Comments on the whole schematic, as cards on the board.
+    const wholeCards = onWhole.map((comment) => h('article', { className: 'board-item board-comment', 'data-item': `${WHOLE}${comment.id}`, 'aria-label': 'Comment on the whole schematic' },
+      h('div', { className: 'board-card comment-board-card' }, wholeCommentCard(here, on, comment))));
+    const board = h('div', { className: 'board' }, ...items, ...wholeCards);
+    const threads = threadsFor(here, on, groups, (id) => titleOf(id, shown, uses, removed));
+    board.watch = { schemaId: here.schemaId, ids: [...ids, ...onWhole.map((comment) => `${WHOLE}${comment.id}`)], centre, left: into, right: ids.filter((id) => id !== centre && !into.includes(id)), build, groups, threads };
+    board.threads = threads.find;
+    // A long press on an open item starts a comment on what was pressed; on empty space, a comment
+    // on the whole schematic, put where it was pressed.
+    watchLongPress(board, {
+      accept: (event) => {
+        if (event.target.closest('.board-grip, .comment-marker, button, input, textarea, .comment-thread')) return false;
+        const element = event.target.closest('.board-item');
+        if (!element) return event.target === board;
+        return !element.classList.contains('is-card') && !element.classList.contains('board-comment') && Boolean(element.querySelector(':scope > .board-full'));
+      },
+      fire: (event) => {
+        const element = event.target.closest('.board-item');
+        if (!element) return commentOnWhole(here, on, shown, event, (made) => {
+          const rect = board.getBoundingClientRect();
+          const kept = layouts.get(here.schemaId) ?? emptyLayout();
+          const z = Math.max(0, ...Object.values(kept.boxes).map((box) => box.z ?? 0)) + 1;
+          keepLayout(here.schemaId, { boxes: { ...kept.boxes, [`${WHOLE}${made.id}`]: { cx: (event.clientX - rect.left) / rect.width, cy: (event.clientY - rect.top) / rect.height, w: 0.2, h: 0.2, z, sized: false } } });
+        });
+        const target = targetAt(element, event);
+        if (!target) return;
+        threads.open(target, event.clientX, event.clientY, true);
+      },
+    });
     return board;
   }
 
   // Once the board is on the page: anything without a place yet is given one, now its card can be
   // measured, and the board is watched for the user moving things.
   function showBoard(board) {
-    const { schemaId, ids, centre, left, right, build, marks } = board.watch;
+    const { schemaId, ids, centre, left, right, build, groups, threads } = board.watch;
     let layout = layouts.get(schemaId) ?? emptyLayout();
     if (ids.some((id) => !layout.boxes[id])) {
       const heights = Object.fromEntries([...board.querySelectorAll(':scope > .board-item')].map((one) => [one.dataset.item, one.querySelector(':scope > .board-card')?.offsetHeight || 80]));
       const size = { width: board.clientWidth, height: board.clientHeight };
-      layout = Object.keys(layout.boxes).length ? placeNew(layout, ids, heights, size) : { boxes: { ...layout.boxes, ...defaultLayout({ centre, left, right }, heights, size).boxes } };
+      if (!Object.keys(layout.boxes).length) layout = { boxes: defaultLayout({ centre, left, right }, heights, size).boxes };
+      layout = placeNew(layout, ids, heights, size);
       keepLayout(schemaId, layout);
     }
     let remark = () => {};
@@ -1195,7 +1208,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         remember();
       },
     });
-    remark = watchComments(board, { start: startComment, marks });
+    remark = watchComments(board, { groups, open: (group, x, y) => threads.open(group.target, x, y) });
   }
 
   const titleOf = (id, shown, uses, removed = []) => (id === CONTRACT ? 'Contract' : shown.items.find((one) => one.id === id)?.title ?? removed.find((one) => one.id === id)?.title ?? uses.get(id)?.name ?? id);
@@ -1389,17 +1402,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const content = (id) => api.getItem(here.schemaId, id, here.proposal ? { proposal: true } : { draftId: shown.draftId }).catch(() => null);
     const on = here.proposal ? { proposal: true } : { draftId: shown.draftId };
     const [comments, earlierComments] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
-    const onCards = withEarlier(comments, earlierComments);
-    const commentCount = (id) => {
-      const count = comments.filter((comment) => comment.target.item === id && !comment.target.card && isOpen(comment)).length;
-      return count ? ` · ${count} ${count === 1 ? 'comment' : 'comments'}` : '';
-    };
     // What's inside, then how it's linked, beneath the line.
     const inside = async (id) => {
       const item = id === CONTRACT ? null : shown.items.find((one) => one.id === id);
       const look = cardLines(item) ?? (item?.kind === 'table' ? await content(id).then((table) => table && tablePreview(table, null, shown.links))
         : await previewOf(id, shown, uses, content).catch(() => null));
-      return h('span', { className: 'overview-card-foot' }, look, h('span', { className: 'overview-card-links' }, links(id) + commentCount(id)));
+      return h('span', { className: 'overview-card-foot' }, look, h('span', { className: 'overview-card-links' }, links(id)));
     };
     const card = async (id, item) => h('button', { className: 'overview-card', type: 'button', 'data-item': id, onclick: open(id) },
       item && pill(kindLabel(item), 'kind-pill'),
@@ -1414,7 +1422,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         h('span', { className: 'focus-meta' }, use.missing ? 'This schematic is no longer available.' : use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
         use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)),
-        h('span', { className: 'overview-card-foot' }, h('span', { className: 'overview-card-links' }, links(use.id) + commentCount(use.id))));
+        h('span', { className: 'overview-card-foot' }, h('span', { className: 'overview-card-links' }, links(use.id))));
     };
     // Under review, what the proposal removes is still shown, struck out; and comments on anything
     // since removed stay, so none disappear unseen.
@@ -1423,10 +1431,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       h('span', { className: 'title-row' }, h('strong', { className: 'overview-card-name' }, item.title)),
       h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed')));
     const orphans = comments.filter((comment) => comment.target.missing).map((comment) => commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render), onNoFurtherAction: flagComment(here) }));
-    const cards = [...(await Promise.all([card(CONTRACT, null), ...shown.items.map((item) => card(item.id, item))])).map((one) => withCardComments(one, onCards)), ...shown.uses.map((use) => withCardComments(useCard(use), onCards)), ...removed, ...orphans];
+    // Comments on the whole schematic: where they were put on the overview, else laid out with the cards.
+    const onWhole = [...comments, ...earlierComments].filter((comment) => comment.target.schematic);
+    const pinned = onWhole.filter((comment) => comment.target.at).map((comment) => ({ card: wholeCommentCard(here, on, comment), at: comment.target.at }));
+    const loose = onWhole.filter((comment) => !comment.target.at).map((comment) => wholeCommentCard(here, on, comment));
+    const cards = [...(await Promise.all([card(CONTRACT, null), ...shown.items.map((item) => card(item.id, item))])), ...shown.uses.map((use) => useCard(use)), ...removed, ...orphans, ...loose];
     const pairs = connectedPairs(shown.links);
     // Laid out to fill the window as it is now; a place kept from a different layout would be lost in this one.
-    const drawing = drawOverview(cards, pairs, { width: el.clientWidth, height: el.clientHeight });
+    const drawing = drawOverview(cards, pairs, { width: el.clientWidth, height: el.clientHeight }, pinned);
     const sameLayout = here.overviewColumns === drawing.columns;
     here.overviewColumns = drawing.columns;
     const holder = makeCanvas(drawing, {
@@ -1436,7 +1448,22 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         here.views.overview = kept;
       },
     });
-    Object.assign(holder, { pairs, connections, cardComments: cardCommenting(here, on, onCards, '.overview-card[data-item]') });
+    Object.assign(holder, { pairs, connections, threads: () => null });
+    // A long press on the overview's empty space starts a comment on the whole schematic, kept where
+    // it was pressed.
+    watchLongPress(holder, {
+      accept: (event) => !event.target.closest('foreignObject, button, .comment-thread') && Boolean(event.target.closest('svg.overview-svg') || event.target === holder),
+      fire: (event) => {
+        const sheet = holder.querySelector('svg.overview-svg');
+        const point = sheet.createSVGPoint();
+        point.x = event.clientX;
+        point.y = event.clientY;
+        const inside = point.matrixTransform(sheet.getScreenCTM().inverse());
+        const box = sheet.viewBox.baseVal;
+        const at = { x: Math.min(1, Math.max(0, inside.x / (box.width || 1))), y: Math.min(1, Math.max(0, inside.y / (box.height || 1))) };
+        commentOnWhole(here, on, shown, event, null, at);
+      },
+    });
     return h('div', { className: 'page overview-page', 'aria-label': `${shown.items.length === 1 ? '1 item' : `${shown.items.length} items`} in ${shown.name}` }, holder);
   }
 
@@ -1458,46 +1485,98 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // The lines the AI wrote for an item's card, below its line, if it wrote any.
   const cardLines = (item) => (item?.card?.length ? h('span', { className: 'focus-preview card-lines' }, ...item.card.map((line) => h('span', {}, line))) : null);
 
-  // A card with comments on it has a speech bubble saying so, right of its kind tag (see
-  // card-comments.js).
-  // Only open comments count: those marked "No further action required" are still in its box, and
-  // earlier comments, from the draft this came from, count for nothing: with only those, the bubble
-  // is dashed and has no number.
-  function withCardComments(card, onCards) {
-    const mine = onCards.filter((comment) => comment.target.item === card.dataset.item);
-    const count = mine.filter((comment) => !comment.earlier && isOpen(comment)).length;
-    if (count || mine.some((comment) => comment.earlier)) {
-      card.classList.add('has-card-comments');
-      card.append(cardCommentTag(count));
+  // What a comment is on, without what the store adds to describe it, to write another on the same.
+  const bareTarget = (target) => {
+    if (target.schematic) return { schematic: true, ...(target.at && { at: target.at }) };
+    if (target.card) return { item: target.item, card: true };
+    if (target.point && !target.part && !target.quote) return { item: target.item, point: target.point };
+    return { item: target.item, ...(target.part && !target.partMissing && { part: target.part }), ...(target.quote && { quote: target.quote }) };
+  };
+
+  // Comments gathered by what they're on (see keyOf), this draft's first.
+  function groupComments(comments) {
+    const groups = new Map();
+    for (const comment of comments) {
+      const key = keyOf(comment.target);
+      if (!groups.has(key)) groups.set(key, { key, target: comment.target, comments: [] });
+      groups.get(key).comments.push(comment);
     }
-    return card;
+    for (const group of groups.values()) group.comments.sort((a, b) => Number(Boolean(a.earlier)) - Number(Boolean(b.earlier)));
+    return [...groups.values()];
   }
 
-  // The comments on cards: this draft's, then the earlier ones still about a card that's here.
-  const withEarlier = (comments, earlier) => [...comments.filter((comment) => comment.target.card), ...earlier.filter((comment) => comment.target.card)];
+  // The boxes of comments for the board: `open(target, x, y, writing)` opens the box on what
+  // `target` is on, with the comments already there; `find(key)` gives what opens it again after the
+  // page is drawn again (see comment-overlay.js).
+  function threadsFor(here, on, groups, titleFor) {
+    const heading = (target) => {
+      const title = target.title ?? titleFor(target.item);
+      return target.card ? `On the title and description of ${title}` : `Comments on ${title}`;
+    };
+    const options = (target, comments = []) => ({
+      heading: heading(target),
+      target,
+      comments,
+      send: async (text) => {
+        await api.addComment(here.schemaId, { ...on, target: bareTarget(target), text });
+        render();
+      },
+      remove: async (comment) => {
+        await api.deleteComment(here.schemaId, comment.id);
+        render();
+      },
+      flag: flagComment(here),
+      again: commentAgain(here, on),
+    });
+    const find = (key) => {
+      const group = groups.find((one) => one.key === key);
+      return group && options(group.target, group.comments);
+    };
+    const open = (target, x, y, writing = false) => {
+      const key = keyOf(target);
+      const group = groups.find((one) => one.key === key);
+      openThread({ key, x, y, writing, ...options(group?.target ?? target, group?.comments ?? []) });
+    };
+    return { find, open };
+  }
+
+  // A long press on empty space: a box to write a comment on the whole schematic. `placed(comment)`
+  // is called once it's written, to put its card where it was pressed on the board; on the overview
+  // it's kept with the comment, as `at`.
+  function commentOnWhole(here, on, shown, event, placed, at = null) {
+    openThread({
+      key: 'whole-new',
+      x: event.clientX,
+      y: event.clientY,
+      writing: true,
+      heading: `On ${shown.name} as a whole`,
+      target: null,
+      send: async (text) => {
+        const made = await api.addComment(here.schemaId, { ...on, target: { schematic: true, ...(at && { at }) }, text });
+        placed?.(made);
+        closeThread();
+        render();
+      },
+    });
+  }
+
+  // A comment on the whole schematic, as a card: an earlier one, from the draft this came from,
+  // dashed, with Comment again.
+  function wholeCommentCard(here, on, comment) {
+    if (comment.earlier) {
+      return h('div', { className: 'focus-neighbour comment-card earlier', 'data-comment': comment.id, role: 'note', 'aria-label': 'Earlier comment' },
+        h('span', { className: 'comment-about' }, 'On the whole schematic'),
+        h('p', { className: 'comment-text' }, comment.text),
+        h('span', { className: 'comment-earlier-foot' }, earlierLine(comment), againButton(comment, commentAgain(here, on))));
+    }
+    return commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render), onNoFurtherAction: flagComment(here) });
+  }
 
   // The user says an earlier comment again, on what's showing.
   const commentAgain = (here, on) => async (comment) => {
-    const { item, part, quote, card } = comment.target;
-    await api.addComment(here.schemaId, { ...on, target: { item, ...(card ? { card: true } : { part, quote }) }, text: comment.text, from: comment.id });
+    await api.addComment(here.schemaId, { ...on, target: bareTarget(comment.target), text: comment.text, from: comment.id });
     render();
   };
-
-  // What right-clicking a card, or its comment tag, works with.
-  const cardCommenting = (here, on, onCards, cards) => ({
-    cards,
-    commentsOn: (item) => onCards.filter((comment) => comment.target.item === item),
-    save: async (item, text, target = null) => {
-      await api.addComment(here.schemaId, { ...on, target: target ?? { item, card: true }, text });
-      render();
-    },
-    remove: async (comment) => {
-      await api.deleteComment(here.schemaId, comment.id);
-      render();
-    },
-    flag: flagComment(here),
-    again: commentAgain(here, on),
-  });
 
   // The user marks a comment as needing no further action, or opens it again.
   const flagComment = (here) => async (comment, flag) => {

@@ -1,13 +1,13 @@
-// Comments on what's in an item. On the board, the user picks something in an item's content (a
-// diagram's part or a table's row by clicking it, or words by selecting them; right-clicking works on
-// anything, links too), and a Comment button by it opens the item's comments box to write one (see
-// card-comments.js). What has comments needing something is marked in the content.
-// Each says what it's on (the words quoted, or the part), what the user said, and the AI's replies.
+// Comments on what's in an item, and on the schematic as a whole. The user starts one with a long
+// press (see long-press.js) on an open item on the board: on words they've selected (on those words),
+// on its title (on its card: its title and description), elsewhere on its title bar (on all of it),
+// on a part of it, such as a diagram's node or a table's row (on that part), or anywhere else in it
+// (on that point, the item as its context); or on empty space, on the board or the overview, for the
+// schematic as a whole. Words with comments are marked in the comment colour; anything else with
+// comments has a marker there, with how many, and clicking either opens them (comment-overlay.js).
 // The store keeps them (see store.js); schemas.js decides which comments show where.
 
-
 const TRASH_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
-const MOST_QUOTED = 500;
 const CHECK_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
 
 // A comment still needs something done about it until it's marked "No further action required",
@@ -123,126 +123,15 @@ function partFor(node, body) {
   return heading?.dataset.part ?? null;
 }
 
-// --- Picking something to comment on --------------------------------------------------------------
-
-let button = null;
-let picked = null; // { target, element }
-
-function commentButton() {
-  if (button?.isConnected) return button;
-  button = h('button', { className: 'comment-start', type: 'button', hidden: '' }, 'Comment');
-  button.addEventListener('mousedown', (event) => event.preventDefault()); // keeps the selection
-  document.body.append(button);
-  return button;
-}
-
-function forget() {
-  picked?.element?.classList.remove('picked');
-  picked = null;
-  if (button) button.hidden = true;
-}
-
-// The button just above where `rect` ends, in the window.
-function offerAt(rect, target, element, start) {
-  forget();
-  picked = { target, element };
-  element?.classList.add('picked');
-  const offer = commentButton();
-  offer.onclick = () => {
-    const { target: chosen } = picked ?? {};
-    forget();
-    window.getSelection()?.removeAllRanges();
-    if (chosen) start(chosen);
-  };
-  offer.hidden = false;
-  const width = offer.offsetWidth;
-  const height = offer.offsetHeight;
-  const left = Math.min(innerWidth - width - 8, Math.max(8, rect.right - width / 2));
-  const top = rect.top - height - 6 >= 8 ? rect.top - height - 6 : rect.bottom + 6;
-  Object.assign(offer.style, { left: `${left}px`, top: `${top}px` });
-}
-
-// Lets the user pick something in an item's content on the board to comment on. `start(target)`
-// begins a comment on `{ item, part, quote }`.
-const BODIES = '.board-item > .board-full .focus-body';
-function watchPicking(root, start) {
-  const bodyAt = (node) => {
-    const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
-    const body = element?.closest?.(BODIES);
-    return body && root.contains(body) ? body : null;
-  };
-  const itemOf = (body) => body.closest('.board-item').dataset.item;
-  const selected = () => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
-    const range = selection.getRangeAt(0);
-    const body = bodyAt(range.commonAncestorContainer);
-    if (!body) return null;
-    const quote = squash(selection.toString()).slice(0, MOST_QUOTED);
-    return quote ? { range, quote, body } : null;
-  };
-  const offerSelection = () => {
-    const chosen = selected();
-    if (!chosen) return false;
-    const rects = chosen.range.getClientRects();
-    const rect = rects[rects.length - 1] ?? chosen.range.getBoundingClientRect();
-    offerAt(rect, { item: itemOf(chosen.body), part: partFor(chosen.range.startContainer, chosen.body), quote: chosen.quote }, null, start);
-    return true;
-  };
-  // Words, once the mouse lets go of them, or the keyboard has selected them.
-  root.addEventListener('mouseup', (event) => {
-    if (!bodyAt(event.target)) return;
-    setTimeout(() => {
-      if (!offerSelection() && !picked?.element) forget();
-    });
-  });
-  root.addEventListener('keyup', (event) => {
-    if (event.shiftKey && bodyAt(event.target)) offerSelection();
-  });
-  // A part, by clicking it: not one that links somewhere, which a click follows (right-click those).
-  root.addEventListener('click', (event) => {
-    const body = bodyAt(event.target);
-    if (!body || event.target.closest('a[href]')) return;
-    const part = event.target.closest('[data-part]');
-    if (!part || !body.contains(part) || part.classList.contains('part-link') || /^H[1-6]$/.test(part.tagName)) {
-      if (!selected()) forget();
-      return;
-    }
-    if (selected()) return;
-    offerAt(part.getBoundingClientRect(), { item: itemOf(body), part: part.dataset.part }, part, start);
-  });
-  root.addEventListener('contextmenu', (event) => {
-    const body = bodyAt(event.target);
-    if (!body) return;
-    if (offerSelection()) return event.preventDefault();
-    const part = event.target.closest('[data-part]');
-    const item = itemOf(body);
-    const target = part && body.contains(part) ? { item, part: part.dataset.part } : { item };
-    event.preventDefault();
-    offerAt({ left: event.clientX, right: event.clientX, top: event.clientY, bottom: event.clientY }, target, part && body.contains(part) ? part : null, start);
-  });
-}
-
-// Anything else the user does puts the offer away.
-let watchingWindow = false;
-function watchWindow() {
-  if (watchingWindow) return;
-  watchingWindow = true;
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && picked) forget();
-  });
-  document.addEventListener('scroll', () => picked && forget(), true);
-  document.addEventListener('mousedown', (event) => {
-    if (picked && !event.target.closest?.('.comment-start, .focus-body')) forget();
-  });
-}
-
 // --- Cards ----------------------------------------------------------------------------------------
 
 // What a comment is on, in a line at its top: the words quoted, else the part's name.
 export function about(target) {
   if (target.quote) return h('span', { className: 'comment-about quote' }, `“${target.quote}”`);
   if (target.part) return h('span', { className: 'comment-about' }, `→ ${target.partName ?? target.part}`);
+  if (target.schematic) return h('span', { className: 'comment-about' }, 'On the whole schematic');
+  if (target.card) return h('span', { className: 'comment-about' }, 'On its title and description');
+  if (target.point) return h('span', { className: 'comment-about' }, 'On this place in it');
   return null;
 }
 
@@ -286,38 +175,197 @@ export function againButton(comment, onAgain) {
   } }, 'Comment again');
 }
 
-// --- Marking what has comments --------------------------------------------------------------------
+// --- Where comments are ---------------------------------------------------------------------------
 
 const HIGHLIGHTS = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
+const BUBBLE = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>';
 
-// Lets the user pick things to comment on in the items on the board `root`, and marks what each of
-// `marks` ({ item, part, quote }: open comments on this draft or proposal) is on. Without a root,
-// takes the marks away. Returns a function that marks them again, for an item whose content has
-// only just been drawn.
-export function watchComments(root, { start = null, marks = [] } = {}) {
-  forget();
-  const clear = () => {
-    if (HIGHLIGHTS) CSS.highlights.delete('comments');
-    for (const one of root?.querySelectorAll('.commented') ?? []) one.classList.remove('commented');
+// Comments on the same thing gather together, under one key: the same words, part, point, card or
+// item.
+export function keyOf(target) {
+  if (target.schematic) return 'schematic';
+  if (target.card) return `${target.item}|card`;
+  if (target.quote) return `${target.item}|quote|${target.quote}`;
+  if (target.part && !target.partMissing) return `${target.item}|part|${target.part}`;
+  if (target.point) return `${target.item}|point|${target.point.x.toFixed(3)}|${target.point.y.toFixed(3)}`;
+  return `${target.item}|item`;
+}
+
+// What a point's fractions are of: a diagram's drawing (which moves as it's panned and zoomed), else
+// the item's content as laid out.
+const pointBox = (body) => body.querySelector('svg.diagram-svg') ?? body.firstElementChild ?? body;
+
+// The text inside `element` is under (x, y): over the words themselves, not just their box.
+function overText(element, x, y) {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return [...range.getClientRects()].some((rect) => x >= rect.left - 2 && x <= rect.right + 2 && y >= rect.top - 2 && y <= rect.bottom + 2);
+}
+
+const MOST_QUOTED = 500;
+
+// What a long press at `event` in the open item `element` (a .board-item) is on: words selected there
+// and pressed on, its title (its card), the rest of its title bar (all of it), a part, or a point in
+// its content. Null if it's on none of those (a button, say).
+export function targetAt(element, event) {
+  const item = element.dataset.item;
+  const full = element.querySelector(':scope > .board-full');
+  if (!full) return null;
+  const { clientX: x, clientY: y } = event;
+  const head = event.target.closest?.('.pane-head');
+  if (head && full.contains(head)) {
+    if (event.target.closest('.pane-actions, button')) return null;
+    const title = head.querySelector('.pane-title h2');
+    return title && overText(title, x, y) ? { item, card: true } : { item };
+  }
+  const body = full.querySelector('.focus-body');
+  if (!body || !body.contains(event.target)) return null;
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed && selection.rangeCount) {
+    const range = selection.getRangeAt(0);
+    const inside = [...range.getClientRects()].some((rect) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+    const quote = squash(selection.toString()).slice(0, MOST_QUOTED);
+    if (inside && quote && body.contains(range.commonAncestorContainer)) return { item, part: partFor(range.startContainer, body), quote };
+  }
+  const part = event.target.closest('[data-part]');
+  if (part && body.contains(part)) return { item, part: part.dataset.part };
+  const box = pointBox(body).getBoundingClientRect();
+  if (!box.width || !box.height) return { item };
+  return { item, point: { x: Math.min(1, Math.max(0, (x - box.left) / box.width)), y: Math.min(1, Math.max(0, (y - box.top) / box.height)) } };
+}
+
+// Where a group's marker goes, in the window, or null if it can't be placed: by the title for its
+// card, at the right of the title bar for all of it, at a part's top right, at a point, or at the end
+// of the words for earlier comments on words (current ones are marked in the text instead).
+function spotOf(element, group) {
+  const full = element.querySelector(':scope > .board-full');
+  if (!full) return null;
+  const { target } = group;
+  const head = full.querySelector('.pane-head');
+  if (target.card) {
+    const title = head?.querySelector('.pane-title h2');
+    if (!title) return null;
+    const range = document.createRange();
+    range.selectNodeContents(title);
+    const rect = range.getBoundingClientRect();
+    return { x: rect.right + 6, y: rect.top + rect.height / 2, align: 'left' };
+  }
+  const body = full.querySelector('.focus-body');
+  const headSpot = () => {
+    const rect = head?.getBoundingClientRect();
+    const actions = head?.querySelector('.pane-actions')?.getBoundingClientRect();
+    return rect && { x: (actions?.width ? actions.left : rect.right) - 6, y: rect.top + rect.height / 2, align: 'right' };
   };
+  if (!body) return headSpot();
+  if (target.quote) {
+    const at = target.part ? body.querySelector(`[data-part="${CSS.escape(target.part)}"]`) : null;
+    const range = findQuote(body, target.quote, at);
+    if (!range) return headSpot();
+    const rects = range.getClientRects();
+    const last = rects[rects.length - 1];
+    return last && { x: last.right + 2, y: last.top, align: 'left' };
+  }
+  if (target.part && !target.partMissing) {
+    const part = body.querySelector(`[data-part="${CSS.escape(target.part)}"]`);
+    if (!part) return headSpot();
+    const rect = part.getBoundingClientRect();
+    return { x: rect.right, y: rect.top, align: 'right' };
+  }
+  if (target.point) {
+    const box = pointBox(body).getBoundingClientRect();
+    return { x: box.left + target.point.x * box.width, y: box.top + target.point.y * box.height, align: 'centre' };
+  }
+  return headSpot();
+}
+
+// Watches the board `root`'s comments: `groups` ({ key, target, comments }, each the comments on one
+// thing, current and earlier) get a marker each, kept by what they're on as things move, scroll and
+// zoom, and words with open comments are marked in the text. Clicking a marker or marked words calls
+// `open(group, x, y)`. Without a root, takes everything away. Returns a function that marks things
+// again, for an item whose content has only just been drawn.
+export function watchComments(root, { groups = [], open = () => {} } = {}) {
   if (HIGHLIGHTS) CSS.highlights.delete('comments');
   if (!root) return () => {};
-  watchWindow();
-  if (start) watchPicking(root, start);
+  let words = []; // { range, group }: the marked words
+  const markers = new Map(); // key -> marker
   const mark = () => {
-    clear();
-    const ranges = [];
-    for (const { item, part, quote } of marks) {
-      const body = root.querySelector(`.board-item[data-item="${CSS.escape(item)}"] > .board-full .focus-body`);
-      if (!body) continue;
-      const element = part ? body.querySelector(`[data-part="${CSS.escape(part)}"]`) : null;
-      const end = (quote && findQuote(body, quote, element)) || element;
-      if (!end) continue;
-      if (end.nodeType) end.classList.add('commented');
-      else ranges.push(end);
+    for (const marker of markers.values()) marker.remove();
+    markers.clear();
+    words = [];
+    for (const group of groups) {
+      const element = root.querySelector(`:scope > .board-item[data-item="${CSS.escape(group.target.item)}"]`);
+      const body = element?.querySelector(':scope > .board-full .focus-body');
+      if (!element) continue;
+      const current = group.comments.filter((comment) => !comment.earlier);
+      const waiting = current.filter(isOpen).length;
+      // Words with comments on this draft are marked in the text; earlier ones get a marker.
+      if (group.target.quote && current.length && body) {
+        const at = group.target.part ? body.querySelector(`[data-part="${CSS.escape(group.target.part)}"]`) : null;
+        const range = findQuote(body, group.target.quote, at);
+        if (range) {
+          if (waiting) words.push({ range, group });
+          else words.push({ range, group, settled: true });
+          continue;
+        }
+      }
+      const label = waiting ? (waiting === 1 ? '1 comment' : `${waiting} comments`) : current.length ? 'Comments, none needing anything' : 'An earlier comment';
+      const marker = h('button', { className: `comment-marker${waiting ? '' : current.length ? ' settled' : ' earlier'}`, type: 'button', title: label, 'aria-label': label });
+      marker.innerHTML = BUBBLE;
+      if (waiting > 1) marker.append(String(waiting));
+      marker.addEventListener('pointerdown', (event) => event.stopPropagation());
+      marker.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const rect = marker.getBoundingClientRect();
+        open(group, rect.right, rect.top);
+      });
+      marker.group = group;
+      element.append(marker);
+      markers.set(group.key, marker);
     }
-    if (HIGHLIGHTS && ranges.length) CSS.highlights.set('comments', new Highlight(...ranges));
+    if (HIGHLIGHTS) {
+      const live = words.filter((one) => !one.settled).map((one) => one.range);
+      if (live.length) CSS.highlights.set('comments', new Highlight(...live));
+    }
   };
+  // Markers follow what they're on, every frame, as items glide, scroll, pan and zoom.
+  const follow = () => {
+    if (!root.isConnected) {
+      if (HIGHLIGHTS) CSS.highlights.delete('comments');
+      return;
+    }
+    for (const marker of markers.values()) {
+      const element = marker.parentElement;
+      if (!element || element.classList.contains('is-card')) {
+        marker.hidden = true;
+        continue;
+      }
+      const spot = spotOf(element, marker.group);
+      if (!spot) {
+        marker.hidden = true;
+        continue;
+      }
+      const frame = element.getBoundingClientRect();
+      const width = marker.offsetWidth || 18;
+      const height = marker.offsetHeight || 18;
+      const left = spot.align === 'right' ? spot.x - width : spot.align === 'centre' ? spot.x - width / 2 : spot.x;
+      const top = spot.y - height / 2;
+      const x = left - frame.left;
+      const y = top - frame.top;
+      marker.hidden = x < -width || y < -height || x > frame.width || y > frame.height;
+      marker.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    }
+    requestAnimationFrame(follow);
+  };
+  // Clicking marked words opens their comments, unless the click was picking words.
+  root.addEventListener('click', (event) => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    const hit = words.find(({ range }) => [...range.getClientRects()].some((rect) => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom));
+    if (!hit || event.target.closest('a[href]')) return;
+    event.stopPropagation();
+    open(hit.group, event.clientX, event.clientY);
+  });
   mark();
+  requestAnimationFrame(follow);
   return mark;
 }

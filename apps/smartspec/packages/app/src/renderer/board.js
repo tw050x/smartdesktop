@@ -83,7 +83,8 @@ export function cleanLayout(saved) {
 const topZ = (layout) => Math.max(0, ...Object.values(layout.boxes).map((box) => box.z));
 
 // The items whose centres are in the middle.
-export const inMiddle = (layout) => Object.keys(layout.boxes).filter((id) => zoneOf(layout.boxes[id]) === 'middle');
+// Comments on the whole schematic (`comment:` ids) are notes on the board, not things to work on.
+export const inMiddle = (layout) => Object.keys(layout.boxes).filter((id) => !id.startsWith('comment:') && zoneOf(layout.boxes[id]) === 'middle');
 
 // Whether an item fills the middle: it's there alone, and the user hasn't sized it. One being dragged
 // never does, so it doesn't jump under the pointer; it fills once let go.

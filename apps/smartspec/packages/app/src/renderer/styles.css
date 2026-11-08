@@ -585,15 +585,12 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .board-item.is-card:hover { border-color: var(--accent); }
 /* On the board a card is only its kind, title and comments: the user wanted what's in an item
    hidden until it's in the middle. */
-.board-item > .board-card > :not(.kind-pill, .title-row, .card-comment-tag) { display: none; }
+.board-item:not(.board-comment) > .board-card > :not(.kind-pill, .title-row) { display: none; }
 /* Cards at the sides are small: the user found them too big for the room there. */
 .board-item > .board-card { gap: 2px; padding: 6px 9px; }
 .board-item > .board-card > .kind-pill { margin-bottom: 1px; padding: 1px 5px; font-size: 8.5px; }
 .board-item > .board-card .title-row strong { font-size: 12px; }
 .board-item > .board-card .title-row .pill { font-size: 10px; padding: 0 6px; }
-.board-item > .board-card > .card-comment-tag { height: 15px; padding: 0 5px; font-size: 10px; }
-/* Its comment count has a row of its own, under the title, on the left. */
-.board-item > .board-card > .card-comment-tag { position: static; order: 1; justify-self: start; margin-top: 4px; }
 .board-item.lit { border-color: var(--accent); }
 .board-full { position: relative; overflow: hidden; }
 .board-full > .pane-head { cursor: grab; touch-action: none; user-select: none; }
@@ -622,7 +619,6 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .board-grip.ne, .board-grip.nw, .board-grip.se, .board-grip.sw { width: 14px; height: 14px; }
 .board-grip.ne { top: 0; right: 0; cursor: nesw-resize; } .board-grip.sw { bottom: 0; left: 0; cursor: nesw-resize; }
 .board-grip.nw { top: 0; left: 0; cursor: nwse-resize; } .board-grip.se { bottom: 0; right: 0; cursor: nwse-resize; }
-.pane-actions .card-comment-tag { position: static; }
 /* What the proposal removes, striped, with "Removed" over it. */
 .board-item.removed > .board-full > .focus-body { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--removed) 10%, var(--bg)) 0 10px, var(--bg) 10px 20px); opacity: 0.75; }
 .board-card.removed { position: relative; overflow: hidden; border-color: color-mix(in srgb, var(--removed) 55%, var(--border)); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--removed) 16%, var(--bg)) 0 10px, var(--bg) 10px 20px); color: var(--muted); }
@@ -641,16 +637,8 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .page-resizer { z-index: 1; }
 /* What the AI wrote for an item's card, below its line, instead of what the app works out. */
 .focus-preview.card-lines { display: grid; gap: 2px; color: var(--text-2); font-size: 11.5px; line-height: 1.35; }
-/* Comments on a card (see card-comments.js): a speech bubble in the comment colour, right of the kind
-   tag on its line, opening them in a
-   box beside it. */
+/* A box of comments on one thing (see comment-overlay.js), over the page by where it was opened. */
 .overview-card { position: relative; }
-.has-card-comments { overflow: visible; }
-.card-comment-tag { position: absolute; top: 10px; right: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px; margin: 0; cursor: pointer; letter-spacing: 0; }
-.overview-card.embedded > .card-comment-tag, .focus-neighbour.embedded > .card-comment-tag { top: 9px; right: 11px; }
-.card-comment-tag svg { display: block; }
-.card-comment-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.pill.kind-pill.comment-pill { margin: 0; background: var(--comment); color: #1f1a0e; } /* dark text reads on the yellow in both themes */
 .card-comments { position: fixed; z-index: 65; display: grid; gap: 10px; width: 300px; max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; padding: 12px; border: 1px solid var(--border-strong); border-left: 3px solid var(--comment); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); font-size: 12.5px; }
 .card-comments-head { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .card-comment { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
@@ -704,15 +692,29 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .comment-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .comment-actions { display: flex; gap: 6px; justify-self: end; }
 .comment-actions button { height: 26px; padding: 0 10px; font-size: 12px; }
-.comment-start { position: fixed; z-index: 70; height: 26px; padding: 0 10px; border: 1px solid var(--comment); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
-.comment-start[hidden] { display: none; }
-.comment-start:hover { background: color-mix(in srgb, var(--comment) 16%, var(--bg)); }
+/* A long press (see long-press.js): a ring grows round the pointer while it's held. */
+.long-press-ring { position: fixed; z-index: 80; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 2px solid var(--comment); border-radius: 50%; pointer-events: none; animation: long-press 0.38s ease-out forwards; }
+@keyframes long-press { from { transform: scale(0.3); opacity: 0.2; } to { transform: scale(1); opacity: 1; } }
+/* Where an item has comments: a marker in the comment colour, with how many if more than one (see
+   comments.js). Clicking it opens them. Faded when none needs anything; dashed for an earlier one. */
+.comment-marker { position: absolute; top: 0; left: 0; z-index: 4; display: inline-flex; align-items: center; gap: 3px; height: 18px; min-width: 18px; box-sizing: border-box; padding: 0 5px; border: 0; border-radius: 9px; background: var(--comment); color: #1f1a0e; font: inherit; font-size: 10.5px; font-weight: 700; cursor: pointer; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.comment-marker[hidden] { display: none; }
+.comment-marker svg { display: block; }
+.comment-marker.settled { opacity: 0.55; }
+.comment-marker.earlier { background: var(--bg); color: var(--muted); outline: 1px dashed var(--border-strong); outline-offset: -1px; box-shadow: none; }
+.comment-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+::highlight(comments) { background-color: color-mix(in srgb, var(--comment) 30%, transparent); }
+/* A comment on the whole schematic, as a card on the board, the comment's own card filling it. */
+.board-item.board-comment > .board-card { padding: 0; }
+.board-item.board-comment > .board-card > .comment-card { border: 0; border-left: 3px solid var(--comment); border-radius: 0; background: none; }
+.board-item.board-comment > .board-card > .comment-card.earlier { border-left: 0; }
+.board > .board-item.board-comment:has(.comment-card.earlier) { border-style: dashed; }
 .focus-neighbour.comment-card.comment-pointed { border-color: var(--comment); }
 .hover-card ::highlight(comments) { background-color: color-mix(in srgb, var(--comment) 22%, transparent); }
 ::highlight(comment-lit) { background-color: color-mix(in srgb, var(--comment) 45%, transparent); }
-.commented.diagram-node .diagram-box, .commented.diagram-edge .diagram-line, .picked.diagram-node .diagram-box, .picked.diagram-edge .diagram-line, .commented.diagram-activation, .picked.diagram-activation { stroke: var(--comment); }
+.commented.diagram-node .diagram-box, .commented.diagram-edge .diagram-line, .commented.diagram-activation { stroke: var(--comment); }
 .comment-lit.diagram-node .diagram-box, .comment-lit.diagram-edge .diagram-line, .comment-lit.diagram-activation { stroke: var(--comment); stroke-width: 2.5; }
-tr.commented, tr.picked { box-shadow: inset 3px 0 0 var(--comment); }
+tr.commented { box-shadow: inset 3px 0 0 var(--comment); }
 tr.comment-lit { background: color-mix(in srgb, var(--comment) 16%, transparent); }
 .markdown .commented { box-shadow: inset 3px 0 0 var(--comment); }
 

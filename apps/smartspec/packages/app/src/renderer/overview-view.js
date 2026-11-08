@@ -23,12 +23,13 @@ const svg = (tag, attributes = {}) => {
 // The overview's drawing, in a holder that makeCanvas turns into a canvas. `cards` are the item
 // cards, each with data-item (or data-removed, or data-comment), and `pairs` are from connectedPairs.
 // Cards are measured where they'll show, so the layout leaves each the room it needs. `room` is the
-// size of the space it's shown in.
-export function drawOverview(cards, pairs, room) {
+// size of the space it's shown in. `pinned` ({ card, at }) are comment cards the user put somewhere,
+// at `at` (fractions of the drawing), over whatever's there.
+export function drawOverview(cards, pairs, room, pinned = []) {
   // Inside the same markup as the canvas, as its styles change a card's height.
   const measuring = Object.assign(document.createElement('div'), { className: 'diagram overview overview-measuring' });
   const sheet = svg('svg', { class: 'diagram-svg overview-svg', width: CARD_WIDTH, height: 10000 });
-  for (const card of cards) {
+  for (const card of [...cards, ...pinned.map((one) => one.card)]) {
     const place = svg('foreignObject', { width: CARD_WIDTH, height: 10000 });
     place.append(card);
     sheet.append(place);
@@ -36,6 +37,7 @@ export function drawOverview(cards, pairs, room) {
   measuring.append(sheet);
   document.body.append(measuring);
   const sized = cards.map((card) => ({ card, id: card.dataset.item ?? card.dataset.removed ?? `comment-${card.dataset.comment}`, width: CARD_WIDTH, height: Math.ceil(card.getBoundingClientRect().height) }));
+  const pinnedSized = pinned.map(({ card, at }) => ({ card, at, height: Math.ceil(card.getBoundingClientRect().height) }));
   measuring.remove();
   const ids = new Set(sized.map(({ id }) => id));
   const joined = pairs.filter(([a, b]) => ids.has(a) && ids.has(b));
@@ -53,6 +55,13 @@ export function drawOverview(cards, pairs, room) {
   for (const { card, id } of sized) {
     const { x, y, width, height } = layout.cards.find((one) => one.id === id);
     const place = svg('foreignObject', { x: x - width / 2, y: y - height / 2, width, height });
+    place.append(card);
+    drawing.append(place);
+  }
+  for (const { card, at, height } of pinnedSized) {
+    const x = Math.min(Math.max(0, at.x * layout.width - CARD_WIDTH / 2), Math.max(0, layout.width - CARD_WIDTH));
+    const y = Math.min(Math.max(0, at.y * layout.height - 16), Math.max(0, layout.height - height));
+    const place = svg('foreignObject', { x, y, width: CARD_WIDTH, height, class: 'overview-pinned' });
     place.append(card);
     drawing.append(place);
   }
