@@ -3,15 +3,14 @@ import { hideHoverCard, showHoverCard } from './hover-card.js';
 import { route } from './item-views.js';
 import { layoutCards } from './layout.js';
 
-// A schema's overview: every item in it as a card, laid out on a canvas that can be moved around and
-// zoomed (see canvas-view.js), with a line for each pair of items that link to each other in any way,
+// A schema's overview: every item in it at full size, each as large as its content, laid out on a
+// canvas that can be moved around and zoomed (see canvas-view.js), with a line for each pair of items that link to each other in any way,
 // however many links that is. Nothing is placed by hand: the layout is worked out each time, in a grid
 // shaped to fill the window (see layoutCards). Pointing
 // at a card picks out its lines and the cards they reach. Pointing at a line picks out the two cards it
 // joins, with a card saying what the links between them are.
 
 const SVG = 'http://www.w3.org/2000/svg';
-export const CARD_WIDTH = 280;
 const MOST_ON_CARD = 8; // the line card can't be scrolled, as it moves with the pointer
 
 const svg = (tag, attributes = {}) => {
@@ -20,30 +19,33 @@ const svg = (tag, attributes = {}) => {
   return element;
 };
 
-// The overview's drawing, in a holder that makeCanvas turns into a canvas. `cards` are the item
-// cards, each with data-item (or data-removed, or data-comment), and `pairs` are from connectedPairs.
-// Cards are measured where they'll show, so the layout leaves each the room it needs. `room` is the
-// size of the space it's shown in. `pinned` ({ card, at }) are comment cards the user put somewhere,
-// at `at` (fractions of the drawing), over whatever's there.
-export function drawOverview(cards, pairs, room, pinned = []) {
-  // Inside the same markup as the canvas, as its styles change a card's height.
+// The overview's drawing, in a holder that makeCanvas turns into a canvas. `items` are what's shown,
+// each with data-item (or data-removed, or data-comment): items at full size, each as large as its
+// content, and cards. They're measured where they'll show, so the layout leaves each the room it
+// needs. `pairs` are from connectedPairs, and `room` is the size of the space it's shown in.
+// `pinned` ({ card, at }) are comment cards the user put somewhere, at `at` (fractions of the
+// drawing), over whatever's there. The drawing is HTML, with the lines in an svg beneath, so what's
+// in an item works as it does anywhere else.
+export function drawOverview(items, pairs, room, pinned = []) {
+  const world = Object.assign(document.createElement('div'), { className: 'overview-world' });
+  // Measured in the same markup as the canvas, as its styles set their sizes.
   const measuring = Object.assign(document.createElement('div'), { className: 'diagram overview overview-measuring' });
-  const sheet = svg('svg', { class: 'diagram-svg overview-svg', width: CARD_WIDTH, height: 10000 });
-  for (const card of [...cards, ...pinned.map((one) => one.card)]) {
-    const place = svg('foreignObject', { width: CARD_WIDTH, height: 10000 });
-    place.append(card);
-    sheet.append(place);
-  }
+  const sheet = Object.assign(document.createElement('div'), { className: 'overview-world' });
+  sheet.append(...items, ...pinned.map((one) => one.card));
   measuring.append(sheet);
   document.body.append(measuring);
-  const sized = cards.map((card) => ({ card, id: card.dataset.item ?? card.dataset.removed ?? `comment-${card.dataset.comment}`, width: CARD_WIDTH, height: Math.ceil(card.getBoundingClientRect().height) }));
-  const pinnedSized = pinned.map(({ card, at }) => ({ card, at, height: Math.ceil(card.getBoundingClientRect().height) }));
+  const size = (element) => ({ width: Math.ceil(element.offsetWidth), height: Math.ceil(element.offsetHeight) });
+  const sized = items.map((element) => ({ element, id: element.dataset.item ?? element.dataset.removed ?? `comment-${element.dataset.comment}`, ...size(element) }));
+  const pinnedSized = pinned.map(({ card, at }) => ({ card, at, ...size(card) }));
   measuring.remove();
   const ids = new Set(sized.map(({ id }) => id));
   const joined = pairs.filter(([a, b]) => ids.has(a) && ids.has(b));
   const layout = layoutCards(sized, joined, room);
+  const width = Math.ceil(layout.width);
+  const height = Math.ceil(layout.height);
 
-  const drawing = svg('svg', { class: 'diagram-svg overview-svg', width: Math.ceil(layout.width), height: Math.ceil(layout.height), viewBox: `0 0 ${Math.ceil(layout.width)} ${Math.ceil(layout.height)}` });
+  Object.assign(world.style, { width: `${width}px`, height: `${height}px` });
+  const drawing = svg('svg', { class: 'overview-svg', width, height, viewBox: `0 0 ${width} ${height}` });
   const lines = svg('g', { class: 'overview-lines' });
   for (const { pair: [a, b], points } of layout.lines) {
     const line = svg('path', { d: route(points), 'data-pair': pairKey(a, b) });
@@ -52,21 +54,23 @@ export function drawOverview(cards, pairs, room, pinned = []) {
     lines.append(line, hit);
   }
   drawing.append(lines);
-  for (const { card, id } of sized) {
-    const { x, y, width, height } = layout.cards.find((one) => one.id === id);
-    const place = svg('foreignObject', { x: x - width / 2, y: y - height / 2, width, height });
-    place.append(card);
-    drawing.append(place);
+  world.append(drawing);
+  for (const { element, id } of sized) {
+    const { x, y, width: w, height: h } = layout.cards.find((one) => one.id === id);
+    Object.assign(element.style, { left: `${x - w / 2}px`, top: `${y - h / 2}px`, width: `${w}px`, height: `${h}px` });
+    world.append(element);
   }
-  for (const { card, at, height } of pinnedSized) {
-    const x = Math.min(Math.max(0, at.x * layout.width - CARD_WIDTH / 2), Math.max(0, layout.width - CARD_WIDTH));
-    const y = Math.min(Math.max(0, at.y * layout.height - 16), Math.max(0, layout.height - height));
-    const place = svg('foreignObject', { x, y, width: CARD_WIDTH, height, class: 'overview-pinned' });
-    place.append(card);
-    drawing.append(place);
+  for (const { card, at, width: w, height: h } of pinnedSized) {
+    const x = Math.min(Math.max(0, at.x * width - w / 2), Math.max(0, width - w));
+    const y = Math.min(Math.max(0, at.y * height - 16), Math.max(0, height - h));
+    Object.assign(card.style, { left: `${x}px`, top: `${y}px`, width: `${w}px` });
+    card.classList.add('overview-pinned');
+    world.append(card);
   }
   const holder = Object.assign(document.createElement('div'), { className: 'diagram overview' });
-  holder.append(drawing);
+  holder.append(world);
+  holder.world = world;
+  holder.size = { width, height };
   holder.columns = layout.columns;
   return holder;
 }
@@ -81,7 +85,7 @@ function light(holder, pairs, picked) {
   }
   for (const [a, b] of picked) reached.add(a).add(b);
   holder.classList.toggle('picking', reached.size > 0);
-  for (const card of holder.querySelectorAll('.overview-card[data-item]')) card.classList.toggle('lit', reached.has(card.dataset.item));
+  for (const card of holder.querySelectorAll('.overview-world > [data-item]')) card.classList.toggle('lit', reached.has(card.dataset.item));
 }
 
 const text = (tag, className, content) => Object.assign(document.createElement(tag), { className, textContent: content });
@@ -119,14 +123,15 @@ export function watchOverview(holder, pairs, connections) {
   const pairsAt = (event) => {
     const line = event.target.closest?.('[data-hit]')?.dataset.hit;
     if (line) return pairs.filter(([a, b]) => pairKey(a, b) === line);
-    const card = event.target.closest?.('.overview-card[data-item]')?.dataset.item;
+    const card = event.target.closest?.('.overview-world > [data-item]')?.dataset.item;
     return card ? pairs.filter((pair) => pair.includes(card)) : [];
   };
   holder.addEventListener('mouseover', (event) => light(holder, pairs, pairsAt(event)));
   holder.addEventListener('mouseleave', () => light(holder, pairs, []));
   holder.addEventListener('focusin', (event) => {
     light(holder, pairs, pairsAt(event));
-    // Tabbing to a card out of view moves the canvas to it.
+    // Tabbing to an item or card out of view moves the canvas to it (not to something inside one).
+    if (!event.target.matches?.('.overview-world > *')) return;
     const box = event.target.getBoundingClientRect?.();
     const room = holder.getBoundingClientRect();
     if (box && (box.left < room.left || box.right > room.right || box.top < room.top || box.bottom > room.bottom)) holder.centreOn?.(event.target);

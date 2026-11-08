@@ -312,7 +312,8 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
     markers.clear();
     words = [];
     for (const group of groups) {
-      const element = root.querySelector(`:scope > .board-item[data-item="${CSS.escape(group.target.item)}"]`);
+      // An item on the board, or on the overview.
+      const element = root.querySelector(`:is(.board > .board-item, .overview-world > .overview-item)[data-item="${CSS.escape(group.target.item)}"]`);
       const body = element?.querySelector(':scope > .board-full .focus-body');
       if (!element) continue;
       const current = group.comments.filter((comment) => !comment.earlier);
@@ -368,11 +369,14 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
       marker.classList.toggle('away', !seen);
       marker.style.zIndex = element?.style.zIndex || '1';
       if (!spot) continue;
-      const width = marker.offsetWidth || 36;
-      const height = marker.offsetHeight || 36;
+      // On something zoomed out (the overview), markers shrink with it, though not out of sight.
+      const k = root.markerScale?.() ?? 1;
+      marker.style.transformOrigin = '0 0';
+      const width = (marker.offsetWidth || 36) * k;
+      const height = (marker.offsetHeight || 36) * k;
       const left = spot.align === 'right' ? spot.x - width : spot.align === 'centre' ? spot.x - width / 2 : spot.x;
       const top = spot.y - height / 2;
-      marker.style.transform = `translate(${Math.round(left - board.left)}px, ${Math.round(top - board.top)}px)`;
+      marker.style.transform = `translate(${Math.round(left - board.left)}px, ${Math.round(top - board.top)}px)${k === 1 ? '' : ` scale(${k})`}`;
     }
     requestAnimationFrame(follow);
   };

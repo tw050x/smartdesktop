@@ -8,7 +8,7 @@
 const LAYOUTS = [
   { columns: '.browser .browser-column', cards: 'button.browser-row' },
 ];
-const CANVAS = { canvas: '.overview.diagram-canvas', cards: 'button.overview-card' };
+const CANVAS = { canvas: '.overview.diagram-canvas', cards: '.overview-world > .overview-item, .overview-world > button.overview-card' };
 
 // The nearest card the arrow points to, from the middle of one to the middle of the other, keeping
 // close to the way it points: within 45° of it if any card is, else anywhere on that side.

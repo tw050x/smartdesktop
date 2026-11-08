@@ -9,17 +9,20 @@ const DRAG_FROM = 4; // px: less than this is a click, so links in the diagram s
 const DOTS = 24;
 const PIN_GAP = 8;
 
-const limited = (scale) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+const STRETCH = 200; // px: how far past its limit a canvas that rubber-bands can be pulled, at most
+const SPRING_AFTER = 160; // ms after the last scroll before a rubber-banding canvas springs back
+
+const limited = (scale, min = MIN_SCALE) => Math.min(MAX_SCALE, Math.max(min, scale));
 
 // The view showing all of a diagram, centred, without enlarging it.
-export function fitView(content, space) {
-  const scale = limited(Math.min(1, (space.width - 2 * MARGIN) / content.width, (space.height - 2 * MARGIN) / content.height));
+export function fitView(content, space, min = MIN_SCALE) {
+  const scale = limited(Math.min(1, (space.width - 2 * MARGIN) / content.width, (space.height - 2 * MARGIN) / content.height), min);
   return { x: (space.width - content.width * scale) / 2, y: (space.height - content.height * scale) / 2, scale };
 }
 
 // The view zoomed by `factor`, keeping what's at (x, y) in the same place on screen.
-export function zoomedAt(view, factor, x, y) {
-  const scale = limited(view.scale * factor);
+export function zoomedAt(view, factor, x, y, min = MIN_SCALE) {
+  const scale = limited(view.scale * factor, min);
   const kept = scale / view.scale;
   return { scale, x: x - (x - view.x) * kept, y: y - (y - view.y) * kept };
 }
@@ -31,11 +34,21 @@ export function pinOffset(view, { top, bottom, height }) {
   return Math.max(0, Math.min(wanted, height - bottom));
 }
 
+// Past `limit`, `value` gives less and less the further it's pulled, to at most STRETCH more.
+function band(value, low, high) {
+  if (value < low) return low - STRETCH * (1 - 1 / (1 + (low - value) / STRETCH));
+  if (value > high) return high + STRETCH * (1 - 1 / (1 + (value - high) / STRETCH));
+  return value;
+}
+
 // Turns a diagram's holder into a canvas. `saved` is a view to return to, `onChange` hears of each
-// one the user moves to, and `onShow` of every change on screen.
-export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow = () => {} } = {}) {
-  const drawing = holder.querySelector('svg');
-  const content = { width: Number(drawing.getAttribute('width')), height: Number(drawing.getAttribute('height')) };
+// one the user moves to, and `onShow` of every change on screen. `drawing` is what moves (the
+// holder's svg unless given), with its `size`. `minScale` is how far out it zooms. `panFrom(event)`
+// says whether a drag starting there moves the canvas. With `rubber`, it can be moved anywhere, but
+// once its content no longer crosses the middle of the space it gives less and less, and springs
+// back when let go.
+export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow = () => {}, drawing = holder.querySelector('svg'), size = null, minScale = MIN_SCALE, panFrom = () => true, rubber = false } = {}) {
+  const content = size ?? { width: Number(drawing.getAttribute('width')), height: Number(drawing.getAttribute('height')) };
   holder.classList.add('diagram-canvas');
   const dots = document.createElement('div');
   dots.className = 'canvas-dots';
@@ -53,15 +66,42 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
   const centre = () => ({ x: holder.clientWidth / 2, y: holder.clientHeight / 2 });
   const amount = document.createElement('span');
   amount.className = 'canvas-amount';
+  // Where the content may go freely: as long as it crosses the middle of the space, both ways.
+  const range = (scale) => {
+    const middle = centre();
+    return { x: [middle.x - content.width * scale, middle.x], y: [middle.y - content.height * scale, middle.y] };
+  };
+  const shownView = () => {
+    if (!rubber) return view;
+    const { x, y } = range(view.scale);
+    return { ...view, x: band(view.x, ...x), y: band(view.y, ...y) };
+  };
   const show = () => {
-    drawing.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
-    dots.style.backgroundSize = `${DOTS * view.scale}px ${DOTS * view.scale}px`;
-    dots.style.backgroundPosition = `${view.x}px ${view.y}px`;
-    amount.textContent = `${Math.round(view.scale * 100)}%`;
-    drawing.onView?.(view);
+    const at = shownView();
+    drawing.style.transform = `translate(${at.x}px, ${at.y}px) scale(${at.scale})`;
+    dots.style.backgroundSize = `${DOTS * at.scale}px ${DOTS * at.scale}px`;
+    dots.style.backgroundPosition = `${at.x}px ${at.y}px`;
+    amount.textContent = `${Math.round(at.scale * 100)}%`;
+    drawing.onView?.(at);
     onShow();
   };
+  // Pulled past where it can go, it springs back there.
+  let springing = 0;
+  const springBack = () => {
+    if (!rubber || !view) return;
+    const { x, y } = range(view.scale);
+    const kept = { ...view, x: Math.min(x[1], Math.max(x[0], view.x)), y: Math.min(y[1], Math.max(y[0], view.y)) };
+    if (kept.x === view.x && kept.y === view.y) return;
+    holder.classList.add('springing');
+    clearTimeout(springing);
+    springing = setTimeout(() => holder.classList.remove('springing'), 320);
+    view = kept;
+    show();
+    onChange(view);
+  };
+  let settle = 0;
   const moveTo = (next) => {
+    holder.classList.remove('springing');
     view = next;
     moved = true;
     show();
@@ -69,14 +109,15 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
   };
   const fit = () => {
     if (!holder.clientWidth) return;
-    view = fitView(content, space());
+    view = fitView(content, space(), minScale);
     show();
   };
   const zoomBy = (factor) => {
     if (!view) fit();
     if (!view) return;
     const { x, y } = centre();
-    moveTo(zoomedAt(view, factor, x, y));
+    moveTo(zoomedAt(view, factor, x, y, minScale));
+    springBack();
   };
 
   const controls = document.createElement('div');
@@ -100,7 +141,7 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
     return Boolean(view);
   };
   holder.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 || !ready()) return;
+    if (event.button !== 0 || !panFrom(event) || !ready()) return;
     const start = { x: event.clientX, y: event.clientY, view };
     let dragging = false;
     const onMove = (move) => {
@@ -120,6 +161,7 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
       holder.removeEventListener('pointerup', onEnd);
       holder.removeEventListener('pointercancel', onEnd);
       holder.classList.remove('panning');
+      springBack();
     };
     holder.addEventListener('pointermove', onMove);
     holder.addEventListener('pointerup', onEnd);
@@ -129,9 +171,11 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
   holder.addEventListener('wheel', (event) => {
     event.preventDefault();
     if (!ready()) return;
+    clearTimeout(settle);
+    settle = setTimeout(springBack, SPRING_AFTER);
     if (!event.ctrlKey && !event.metaKey) return moveTo({ ...view, x: view.x - event.deltaX, y: view.y - event.deltaY });
     const box = holder.getBoundingClientRect();
-    return moveTo(zoomedAt(view, Math.exp(-event.deltaY * 0.01), event.clientX - box.left, event.clientY - box.top));
+    return moveTo(zoomedAt(view, Math.exp(-event.deltaY * 0.01), event.clientX - box.left, event.clientY - box.top, minScale));
   }, { passive: false });
 
   // Stays fitted as the window changes, until the user has moved it themselves.

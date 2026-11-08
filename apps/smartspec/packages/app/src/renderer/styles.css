@@ -768,15 +768,32 @@ tr.lit, .markdown .lit { background: color-mix(in srgb, var(--accent) 12%, trans
    bar, joined by a line for each connected pair. */
 .page.overview-page { position: relative; max-width: none; height: 100%; padding: 0; }
 .overview-page .diagram.diagram-canvas { position: absolute; inset: 0; overflow: hidden; padding: 0; border: 0; border-radius: 0; background: none; cursor: grab; touch-action: none; }
-.overview-svg foreignObject { overflow: visible; }
-.overview-measuring { position: absolute; top: 0; left: -10000px; width: 280px; visibility: hidden; }
+.overview-measuring { position: absolute; top: 0; left: -100000px; visibility: hidden; }
+.overview-measuring > .overview-world { width: 100000px; height: 100000px; }
+/* What moves on the overview: its items, cards and lines, laid out at full size (overview-view.js). */
+.overview-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; text-align: start; } /* not the diagram holder's centring */
+.overview-world > * { position: absolute; top: 0; left: 0; box-sizing: border-box; }
+.overview-world > .overview-svg { overflow: visible; pointer-events: none; }
+.overview-world > .overview-svg .hit { pointer-events: stroke; }
+.diagram-canvas.springing > .overview-world, .diagram-canvas.springing > .diagram-svg { transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.diagram-canvas.springing > .canvas-dots { transition: background-position 0.3s cubic-bezier(0.2, 0.8, 0.3, 1), background-size 0.3s cubic-bezier(0.2, 0.8, 0.3, 1); }
+/* An item at full size, as large as what's in it: a page at three quarters, a diagram as drawn, a
+   table as wide as its columns. Its title bar doesn't widen it, and nothing in it scrolls. */
+.overview-item { display: flex; min-width: 360px; border-radius: var(--card-radius); --page-zoom: 0.75; }
+.overview-item > .board-full { flex: 1; min-width: 0; }
+.overview-item .pane-head { contain: inline-size; }
+.overview-item .focus-body, .overview-item .item-table-holder { overflow: hidden; }
+.overview-item .item-image { max-width: 720px; }
+.overview-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.overview-item.lit > .board-full { border-color: var(--accent); }
+.overview-item.removed > .board-full > .focus-body { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--removed) 10%, var(--bg)) 0 10px, var(--bg) 10px 20px); opacity: 0.75; }
 .overview-lines path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; pointer-events: none; } /* the wider hit lines take the pointer */
 .overview-lines path.hit { stroke: transparent; stroke-width: 12; pointer-events: stroke; }
 .overview.picking .overview-lines path[data-pair]:not(.lit) { opacity: 0.35; }
 .overview-lines path.lit { stroke: var(--accent); stroke-width: 2; }
 .overview-card.lit { border-color: var(--accent); }
-.overview-svg .overview-card, .overview-measuring .overview-card { box-sizing: border-box; width: 280px; user-select: none; }
-.overview-svg .comment-card, .overview-measuring .comment-card { box-sizing: border-box; width: 280px; }
+.overview-world > .overview-card { width: 280px; user-select: none; }
+.overview-world > .comment-card { width: 280px; }
 button.overview-card { cursor: pointer; }
 button.overview-card:hover { border-color: var(--border-strong); }
 .overview-card.embedded { padding: 9px 13px; }
@@ -835,7 +852,7 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .diagram-heads.pinned .diagram-heads-band { display: block; }
 .canvas-dots { position: absolute; inset: 0; background-image: radial-gradient(var(--border) 1px, transparent 1px); pointer-events: none; }
 .diagram-canvas.panning { cursor: grabbing; }
-.diagram-canvas .diagram-svg { position: absolute; top: 0; left: 0; max-width: none; height: revert-layer; overflow: visible; transform-origin: 0 0; user-select: none; }
+.diagram-canvas > .diagram-svg { position: absolute; top: 0; left: 0; max-width: none; height: revert-layer; overflow: visible; transform-origin: 0 0; user-select: none; }
 .canvas-controls { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); cursor: default; }
 .canvas-controls button { min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
 .canvas-controls button:hover { background: var(--button-hover); }

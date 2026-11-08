@@ -128,8 +128,8 @@ const LANE = 7;
 
 export function layoutCards(cards, pairs, room = { width: 1280, height: 720 }) {
   if (!cards.length) return { width: 2 * GAP_X, height: 2 * GAP_Y, columns: 0, cards: [], lines: [] };
-  const width = cards[0].width;
-  const colW = width + GAP_X;
+  // Cards can differ in width: the grid is shaped by the average, and each column is as wide as its widest.
+  const colW = cards.reduce((sum, card) => sum + card.width, 0) / cards.length + GAP_X;
   const rowH = cards.reduce((sum, card) => sum + card.height, 0) / cards.length + GAP_Y;
   const n = cards.length;
   const aspect = Math.max(0.2, room.width / Math.max(1, room.height));
@@ -172,11 +172,15 @@ export function layoutCards(cards, pairs, room = { width: 1280, height: 720 }) {
   const rowHeights = Array.from({ length: rows }, (_, r) => Math.max(...cards.filter(({ id }) => at.get(id).r === r).map(({ height }) => height)));
   const rowTop = [GAP_Y];
   for (let r = 0; r < rows; r++) rowTop.push(rowTop[r] + rowHeights[r] + GAP_Y);
-  const colX = (c) => GAP_X + c * colW;
-  const gutterX = (k) => GAP_X / 2 + k * colW; // the gap left of column k
+  const colWidths = Array.from({ length: columns }, (_, c) => Math.max(...cards.filter(({ id }) => at.get(id).c === c).map(({ width }) => width)));
+  const colLeft = [GAP_X];
+  for (let c = 0; c < columns; c++) colLeft.push(colLeft[c] + colWidths[c] + GAP_X);
+  const colX = (c) => colLeft[c];
+  const gutterX = (k) => colLeft[k] - GAP_X / 2; // the gap left of column k
   const gutterY = (k) => rowTop[k] - GAP_Y / 2; // the gap above row k
 
-  const box = new Map(cards.map(({ id, height }) => {
+  // Each card at the top left of its place, so lines leaving its left or top meet it at the gap.
+  const box = new Map(cards.map(({ id, width, height }) => {
     const { r, c } = at.get(id);
     return [id, { r, c, left: colX(c), top: rowTop[r], width, height }];
   }));
@@ -222,9 +226,9 @@ export function layoutCards(cards, pairs, room = { width: 1280, height: 720 }) {
       const share = (i + 1) / (all.length + 1);
       point.set(end, {
         left: { x: card.left, y: card.top + card.height * share },
-        right: { x: card.left + width, y: card.top + card.height * share },
-        top: { x: card.left + width * share, y: card.top },
-        bottom: { x: card.left + width * share, y: card.top + card.height },
+        right: { x: card.left + card.width, y: card.top + card.height * share },
+        top: { x: card.left + card.width * share, y: card.top },
+        bottom: { x: card.left + card.width * share, y: card.top + card.height },
       }[end.side]);
     });
   }
@@ -241,16 +245,21 @@ export function layoutCards(cards, pairs, room = { width: 1280, height: 720 }) {
       points.push({ x, y }, { x, y: next });
       y = next;
     });
+    // One card straight above another, of different widths: across in the gap between them, not slanting.
+    if (!route.gaps.length && start.x !== end.x && route.ends[0].side === 'bottom') {
+      const across = gutterY(box.get(route.ends[1].id).r);
+      points.push({ x: start.x, y: across }, { x: end.x, y: across });
+    }
     points.push(end);
     return { pair: route.pair, points: points.filter((one, i) => i === 0 || one.x !== points[i - 1].x || one.y !== points[i - 1].y) };
   });
 
   return {
-    width: GAP_X + columns * colW,
+    width: colLeft[columns],
     height: rowTop[rows],
     columns,
     cards: cards.map(({ id }) => {
-      const { left: x, top: y, height } = box.get(id);
+      const { left: x, top: y, width, height } = box.get(id);
       return { id, x: x + width / 2, y: y + height / 2, width, height };
     }),
     lines,

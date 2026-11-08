@@ -251,7 +251,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // The board first: it sets each item's size, which a page is fitted to.
       const board = el.querySelector('.board');
       if (board) showBoard(board);
-      else watchComments(null);
+      else {
+        const overview = el.querySelector('.overview-page .diagram.overview');
+        watchComments(overview?.comments ? overview : null, overview?.comments);
+      }
       restoreItemScrolls(scrolled);
       // A box of comments open before the page was drawn again opens again on the same thing.
       const threads = (board ?? el.querySelector('.overview-page .diagram.overview'))?.threads;
@@ -887,9 +890,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return page;
     }
 
-    if (layout === 'overview') {
+    // Full screen from the overview is the same as from Focus; leaving it goes back to the overview.
+    if (layout === 'overview' && !here.full) {
       const connections = await api.getConnections(here.schemaId, here.proposal ? { proposal: true } : { draftId: shown.draftId }).catch(() => ({}));
-      const page = await overviewView(here, shown, uses, connections);
+      const page = await overviewView(here, shown, uses, connections, openUse);
       page.draftNav = draftControls(here, shown);
       page.bottomBar = reviewBar(here, shown);
       return page;
@@ -1260,7 +1264,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
   // An item at full size: its title along the top, which it's dragged by, and its content. Full
   // screen, the same thing with the window to itself.
-  async function fullView(here, id, { shown, uses, content, mark, follow, openUse, isRemoved, full = false }) {
+  // `still`: diagrams are drawn as they are, not as canvases of their own (the overview pans and zooms them).
+  async function fullView(here, id, { shown, uses, content, mark, follow, openUse, isRemoved, full = false, still = false }) {
     const use = uses.get(id);
     const item = id === CONTRACT || use ? null : await content(id);
     const middle = h('article', { className: 'focus-card', ...(full && { style: moves(id) }), 'aria-label': use ? use.name ?? use.id : id === CONTRACT ? 'Contract' : item?.title ?? id });
@@ -1284,7 +1289,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // Where a canvas has been moved to is kept for each size it shows at.
       const place = `${item.id}:${Boolean(full)}`;
       here.views ??= {};
-      body.append(view.classList.contains('diagram')
+      body.append(view.classList.contains('diagram') && !still
         ? makeCanvas(view, {
           saved: here.views[place] ?? null,
           onChange: (kept) => { here.views[place] = kept; },
@@ -1431,15 +1436,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // overview-view.js). Each card is the full card a side card is a compact version of: the same tag,
   // title and description, and beneath, a look inside and how it's linked. Clicking one brings it
   // into focus.
-  async function overviewView(here, shown, uses, connections) {
+  async function overviewView(here, shown, uses, connections, openUse) {
     const links = (id) => {
       const out = new Set(shown.links.filter(({ from, to }) => parseLink(from).target === id && parseLink(to).target !== id).map(({ to }) => parseLink(to).target));
       const into = new Set(shown.links.filter(({ from, to }) => parseLink(to).target === id && parseLink(from).target !== id).map(({ from }) => parseLink(from).target));
       if (!out.size && !into.size) return 'Not linked to anything';
       return [out.size && `Links to ${out.size}`, into.size && `Linked from ${into.size}`].filter(Boolean).join(' · ');
     };
-    const change = (id) => (id === CONTRACT ? (shown.changes?.contract ? 'changed' : null) : shown.changes?.items[id]);
-    // Chosen here, it's brought to the middle of the focus view, alone: the rest go to the sides.
+    // Taken to Focus, it's brought to the middle, alone: the rest go to the sides.
     const open = (id) => () => {
       layout = 'focus';
       rememberView();
@@ -1448,21 +1452,45 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       remember();
       render();
     };
-    const content = (id) => api.getItem(here.schemaId, id, here.proposal ? { proposal: true } : { draftId: shown.draftId }).catch(() => null);
+    // Under review, what the proposal removes is still shown, as it was in the draft the proposal
+    // changes, struck through; and comments on anything since removed stay, so none disappear unseen.
+    const removedItems = here.proposal ? shown.changes?.removed ?? [] : [];
+    const isRemoved = (id) => removedItems.some((one) => one.id === id);
     const on = here.proposal ? { proposal: true } : { draftId: shown.draftId };
-    const [comments, earlierComments] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
-    // What's inside, then how it's linked, beneath the line.
-    const inside = async (id) => {
-      const item = id === CONTRACT ? null : shown.items.find((one) => one.id === id);
-      const look = cardLines(item) ?? (item?.kind === 'table' ? await content(id).then((table) => table && tablePreview(table, null, shown.links))
-        : await previewOf(id, shown, uses, content).catch(() => null));
-      return h('span', { className: 'overview-card-foot' }, look, h('span', { className: 'overview-card-links' }, links(id)));
+    const contents = new Map();
+    const content = (id) => {
+      if (id === CONTRACT || uses.has(id)) return Promise.resolve(null);
+      if (!contents.has(id)) contents.set(id, api.getItem(here.schemaId, id, isRemoved(id) ? { draftId: shown.basedOn } : on).catch(() => null));
+      return contents.get(id);
     };
-    const card = async (id, item) => h('button', { className: 'overview-card', type: 'button', 'data-item': id, onclick: open(id) },
-      item && pill(kindLabel(item), 'kind-pill'),
-      h('span', { className: 'title-row' }, h('strong', {}, item ? item.title : 'Contract'), statusPills(marker(change(id)))),
-      h('span', { className: 'focus-meta' }, item ? item.description : 'What it promises and needs'),
-      await inside(id));
+    const mark = (id) => (id === CONTRACT ? (shown.changes?.contract ? 'changed' : null) : isRemoved(id) ? 'removed' : shown.changes?.items[id]);
+    // A link followed on the overview moves the canvas to what it goes to.
+    let holder = null;
+    const follow = (link, from) => {
+      const { target } = parseLink(link, from);
+      const element = holder?.world.querySelector(`:scope > [data-item="${CSS.escape(target)}"]`);
+      if (element) holder.centreOn(element);
+    };
+    const views = { shown, uses, content, mark, follow, openUse, isRemoved, still: true };
+    const ids = [CONTRACT, ...shown.items.map((one) => one.id), ...removedItems.map((one) => one.id)];
+    const removed = removedItems.map(({ id }) => id);
+    const titleFor = (id) => titleOf(id, shown, uses, removedItems);
+
+    // Each item at full size, as large as its content. Double-clicking its title bar, or Enter on it,
+    // takes it to Focus.
+    const fullItem = async (id) => {
+      const full = await fullView(here, id, views);
+      full.classList.add('board-full');
+      const element = h('article', { className: `overview-item${isRemoved(id) ? ' removed' : ''}`, 'data-item': id, tabindex: '0', 'aria-label': titleFor(id) }, full);
+      full.querySelector('.pane-head')?.addEventListener('dblclick', (event) => {
+        if (!event.target.closest('button')) open(id)();
+      });
+      element.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && event.target === element) open(id)();
+      });
+      return element;
+    };
+    // An embedded schematic stays a card here: going into it is Open schematic, in Focus.
     const useCard = (use) => {
       const settings = Object.entries(use.with ?? {});
       return h('button', { className: 'overview-card embedded', type: 'button', 'data-item': use.id, onclick: open(use.id) },
@@ -1473,43 +1501,59 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)),
         h('span', { className: 'overview-card-foot' }, h('span', { className: 'overview-card-links' }, links(use.id))));
     };
-    // Under review, what the proposal removes is still shown, struck out; and comments on anything
-    // since removed stay, so none disappear unseen.
-    const removed = (shown.changes?.removed ?? []).map((item) => h('button', { className: 'overview-card removed', type: 'button', 'data-removed': item.id, 'aria-label': `${item.title}, removed`, onclick: open(item.id) },
-      pill(kindLabel(item), 'kind-pill'),
-      h('span', { className: 'title-row' }, h('strong', { className: 'overview-card-name' }, item.title)),
-      h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed')));
+
+    const [comments, earlierComments] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
+    const everything = [...comments, ...earlierComments];
     const orphans = comments.filter((comment) => comment.target.missing).map((comment) => commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render), onNoFurtherAction: flagComment(here) }));
-    // Comments on the whole schematic: where they were put on the overview, else laid out with the cards.
-    const onWhole = [...comments, ...earlierComments].filter((comment) => comment.target.schematic);
+    // Comments on the whole schematic: where they were put on the overview, else laid out with the rest.
+    const onWhole = everything.filter((comment) => comment.target.schematic);
     const pinned = onWhole.filter((comment) => comment.target.at).map((comment) => ({ card: wholeCommentCard(here, on, comment), at: comment.target.at }));
     const loose = onWhole.filter((comment) => !comment.target.at).map((comment) => wholeCommentCard(here, on, comment));
-    const cards = [...(await Promise.all([card(CONTRACT, null), ...shown.items.map((item) => card(item.id, item))])), ...shown.uses.map((use) => useCard(use)), ...removed, ...orphans, ...loose];
+    const items = [...(await Promise.all(ids.map(fullItem))), ...shown.uses.map(useCard), ...orphans, ...loose];
     const pairs = connectedPairs(shown.links);
     // Laid out to fill the window as it is now; a place kept from a different layout would be lost in this one.
-    const drawing = drawOverview(cards, pairs, { width: el.clientWidth, height: el.clientHeight }, pinned);
+    const drawing = drawOverview(items, pairs, { width: el.clientWidth, height: el.clientHeight }, pinned);
     const sameLayout = here.overviewColumns === drawing.columns;
     here.overviewColumns = drawing.columns;
-    const holder = makeCanvas(drawing, {
+    holder = makeCanvas(drawing, {
+      drawing: drawing.world,
+      size: drawing.size,
+      minScale: 0.05,
+      rubber: true,
+      // Dragging in an item's content picks words, as anywhere else; elsewhere it moves the canvas.
+      panFrom: (event) => !event.target.closest('.focus-body, button, a[href], input, textarea, .comment-marker, .comment-thread'),
       saved: (sameLayout && here.views?.overview) || null,
       onChange: (kept) => {
         here.views ??= {};
         here.views.overview = kept;
       },
     });
-    Object.assign(holder, { pairs, connections, threads: () => null });
-    // A long press on the overview's empty space starts a comment on the whole schematic, kept where
-    // it was pressed.
+    // Markers shrink as it zooms out, to half their size at most.
+    holder.markerScale = () => {
+      const scale = Number(/scale\(([\d.]+)\)/.exec(drawing.world.style.transform)?.[1] ?? 1);
+      return Math.min(1, Math.max(0.5, scale));
+    };
+    // Comments on items show as on the board: marked where they are, opened in a box.
+    const groups = groupComments(everything.filter((comment) => !comment.target.schematic && !comment.target.missing && ids.includes(comment.target.item)));
+    const threads = threadsFor(here, on, groups, titleFor);
+    Object.assign(holder, { pairs, connections, threads: threads.find, comments: { groups, open: (group, x, y) => threads.open(group.target, x, y) } });
+    // A long press on an item comments on what was pressed; on empty space, on the whole schematic,
+    // kept where it was pressed.
     watchLongPress(holder, {
-      accept: (event) => !event.target.closest('foreignObject, button, .comment-thread') && Boolean(event.target.closest('svg.overview-svg') || event.target === holder),
+      accept: (event) => {
+        if (event.target.closest('button, input, textarea, .comment-marker, .comment-thread, .canvas-controls, .overview-pinned, .comment-card')) return false;
+        if (event.target.closest('.overview-item')) return true;
+        return event.target === holder || event.target === holder.world || Boolean(event.target.closest('svg.overview-svg'));
+      },
       fire: (event) => {
-        const sheet = holder.querySelector('svg.overview-svg');
-        const point = sheet.createSVGPoint();
-        point.x = event.clientX;
-        point.y = event.clientY;
-        const inside = point.matrixTransform(sheet.getScreenCTM().inverse());
-        const box = sheet.viewBox.baseVal;
-        const at = { x: Math.min(1, Math.max(0, inside.x / (box.width || 1))), y: Math.min(1, Math.max(0, inside.y / (box.height || 1))) };
+        const element = event.target.closest('.overview-item');
+        if (element) {
+          const target = targetAt(element, event);
+          if (target) threads.open(target, event.clientX, event.clientY, true);
+          return;
+        }
+        const box = holder.world.getBoundingClientRect();
+        const at = { x: Math.min(1, Math.max(0, (event.clientX - box.left) / (box.width || 1))), y: Math.min(1, Math.max(0, (event.clientY - box.top) / (box.height || 1))) };
         commentOnWhole(here, on, shown, event, null, at);
       },
     });
