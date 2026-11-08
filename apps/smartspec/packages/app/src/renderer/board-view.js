@@ -498,10 +498,18 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   board.classList.add('settling');
   placeAll();
   requestAnimationFrame(() => requestAnimationFrame(() => board.classList.remove('settling')));
-  // The window changing size moves everything with it.
+  // The window changing size moves everything with it, at once: gliding after it, things lagged
+  // behind (going full screen, they only grew once the window had finished).
+  let unsettle = 0;
   const resized = new ResizeObserver(() => {
     if (!board.isConnected) return resized.disconnect();
-    if (!dragging) placeAll();
+    if (dragging) return;
+    board.classList.add('settling');
+    placeAll();
+    cancelAnimationFrame(unsettle);
+    unsettle = requestAnimationFrame(() => {
+      unsettle = requestAnimationFrame(() => board.classList.remove('settling'));
+    });
   });
   resized.observe(board);
 

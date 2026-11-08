@@ -178,7 +178,10 @@ export function againButton(comment, onAgain) {
 // --- Where comments are ---------------------------------------------------------------------------
 
 const HIGHLIGHTS = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
-const BUBBLE = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>';
+const BUBBLE = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M2,22V4Q2,3.17 2.59,2.59T4,2H20q0.83,0 1.41,0.59T22,4V16q0,0.82-0.59,1.41T20,18H6L2,22Zm3.15-6H20V4H4V17.13L5.15,16ZM4,16V4V16Z"/></svg>';
+// Comments none of which needs anything more: a speech bubble with a tick at its corner (the
+// user's choice), rather than a faded marker.
+const SETTLED = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M17.35,20l-3.53-3.55l1.4-1.4l2.13,2.13l4.25-4.25L23,14.35L17.35,20ZM2,22V4Q2,3.17 2.59,2.59T4,2H20q0.83,0 1.41,0.59T22,4v7H20V4H4V17.13L5.15,16H12v2H6L2,22Zm2-6V4V16Z"/></svg>';
 
 // Comments on the same thing gather together, under one key: the same words, part, point, card or
 // item.
@@ -326,7 +329,7 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
       }
       const label = waiting ? (waiting === 1 ? '1 comment' : `${waiting} comments`) : current.length ? 'Comments, none needing anything' : 'An earlier comment';
       const marker = h('button', { className: `comment-marker${waiting ? '' : current.length ? ' settled' : ' earlier'}`, type: 'button', title: label, 'aria-label': label });
-      marker.innerHTML = BUBBLE;
+      marker.innerHTML = !waiting && current.length ? SETTLED : BUBBLE;
       if (waiting > 1) marker.append(String(waiting));
       marker.addEventListener('pointerdown', (event) => event.stopPropagation());
       marker.addEventListener('click', (event) => {
@@ -365,8 +368,8 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
       marker.classList.toggle('away', !seen);
       marker.style.zIndex = element?.style.zIndex || '1';
       if (!spot) continue;
-      const width = marker.offsetWidth || 18;
-      const height = marker.offsetHeight || 18;
+      const width = marker.offsetWidth || 36;
+      const height = marker.offsetHeight || 36;
       const left = spot.align === 'right' ? spot.x - width : spot.align === 'centre' ? spot.x - width / 2 : spot.x;
       const top = spot.y - height / 2;
       marker.style.transform = `translate(${Math.round(left - board.left)}px, ${Math.round(top - board.top)}px)`;

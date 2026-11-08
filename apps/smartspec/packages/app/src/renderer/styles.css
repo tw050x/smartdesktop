@@ -701,9 +701,8 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 @keyframes long-press { from { transform: scale(0.3); opacity: 0.2; } to { transform: scale(1); opacity: 1; } }
 /* Where an item has comments: a marker in the comment colour, with how many if more than one (see
    comments.js). Clicking it opens them. Faded when none needs anything; dashed for an earlier one. */
-.comment-marker { position: absolute; top: 0; left: 0; z-index: 4; display: inline-flex; align-items: center; gap: 3px; height: 18px; min-width: 18px; box-sizing: border-box; padding: 0 2.5px; border: 1px solid color-mix(in srgb, var(--comment) 55%, #000); border-radius: 5px; background: var(--comment); color: #1f1a0e; font: inherit; font-size: 10.5px; font-weight: 700; cursor: pointer; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: opacity 0.15s ease; }
+.comment-marker { position: absolute; top: 0; left: 0; z-index: 4; display: inline-flex; align-items: center; gap: 4px; height: 36px; min-width: 36px; box-sizing: border-box; padding: 0 6px; border: 1.5px solid color-mix(in srgb, var(--comment) 55%, #000); border-radius: 10px; background: var(--comment); color: #1f1a0e; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); transition: opacity 0.15s ease; }
 .comment-marker svg { display: block; }
-.comment-marker.settled { opacity: 0.55; }
 /* An earlier one is yellow too, so it stands out from the card, but with a dashed border, not solid. */
 .comment-marker.earlier { border-style: dashed; box-shadow: none; }
 /* Kept on the board, so it can hang over its item's edge; faded out while what it's on can't be seen

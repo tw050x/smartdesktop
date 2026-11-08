@@ -69,8 +69,9 @@ export function openThread({ key, x, y, heading, target = null, comments = [], s
     field.focus();
     place(x, y);
   });
-  const current = comments.filter((comment) => !comment.earlier);
-  const open = writing || !current.length;
+  // Ready to write only when asked (a long press) or when there's nothing to read yet: an earlier
+  // comment is shown to read, with "Add a comment" to write one.
+  const open = writing || !comments.length;
   box = h('div', { className: 'card-comments comment-thread', role: 'dialog', 'aria-label': heading },
     h('span', { className: 'card-comments-head' }, heading),
     target && (about(target) ?? null),

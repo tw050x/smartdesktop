@@ -191,6 +191,29 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return key ? `${element.tagName.toLowerCase()}[${key}="${CSS.escape(element.getAttribute(key))}"]` : null;
   }
 
+  // Where each item's scrolling parts are scrolled to, by item and part, to put back after drawing.
+  const SCROLLERS = '.focus-body, .item-table-holder';
+  const scrollKey = (scroller) => `${scroller.closest('[data-item]')?.dataset.item ?? 'full'}|${scroller.classList.contains('item-table-holder') ? 'table' : 'body'}`;
+  function itemScrolls() {
+    const kept = new Map();
+    for (const scroller of el.querySelectorAll(SCROLLERS)) {
+      if (scroller.scrollTop || scroller.scrollLeft) kept.set(scrollKey(scroller), [scroller.scrollLeft, scroller.scrollTop]);
+    }
+    return kept;
+  }
+  function restoreItemScrolls(kept) {
+    if (!kept.size) return;
+    const put = () => {
+      for (const scroller of el.querySelectorAll(SCROLLERS)) {
+        const at = kept.get(scrollKey(scroller));
+        if (at) [scroller.scrollLeft, scroller.scrollTop] = at;
+      }
+    };
+    put();
+    // Again once pages are fitted to their items' sizes, which can change how far they scroll.
+    requestAnimationFrame(() => requestAnimationFrame(put));
+  }
+
   async function render() {
     const ticket = ++rendering;
     // The same thing drawn again keeps its place. Anything else starts at its top, once it shows.
@@ -203,6 +226,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // What has focus keeps it when it's drawn again: found by its id, or by the row it is.
     const focused = focusKey(document.activeElement);
     const show = () => {
+      // What scrolls inside each item keeps its place when the same thing is drawn again (a comment
+      // flagged or written again redraws the page).
+      const scrolled = place === showingPlace ? itemScrolls() : new Map();
       focusMenu.hidden = true;
       holdDragged();
       // Home arriving (at launch, or back from a schematic): its columns rise in, as SmartDoc's do.
@@ -226,6 +252,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const board = el.querySelector('.board');
       if (board) showBoard(board);
       else watchComments(null);
+      restoreItemScrolls(scrolled);
       // A box of comments open before the page was drawn again opens again on the same thing.
       const threads = (board ?? el.querySelector('.overview-page .diagram.overview'))?.threads;
       if (threads) refreshThread(threads);
