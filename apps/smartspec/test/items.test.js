@@ -295,3 +295,17 @@ describe('connectionDetails', () => {
   });
 });
 
+
+test('a group is wide enough for its title, and for a label beside a loop inside it', () => {
+  const measure = (label) => ({ width: String(label).length * 8, height: 18 });
+  const title = 'terms or privacy policy not agreed (Software policy D3)';
+  const layout = layoutSequence({
+    participants: [{ id: 'a', label: 'App' }, { id: 'b', label: 'Server' }],
+    messages: [{ id: 'one', from: 'a', to: 'b', label: 'ask' }, { id: 'two', from: 'a', to: 'a', label: 'state = waiting, send nothing' }],
+    groups: [{ id: 'g', kind: 'break', from: 'two', to: 'two', label: title }],
+  }, measure);
+  const [group] = layout.groups;
+  assert.ok(group.right - group.left >= (title.length + 'break'.length) * 8, 'the title fits');
+  assert.ok(group.right >= layout.messages[1].x1 + 44 + 'state = waiting, send nothing'.length * 8, 'the loop label fits');
+  assert.ok(layout.width >= group.right, 'the drawing holds the group');
+});

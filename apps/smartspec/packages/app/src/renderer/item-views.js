@@ -1,6 +1,6 @@
 import { edgeId } from '../main/items.js';
 import { pinOffset } from './canvas-view.js';
-import { layoutFlow, layoutSequence } from './layout.js';
+import { GROUP_WORDS, layoutFlow, layoutSequence } from './layout.js';
 import { inlineMarkdown, renderMarkdown } from './markdown.js';
 
 // Each kind of item's way of rendering. Whatever the kind, a part that can be linked to has
@@ -30,9 +30,9 @@ function linesOf(label) {
   }
   return lines;
 }
-function measure(label) {
+function measure(label, { oneLine = false } = {}) {
   context.font = FONT;
-  const lines = linesOf(label);
+  const lines = oneLine ? [String(label)] : linesOf(label);
   return { width: Math.ceil(Math.max(...lines.map((line) => context.measureText(line).width))), height: lines.length * LINE };
 }
 function text(label, x, y, className) {
@@ -83,11 +83,13 @@ export function route(points) {
   return `${path}L${last.x} ${last.y}`;
 }
 
-function edgeLabel(label, x, y) {
+// A connection's label, centred on (x, y), or with its left end there if `from` is 'left'.
+function edgeLabel(label, x, y, from = 'middle') {
   const size = measure(label);
+  const middle = from === 'left' ? x + size.width / 2 : x;
   return [
-    svg('rect', { x: x - size.width / 2 - 4, y: y - size.height / 2 - 2, width: size.width + 8, height: size.height + 4, rx: 4, class: 'diagram-label-bg' }),
-    text(label, x, y, 'diagram-label'),
+    svg('rect', { x: middle - size.width / 2 - 4, y: y - size.height / 2 - 2, width: size.width + 8, height: size.height + 4, rx: 4, class: 'diagram-label-bg' }),
+    text(label, middle, y, 'diagram-label'),
   ];
 }
 
@@ -109,8 +111,6 @@ function flowView(item, onLink) {
   }
   return root;
 }
-
-const GROUP_WORDS = { loop: 'loop', alt: 'alternative', opt: 'optional', par: 'parallel', critical: 'critical', break: 'break', group: 'group' };
 
 function groupView(group) {
   const word = GROUP_WORDS[group.kind];
@@ -181,11 +181,13 @@ function sequenceView(item, onLink) {
     const path = self
       ? `M${message.x1} ${message.y - 8}H${message.x1 + 36}V${message.y + 12}H${message.x1 + 2}`
       : `M${message.x1} ${message.y}H${message.x2 + inset}`;
-    const labelX = self ? message.x1 + 36 : (message.x1 + message.x2) / 2;
+    // A message's label sits above its line, its lines all above it; a message to its own lifeline
+    // has its label beside its loop, clear of the lifeline.
+    const above = message.y - 12 - (measure(message.label).height - LINE) / 2;
     const group = svg('g', { class: 'diagram-edge', 'data-part': message.id },
       svg('path', { d: path, class: `diagram-line${message.reply ? ' reply' : ''}`, 'marker-end': arrow }),
       svg('path', { d: path, class: 'diagram-hit' }),
-      ...edgeLabel(message.label, labelX, message.y - 12));
+      ...(self ? edgeLabel(message.label, message.x1 + 44, message.y + 2, 'left') : edgeLabel(message.label, (message.x1 + message.x2) / 2, above)));
     linkPart(group, message.link, onLink);
     root.append(group);
   }
