@@ -1052,11 +1052,25 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const name = shown.name;
     // A proposal under review, and its answers.
     if (here.proposal) {
+      // Comments the AI hasn't answered can be sent to it, to deal with before accepting: its wait
+      // ends saying so (see store.sendComments). Once sent, they're with it until it answers.
+      const { waiting = 0, sent = 0 } = shown.forTheAi ?? {};
+      const unsent = waiting - sent;
+      const many = (n) => (n === 1 ? '1 comment' : `${n} comments`);
       return [
-        reviewLine(shown.total ? `You're reviewing changes the AI has proposed to ${name}.` : `You're reviewing ${name}, a new schematic the AI has proposed.`),
+        reviewLine(sent && !unsent ? `The AI is dealing with your ${many(sent)} on ${name}.`
+          : shown.total ? `You're reviewing changes the AI has proposed to ${name}.` : `You're reviewing ${name}, a new schematic the AI has proposed.`),
         h('button', { className: 'secondary-button', type: 'button', id: 'proposal-discard', onclick: () => answer(() => api.discardProposal(here.schemaId)) }, 'Discard'),
+        (waiting > 0) && h('button', {
+          className: 'secondary-button',
+          type: 'button',
+          id: 'proposal-send-comments',
+          disabled: !unsent,
+          title: unsent ? 'Ask the AI to answer your comments, and change what it proposed if it needs to' : 'The AI has your comments',
+          onclick: () => answer(() => api.sendComments(here.schemaId)),
+        }, unsent ? `Send ${many(unsent)} to AI` : 'Sent to AI'),
         h('button', { className: 'primary-button', type: 'button', id: 'proposal-accept', onclick: () => answer(() => api.acceptProposal(here.schemaId)) }, 'Accept'),
-      ];
+      ].filter(Boolean);
     }
     // A proposal waiting on this schematic.
     if (shown.proposal) {

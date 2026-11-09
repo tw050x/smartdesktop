@@ -46,6 +46,32 @@ describe('waiting for a proposal', () => {
     assert.equal((await promise).event, 'proposal-replaced');
   });
 
+  test('ends when the user sends the AI their comments, until it has answered them', async () => {
+    const { store, waits } = setup();
+    const made = await store.propose({ ...proposal, items: [{ id: 'notes', kind: 'document', title: 'Notes', markdown: '# Notes' }] });
+    const { promise } = waits.forProposal(made.proposal);
+    const comment = await store.addComment(made.schema, { proposal: true, target: { item: 'notes' }, text: 'Say more about retries' });
+    assert.equal((await store.getProposal(made.schema)).forTheAi.waiting, 1);
+    await store.sendComments(made.schema);
+    const result = await promise;
+    assert.equal(result.event, 'proposal-comments');
+    assert.equal(result.comments, 1);
+    assert.match(result.next, /get_comments/);
+    // Answered, the proposal is waiting for the user again: a new wait holds.
+    await store.replyToComment(made.schema, comment.id, { text: 'Added a section on retries.' });
+    assert.equal(await store.proposalOutcome(made.proposal), null);
+    assert.deepEqual((await store.getProposal(made.schema)).forTheAi, { waiting: 0, sent: 0 });
+    // What was sent isn't kept in the draft.
+    await store.accept(made.schema);
+    assert.equal((await store.getSchema(made.schema)).commentsSent, undefined);
+  });
+
+  test('refuses to send comments when none are waiting for the AI', async () => {
+    const { store } = setup();
+    const made = await store.propose(proposal);
+    await assert.rejects(store.sendComments(made.schema), /no comments waiting/);
+  });
+
   test('refuses a proposal that doesn\'t exist', async () => {
     const { waits } = setup();
     await assert.rejects(waits.forProposal('nope').promise, (error) => error.status === 404);

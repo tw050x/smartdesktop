@@ -7,6 +7,7 @@ import { createConnect } from './connect.js';
 import { MCP_PORT, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
+import { confirm } from './confirm.js';
 import { createStore } from './store.js';
 import { createLayouts } from './layouts.js';
 import { createUpdates } from './updates.js';
@@ -265,7 +266,7 @@ const schemasFor = (session, ctx) => ({
       ...made,
       status: 'waiting_for_user',
       wait: waitCommand('proposal', '--id', made.proposal),
-      message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schematic later.',
+      message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schematic later. The wait also ends if the user sends you their comments to deal with first: answer them, revise if they need it, and wait again.',
     };
   },
 });
@@ -393,6 +394,50 @@ async function discardProposal(ctx, schemaId) {
   sessions.release(schemaClaim(schemaId));
 }
 
+// Asks first, in a window of its own (confirm.js), as a draft can't be taken back. Comments the AI
+// hasn't answered are raised there, with the offer to send them to it before accepting (see
+// store.sendComments). Says what was done: 'accepted', 'sent' or 'cancel'.
+const MOST_LISTED = 4;
+const QUOTE = 90;
+async function acceptProposal(ctx, schemaId) {
+  const proposal = await store.getProposal(schemaId);
+  if (!proposal) return 'cancel';
+  const what = proposal.total ? `these changes to ${proposal.name}` : proposal.name;
+  const becomes = proposal.total ? `They become draft ${proposal.total + 1} of ${proposal.name}.` : `It becomes ${proposal.name}’s first draft.`;
+  const { waiting, sent } = proposal.forTheAi ?? { waiting: 0, sent: 0 };
+  const open = waiting ? (await store.listComments(schemaId, { proposal: true })).filter((comment) => !comment.noFurtherAction && !comment.replies?.length) : [];
+  const quoted = open.slice(0, MOST_LISTED).map((comment) => {
+    const said = comment.text.replace(/\s+/g, ' ');
+    return said.length > QUOTE ? `${said.slice(0, QUOTE - 1)}…` : said;
+  });
+  if (open.length > MOST_LISTED) quoted.push(`and ${open.length - MOST_LISTED} more`);
+  const many = (n) => (n === 1 ? '1 comment' : `${n} comments`);
+  const question = !waiting
+    ? { title: `Accept ${what}?`, message: becomes, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Accept', choice: 'accept', kind: 'primary' }] }
+    : sent === waiting
+      ? {
+        title: `Accept ${what}?`,
+        message: `The AI hasn’t answered the ${many(sent)} you sent it yet. ${becomes}`,
+        points: quoted,
+        buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, { label: 'Keep waiting', choice: 'cancel', kind: 'primary' }],
+      }
+      : {
+        title: `Accept ${what}?`,
+        message: `You have ${many(waiting)} the AI hasn’t answered. Send ${waiting === 1 ? 'it' : 'them'} to the AI, to deal with before you accept?`,
+        points: quoted,
+        buttons: [{ label: 'Cancel', choice: 'cancel', apart: true }, { label: 'Accept anyway', choice: 'accept' }, { label: 'Send to AI', choice: 'send', kind: 'primary' }],
+      };
+  const choice = await confirm(ctx?.win, question);
+  if (choice === 'send') {
+    await store.sendComments(schemaId);
+    return 'sent';
+  }
+  if (choice !== 'accept') return 'cancel';
+  await store.accept(schemaId);
+  sessions.release(schemaClaim(schemaId));
+  return 'accepted';
+}
+
 // A domain (a group in the store) goes, and its schemas go to No domain: asked first, as it can't be
 // had back.
 async function deleteGroup(ctx, id) {
@@ -446,10 +491,8 @@ handle('list-earlier-comments', (_ctx, id, options) => store.listEarlierComments
 handle('add-comment', (_ctx, id, comment) => store.addComment(id, comment));
 handle('delete-comment', (_ctx, id, commentId) => store.deleteComment(id, commentId));
 handle('set-no-further-action', (_ctx, id, commentId, flag) => store.setNoFurtherAction(id, commentId, flag));
-handle('accept-proposal', async (_ctx, id) => {
-  await store.accept(id);
-  sessions.release(schemaClaim(id));
-});
+handle('accept-proposal', (ctx, id) => acceptProposal(ctx, id));
+handle('send-comments', (_ctx, id) => store.sendComments(id));
 handle('discard-proposal', (ctx, id) => discardProposal(ctx, id));
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', ({ session }) => {

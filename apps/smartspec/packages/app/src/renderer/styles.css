@@ -933,6 +933,8 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .primary-button { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
 .secondary-button { border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 .secondary-button:hover { background: var(--subtle-bg); }
+.secondary-button:disabled { color: var(--muted); cursor: default; }
+.secondary-button:disabled:hover { background: var(--bg); }
 button:disabled { opacity: 0.5; cursor: default; }
 
 /* Settings: a modal in the window, opened from the top bar's gear. */

@@ -1,5 +1,6 @@
-// What an AI waits for, with `smartspec wait`: the user accepting or discarding a proposal. The
-// answer is kept, so one given before the wait began is still found.
+// What an AI waits for, with `smartspec wait`: the user accepting or discarding a proposal, or
+// sending it their comments on it to deal with first. The answer is kept, so one given before the
+// wait began is still found.
 
 // A wait that can't end, so it's refused rather than left hanging. `status` is the HTTP status the
 // server answers with.

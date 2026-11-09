@@ -11,7 +11,8 @@ export const EXIT = { happened: 0, usage: 1, timedOut: 2, refused: 3, noApp: 4 }
 
 export const WAIT_HELP = `Usage: npx @smartspec/cli wait proposal --id <id> [--timeout <seconds>]
 
-  proposal --id <id>   The user has accepted or discarded this proposal, or it was replaced
+  proposal --id <id>   The user has accepted or discarded this proposal, or it was replaced, or
+                       they've sent you their comments on it to deal with first
 
 Prints what happened as JSON. Exits with 0 when it has happened, 1 if the command is wrong, 2 if
 the timeout passed, 3 if the app says this can never happen, and 4 if the app isn't running or quits.`;

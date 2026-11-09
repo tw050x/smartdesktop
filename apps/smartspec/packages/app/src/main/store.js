@@ -133,6 +133,15 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   const commentsOn = async (schemaId, on) => (await readComments(schemaId)).filter((comment) => comment.on === on);
   // The comments something still needs doing about: those without "No further action required".
   const openCount = async (schemaId, on) => (await commentsOn(schemaId, on)).filter((comment) => !comment.noFurtherAction).length;
+  // A comment is waiting for the AI until it has answered it, unless it needs nothing more.
+  const forTheAi = (comment) => !comment.noFurtherAction && !comment.replies?.length;
+  // Where the user's comments on a proposal stand: how many the AI hasn't answered, and whether the
+  // user has sent it them (see sendComments) and some of those are still unanswered.
+  async function commentsWaiting(schemaId, proposal) {
+    const open = (await commentsOn(schemaId, ON_PROPOSAL)).filter(forTheAi);
+    const sent = proposal.commentsSent?.comments ?? [];
+    return { waiting: open.length, sent: open.filter((comment) => sent.includes(comment.id)).length };
+  }
   const writeSchema = (schema) => writeJson(path.join(schemaDir(schema.id), 'schema.json'), { ...schema, updatedAt: now() });
 
   async function requireSchema(id) {
@@ -546,6 +555,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         line: schema.line,
         ...(await describe(proposal, depth)),
         comments: await openCount(id, ON_PROPOSAL),
+        forTheAi: await commentsWaiting(id, proposal),
         changes: itemChanges(await latestRecord(schema), proposal),
       };
     },
@@ -605,7 +615,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const schema = await requireSchema(schemaId);
         const proposal = await readProposal(schemaId);
         if (!proposal) throw new Error('There is no proposed change to accept.');
-        const { id: proposalId, basedOn, ...record } = proposal;
+        const { id: proposalId, basedOn, commentsSent, ...record } = proposal;
         const draftId = newId();
         await writeJson(draftFile(schemaId, draftId), { ...record, id: draftId, parentId: schema.line.at(-1) ?? null, createdAt: now() });
         await writeSchema({ ...schema, line: [...schema.line, draftId] });
@@ -615,6 +625,22 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         await recordOutcome(proposal, 'accepted', schemaId, draftId);
         finished(schemaId, proposalId);
         return { schema: schemaId, draft: draftId };
+      });
+    },
+
+    // The user asks the AI to deal with their comments on the proposal before they accept it: the
+    // AI's wait ends saying so (see proposalOutcome), and it answers them, revising the proposal if
+    // it needs to. The comments sent are those it hasn't answered yet.
+    sendComments(schemaId) {
+      return serial(async () => {
+        await requireSchema(schemaId);
+        const proposal = await readProposal(schemaId);
+        if (!proposal) throw new Error('There is no proposed change to comment on.');
+        const open = (await commentsOn(schemaId, ON_PROPOSAL)).filter(forTheAi);
+        if (!open.length) throw new Error('There are no comments waiting for the AI.');
+        await writeJson(proposalFile(schemaId), { ...proposal, commentsSent: { at: now(), comments: open.map((comment) => comment.id) } });
+        finished(schemaId, proposal.id);
+        return { schema: schemaId, proposal: proposal.id, comments: open.length };
       });
     },
 
@@ -738,13 +764,27 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       });
     },
 
-    // What became of a proposal; null while it's waiting; throws if there's no such proposal.
+    // What became of a proposal: accepted, discarded or replaced, or comments the user has sent the AI
+    // and it hasn't answered; null while it's waiting; throws if there's no such proposal.
     async proposalOutcome(id) {
       const outcome = await readJson(outcomeFile(id));
       if (outcome) return outcome;
       const names = await readdir(path.join(root, 'schemas')).catch(() => []);
       for (const name of names) {
-        if (FILE_ID.test(name) && (await readProposal(name))?.id === id) return null;
+        if (!FILE_ID.test(name)) continue;
+        const proposal = await readProposal(name);
+        if (proposal?.id !== id) continue;
+        // Still waiting, unless the user has sent the AI comments it hasn't answered yet.
+        const { sent } = await commentsWaiting(name, proposal);
+        if (!sent) return null;
+        return {
+          proposal: id,
+          schema: name,
+          outcome: 'comments',
+          comments: sent,
+          at: proposal.commentsSent.at,
+          next: 'The user wants their comments dealt with before they accept. Read them with get_comments (proposal: true), answer each with reply_to_comment, and propose_schematic again if they need changes. Then wait again.',
+        };
       }
       throw new Error(`There's no proposal ${id}.`);
     },

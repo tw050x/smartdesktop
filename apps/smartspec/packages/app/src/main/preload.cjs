@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('smartspec', {
   deleteComment: (id, commentId) => call('delete-comment', id, commentId),
   setNoFurtherAction: (id, commentId, flag) => call('set-no-further-action', id, commentId, flag),
   acceptProposal: (id) => call('accept-proposal', id),
+  sendComments: (id) => call('send-comments', id),
   discardProposal: (id) => call('discard-proposal', id),
   onSchemasChanged: on('schemas-changed'),
   onShowSchema: on('show-schema'),

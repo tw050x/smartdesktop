@@ -127,6 +127,7 @@ export function createDemoApi() {
     deleteComment: (id, commentId) => store.deleteComment(id, commentId),
     setNoFurtherAction: (id, commentId, flag) => store.setNoFurtherAction(id, commentId, flag),
     acceptProposal: (id) => store.accept(id),
+    sendComments: (id) => store.sendComments(id),
     discardProposal: (id) => store.discard(id),
     onSchemasChanged: on('schemas-changed'),
     onShowSchema: on('show-schema'),
