@@ -8,7 +8,9 @@ import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments }
 import { closeThread, openThread, refreshThread } from './comment-overlay.js';
 import { shadeScrolling } from './scroll-shade.js';
 import { watchLongPress } from './long-press.js';
-import { itemView, kindLabel } from './item-views.js';
+import { itemView, kindLabel, sequenceKey } from './item-views.js';
+import { markInline, readText } from './diff-marks.js';
+import { CROSS, openCompare } from './compare-view.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
 import { plainText, renderMarkdown } from './markdown.js';
@@ -55,6 +57,8 @@ function kindIcon(kind, label) {
 const ARROW_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
 const OPEN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5,21q-0.83,0-1.41-0.59T3,19V5Q3,4.17 3.59,3.59T5,3h7V5H5V19H19V12h2v7q0,0.82-0.59,1.41T19,21H5Zm4.7-5.3L8.3,14.3L17.6,5H14V3h7v7H19V6.4L9.7,15.7Z"/></svg>';
 const FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"/></svg>';
+// Two pages side by side: comparing writing with the draft it changes.
+const COMPARE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7.5" height="16" rx="1.5"/><rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/></svg>';
 const LEAVE_FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M22 3.41 16.71 8.7 20 12h-8V4l3.29 3.29L20.59 2zM3.41 22l5.29-5.29L12 20v-8H4l3.29 3.29L2 20.59z"/></svg>';
 const HOME_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>';
 // SmartDoc's folder icons: a folder on home's list, and New folder.
@@ -1306,16 +1310,30 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     } else if (item) {
       middle.append(paneHead(item.title, item.description, mark(item.id), pill(kindLabel(item), 'kind-pill')));
       const view = itemView(item, (link) => follow(link, id));
+      // Writing the proposal changes shows what changed, in the card: added words green, removed ones
+      // struck through in red (see diff-marks.js).
+      if (changedWriting(here, shown, item, mark)) {
+        api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).then((earlier) => {
+          if (typeof earlier?.markdown === 'string') markInline(view, readText((element) => renderMarkdown(element, earlier.markdown)));
+        }).catch(() => {});
+      }
       // Where a canvas has been moved to is kept for each size it shows at.
       const place = `${item.id}:${Boolean(full)}`;
       here.views ??= {};
-      body.append(view.classList.contains('diagram') && !still
+      const drawing = view.querySelector?.(':scope > svg');
+      const canvas = view.classList.contains('diagram') && !still
         ? makeCanvas(view, {
           saved: here.views[place] ?? null,
           onChange: (kept) => { here.views[place] = kept; },
           fitted: true,
         })
-        : view);
+        : view;
+      // A sequence diagram has a key to its lines and boxes, for anyone who doesn't know them.
+      if (drawing?.keyParts && canvas.classList.contains('diagram-canvas')) {
+        const key = h('button', { type: 'button', title: 'What the lines and boxes mean', 'aria-label': 'Key to this diagram', onclick: () => showKey(item.title, drawing.keyParts) }, 'Key');
+        canvas.querySelector(':scope > .canvas-controls')?.prepend(key);
+      }
+      body.append(canvas);
     } else if (id === CONTRACT) {
       middle.append(paneHead('Contract', shown.summary, mark(CONTRACT)));
       const contract = h('div', {});
@@ -1335,6 +1353,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     middle.append(body);
     if (isRemoved?.(id)) middle.append(h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed'));
     actionsOf(middle).append(fullButton(here, id));
+    // And it can be compared with the draft side by side, across the window.
+    if (item && changedWriting(here, shown, item, mark)) actionsOf(middle).prepend(compareButton(here, shown, item));
 
     // A diagram is a canvas, writing is a page, and a table or image sits on a surface of its own.
     const canvas = body.querySelector(':scope > .diagram-canvas');
@@ -1415,6 +1435,49 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     } });
     button.innerHTML = here.full ? LEAVE_FULL_ICON : FULL_ICON;
     return button;
+  }
+
+  // Writing that the proposal under review changes, from a draft there is to compare it with.
+  const changedWriting = (here, shown, item, mark) => Boolean(here.proposal && shown.basedOn && item?.kind === 'document' && mark(item.id) === 'changed');
+
+  // Opens the writing beside the draft it changes, across the window (see compare-view.js).
+  function compareButton(here, shown, item) {
+    const name = 'Compare with the draft, side by side';
+    const button = h('button', { className: 'icon-button', type: 'button', title: name, 'aria-label': name, onclick: async () => {
+      const earlier = await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null);
+      openCompare({
+        title: item.title,
+        beforeLabel: `Draft ${shown.line.indexOf(shown.basedOn) + 1}`,
+        afterLabel: 'Proposed',
+        render: (element, which) => renderMarkdown(element, which === 'before' ? earlier?.markdown ?? '' : item.markdown),
+      });
+    } });
+    button.innerHTML = COMPARE_ICON;
+    return button;
+  }
+
+  // A close button: a cross.
+  function cross(onclick, name) {
+    const button = h('button', { className: 'icon-button', type: 'button', title: 'Close', 'aria-label': name, onclick });
+    button.innerHTML = CROSS;
+    return button;
+  }
+
+  // A sequence diagram's key, over the window: each kind of line and box it uses, and what it means.
+  function showKey(title, parts) {
+    const dialog = h('dialog', { className: 'key-dialog', 'aria-label': `Key to ${title}` },
+      h('div', { className: 'key-dialog-head' },
+        h('h2', {}, 'Key'),
+        h('span', { className: 'key-dialog-for' }, title),
+        cross(() => dialog.close(), 'Close the key')),
+      sequenceKey(parts));
+    // Clicking outside it closes it, as Escape does.
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
   }
 
   // An embedded schema in the middle: what it is, as this schema uses it, before going into it.

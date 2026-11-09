@@ -305,11 +305,13 @@ test('a group is wide enough for its title, and for a label beside a loop inside
     groups: [{ id: 'g', kind: 'break', from: 'two', to: 'two', label: title }],
   }, measure);
   const [group] = layout.groups;
-  // The title is on lines under the tab, each inside the box, and the first message is below them.
+  // The title starts beside the tab and wraps under it, each line inside the box, in a header
+  // whose line is below the title and above the first message.
   assert.ok(group.titleLines.length > 1, 'it wraps');
   assert.equal(group.titleLines.join(' '), title);
-  for (const line of group.titleLines) assert.ok(group.left + 8 + line.length * 8 <= group.right, `"${line}" fits`);
-  assert.ok(layout.messages[1].y - 30 >= group.top + 22 + group.titleLines.length * 18, 'the message is below the title');
+  group.titleLines.forEach((line, i) => assert.ok(group.left + (i ? 8 : 'break'.length * 8 + 22) + line.length * 8 <= group.right, `"${line}" fits`));
+  assert.ok(group.header >= group.top + 22 + (group.titleLines.length - 1) * 18, 'the header is under the title');
+  assert.ok(layout.messages[1].y - 30 >= group.header, 'the message is below the header');
   assert.ok(group.right >= layout.messages[1].x1 + 44 + 'state = waiting, send nothing'.length * 8, 'the loop label fits');
   assert.ok(layout.width >= group.right, 'the drawing holds the group');
 });
@@ -342,4 +344,17 @@ test('a label over several lines sits clear of the title of a group it opens', (
     const labelTop = layout.messages[1].y - 12 - (height - 18) / 2 - height / 2 - 2;
     assert.ok(labelTop >= group.top + 22, `${height / 18} lines: label at ${labelTop}, title row ends at ${group.top + 22}`);
   }
+});
+
+test('a sequence ends in a box below its last message, across its lifelines and groups', () => {
+  const measure = (label) => ({ width: String(label).length * 8, height: 18 });
+  const layout = layoutSequence({
+    participants: [{ id: 'a', label: 'App' }, { id: 'b', label: 'Server' }],
+    messages: [{ id: 'one', from: 'a', to: 'b', label: 'ask' }, { id: 'two', from: 'b', to: 'a', label: 'answer', reply: true }],
+    groups: [{ id: 'g', kind: 'opt', from: 'two', to: 'two', label: 'if it knows' }],
+  }, measure);
+  const { end, groups: [group], participants: [first, last] } = layout;
+  assert.ok(end.top > group.bottom && end.top > layout.messages[1].y);
+  assert.ok(end.left < first.x && end.right > last.x);
+  assert.ok(layout.height >= end.top + end.height);
 });

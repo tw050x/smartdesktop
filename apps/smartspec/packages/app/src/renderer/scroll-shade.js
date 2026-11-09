@@ -25,6 +25,9 @@ export function shadeScrolling(scroller) {
       scrollLeft + clientWidth < scrollWidth - EDGE && '-16px 0',
     ].filter(Boolean);
     shade.style.boxShadow = edges.map((offset) => `inset ${offset} 14px -10px var(--shade)`).join(', ');
+    // Whether it scrolls down at all: a table's last row has a line under it only when it doesn't, as
+    // the card's edge is its line when it does.
+    scroller.classList.toggle('scrolls-down', scrollHeight > clientHeight + EDGE);
   };
   scroller.addEventListener('scroll', update, { passive: true });
   // Its size, and what's in it, change as the item is resized and its content is drawn.

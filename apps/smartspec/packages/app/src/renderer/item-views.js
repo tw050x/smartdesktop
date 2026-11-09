@@ -1,5 +1,6 @@
 import { edgeId } from '../main/items.js';
 import { pinOffset } from './canvas-view.js';
+import { hideHoverCard, showHoverCard } from './hover-card.js';
 import { GROUP_WORDS, layoutFlow, layoutSequence } from './layout.js';
 import { inlineMarkdown, renderMarkdown } from './markdown.js';
 
@@ -18,7 +19,7 @@ function svg(tag, attributes = {}, ...children) {
 const HEAD_BOX = 36;
 const FONT = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
 const LINE = 18;
-const WRAP = 24;
+const WRAP = 32; // characters on a label's line before it wraps: roomy, as the user wanted the diagrams
 const context = document.createElement('canvas').getContext('2d');
 
 // A label broken over a few lines, at the words.
@@ -83,13 +84,22 @@ export function route(points) {
   return `${path}L${last.x} ${last.y}`;
 }
 
-// A connection's label, centred on (x, y), or with its left end there if `from` is 'left'.
+// A connection's label on a grey card, centred on (x, y), or with its left end there if `from` is
+// 'left'. Its lines are left-aligned on the card.
+const LABEL_PAD = 6;
 function edgeLabel(label, x, y, from = 'middle') {
   const size = measure(label);
-  const middle = from === 'left' ? x + size.width / 2 : x;
+  const left = from === 'left' ? x : x - size.width / 2;
+  const lines = linesOf(label);
+  const words = svg('text', { x: left, y: y - ((lines.length - 1) * LINE) / 2, class: 'diagram-label', 'text-anchor': 'start', 'dominant-baseline': 'central' });
+  lines.forEach((line, index) => {
+    const span = svg('tspan', { x: left, dy: index ? LINE : 0 });
+    span.textContent = line;
+    words.append(span);
+  });
   return [
-    svg('rect', { x: middle - size.width / 2 - 4, y: y - size.height / 2 - 2, width: size.width + 8, height: size.height + 4, rx: 4, class: 'diagram-label-bg' }),
-    text(label, middle, y, 'diagram-label'),
+    svg('rect', { x: left - LABEL_PAD, y: y - size.height / 2 - 3, width: size.width + 2 * LABEL_PAD, height: size.height + 6, rx: 4, class: 'diagram-label-bg' }),
+    words,
   ];
 }
 
@@ -116,19 +126,21 @@ function groupView(group) {
   const word = GROUP_WORDS[group.kind];
   context.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
   const tab = Math.ceil(context.measureText(word).width) + 14;
-  // Its title on the lines under its tab, wrapped as the layout wrapped it.
-  const title = svg('text', { x: group.left + 8, y: group.top + 22 + LINE / 2 + 2, class: 'diagram-label', 'dominant-baseline': 'central' });
+  // Its title beside its tab, wrapped onto the lines under it as the layout wrapped it, in a header
+  // that's only a line under it.
+  const title = svg('text', { x: group.left + tab + 8, y: group.top + 11, class: 'diagram-label', 'dominant-baseline': 'central' });
   (group.titleLines ?? [group.label ?? '']).forEach((line, index) => {
-    const span = svg('tspan', { x: group.left + 8, dy: index ? LINE : 0 });
+    const span = svg('tspan', { x: index ? group.left + 8 : group.left + tab + 8, dy: index === 1 ? LINE + 6 : index ? LINE : 0 }); // clear of the tab (UNDER_TAB in layout.js)
     span.textContent = line;
     title.append(span);
   });
+  const header = group.header != null && svg('line', { x1: group.left, x2: group.right, y1: group.header, y2: group.header, class: 'diagram-group-header' });
   const tag = svg('text', { x: group.left + 7, y: group.top + 11, class: 'diagram-group-word', 'dominant-baseline': 'central' });
   tag.textContent = word;
   const element = svg('g', { class: `diagram-group ${group.kind}`, 'data-part': group.id },
     svg('rect', { x: group.left, y: group.top, width: group.right - group.left, height: group.bottom - group.top, rx: 4, class: 'diagram-group-frame' }),
     svg('path', { d: `M${group.left} ${group.top + 22}H${group.left + tab}L${group.left + tab + 6} ${group.top + 14}V${group.top}H${group.left + 4}Q${group.left} ${group.top} ${group.left} ${group.top + 4}Z`, class: 'diagram-group-tab' }),
-    tag, title);
+    ...(header ? [header] : []), tag, title);
   for (const section of group.sections) {
     element.append(svg('line', { x1: group.left, x2: group.right, y1: section.y, y2: section.y, class: 'diagram-group-divider' }));
     if (section.label) {
@@ -138,6 +150,100 @@ function groupView(group) {
     }
   }
   return element;
+}
+
+// What each kind of group means, for its hover card and the key.
+const GROUP_MEANINGS = {
+  loop: 'Repeats what’s inside while its condition holds.',
+  alt: 'Alternatives: only one of its sections happens, the first whose condition holds.',
+  opt: 'Optional: what’s inside happens only if its condition holds.',
+  par: 'Parallel: its sections happen at the same time.',
+  critical: 'Critical: what’s inside happens as one, without anything coming between.',
+  break: 'Break: if its condition holds, what’s inside happens and the rest of the sequence is skipped.',
+  group: 'A group of steps, named for what they do together.',
+};
+
+// Pointing at a part of a sequence diagram shows what it is (see hover-card.js): its kind, what it
+// says, what it means here, and anything the AI wrote about it. Not while the canvas is moved.
+function watchSequenceHover(root, about) {
+  const partAt = (event) => {
+    const element = event.target.closest?.('[data-about], [data-part]');
+    const id = element?.dataset.about ?? element?.dataset.part;
+    return id && about.has(id) ? { element, info: about.get(id) } : null;
+  };
+  root.addEventListener('pointermove', (event) => {
+    const found = partAt(event);
+    if (!found || event.buttons || root.closest('.panning')) return hideHoverCard();
+    showHoverCard(found.element, (card) => {
+      const { kind, title, text: meaning, description } = found.info;
+      const line = (className, words) => Object.assign(document.createElement('div'), { className, textContent: words });
+      card.replaceChildren(...[
+        line('part-card-kind', kind),
+        title && line('part-card-title', title),
+        meaning && line('part-card-text', meaning),
+        description && line('part-card-note', description),
+      ].filter(Boolean));
+    }, { x: event.clientX, y: event.clientY }, 'part-card');
+  });
+  root.addEventListener('pointerleave', () => hideHoverCard());
+}
+
+// The kinds of line and box a sequence diagram uses, for its key: only what's in it.
+function sequenceKeyParts(item) {
+  const messages = item.messages ?? [];
+  const parts = ['participant', 'lifeline', 'message'];
+  if (messages.some((message) => message.reply)) parts.push('reply');
+  if (messages.some((message) => message.from === message.to)) parts.push('self');
+  parts.push('label');
+  if (item.activations?.length) parts.push('activation');
+  if (item.boxes?.length) parts.push('box');
+  for (const kind of Object.keys(GROUP_WORDS)) if ((item.groups ?? []).some((group) => group.kind === kind)) parts.push(`group:${kind}`);
+  if ((item.groups ?? []).some((group) => group.sections?.length)) parts.push('section');
+  parts.push('end');
+  return parts;
+}
+
+// A sequence diagram's key: each kind of line and box it uses, drawn as it is in the diagram, with
+// what it means.
+export function sequenceKey(parts) {
+  const W = 72;
+  const H = 30;
+  const swatch = (draw) => {
+    const id = `key-arrow-${++arrows}`;
+    const element = svg('svg', { class: 'diagram-svg key-swatch', viewBox: `0 0 ${W} ${H}`, width: W, height: H, 'aria-hidden': 'true' },
+      svg('defs', {}, svg('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, svg('path', { d: 'M0 0L10 5L0 10Z', class: 'diagram-arrow' }))));
+    element.append(...draw(`url(#${id})`));
+    return element;
+  };
+  const frame = (word) => () => [
+    svg('rect', { x: 2, y: 2, width: W - 4, height: H - 4, rx: 3, class: 'diagram-group-frame' }),
+    svg('path', { d: `M2 15H${word.length * 6 + 10}L${word.length * 6 + 14} 10V2H4Q2 2 2 4Z`, class: 'diagram-group-tab' }),
+    Object.assign(svg('text', { x: 6, y: 9, class: 'diagram-group-word', 'dominant-baseline': 'central' }), { textContent: word }),
+  ];
+  const ROWS = {
+    participant: ['Participant', 'Someone or something that takes part: a person, a service or a part of the system.', () => [svg('rect', { x: 6, y: 4, width: W - 12, height: H - 8, rx: 6, class: 'diagram-box' })]],
+    lifeline: ['Lifeline', 'A participant’s line down the diagram. Time runs from top to bottom.', () => [svg('line', { x1: W / 2, x2: W / 2, y1: 2, y2: H - 2, class: 'diagram-lifeline' })]],
+    message: ['Message', 'A call or message from one participant to another, in the order they happen.', (arrow) => [svg('path', { d: `M4 ${H / 2}H${W - 6}`, class: 'diagram-line', 'marker-end': arrow })]],
+    reply: ['Reply', 'An answer to an earlier message, going back.', (arrow) => [svg('path', { d: `M${W - 4} ${H / 2}H6`, class: 'diagram-line reply', 'marker-end': arrow })]],
+    self: ['Message to itself', 'Something a participant does itself, such as waiting or deciding.', (arrow) => [svg('path', { d: `M14 6H44V22H16`, class: 'diagram-line', 'marker-end': arrow }), svg('line', { x1: 14, x2: 14, y1: 0, y2: H, class: 'diagram-lifeline' })]],
+    label: ['Label', 'Says what a message is, on a grey card beside its line.', () => [svg('rect', { x: 6, y: 7, width: W - 12, height: H - 14, rx: 4, class: 'diagram-label-bg' })]],
+    activation: ['Activation', 'A participant busy with something, from the message that starts it to the one that ends it.', () => [svg('line', { x1: W / 2, x2: W / 2, y1: 0, y2: H, class: 'diagram-lifeline' }), svg('rect', { x: W / 2 - 5, y: 3, width: 10, height: H - 6, rx: 2, class: 'diagram-activation' })]],
+    box: ['Box', 'Participants that belong together, such as the parts of one system.', () => [svg('rect', { x: 2, y: 2, width: W - 4, height: H - 4, rx: 6, class: 'diagram-participants-box' })]],
+    section: ['Section', 'Divides a box into its sections, each with its condition in brackets.', () => [svg('rect', { x: 2, y: 2, width: W - 4, height: H - 4, rx: 3, class: 'diagram-group-frame' }), svg('line', { x1: 2, x2: W - 2, y1: H / 2, y2: H / 2, class: 'diagram-group-divider' })]],
+    end: ['End of sequence', 'Where the sequence ends: the lifelines stop here.', () => [svg('rect', { x: 2, y: 6, width: W - 4, height: H - 12, rx: 4, class: 'diagram-end-box' })]],
+  };
+  for (const [kind, word] of Object.entries(GROUP_WORDS)) ROWS[`group:${kind}`] = [`${word[0].toUpperCase()}${word.slice(1)} box`, `${GROUP_MEANINGS[kind]} Its condition is in its header.`, frame(word)];
+  const list = document.createElement('dl');
+  list.className = 'diagram-key';
+  for (const part of parts) {
+    const [name, meaning, draw] = ROWS[part];
+    const term = document.createElement('dt');
+    term.append(swatch(draw));
+    const said = document.createElement('dd');
+    said.append(Object.assign(document.createElement('strong'), { textContent: name }), Object.assign(document.createElement('span'), { textContent: meaning }));
+    list.append(term, said);
+  }
+  return list;
 }
 
 // How far below the pinned heads what scrolls under them takes to fade out, in the drawing's units.
@@ -154,7 +260,7 @@ function sequenceView(item, onLink) {
   const heads = svg('g', { class: 'diagram-heads' });
   for (const box of layout.boxes) {
     const group = svg('g', { class: 'diagram-box-group', 'data-part': box.id },
-      svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: layout.height - 6, rx: 8, class: 'diagram-participants-box' }), svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: 22, rx: 8, class: 'diagram-box-hit' }));
+      svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: layout.end.top - 6, rx: 8, class: 'diagram-participants-box' }), svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: 22, rx: 8, class: 'diagram-box-hit' }));
     if (box.label) heads.append(text(box.label, (box.left + box.right) / 2, 13, 'diagram-label'));
     linkPart(group, box.link, onLink);
     root.append(group);
@@ -162,7 +268,7 @@ function sequenceView(item, onLink) {
   for (const one of layout.participants) {
     const size = measure(one.label);
     const width = size.width + 24;
-    const line = svg('g', {}, svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.height - 8, class: 'diagram-lifeline' }), svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.height - 8, class: 'diagram-hit' }));
+    const line = svg('g', { class: 'diagram-life', 'data-about': one.id }, svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-lifeline' }), svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-hit' }));
     const head = svg('g', { class: 'diagram-node', 'data-part': one.id },
       svg('g', {}, svg('rect', { x: one.x - width / 2, y: layout.headTop + 4, width, height: HEAD_BOX, rx: 8, class: 'diagram-box' }), text(one.label, one.x, layout.headTop + 4 + HEAD_BOX / 2, 'diagram-text')));
     linkPart(line, one.link, onLink);
@@ -196,6 +302,41 @@ function sequenceView(item, onLink) {
     linkPart(group, message.link, onLink);
     root.append(group);
   }
+  // Where the sequence ends: a box across the lifelines, which stop at it.
+  const end = layout.end;
+  root.append(svg('g', { class: 'diagram-end', 'data-part': 'end' },
+    svg('rect', { x: end.left, y: end.top, width: end.right - end.left, height: end.height, rx: 6, class: 'diagram-end-box' }),
+    text('End of sequence', (end.left + end.right) / 2, end.top + end.height / 2, 'diagram-end-text')));
+
+  // What each part is, for its hover card and the diagram's key (see sequenceKey).
+  const said = (label) => `“${label}”`;
+  const names = new Map(layout.participants.map((one) => [one.id, one.label]));
+  const messageNamed = new Map(layout.messages.map((message) => [message.id, message.label]));
+  const about = new Map();
+  for (const one of layout.participants) about.set(one.id, { kind: 'Participant', title: one.label, text: 'Takes part in the sequence. Its dashed lifeline runs down the diagram: what it sends and receives, in order, top to bottom.', description: one.description });
+  for (const message of layout.messages) {
+    const self = message.from === message.to;
+    about.set(message.id, {
+      kind: message.reply ? 'Reply' : self ? 'Message to itself' : 'Message',
+      title: message.label,
+      text: self ? `${names.get(message.from)} does this itself.` : message.reply ? `${names.get(message.from)} answers ${names.get(message.to)}.` : `${names.get(message.from)} calls or sends to ${names.get(message.to)}.`,
+      description: message.description,
+    });
+  }
+  for (const bar of layout.activations) {
+    about.set(bar.id, {
+      kind: 'Activation',
+      title: names.get(bar.participant),
+      text: `${names.get(bar.participant)} is busy with this, from ${said(messageNamed.get(bar.from))} to ${said(messageNamed.get(bar.to))}.`,
+      description: bar.description,
+    });
+  }
+  for (const group of layout.groups) about.set(group.id, { kind: GROUP_WORDS[group.kind], title: group.label, text: GROUP_MEANINGS[group.kind], description: group.description });
+  for (const box of layout.boxes) about.set(box.id, { kind: 'Box', title: box.label, text: `Groups ${box.participants.map((id) => names.get(id)).join(', ')}, which belong together.`, description: box.description });
+  about.set('end', { kind: 'End of sequence', text: 'Nothing happens after this.' });
+  watchSequenceHover(root, about);
+  root.keyParts = sequenceKeyParts(item);
+
   // Pinned, the heads have nothing behind them: what scrolls under them fades out instead, through a
   // mask over everything else that's clear until they pin, then hides what's behind them and fades
   // to nothing just below.
