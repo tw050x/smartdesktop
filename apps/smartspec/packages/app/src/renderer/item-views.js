@@ -116,8 +116,13 @@ function groupView(group) {
   const word = GROUP_WORDS[group.kind];
   context.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
   const tab = Math.ceil(context.measureText(word).width) + 14;
-  const title = svg('text', { x: group.left + tab + 8, y: group.top + 11, class: 'diagram-label', 'dominant-baseline': 'central' });
-  title.textContent = group.label ?? '';
+  // Its title on the lines under its tab, wrapped as the layout wrapped it.
+  const title = svg('text', { x: group.left + 8, y: group.top + 22 + LINE / 2 + 2, class: 'diagram-label', 'dominant-baseline': 'central' });
+  (group.titleLines ?? [group.label ?? '']).forEach((line, index) => {
+    const span = svg('tspan', { x: group.left + 8, dy: index ? LINE : 0 });
+    span.textContent = line;
+    title.append(span);
+  });
   const tag = svg('text', { x: group.left + 7, y: group.top + 11, class: 'diagram-group-word', 'dominant-baseline': 'central' });
   tag.textContent = word;
   const element = svg('g', { class: `diagram-group ${group.kind}`, 'data-part': group.id },

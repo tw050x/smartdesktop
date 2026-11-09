@@ -305,7 +305,41 @@ test('a group is wide enough for its title, and for a label beside a loop inside
     groups: [{ id: 'g', kind: 'break', from: 'two', to: 'two', label: title }],
   }, measure);
   const [group] = layout.groups;
-  assert.ok(group.right - group.left >= (title.length + 'break'.length) * 8, 'the title fits');
+  // The title is on lines under the tab, each inside the box, and the first message is below them.
+  assert.ok(group.titleLines.length > 1, 'it wraps');
+  assert.equal(group.titleLines.join(' '), title);
+  for (const line of group.titleLines) assert.ok(group.left + 8 + line.length * 8 <= group.right, `"${line}" fits`);
+  assert.ok(layout.messages[1].y - 30 >= group.top + 22 + group.titleLines.length * 18, 'the message is below the title');
   assert.ok(group.right >= layout.messages[1].x1 + 44 + 'state = waiting, send nothing'.length * 8, 'the loop label fits');
   assert.ok(layout.width >= group.right, 'the drawing holds the group');
+});
+
+test('a lifeline moves out of the way of the labels beside a loop, and of a group\'s box', () => {
+  const measure = (label) => ({ width: String(label).length * 8, height: 18 });
+  const layout = layoutSequence({
+    participants: [{ id: 'a', label: 'App' }, { id: 'b', label: 'Sync' }, { id: 'c', label: 'Store' }],
+    messages: [{ id: 'one', from: 'a', to: 'b', label: 'go' }, { id: 'two', from: 'b', to: 'b', label: 'state = waiting, send nothing' }, { id: 'three', from: 'b', to: 'c', label: 'save' }],
+    groups: [{ id: 'g', kind: 'break', from: 'two', to: 'two', label: 'terms or privacy policy not agreed (Software policy D3)' }],
+  }, measure);
+  const [, sync, store] = layout.participants;
+  const [group] = layout.groups;
+  assert.ok(store.x > sync.x + 44 + 'state = waiting, send nothing'.length * 8, 'clear of the loop label');
+  assert.ok(store.x > group.right, 'clear of the box');
+  assert.ok(layout.width >= store.x);
+});
+
+test('a label over several lines sits clear of the title of a group it opens', () => {
+  const tall = (label) => ({ width: 120, height: 18 * Math.ceil(String(label).length / 24) });
+  for (const label of ['save up to 400 pending records', 'save up to 400 pending records, then mark them as sent, and tell the dashboard']) {
+    const layout = layoutSequence({
+      participants: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+      messages: [{ id: 'one', from: 'a', to: 'b', label: 'first' }, { id: 'two', from: 'a', to: 'b', label }],
+      groups: [{ id: 'g', kind: 'loop', from: 'two', to: 'two', label: 'for students, lessons, then payments' }],
+    }, tall);
+    const [group] = layout.groups;
+    const { height } = tall(label);
+    // As item-views.js draws it: centred above the line, its lines all above it, with its background.
+    const labelTop = layout.messages[1].y - 12 - (height - 18) / 2 - height / 2 - 2;
+    assert.ok(labelTop >= group.top + 22, `${height / 18} lines: label at ${labelTop}, title row ends at ${group.top + 22}`);
+  }
 });

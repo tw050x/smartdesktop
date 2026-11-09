@@ -42,24 +42,53 @@ const COLUMN_MIN = 150;
 const ROW = 46;
 const HEAD = 44;
 const BOX_TITLE = 22;
-const GROUP_TITLE = 24; // the room a group's title, or a section's, takes above its first message
+const GROUP_TITLE = 24; // the room a group's tab, or a section's label, takes above its first message (a group's title lines go under its tab)
 const GROUP_END = 12;
 const GROUP_PAD = 26;
 const NEST_PAD = 8;
-const SELF_EXTRA = 14;
 const ABOVE_MESSAGE = 30; // a message's label sits above its line
 const LABEL_LINE = 18; // a label's line, as item-views.js draws it
 const SELF_LOOP = 36; // how far a message to its own lifeline loops out, its label beside the loop
-const TAB_PAD = 22; // a group's tab round its word, and the gap before its title
+const TAB_PAD = 22; // a group's tab round its word, and a little room after it
 const TITLE_END = 12; // room after a group's title, inside its frame
+const TITLE_INSET = 8; // a group's title, on the lines under its tab, in from its left edge
+const TITLE_LEAST = 180; // a group's title wraps to its box's width, or this, whichever is wider
+
+// `label` broken at its words into lines no wider than `width`, as measured on one line.
+function wrapTo(label, width, measure) {
+  const lines = [];
+  for (const word of String(label ?? '').split(/\s+/).filter(Boolean)) {
+    const longer = lines.length ? `${lines.at(-1)} ${word}` : null;
+    if (longer && measure(longer, { oneLine: true }).width <= width) lines[lines.length - 1] = longer;
+    else lines.push(word);
+  }
+  return lines;
+}
 
 // What each kind of group says in its tab.
 export const GROUP_WORDS = { loop: 'loop', alt: 'alternative', opt: 'optional', par: 'parallel', critical: 'critical', break: 'break', group: 'group' };
 
 export function layoutSequence({ participants, messages = [], groups = [], activations = [], boxes = [] }, measure) {
   const column = Math.max(COLUMN_MIN, ...messages.map((message) => measure(message.label).width + 40), ...participants.map((one) => measure(one.label).width + 40));
-  const at = new Map(participants.map((one, index) => [one.id, column / 2 + index * column]));
+  // The lifelines are a column apart, or further where what's beside one needs the room: the labels
+  // beside its own loops, and the boxes of groups that end at it (see below).
+  const gaps = participants.slice(1).map(() => column);
+  const place = () => {
+    let x = column / 2;
+    return new Map(participants.map((one, i) => {
+      if (i) x += gaps[i - 1];
+      return [one.id, x];
+    }));
+  };
+  const isSelf = (message) => message.from === message.to;
+  participants.forEach((one, i) => {
+    if (i >= gaps.length) return;
+    const beside = messages.filter((message) => isSelf(message) && message.from === one.id).map((message) => SELF_LOOP + 8 + measure(message.label).width + 16);
+    gaps[i] = Math.max(gaps[i], ...beside);
+  });
+  let at = place();
   const index = new Map(messages.map((message, i) => [message.id, i]));
+  const order = new Map(participants.map((one, i) => [one.id, i]));
   const headTop = boxes.length ? BOX_TITLE : 0;
   const head = headTop + HEAD;
 
@@ -68,43 +97,86 @@ export function layoutSequence({ participants, messages = [], groups = [], activ
   const inside = (a, b) => a !== b && index.get(a.from) >= index.get(b.from) && index.get(a.to) <= index.get(b.to) && (size(a) < size(b) || groups.indexOf(a) > groups.indexOf(b));
   const depth = (group) => groups.filter((other) => inside(group, other)).length;
 
+  // A label over more than one line takes the room for them above its line; a message to its own
+  // lifeline has its label beside its loop, reaching below its line as far as the label or loop does.
+  const above = (message) => (isSelf(message) ? 0 : Math.max(0, measure(message.label).height - LABEL_LINE));
+  const below = (message) => (isSelf(message) ? Math.max(12, 2 + measure(message.label).height / 2) + 6 : 0);
+
+  // Each group's title goes on the lines under its tab, wrapped to the width of its box as its
+  // lifelines and loops make it, so the box is as tall as its title needs.
+  const padOf = (group) => GROUP_PAD - depth(group) * NEST_PAD + groups.filter((other) => inside(other, group)).length * NEST_PAD;
+  const titleLines = new Map(groups.map((group) => {
+    const within = messages.slice(index.get(group.from), index.get(group.to) + 1);
+    const xs = within.flatMap((message) => [at.get(message.from), at.get(message.to)]);
+    const loops = within.filter(isSelf).map((message) => at.get(message.from) + SELF_LOOP + 8 + measure(message.label).width);
+    const span = Math.max(...xs, ...loops) - Math.min(...xs) + 2 * padOf(group);
+    return [group, wrapTo(group.label, Math.max(TITLE_LEAST, span) - TITLE_INSET - TITLE_END, measure)];
+  }));
+  const titleRoom = (group) => GROUP_TITLE + titleLines.get(group).length * LABEL_LINE;
+
   let y = head;
   const ys = messages.map((message) => {
-    const opening = groups.filter((group) => group.from === message.id).length;
+    const opening = groups.filter((group) => group.from === message.id).reduce((sum, group) => sum + titleRoom(group), 0);
     const sections = groups.flatMap((group) => group.sections ?? []).filter((section) => section.at === message.id).length;
-    // A label over more than one line needs the room for them, above its line.
-    y += ROW + (opening + sections) * GROUP_TITLE + Math.max(0, measure(message.label).height - LABEL_LINE);
+    y += ROW + opening + sections * GROUP_TITLE + above(message);
     const here = y;
-    y += groups.filter((group) => group.to === message.id).length * GROUP_END;
-    if (message.from === message.to) y += SELF_EXTRA; // its arrow loops below its line
+    y += below(message) + groups.filter((group) => group.to === message.id).length * GROUP_END;
     return here;
   });
   const yOf = (id) => ys[index.get(id)];
+  const messageOf = (id) => messages[index.get(id)];
   const height = y + ROW * 0.75;
 
-  const laidGroups = groups.map((group) => {
-    const within = messages.slice(index.get(group.from), index.get(group.to) + 1);
-    const xs = within.flatMap((message) => [at.get(message.from), at.get(message.to)]);
-    const self = within.some((message) => message.from === message.to && at.get(message.from) === Math.max(...xs));
-    const pad = GROUP_PAD - depth(group) * NEST_PAD + groups.filter((other) => inside(other, group)).length * NEST_PAD;
-    const left = Math.min(...xs) - pad;
-    const right = Math.max(...xs) + pad + (self ? column / 2 : 0);
-    const stackedAbove = groups.filter((other) => other.from === group.from && inside(other, group)).length;
-    const top = yOf(group.from) - ABOVE_MESSAGE - (stackedAbove + 1) * GROUP_TITLE;
-    const after = groups.filter((other) => other.to === group.to && inside(other, group)).length;
-    const bottom = yOf(group.to) + GROUP_END + after * GROUP_END;
-    const sections = (group.sections ?? []).map((section) => ({ ...section, y: yOf(section.at) - ABOVE_MESSAGE - GROUP_TITLE }));
-    // Wide enough for its tab and title on one line, and for the labels beside loops inside it.
-    const titled = left + measure(GROUP_WORDS[group.kind] ?? group.kind, { oneLine: true }).width + TAB_PAD + (group.label ? measure(group.label, { oneLine: true }).width : 0) + TITLE_END;
-    const besideLoops = within.filter((message) => message.from === message.to).map((message) => at.get(message.from) + SELF_LOOP + 8 + measure(message.label).width + pad);
-    return { ...group, left, right: Math.max(right, titled, ...besideLoops), top, bottom, sections };
-  });
-  // Each group round the groups inside it, however much they grew.
-  for (const group of [...laidGroups].sort((a, b) => depth(groups[laidGroups.indexOf(b)]) - depth(groups[laidGroups.indexOf(a)]))) {
-    const own = groups[laidGroups.indexOf(group)];
-    const inner = laidGroups.filter((other, i) => inside(groups[i], own));
-    if (inner.length) group.right = Math.max(group.right, ...inner.map((other) => other.right + NEST_PAD));
+  const layGroups = () => {
+    const laid = groups.map((group) => {
+      const within = messages.slice(index.get(group.from), index.get(group.to) + 1);
+      const xs = within.flatMap((message) => [at.get(message.from), at.get(message.to)]);
+      const self = within.some((message) => isSelf(message) && at.get(message.from) === Math.max(...xs));
+      const pad = padOf(group);
+      const left = Math.min(...xs) - pad;
+      const right = Math.max(...xs) + pad + (self ? column / 2 : 0);
+      const stacked = groups.filter((other) => other.from === group.from && inside(other, group)).reduce((sum, other) => sum + titleRoom(other), 0);
+      const top = yOf(group.from) - ABOVE_MESSAGE - above(messageOf(group.from)) - stacked - titleRoom(group);
+      const after = groups.filter((other) => other.to === group.to && inside(other, group)).length;
+      const bottom = yOf(group.to) + below(messageOf(group.to)) + GROUP_END + after * GROUP_END;
+      const sections = (group.sections ?? []).map((section) => ({ ...section, y: yOf(section.at) - ABOVE_MESSAGE - above(messageOf(section.at)) - GROUP_TITLE }));
+      // Wide enough for its tab, the lines of its title, and the labels beside loops inside it.
+      const lines = titleLines.get(group);
+      const titled = Math.max(
+        left + measure(GROUP_WORDS[group.kind] ?? group.kind, { oneLine: true }).width + TAB_PAD,
+        ...lines.map((line) => left + TITLE_INSET + measure(line, { oneLine: true }).width + TITLE_END),
+      );
+      const besideLoops = within.filter(isSelf).map((message) => at.get(message.from) + SELF_LOOP + 8 + measure(message.label).width + pad);
+      const last = Math.max(...within.flatMap((message) => [order.get(message.from), order.get(message.to)]));
+      return { ...group, left, right: Math.max(right, titled, ...besideLoops), top, bottom, sections, titleLines: lines, last };
+    });
+    // Each group round the groups inside it, however much they grew.
+    for (const group of [...laid].sort((a, b) => depth(groups[laid.indexOf(b)]) - depth(groups[laid.indexOf(a)]))) {
+      const own = groups[laid.indexOf(group)];
+      const inner = laid.filter((other, i) => inside(groups[i], own));
+      if (inner.length) group.right = Math.max(group.right, ...inner.map((other) => other.right + NEST_PAD));
+    }
+    return laid;
+  };
+  // A group's box stops short of the next lifeline after the last it involves: that lifeline moves
+  // out as far as it takes.
+  let laid = layGroups();
+  for (let round = 0; round < participants.length; round++) {
+    let moved = false;
+    for (const group of laid) {
+      const next = participants[group.last + 1];
+      if (!next) continue;
+      const short = group.right + 16 - at.get(next.id);
+      if (short > 0) {
+        gaps[group.last] += short;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+    at = place();
+    laid = layGroups();
   }
+  const laidGroups = laid.map(({ last, ...group }) => group);
 
   const placed = [];
   const laidActivations = activations.map((activation) => {
@@ -121,7 +193,8 @@ export function layoutSequence({ participants, messages = [], groups = [], activ
 
   // As wide as its columns, or what runs past the last of them: groups, and labels beside loops.
   const selfEnds = messages.filter((message) => message.from === message.to).map((message) => at.get(message.from) + SELF_LOOP + 8 + measure(message.label).width + 8);
-  const width = Math.ceil(Math.max(column * participants.length, ...laidGroups.map((group) => group.right + 8), ...selfEnds));
+  const lastX = participants.length ? at.get(participants.at(-1).id) : 0;
+  const width = Math.ceil(Math.max(lastX + column / 2, ...laidGroups.map((group) => group.right + 8), ...selfEnds));
 
   return {
     width,

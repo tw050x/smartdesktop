@@ -519,7 +519,8 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 /* What a part of a diagram means, under the pointer (see item-views.js). */
 .diagram-lifeline { stroke: var(--border-strong); stroke-dasharray: 3 4; }
 .diagram-label { fill: var(--text-2); font-size: 12px; }
-.diagram-label-bg { fill: var(--bg); }
+/* A label's background is a grey of its own, so it reads as a label on the line rather than a gap in it. */
+.diagram-label-bg { fill: color-mix(in srgb, var(--text) 11%, var(--bg)); }
 .part-link { cursor: pointer; outline: none; }
 .part-link .diagram-box { stroke: var(--accent); }
 .part-link:hover .diagram-box, .part-link:focus-visible .diagram-box { fill: color-mix(in srgb, var(--accent) 16%, var(--bg)); }
