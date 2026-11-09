@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartSpec</title>
+  <meta name="description" content="Design your systems with your own agent. SmartSpec holds the plan as schematics: your agent proposes, you comment and accept, and any agent can build from it.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M14 9h4M9 13v9q0 2 2 2h.5M23 13v9q0 2-2 2h-.5' fill='none' stroke='%239a9aa8' stroke-width='1.6' stroke-linecap='round'/%3E%3Crect x='3' y='4.5' width='11' height='8.5' rx='2.4' fill='%23fff' stroke='%23c7c7cf' stroke-width='1.4'/%3E%3Crect x='18' y='4.5' width='11' height='8.5' rx='2.4' fill='%23fff' stroke='%23c7c7cf' stroke-width='1.4'/%3E%3Crect x='10.5' y='19.5' width='11' height='8.5' rx='2.4' fill='%23fff' stroke='%23c7c7cf' stroke-width='1.4'/%3E%3Ccircle cx='8.5' cy='8.75' r='2' fill='%23c7c7cf'/%3E%3Crect x='21.5' y='6.75' width='4' height='4' rx='1' fill='%23b45309'/%3E%3Crect x='13' y='22.6' width='6' height='2.4' rx='1.2' fill='%232f6fde'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="story.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M14 9h4M9 13v9q0 2 2 2h0.5M23 13v9q0 2-2 2h-0.5" fill="none" stroke="var(--line)" stroke-width="1.6" stroke-linecap="round"/><rect x="3" y="4.5" width="11" height="8.5" rx="2.4" fill="var(--card)" stroke="var(--line)" stroke-width="1.4"/><rect x="18" y="4.5" width="11" height="8.5" rx="2.4" fill="var(--card)" stroke="var(--line)" stroke-width="1.4"/><rect x="10.5" y="19.5" width="11" height="8.5" rx="2.4" fill="var(--card)" stroke="var(--line)" stroke-width="1.4"/><circle cx="8.5" cy="8.75" r="2" fill="var(--line)"/><rect x="21.5" y="6.75" width="4" height="4" rx="1" fill="var(--brown)"/><rect x="13" y="22.6" width="6" height="2.4" rx="1.2" fill="var(--blue)"/></svg>
+        SmartSpec
+      </a>
+      <nav aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="features.html">Features</a>
+        <a class="keep" href="#install">Install</a>
+        <a class="keep" href="https://github.com/tw050x/smartspec">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Works with Claude Desktop and Claude Code</p>
+        <h1>Your systems, <span class="blue">designed</span> with your own <span class="brown">agent</span>.</h1>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartspec/releases/latest/download/SmartSpec-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartspec/releases/latest/download/SmartSpec-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="story" id="how">
+      <div class="stage">
+        <div class="camera" role="img" aria-label="A SmartSpec session: a schematic asked for, proposed by an agent, commented on, revised and accepted, then handed to another agent to build"><iframe src="demo/demo.html" title="SmartSpec demo" tabindex="-1" aria-hidden="true"></iframe></div>
+        <!-- The hero's other view, in a window of its own (see showHero in story.js). -->
+        <div class="camera alt" data-scene="intro-focus" aria-hidden="true"><iframe src="demo/demo.html" title="SmartSpec demo: Focus" tabindex="-1" aria-hidden="true"></iframe></div>
+        <div class="agent" aria-live="polite"><p class="agent-bar"><span class="agent-lights"><i></i><i></i><i></i></span>Your agent</p><div class="agent-body"></div></div>
+        <div class="progress" data-side="left" aria-hidden="true"></div>
+        <div class="progress" data-side="right" aria-hidden="true"></div>
+        <div class="captions">
+          <!-- The hero's views, under its window: choosing one changes what the window shows. -->
+          <div class="caption hero-caption" data-scene="intro" data-side="below">
+            <div class="hero-tools" id="hero-tools" role="group" aria-label="Views">
+              <button class="hero-tool" type="button" data-tool="overview" aria-pressed="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="8.5" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4M6.5 10v5.5h2M17.5 10v5.5h-2"/></svg>Overview</button>
+              <button class="hero-tool" type="button" data-tool="focus" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="4" height="7" rx="1"/><rect x="9" y="4" width="12" height="16" rx="1.5"/><rect x="3" y="13" width="4" height="7" rx="1"/></svg>Focus</button>
+            </div>
+            <div class="ledes" aria-live="polite">
+              <p class="lede shown" data-tool="overview">See the whole design at once, every item full size, with a line wherever two are linked. Pan and zoom across it.</p>
+              <p class="lede" data-tool="focus">Your agent designs the system as a schematic: diagrams, documents and tables, all linked. Arrange what you’re working on, and keep the rest to hand.</p>
+            </div>
+          </div>
+          <div class="caption" data-scene="ask" data-side="left">
+            <p class="kicker">Step 1 · Ask</p>
+            <h2>Say what to design</h2>
+            <p>Choose New Schematic, say what it’s for, and copy the prompt for your agent. A whole business, one service or one module: it’s the same.</p>
+          </div>
+          <div class="caption" data-scene="propose" data-agent data-side="left">
+            <p class="kicker">Step 2 · Propose</p>
+            <h2>Your agent proposes it</h2>
+            <p>It reads what’s already designed and builds on it, embedding a schematic rather than describing it again. The proposal opens in SmartSpec by itself.</p>
+          </div>
+          <div class="caption" data-scene="comment" data-side="left">
+            <p class="kicker">Step 3 · Comment</p>
+            <h2>Press and hold to comment</h2>
+            <p>On a box in a diagram, a row in a table, some words, or the schematic as a whole. Your comment stays exactly where you left it.</p>
+          </div>
+          <div class="caption" data-scene="revise" data-agent data-side="left">
+            <p class="kicker">Step 4 · Revise</p>
+            <h2>Your agent answers</h2>
+            <p>It reads your comments, changes the proposal, and says how it dealt with each one. A tick means nothing more is needed.</p>
+          </div>
+          <div class="caption" data-scene="accept" data-side="left">
+            <p class="kicker">Step 5 · Accept</p>
+            <h2>Only you make it a draft</h2>
+            <p>Read the answer, then accept. Every change, even a schematic’s first, waits for you.</p>
+          </div>
+          <div class="caption" data-scene="arrange" data-side="right">
+            <p class="kicker">Step 6 · Arrange</p>
+            <h2>Work on more than one thing</h2>
+            <p>Bring an item to the middle, drag others beside it, and resize them. The rest wait at the sides as cards. Your layout is kept on your Mac.</p>
+          </div>
+          <div class="caption" data-scene="overview" data-side="left">
+            <p class="kicker">Step 7 · Overview</p>
+            <h2>See it all at once</h2>
+            <p>Switch to Overview for every item at full size, laid out around what links to what.</p>
+          </div>
+          <div class="caption" data-scene="handover" data-agent data-side="left">
+            <p class="kicker">Step 8 · Build</p>
+            <h2>Any agent can build from it</h2>
+            <p>Another agent finds the plan and reads only what it needs, item by item, then gets on with building it.</p>
+          </div>
+        </div>
+      </div>
+      <div class="steps">
+      <article class="step" data-scene="intro-overview" data-side="below" data-caption="intro"></article>
+      <article class="step" data-scene="ask" data-side="left"></article>
+      <article class="step" data-scene="propose" data-side="left"></article>
+      <article class="step" data-scene="comment" data-side="left"></article>
+      <article class="step" data-scene="revise" data-side="left"></article>
+      <article class="step" data-scene="accept" data-side="left"></article>
+      <article class="step" data-scene="arrange" data-side="right"></article>
+      <article class="step" data-scene="overview" data-side="left"></article>
+      <article class="step" data-scene="handover" data-side="left"></article>
+      <article class="step" data-scene="settle" data-side="none"></article>
+      </div>
+    </div>
+
+    <!-- Free, and the MIT licence in plain words. -->
+    <section id="free" class="free">
+      <!-- The headline beside the MIT licence in plain words: three points, each with an icon. -->
+      <div class="wrap free-layout">
+        <div class="section-head">
+          <p class="kicker">Free and open source</p>
+          <h2>SmartSpec is free. Completely.</h2>
+          <p>No account, no trial, no paid plan. SmartSpec is released under the MIT licence, which means it stays free: once it’s out, nobody can take that back.</p>
+        </div>
+        <div class="free-mit">
+          <h3 class="free-question">What’s the MIT licence?</h3>
+          <p class="free-answer">It’s one of the most common licences for free software, written at the Massachusetts Institute of Technology. In plain terms:</p>
+          <ul class="free-points">
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div>
+                <h3>Use it for anything</h3>
+                <p>At home or at work, for as long as you like. You never pay, and you never need permission.</p>
+              </div>
+            </li>
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></span>
+              <div>
+                <h3>See how it works</h3>
+                <p>All of SmartSpec’s code is public. Anyone can read it, copy it, or change it to suit them.</p>
+              </div>
+            </li>
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
+              <div>
+                <h3>Just one condition</h3>
+                <p>Anyone who shares a copy keeps the licence with it. It comes as it is, without a guarantee.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="install">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Install</p>
+          <h2>Install it, then add it to your agent.</h2>
+          <p><a href="https://github.com/tw050x/smartspec/releases/latest/download/SmartSpec-mac-arm64.dmg">Download SmartSpec</a> (or <a href="https://github.com/tw050x/smartspec/releases/latest/download/SmartSpec-mac-x64.dmg">for an Intel Mac</a>), open it and drag SmartSpec into your <strong>Applications</strong> folder. Then add it to your agent below. After that, it opens by itself whenever your agent needs it.</p>
+        </div>
+        <!-- One tab per agent app (see the tabs script below). -->
+        <div class="tabs" role="tablist" aria-label="Your agent">
+          <button type="button" role="tab" id="tab-desktop" aria-controls="install-desktop" aria-selected="true">Claude Desktop</button>
+          <button type="button" role="tab" id="tab-code" aria-controls="install-code" aria-selected="false" tabindex="-1">Claude Code</button>
+          <button type="button" role="tab" id="tab-other" aria-controls="install-other" aria-selected="false" tabindex="-1">Other agents</button>
+        </div>
+        <article class="card tab-panel" role="tabpanel" id="install-desktop" aria-labelledby="tab-desktop">
+          <h3>Claude Desktop</h3>
+          <p>SmartSpec adds itself.</p>
+          <ol>
+            <li>Open SmartSpec and click the status button at the top right, with the coloured dot. It usually says <strong>Ready</strong>.</li>
+            <li>Choose <strong>Add to Claude Desktop</strong>.</li>
+            <li>Quit Claude Desktop and open it again. Then start a new chat and ask Claude to design a schematic.</li>
+          </ol>
+          <p class="small">If the button says <strong>Not running</strong>, another copy of SmartSpec is probably open: quit SmartSpec everywhere, then open it again. Or add it yourself: in Claude Desktop, open Settings → Developer → Edit Config, and add the entry from the <a href="#install-other">Other agents</a> tab.</p>
+        </article>
+        <article class="card tab-panel" role="tabpanel" id="install-code" aria-labelledby="tab-code" hidden>
+          <h3>Claude Code</h3>
+          <p>Add it with one command.</p>
+          <ol>
+            <li>Run this in a terminal:
+              <div class="command">
+                <pre><code id="claude-code-command">claude mcp add --scope user smartspec -e ELECTRON_RUN_AS_NODE=1 -- /Applications/SmartSpec.app/Contents/MacOS/SmartSpec /Applications/SmartSpec.app/Contents/Resources/cli/mcp.js</code></pre>
+                <button class="copy" type="button" data-copy="claude-code-command">Copy</button>
+              </div>
+            </li>
+            <li>Start a new Claude Code session and ask Claude to design a schematic.</li>
+          </ol>
+          <p class="small">Or, with Node.js, run <code>npx @smartspec/cli setup</code>, which sets up Claude Code and Claude Desktop for you.</p>
+        </article>
+        <article class="card tab-panel" role="tabpanel" id="install-other" aria-labelledby="tab-other" hidden>
+          <h3>Other agents</h3>
+          <p>Any agent that runs MCP servers can use SmartSpec.</p>
+          <ol>
+            <li>Add SmartSpec as an MCP server. Most agents take a config entry like this:
+              <div class="command">
+                <pre><code id="mcp-config">{
+  "mcpServers": {
+    "smartspec": {
+      "command": "/Applications/SmartSpec.app/Contents/MacOS/SmartSpec",
+      "args": [
+        "/Applications/SmartSpec.app/Contents/Resources/cli/mcp.js"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  }
+}</code></pre>
+                <button class="copy" type="button" data-copy="mcp-config">Copy</button>
+              </div>
+            </li>
+            <li>Restart your agent and ask it to design a schematic.</li>
+          </ol>
+          <p class="small">SmartSpec runs its connection itself, so there’s nothing else to install.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="privacy">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Good to know</p>
+          <h2>Your design, your agent.</h2>
+        </div>
+      </div>
+      <!-- The points scroll past without end: the list runs twice (the copy added by the script below)
+           and slides left by one run, then starts again. -->
+      <div class="points">
+        <ul class="points-track">
+            <li>
+              <h3>Bring your own agent</h3>
+              <p>SmartSpec works with the agent you already use. No new account and no new subscription.</p>
+            </li>
+            <li>
+              <h3>You have the final say</h3>
+              <p>Your agent proposes; you decide. Nothing becomes a draft until you accept it.</p>
+            </li>
+            <li>
+              <h3>Any scale</h3>
+              <p>A whole business, one service or a single module: a schematic is the same at every level.</p>
+            </li>
+            <li>
+              <h3>Diagrams as data</h3>
+              <p>Your agent sends the boxes and lines; SmartSpec lays them out and draws them, every time.</p>
+            </li>
+            <li>
+              <h3>Standards, embedded</h3>
+              <p>Design something once, like service auth, and embed it wherever it’s used.</p>
+            </li>
+            <li>
+              <h3>Read only what’s needed</h3>
+              <p>Agents see the outline first and fetch each item as they need it, so big plans stay cheap.</p>
+            </li>
+            <li>
+              <h3>Nothing gets lost</h3>
+              <p>Every draft is kept. Step back to any of them whenever you like.</p>
+            </li>
+            <li>
+              <h3>Kept on your Mac</h3>
+              <p>Your schematics and layouts stay on your computer, not in someone’s cloud.</p>
+            </li>
+            <li>
+              <h3>Free and open source</h3>
+              <p>No sign-up and no plan to choose. Every line of SmartSpec is on GitHub.</p>
+            </li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="closing">
+      <div class="wrap">
+        <h2>Give your next system a plan any agent can follow.</h2>
+        <p>Free for macOS, with Claude Desktop, Claude Code and other agents.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartspec/releases/latest/download/SmartSpec-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartspec/releases/latest/download/SmartSpec-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M14 9h4M9 13v9q0 2 2 2h0.5M23 13v9q0 2-2 2h-0.5" fill="none" stroke="var(--line)" stroke-width="1.6" stroke-linecap="round"/><rect x="3" y="4.5" width="11" height="8.5" rx="2.4" fill="var(--card)" stroke="var(--line)" stroke-width="1.4"/><rect x="18" y="4.5" width="11" height="8.5" rx="2.4" fill="var(--card)" stroke="var(--line)" stroke-width="1.4"/><rect x="10.5" y="19.5" width="11" height="8.5" rx="2.4" fill="var(--card)" stroke="var(--line)" stroke-width="1.4"/><circle cx="8.5" cy="8.75" r="2" fill="var(--line)"/><rect x="21.5" y="6.75" width="4" height="4" rx="1" fill="var(--brown)"/><rect x="13" y="22.6" width="6" height="2.4" rx="1.2" fill="var(--blue)"/></svg>
+        SmartSpec
+      </a>
+      <span>Design your systems with your own agent.</span>
+      <a class="end" href="https://github.com/tw050x/smartspec">Source on GitHub</a>
+    </div>
+  </footer>
+
+  <script type="module">
+    import './story.js';
+
+    // The hero swaps between the two views: the showing view's pill fills up (in CSS), and once it's
+    // full the other takes over. The fill waits while the hero isn't the scene or the page is hidden.
+    // Choosing a view swaps at once and starts its fill from empty.
+    const { steps } = story;
+    let heroTool = 'overview';
+    const heroToolsEl = document.getElementById('hero-tools');
+    const heroTools = [...heroToolsEl.querySelectorAll('.hero-tool')];
+    const ledes = [...document.querySelectorAll('.ledes .lede')];
+    function setHeroTool(tool) {
+      heroTool = tool;
+      for (const b of heroTools) b.setAttribute('aria-pressed', 'false');
+      heroToolsEl.getBoundingClientRect(); // so the fill starts again, even on the same pill
+      for (const b of heroTools) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
+      for (const lede of ledes) lede.classList.toggle('shown', lede.dataset.tool === tool);
+      story.showHero(tool); // the windows slide past each other
+    }
+    const pauseFill = () => heroToolsEl.classList.toggle('paused', story.scene !== steps[0] || document.hidden);
+    document.addEventListener('visibilitychange', pauseFill);
+    document.addEventListener('story:scene', pauseFill);
+    heroToolsEl.addEventListener('animationend', (e) => {
+      if (e.animationName === 'hero-fill') setHeroTool(heroTool === 'overview' ? 'focus' : 'overview');
+    });
+    for (const b of heroTools) b.addEventListener('click', () => setHeroTool(b.dataset.tool));
+
+
+    // The Good to know points: a copy of the list follows it, so the strip can slide on without a gap.
+    const track = document.querySelector('.points-track');
+    for (const li of [...track.children]) track.append(Object.assign(li.cloneNode(true), { ariaHidden: 'true' }));
+
+    // The install tabs: clicking one shows its panel; the arrow keys (and Home and End) move between
+    // them, as tabs do.
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    function selectTab(tab, focus) {
+      for (const t of tabs) {
+        const on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      }
+      if (focus) tab.focus();
+    }
+    // A link to a tab's panel (#install-code) opens that tab, with the section in view.
+    function openLinkedTab() {
+      const tab = tabs.find((t) => `#${t.getAttribute('aria-controls')}` === location.hash);
+      if (!tab) return;
+      selectTab(tab);
+      document.getElementById('install').scrollIntoView();
+    }
+    addEventListener('hashchange', openLinkedTab);
+    // On arriving, after the browser's own jump to the panel, so the section's heading is in view.
+    if (document.readyState === 'complete') openLinkedTab();
+    else addEventListener('load', () => requestAnimationFrame(openLinkedTab));
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => selectTab(tab));
+      tab.addEventListener('keydown', (e) => {
+        const i = tabs.indexOf(tab);
+        const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+        if (to === undefined) return;
+        e.preventDefault();
+        selectTab(tabs[(to + tabs.length) % tabs.length], true);
+      });
+    }
+
+    for (const button of document.querySelectorAll('[data-copy]')) {
+      button.addEventListener('click', async () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = 'Copied';
+        } catch {
+          button.textContent = 'Select and copy';
+        }
+        setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>

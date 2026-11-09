@@ -1,0 +1,56 @@
+/* The website demo's own pieces, over the app's styles: the window's traffic lights (drawn by
+   macOS in the app), the scripted cursor, and stand-ins for what the system draws in the app: the
+   right-click menu. Nothing in it is meant to be clicked: the site's window lets no pointer through (story.css),
+   while the app's own checks of what's under a point, such as a comment marker's, still work. */
+
+/* Light or dark as the visitor's system is, as the website is (the app's Appearance set to System). */
+.demo { color-scheme: light dark; }
+.demo .top-bar::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 18px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 20px 0 #febc2e, 40px 0 #28c840;
+  transform: translateY(-50%);
+}
+.demo .top-bar { position: relative; }
+
+.demo-cursor {
+  position: fixed;
+  inset: auto; /* a popover's own placement, undone */
+  top: 0;
+  left: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+  z-index: 100;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.demo-cursor.shown { opacity: 1; }
+.demo-cursor svg { display: block; transition: transform 0.12s; transform-origin: 4px 3px; }
+.demo-cursor.pressed svg { transform: scale(0.82); }
+
+/* The right-click menu, as macOS draws it. */
+.demo-menu {
+  position: fixed;
+  z-index: 101;
+  min-width: 230px;
+  padding: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: rgba(246, 246, 246, 0.96);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  font-size: 13px;
+  color: #1d1d1f;
+}
+.demo-menu-item { padding: 3px 10px; border-radius: 4px; }
+.demo-menu-item.active { background: #2f6fde; color: #fff; }
