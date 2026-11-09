@@ -135,6 +135,10 @@ function groupView(group) {
   return element;
 }
 
+// How far below the pinned heads what scrolls under them takes to fade out, in the drawing's units.
+const FADE = 28;
+let fades = 0;
+
 function sequenceView(item, onLink) {
   const layout = layoutSequence(item, measure);
   const { root, arrow } = canvas(layout.width, layout.height);
@@ -142,8 +146,7 @@ function sequenceView(item, onLink) {
   // down (see onView below). The lifelines and everything else stay where they are.
   const headsTop = layout.boxes.length ? 2 : layout.headTop + 4;
   const headsBottom = layout.headTop + 4 + HEAD_BOX;
-  const heads = svg('g', { class: 'diagram-heads' },
-    svg('rect', { x: -20000, y: headsTop - 8, width: 40000 + layout.width, height: headsBottom - headsTop + 16, class: 'diagram-heads-band' }));
+  const heads = svg('g', { class: 'diagram-heads' });
   for (const box of layout.boxes) {
     const group = svg('g', { class: 'diagram-box-group', 'data-part': box.id },
       svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: layout.height - 6, rx: 8, class: 'diagram-participants-box' }), svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: 22, rx: 8, class: 'diagram-box-hit' }));
@@ -186,11 +189,30 @@ function sequenceView(item, onLink) {
     linkPart(group, message.link, onLink);
     root.append(group);
   }
-  root.append(heads);
+  // Pinned, the heads have nothing behind them: what scrolls under them fades out instead, through a
+  // mask over everything else that's clear until they pin, then hides what's behind them and fades
+  // to nothing just below.
+  const id = `heads-fade-${++fades}`;
+  const top = headsTop - 8;
+  const fadeTo = headsBottom + FADE;
+  const fading = svg('rect', { x: -20000, y: top, width: 40000 + layout.width, height: fadeTo - top, fill: `url(#${id}-gradient)`, visibility: 'hidden' });
+  root.querySelector('defs').append(
+    svg('linearGradient', { id: `${id}-gradient`, x1: 0, y1: 0, x2: 0, y2: 1 },
+      svg('stop', { offset: 0, 'stop-color': 'black' }),
+      svg('stop', { offset: (headsBottom + 4 - top) / (fadeTo - top), 'stop-color': 'black' }),
+      svg('stop', { offset: 1, 'stop-color': 'white' })),
+    svg('mask', { id, maskUnits: 'userSpaceOnUse', x: -20000, y: -20000, width: 40000 + layout.width, height: 40000 + layout.height },
+      svg('rect', { x: -20000, y: -20000, width: 40000 + layout.width, height: 40000 + layout.height, fill: 'white' }),
+      fading));
+  const behind = svg('g', { mask: `url(#${id})` });
+  behind.append(...[...root.children].filter((child) => child.tagName !== 'defs'));
+  root.append(behind, heads);
   root.onView = (view) => {
     const moved = pinOffset(view, { top: headsTop, bottom: headsBottom, height: layout.height });
     heads.setAttribute('transform', `translate(0 ${moved})`);
     heads.classList.toggle('pinned', moved > 0);
+    fading.setAttribute('transform', `translate(0 ${moved})`);
+    fading.setAttribute('visibility', moved > 0 ? 'visible' : 'hidden');
   };
   return root;
 }

@@ -131,6 +131,25 @@ export function bringToMiddle(layout, id, board = null, { alone = false } = {}) 
   return { boxes };
 }
 
+// An open item made as big as the middle allows, as a lone one fills it, and in front (a double click
+// on its title bar). It keeps that size, whatever else comes into the middle. `board` is the board's
+// size in px.
+export function fillMiddle(layout, id, board) {
+  const settled = settleFilling(layout, board);
+  const { ex, ...kept } = settled.boxes[id] ?? {};
+  return { boxes: { ...settled.boxes, [id]: { ...kept, ...fillBox(board), sized: true, z: topZ(settled) + 1 } } };
+}
+
+// Whether an item fills the middle, alone there or made to (fillMiddle).
+export function filling(layout, id, board) {
+  const box = layout.boxes[id];
+  if (!box) return false;
+  if (fills(layout, id)) return true;
+  const fill = fillBox(board);
+  const near = (a, b) => Math.abs(a - b) < 0.005;
+  return box.ex == null && near(box.cx, fill.cx) && near(box.cy, fill.cy) && near(box.w, fill.w) && near(box.h, fill.h);
+}
+
 // In front of everything else.
 export function toFront(layout, id) {
   const box = layout.boxes[id];

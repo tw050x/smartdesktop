@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, fills, layoutToSave, placeNew, scaleAtEdge, separate, settleFilling, settleSize, toFront, zoneAt, zoneAtEdge, zoneOf } from '../packages/app/src/renderer/board.js';
+import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, filling, fillMiddle, fills, layoutToSave, placeNew, scaleAtEdge, separate, settleFilling, settleSize, toFront, zoneAt, zoneAtEdge, zoneOf } from '../packages/app/src/renderer/board.js';
 
 const board = { width: 1400, height: 900 };
 
@@ -70,6 +70,24 @@ test('a lone item fills the middle until another joins it or the user sizes it',
   assert.ok(layout.boxes.b.z > layout.boxes.a.z);
   const sized = { boxes: { a: { ...layout.boxes.a, sized: true } } };
   assert.ok(!fills(sized, 'a'));
+});
+
+test('an open item can be made to fill the middle, in front, whatever else is there', () => {
+  let layout = defaultLayout({ centre: 'a', left: [], right: ['b'] }, {}, board);
+  layout = bringToMiddle(layout, 'b', board);
+  assert.ok(!filling(layout, 'b', board));
+  const filled = fillMiddle(layout, 'b', board);
+  const fill = fillBox(board);
+  assert.deepEqual(['cx', 'cy', 'w', 'h'].map((key) => filled.boxes.b[key]), ['cx', 'cy', 'w', 'h'].map((key) => fill[key]));
+  assert.ok(filled.boxes.b.sized, 'it keeps that size with something else in the middle');
+  assert.ok(filled.boxes.b.z > filled.boxes.a.z);
+  assert.ok(filling(filled, 'b', board));
+  assert.deepEqual({ cx: filled.boxes.a.cx, w: filled.boxes.a.w }, { cx: layout.boxes.a.cx, w: layout.boxes.a.w }, 'nothing else moves');
+  // An item scaled down at a side loses its kept edge, so it's at full size in the middle.
+  const aside = { boxes: { ...layout.boxes, b: { ...layout.boxes.b, cx: 0.85, ex: 0.08 } } };
+  assert.equal(fillMiddle(aside, 'b', board).boxes.b.ex, undefined);
+  // A lone item that hasn't been sized already fills it.
+  assert.ok(filling(defaultLayout({ centre: 'a', left: [], right: ['b'] }, {}, board), 'a', board));
 });
 
 test('settling leaves a layout with nothing filling the middle as it is', () => {

@@ -1130,6 +1130,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     clearTimeout(saving.get(schemaId));
     saving.set(schemaId, setTimeout(() => api.saveLayout(schemaId, layoutToSave(layout, Object.keys(layout.boxes))).catch(() => {}), 400));
   }
+  // The website's demo starts each scene from the board as first laid out (the app never does).
+  api.onLayoutsReset?.(() => {
+    for (const timer of saving.values()) clearTimeout(timer);
+    saving.clear();
+    layouts.clear();
+  });
 
   // The item linked with the most others: what a schematic with no layout yet starts on.
   const mostLinked = (ids, pairs) => {
@@ -1293,6 +1299,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         ? makeCanvas(view, {
           saved: here.views[place] ?? null,
           onChange: (kept) => { here.views[place] = kept; },
+          fitted: true,
         })
         : view);
     } else if (id === CONTRACT) {
@@ -1324,6 +1331,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       sheet.append(...body.childNodes);
       body.append(sheet);
       body.classList.add('sheet-body');
+      body.dataset.page = `${here.schemaId}:${id}`; // its zoom in a card is kept by this (page-view.js)
     } else body.classList.add(`${item.kind}-body`);
 
     if (full) {
@@ -1410,25 +1418,82 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     actionsOf(head).append(open);
     middle.append(head);
 
-    body.append(h('p', { className: 'use-summary' }, use.summary));
-    const contract = h('div', {});
-    if (use.contract) renderMarkdown(contract, use.contract);
-    else contract.append(h('p', { className: 'muted' }, 'No contract yet.'));
-    body.append(h('h3', { className: 'pane-subhead' }, 'Contract'), contract);
-
-    const parameters = inner?.parameters ?? [];
-    if (parameters.length) {
-      body.append(h('h3', { className: 'pane-subhead' }, 'Set here'), h('dl', { className: 'parameters' }, ...parameters.flatMap((parameter) => [
-        h('dt', {}, parameter.name),
-        h('dd', {}, use.with?.[parameter.name] ? h('code', {}, use.with[parameter.name]) : h('span', { className: 'muted' }, 'Not set'), parameter.description ? ` ${parameter.description}` : ''),
-      ])));
+    // Its overview, still in this schematic: every item in it, laid out as on its own overview and
+    // fitted to the card. Zoomed out too far to read, each item shows its card's face instead, its
+    // kind and title, as the side cards do (see watchFar).
+    if (!inner) {
+      body.append(h('p', { className: 'muted' }, 'This schematic couldn’t be read.'));
+      return;
     }
-    const contents = [...(inner?.items ?? []).map((one) => [one.title, kindLabel(one), one.description]), ...(inner?.uses ?? []).map((one) => [one.name ?? one.id, 'Embedded schematic', one.summary])];
-    if (contents.length) {
-      body.append(h('h3', { className: 'pane-subhead' }, 'Inside'), h('ul', { className: 'use-contents' }, ...contents.map(([title, kind, description]) => h('li', {},
-        h('strong', {}, title),
-        h('span', { className: 'focus-kind' }, kind),
-        description && h('span', { className: 'focus-meta' }, description)))));
+    const innerUses = new Map(inner.uses.map((one) => [one.id, one]));
+    const contents = new Map();
+    const content = (id) => {
+      if (!contents.has(id)) contents.set(id, api.getItem(use.schemaId, id, { draftId: use.draftId }).catch(() => null));
+      return contents.get(id);
+    };
+    let canvas = null;
+    // A link inside moves the canvas to what it goes to, as on an overview.
+    const follow = (link, from) => {
+      const { target } = parseLink(link, from);
+      const element = canvas?.world.querySelector(`:scope > [data-item="${CSS.escape(target)}"]`);
+      if (element) canvas.centreOn(element);
+    };
+    const views = { shown: inner, uses: innerUses, content, mark: () => null, follow, openUse: () => openUse(use), isRemoved: () => false, removed: [], still: true };
+    const innerHere = { schemaId: use.schemaId, views: {} };
+    const element = async (id) => {
+      const face = await boardCard(id, views);
+      // A schematic embedded in this one stays a card at any zoom: it opens from inside its own.
+      const nested = innerUses.has(id);
+      const open = nested ? null : await fullView(innerHere, id, views);
+      open?.classList.add('board-full');
+      // Nothing to do to it here but look: changing anything is done inside the schematic.
+      open?.querySelector('.pane-actions')?.replaceChildren();
+      const item = h('article', { className: `overview-item${nested ? ' card-only' : ''}`, 'data-item': id }, open, face);
+      item.addEventListener('dblclick', (event) => {
+        if (!event.target.closest('button, a[href]')) openUse(use, id);
+      });
+      return item;
+    };
+    const ids = [CONTRACT, ...inner.items.map((one) => one.id), ...inner.uses.map((one) => one.id)];
+    const drawing = drawOverview(await Promise.all(ids.map(element)), connectedPairs(inner.links), { width: 1600, height: 1000 });
+    drawing.classList.add('embed-overview');
+    canvas = makeCanvas(drawing, {
+      drawing: drawing.world,
+      size: drawing.size,
+      minScale: 0.05,
+      fitted: true,
+      // It's only to look at, so a drag anywhere on it pans, over its items too.
+      panFrom: (event) => !event.target.closest('button, a[href]'),
+      onShow: () => watchFar(drawing),
+    });
+    body.append(canvas);
+    const settings = Object.entries(use.with ?? {});
+    if (settings.length) body.append(h('div', { className: 'embed-settings', title: 'Set here' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))));
+  }
+
+  // Too small on screen to read, an embedded schematic's items show their cards' faces, sized to be
+  // read whatever the zoom: the title as a side card's, or as large as the item leaves room for, and
+  // the kind's icon above it only where there's room for both.
+  const READABLE = 0.45;
+  const FACE_TITLE = 13; // px on screen, as on a side card
+  const FACE_ICON = 38;
+  function watchFar(drawing) {
+    const world = drawing.world;
+    const scale = world.offsetWidth ? world.getBoundingClientRect().width / world.offsetWidth : 1;
+    const far = scale < READABLE;
+    drawing.classList.toggle('far', far);
+    if (!far) return;
+    for (const item of world.querySelectorAll(':scope > .overview-item')) {
+      const face = item.querySelector(':scope > .board-card');
+      if (!face) continue;
+      const width = item.offsetWidth * scale;
+      const height = item.offsetHeight * scale;
+      const title = Math.max(7, Math.min(FACE_TITLE, height / 3, width / 8));
+      const icon = Math.min(FACE_ICON, height - 2.5 * title - 16);
+      face.style.setProperty('--face-title', `${title / scale}px`);
+      face.style.setProperty('--face-icon', `${Math.max(0, icon) / scale}px`);
+      face.style.setProperty('--face-gap', `${4 / scale}px`);
+      face.classList.toggle('no-icon', icon < 16);
     }
   }
 

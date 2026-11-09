@@ -10,7 +10,7 @@
 // first needed by `build(id)`) and its card (`.board-card`). The board calls `onChange(layout)` when
 // the user has moved or sized something, and `onBring(id)` when a card is clicked.
 
-import { bringToMiddle, cardnessAtEdge, groupCards, fillBox, fills, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, toFront, zoneAt, zoneAtEdge } from './board.js';
+import { bringToMiddle, cardnessAtEdge, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, toFront, zoneAt, zoneAtEdge } from './board.js';
 import { watchPage } from './page-view.js';
 import { longPressed } from './long-press.js';
 
@@ -149,12 +149,15 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const seen = seenSize(one);
     // Everything is kept inside the window, so its title bar can always be reached, except what's
     // being dragged, which gives a little at the edges and springs back (see band).
+    // That holds wherever its place came from, its side's layout too (left and top), open or a card.
     const outside = one.id !== dragging;
-    let cx = outside ? clamp(one.cx, MARGIN / 2 + seen.width / 2, Math.max(MARGIN / 2 + seen.width / 2, width - MARGIN / 2 - seen.width / 2)) : one.cx;
-    if (left != null) cx = left + seen.width / 2;
+    let x = left ?? one.cx - seen.width / 2;
     let y = top ?? one.cy - seen.height / 2;
-    if (outside) y = clamp(y, MARGIN / 2, Math.max(MARGIN / 2, height - MARGIN / 2 - seen.height));
-    return { id: one.id, left: cx - seen.width / 2, top: y, width: seen.width, height: seen.height };
+    if (outside) {
+      x = clamp(x, MARGIN / 2, Math.max(MARGIN / 2, width - MARGIN / 2 - seen.width));
+      y = clamp(y, MARGIN / 2, Math.max(MARGIN / 2, height - MARGIN / 2 - seen.height));
+    }
+    return { id: one.id, left: x, top: y, width: seen.width, height: seen.height };
   }
 
   // An item put on the page: a frame of its own shape, holding either its open view, scaled to fit
@@ -302,6 +305,25 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     onBring(id);
   }
 
+  // An open item's title bar double-clicked: it fills the middle, in front, as a window's title bar
+  // zooms it; double-clicked again, it goes back to the size and place it had. Nothing else moves.
+  const unfilled = new Map(); // item → its box before it was made to fill the middle
+  function toggleFill(id) {
+    const before = unfilled.get(id);
+    unfilled.delete(id);
+    if (!fillsMiddle(layout, id, size())) {
+      unfilled.set(id, layout.boxes[id]);
+      layout = fillMiddle(layout, id, size());
+    } else if (before) {
+      layout = toFront({ boxes: { ...layout.boxes, [id]: { ...before, z: layout.boxes[id].z } } }, id);
+    } else {
+      return;
+    }
+    placeAll();
+    changed();
+    onBring(id);
+  }
+
   // Whatever fills the middle keeps that as its own box before anything else moves (see board.js).
   const settleFilling = () => {
     layout = settle(layout, size());
@@ -328,7 +350,9 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     // A small open item is picked up anywhere along its top, as its title bar is thin.
     const small = event.target.closest?.('.board-item.small-open');
     const atTop = small && event.clientY - small.getBoundingClientRect().top < SMALL_TOP;
-    const handle = atTop ? small : event.target.closest?.('.board-full > .pane-head, .board-card');
+    // Inside an embedded schematic's overview, its own cards and title bars are its canvas's to pan.
+    const inside = event.target.closest?.('.embed-overview');
+    const handle = atTop ? small : !inside && event.target.closest?.('.board-full > .pane-head, .board-card');
     if (!handle || (!atTop && event.target.closest('.pane-actions, .title-card, h2[tabindex]:focus-visible, .board-comment button, .comment-marker'))) return;
     const element = handle.closest('.board-item');
     const id = element.dataset.item;
@@ -391,6 +415,10 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
         layout = { boxes: { ...layout.boxes, [id]: { ...box, cx: (left + frameNow.w / 2) / width, cy: (top + frameNow.h / 2) / height } } };
       }
       dragging = null;
+      // Let go first, so that springing back inside the window glides there: taken off it in the
+      // same moment it's moved, the browser moved it without a transition.
+      element.classList.remove('held');
+      void element.offsetWidth;
       // What was dropped stays where it was put: the other cards move round it. A card dropped
       // over something open moves out of its way, the least it can: what's open comes first.
       placed = id;
@@ -455,12 +483,15 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     board.addEventListener('pointerup', onEnd);
     board.addEventListener('pointercancel', onEnd);
   }
-  // Double-clicking a card, or an item's title bar, brings it to the middle.
+  // Double-clicking a card brings it to the middle; double-clicking an open item's title bar makes it
+  // fill the middle, or puts it back.
   board.addEventListener('dblclick', (event) => {
-    const handle = event.target.closest?.('.board-card, .board-full > .pane-head');
+    const handle = !event.target.closest?.('.embed-overview') && event.target.closest?.('.board-card, .board-full > .pane-head');
     if (!handle || handle.closest('.board-comment') || event.target.closest('.pane-actions') || narrow()) return;
     event.preventDefault();
-    bring(handle.closest('.board-item').dataset.item);
+    const id = handle.closest('.board-item').dataset.item;
+    if (handle.classList.contains('pane-head')) toggleFill(id);
+    else bring(id);
   });
   board.addEventListener('dblclick', (event) => {
     const grip = event.target.closest?.('.board-grip');

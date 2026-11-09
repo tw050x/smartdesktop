@@ -3,6 +3,7 @@ import { watchArrowKeys } from './arrow-nav.js';
 import { createSchemas } from './schemas.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
+import './selection.js';
 
 // The window's interface, given the API it works through (window.smartspec, from the preload
 // script, talking to the main process). It fills the empty body with the window's markup first.

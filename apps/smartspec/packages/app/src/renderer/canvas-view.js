@@ -14,6 +14,34 @@ const SPRING_AFTER = 160; // ms after the last scroll before a rubber-banding ca
 
 const limited = (scale, min = MIN_SCALE) => Math.min(MAX_SCALE, Math.max(min, scale));
 
+// Zoomed out past as far as it goes, it gives a little, more and more stiffly, to at most GIVE
+// smaller, and springs back when let go, so the user sees the limit rather than nothing happening.
+const GIVE = 0.12;
+const BOUNCE = 0.06; // how far a zoom-out button pressed at the limit dips before springing back
+export const SPRING_MS = 260;
+export function pastLeast(wanted, least) {
+  if (wanted >= least) return wanted;
+  const excess = 1 - wanted / least;
+  return least * (1 - GIVE * (1 - 1 / (1 + excess / GIVE)));
+}
+
+// Moves a number from `from` to `to` over SPRING_MS, easing out, calling `step` with each value.
+export function glide(from, to, step, done = () => {}, ms = SPRING_MS) {
+  const start = performance.now();
+  const frame = (now) => {
+    const t = Math.min(1, (now - start) / ms);
+    step(from + (to - from) * (1 - (1 - t) ** 3));
+    if (t < 1) requestAnimationFrame(frame);
+    else done();
+  };
+  requestAnimationFrame(frame);
+}
+
+// A press of zoom out at the limit: a little dip and back, from `at`, by `step`.
+export function bounce(at, step, done) {
+  glide(at, at * (1 - BOUNCE), step, () => glide(at * (1 - BOUNCE), at, step, done, SPRING_MS / 2), SPRING_MS / 2);
+}
+
 // The view showing all of a diagram, centred, without enlarging it.
 export function fitView(content, space, min = MIN_SCALE) {
   const scale = limited(Math.min(1, (space.width - 2 * MARGIN) / content.width, (space.height - 2 * MARGIN) / content.height), min);
@@ -44,10 +72,11 @@ function band(value, low, high) {
 // Turns a diagram's holder into a canvas. `saved` is a view to return to, `onChange` hears of each
 // one the user moves to, and `onShow` of every change on screen. `drawing` is what moves (the
 // holder's svg unless given), with its `size`. `minScale` is how far out it zooms. `panFrom(event)`
-// says whether a drag starting there moves the canvas. With `rubber`, it can be moved anywhere, but
+// says whether a drag starting there moves the canvas. With `fitted`, it zooms out no further than it
+// takes to show all of it: there's nothing to see in making it smaller. With `rubber`, it can be moved anywhere, but
 // once its content no longer crosses the middle of the space it gives less and less, and springs
 // back when let go.
-export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow = () => {}, drawing = holder.querySelector('svg'), size = null, minScale = MIN_SCALE, panFrom = () => true, rubber = false } = {}) {
+export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow = () => {}, drawing = holder.querySelector('svg'), size = null, minScale = MIN_SCALE, panFrom = () => true, rubber = false, fitted = false } = {}) {
   const content = size ?? { width: Number(drawing.getAttribute('width')), height: Number(drawing.getAttribute('height')) };
   holder.classList.add('diagram-canvas');
   const dots = document.createElement('div');
@@ -64,6 +93,8 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
   };
   const space = () => ({ width: holder.clientWidth, height: holder.clientHeight });
   const centre = () => ({ x: holder.clientWidth / 2, y: holder.clientHeight / 2 });
+  // How far out it zooms: all of it in view, if `fitted`.
+  const least = () => (fitted && holder.clientWidth ? Math.max(minScale, fitView(content, space(), minScale).scale) : minScale);
   const amount = document.createElement('span');
   amount.className = 'canvas-amount';
   // Where the content may go freely: as long as it crosses the middle of the space, both ways.
@@ -112,12 +143,28 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
     view = fitView(content, space(), minScale);
     show();
   };
+  // Zoomed to `scale` about (x, y), past the limit or not.
+  const scaleTo = (x, y) => (scale) => {
+    view = zoomedAt(view, scale / view.scale, x, y, 0);
+    moved = true;
+    show();
+  };
   const zoomBy = (factor) => {
     if (!view) fit();
     if (!view) return;
     const { x, y } = centre();
-    moveTo(zoomedAt(view, factor, x, y, minScale));
+    const floor = least();
+    if (factor < 1 && view.scale <= floor * 1.001) return bounce(view.scale, scaleTo(x, y), () => onChange(view));
+    moveTo(zoomedAt(view, factor, x, y, floor));
     springBack();
+  };
+  // Pinched out past the limit: the scale asked for, and about where, until it springs back.
+  let pulled = null;
+  const settleZoom = () => {
+    if (!pulled) return;
+    const { x, y } = pulled;
+    pulled = null;
+    glide(view.scale, least(), scaleTo(x, y), () => onChange(view));
   };
 
   const controls = document.createElement('div');
@@ -172,10 +219,22 @@ export function makeCanvas(holder, { saved = null, onChange = () => {}, onShow =
     event.preventDefault();
     if (!ready()) return;
     clearTimeout(settle);
-    settle = setTimeout(springBack, SPRING_AFTER);
+    settle = setTimeout(() => {
+      settleZoom();
+      springBack();
+    }, SPRING_AFTER);
     if (!event.ctrlKey && !event.metaKey) return moveTo({ ...view, x: view.x - event.deltaX, y: view.y - event.deltaY });
     const box = holder.getBoundingClientRect();
-    return moveTo(zoomedAt(view, Math.exp(-event.deltaY * 0.01), event.clientX - box.left, event.clientY - box.top, minScale));
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    const floor = least();
+    const wanted = (pulled?.wanted ?? view.scale) * Math.exp(-event.deltaY * 0.01);
+    if (wanted < floor) {
+      pulled = { wanted, x, y };
+      return scaleTo(x, y)(pastLeast(wanted, floor));
+    }
+    pulled = null;
+    return moveTo(zoomedAt(view, wanted / view.scale, x, y, floor));
   }, { passive: false });
 
   // Stays fitted as the window changes, until the user has moved it themselves.
