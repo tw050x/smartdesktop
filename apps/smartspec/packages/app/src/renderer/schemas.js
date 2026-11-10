@@ -111,7 +111,8 @@ const rememberedView = () => {
 const CHANGE_LABELS = { added: 'New', changed: 'Changed', removed: 'Removed' };
 const smoothly = () => typeof document.startViewTransition === 'function' && document.visibilityState === 'visible' && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// `onShown({ chatId, name })` hears what the window shows, for the chat (see app-shell.js): home
+// `onShown({ chatId, name, line })` hears where the window is, for the chat (see app-shell.js), with
+// the chat's line of context for going there: home
 // ('home', name null), or a schematic's draft (`<schematic>/<draft>`; a proposal is the draft it
 // changes', or `<schematic>/new` for a new schematic's first). `onCards(cards, shortcuts)` hears what there is
 // to decide about what it shows (drawn in the bottom bar: see showBar) and what to ask the AI about
@@ -358,7 +359,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   }
 
   async function homeView() {
-    onShown({ chatId: 'home', name: null });
+    onShown({ chatId: 'home', name: null, line: { text: 'Went home', detail: 'The window shows SmartSpec\'s home.' } });
     const [all, { groups }, folders] = await Promise.all([api.listSchemas(), api.listGroups(), api.folders()]);
     folderState = folders;
     if (shownFolder && !folderById(shownFolder)) shownFolder = null;
@@ -874,7 +875,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return path.length ? schemaView(top()) : homeView();
     }
     here.label = shown.name;
-    onShown({ chatId: `${here.schemaId}/${here.proposal ? shown.basedOn ?? 'new' : shown.draftId}`, name: shown.name });
+    const opened = here.proposal ? (shown.total ? `Reviewing the proposed changes to “${shown.name}”` : `Reviewing the new schematic “${shown.name}”`) : `Opened “${shown.name}”, draft ${shown.number} of ${shown.total}`;
+    onShown({ chatId: `${here.schemaId}/${here.proposal ? shown.basedOn ?? 'new' : shown.draftId}`, name: shown.name, line: { text: opened, detail: `${opened} (schematic_id ${here.schemaId})` } });
 
     const uses = new Map(shown.uses.map((use) => [use.id, use]));
     // What the proposal removes can still be opened while reviewing it, to see what goes.

@@ -94,6 +94,8 @@ contextBridge.exposeInMainWorld('smartspec', {
   chatReady: () => call('chat-ready'),
   // A line of context for the chat, for the AI with the user's next message (see note in agent.js).
   chatNote: (chatId, note) => call('chat-note', chatId, note),
+  // Where the window is ('home', or a schematic's draft or proposal), with the chat's line for it.
+  chatShows: (where, line) => call('chat-shows', where, line),
   // A button over the floating chat's message box, done by the app's window (see app-shell.js).
   chatAction: (id) => call('chat-action', id),
   onChatAction: on('chat-action'),

@@ -292,8 +292,6 @@ const schemasFor = (session, ctx) => ({
     }
     const made = await store.propose(proposal);
     sessions.claim(session, schemaClaim(made.schema));
-    // Asked for in the home's chat, a new schematic's own chat carries the conversation on.
-    if (!proposal.schemaId && ctx.chatFrom === 'home' && session === ctx.chatSession) await agent.moveChat('home', `${made.schema}/new`);
     ctx.win.webContents.send('show-schema', { schemaId: made.schema, name: proposal.name ?? '' });
     if (!ctx.win.isVisible()) ctx.win.showInactive();
     return {
@@ -511,9 +509,14 @@ function closeChatWindow(ctx, dock) {
 
 const CHAT_SYSTEM = 'You are working inside the SmartSpec app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, beside the window they are working in, and the SmartSpec tools act on that window: never call use_window. Follow the SmartSpec server\'s instructions. When the user wants a schematic made or changed, propose it with propose_schematic: only they can accept or discard it, in the app, so tell them to look at it there. Never run a wait command: the user tells you what they decided when they next write. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain. A message may start with [What I\'ve done in the app since my last message, for context: …]: what the user did and looked at in the app since they last wrote, so you know what they mean by \"this\"; use it, and don\'t repeat it back. When it helps, end your reply with up to three short questions the user might want to ask you next, in their words, each on its own line as <suggest>question</suggest>: the app shows them as buttons, not as text.';
 
+// The window's chat is one conversation, whatever it shows (the user's choice: it was a chat for each
+// draft, and one for home): where the window goes is a line of context in it (see chat-shows).
+const chatOfWindow = (ctx) => (ctx ? `window/${ctx.id}` : null);
+
 // What the window shows, for the AI: home, or a schematic (by name and id), and whether it's a
-// new one still waiting to be accepted.
-async function chatWhere(chatId) {
+// new one still waiting to be accepted. `chatId` is where, as the window says: 'home', or
+// `<schematic>/<draft>`, or `<schematic>/new`.
+async function chatWhere(chatId = 'home') {
   if (chatId === 'home') return 'The window shows SmartSpec\'s home: the user\'s domains and schematics. To make a new schematic, propose one.';
   const [schemaId, draft] = chatId.split('/');
   const schema = await store.getSchema(schemaId).catch(() => null) ?? await store.getProposal(schemaId).catch(() => null);
@@ -523,10 +526,10 @@ async function chatWhere(chatId) {
     : `The window shows the schematic ${name} (schematic_id ${schemaId}). “This schematic” means this one.`;
 }
 
-async function chatSend(ctx, providerId, conversation, text, chatId, { model = null } = {}) {
+async function chatSend(ctx, providerId, conversation, text, { model = null } = {}) {
   const provider = PROVIDERS[providerId] ?? PROVIDERS.claude;
   const client = `smartspec-${provider.id}`;
-  if (!chatId) throw new Error('This window isn’t showing anything to chat about yet.');
+  const chatId = chatOfWindow(ctx);
   if (!mcp) throw new Error(`SmartSpec’s server isn’t running, so ${provider.name} can’t work in this window.`);
   const sessionId = `chat-${ctx.id}`;
   const session = sessions.touch(sessionId, client);
@@ -537,10 +540,7 @@ async function chatSend(ctx, providerId, conversation, text, chatId, { model = n
     if (session.ctx) releaseWindow(session);
     setSessionWindow(session, ctx);
   }
-  // Where the conversation was asked from, for a new schematic to carry it on (see propose).
-  ctx.chatFrom = chatId;
-  ctx.chatSession = session;
-  const systemPrompt = `${CHAT_SYSTEM} ${await chatWhere(chatId)}`;
+  const systemPrompt = `${CHAT_SYSTEM} ${await chatWhere(ctx.chatShows)}`;
   // Calls keep the session alive; between them, while the AI thinks, this does.
   const keepAlive = setInterval(() => sessions.touch(sessionId, client), 10 * 1000);
   agent.send({ provider: provider.id, windowId: ctx.id, chatId, conversation, text, systemPrompt, model, sessionHeaders: { 'x-smartspec-session': sessionId, 'x-smartspec-client': client } })
@@ -739,10 +739,22 @@ handle('agent-status', () => agent.status());
 handle('agent-sign-in', (_ctx, id) => agent.signIn(id, agentProgress));
 handle('agent-install', (_ctx, id) => agent.install(id, agentProgress));
 handle('agent-install-help', (_ctx, id) => shell.openExternal((PROVIDERS[id] ?? PROVIDERS.claude).installHelp));
-handle('agent-chats', async (_ctx, chatId) => (chatId ? { chatId, ...(await agent.load(chatId)), running: agent.runningIn(chatId) } : null));
-handle('agent-send', (ctx, provider, conversation, text, chatId, options) => chatSend(ctx, provider, conversation, text, chatId, options));
-handle('agent-stop', (_ctx, conversation, chatId) => agent.stop(chatId, conversation));
-handle('agent-new-session', (_ctx, provider, conversation, chatId) => agent.newSession(chatId, conversation, provider));
+// The window's chat (the chat ids the window sends are for its own use: the chat is the window's).
+handle('agent-chats', async (ctx) => {
+  const chatId = chatOfWindow(ctx);
+  return chatId ? { chatId, ...(await agent.load(chatId)), running: agent.runningIn(chatId) } : null;
+});
+handle('agent-send', (ctx, provider, conversation, text, _chatId, options) => chatSend(ctx, provider, conversation, text, options));
+handle('agent-stop', (ctx, conversation) => agent.stop(chatOfWindow(ctx), conversation));
+handle('agent-new-session', (ctx, provider, conversation) => agent.newSession(chatOfWindow(ctx), conversation, provider));
+// Where the window is (see chatWhere), and the line for its chat when that changes; the first
+// thing a window shows isn't news.
+handle('chat-shows', (ctx, where, line) => {
+  const before = ctx.chatShows;
+  ctx.chatShows = where;
+  if (before !== undefined && before !== where && line) return agent.note(chatOfWindow(ctx), line);
+  return null;
+});
 handle('chat-float', (ctx) => openChatWindow(ctx));
 handle('chat-dock', (ctx) => closeChatWindow(ctx, true));
 handle('chat-close', (ctx) => closeChatWindow(ctx, false));
@@ -753,8 +765,8 @@ handle('chat-state', (ctx, state) => {
 });
 handle('chat-action', (ctx, id) => ctx.win.webContents.send('chat-action', id));
 // A line of context for the chat (what the user did or looked at), for the AI with their next
-// message: in the chat the window says (see note in agent.js).
-handle('chat-note', (_ctx, chatId, note) => agent.note(chatId, note));
+// message: in the window's chat (see note in agent.js).
+handle('chat-note', (ctx, _chatId, note) => agent.note(chatOfWindow(ctx), note));
 // The app window asks its floating chat to send the AI a request (see app-shell.js).
 // A chat window still starting is sent it once it's ready (chat-ready).
 handle('chat-ask', (ctx, text) => {

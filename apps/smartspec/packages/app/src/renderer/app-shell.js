@@ -31,7 +31,9 @@ const HINTS = {
   schematic: 'Ask about this schematic, or ask for a change. Each step your AI takes shows here as it’s done.',
 };
 function startChat(api) {
-  let showing = { chatId: null, hint: null };
+  // The chat is the window's, one conversation whatever it shows (see chatOfWindow in main.js).
+  const windowChat = `window/${api.windowId ?? 'demo'}`;
+  let showing = { chatId: windowChat, where: null, hint: null };
   let floating = false;
   const CHAT_WINDOW_KEY = 'chat-in-window';
   const prefersWindow = () => {
@@ -101,10 +103,11 @@ function startChat(api) {
   });
   showButton();
   return {
-    shown({ chatId, name }) {
-      const next = { chatId, hint: chatId === 'home' ? HINTS.home : HINTS.schematic, name };
-      if (next.chatId === showing.chatId) return;
-      showing = next;
+    // Where the window went: said in the chat, as a line of context, and to the AI.
+    shown({ chatId: where, name, line }) {
+      if (where === showing.where) return;
+      showing = { chatId: windowChat, where, hint: where === 'home' ? HINTS.home : HINTS.schematic, name };
+      api.chatShows?.(where, line);
       panel.documentChanged();
       sendState();
     },
@@ -119,9 +122,9 @@ function startChat(api) {
       showButton();
     },
     // A line of context for the chat (what the user looked at or did), for the AI with their next
-    // message, in the chat of what the window shows.
+    // message, in the window's chat.
     note(next) {
-      if (showing.chatId) api.chatNote?.(showing.chatId, next);
+      api.chatNote?.(windowChat, next);
     },
     cards(_cards, nextShortcuts = []) {
       shortcuts = nextShortcuts;

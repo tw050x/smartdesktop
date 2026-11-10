@@ -222,7 +222,7 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
   const workDir = path.join(userData, 'agent'); // an empty folder to run in, so no project settings load
   const running = new Map(); // `${chatId}:${conversation}` → child process
   const live = new Map(); // chat id → its chats while a reply is being written in it (see note)
-  const runs = new Map(); // the same → { chatId } of a reply under way, which follows its chat if it's moved (moveChat)
+  const runs = new Map(); // the same → { chatId } of a reply under way
   const found = new Map(); // provider id → the path to its tool, once found
   let shellPath = null;
 
@@ -523,36 +523,6 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
     }
   }
 
-  // A chat moved to another (home's, to the schematic the AI has just proposed from it): the
-  // conversation carries on there, a reply under way with it, and the one it was in starts empty.
-  // Never over a chat that already has something in it.
-  async function moveChat(from, to) {
-    const chats = await load(from);
-    if (!chats.main.messages.length || (await load(to)).main.messages.length) return false;
-    await save(to, chats);
-    await save(from, { main: { messages: [], sessions: {} }, threads: {} });
-    if (live.has(from)) {
-      live.set(to, live.get(from));
-      live.delete(from);
-    }
-    for (const [key, child] of [...running]) {
-      if (!key.startsWith(`${from}:`)) continue;
-      const moved = `${to}:${key.slice(from.length + 1)}`;
-      running.delete(key);
-      running.set(moved, child);
-      const run = runs.get(key);
-      runs.delete(key);
-      if (run) {
-        run.chatId = to;
-        run.moved(to);
-        runs.set(moved, run);
-      }
-    }
-    onEvent({ chatId: from, conversation: 'main', type: 'messages', messages: [] });
-    onEvent({ chatId: to, conversation: 'main', type: 'messages', messages: chats.main.messages });
-    return true;
-  }
-
   function stop(chatId, conversation) {
     const child = running.get(`${chatId}:${conversation}`);
     if (!child) return;
@@ -581,5 +551,5 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
 
   const runningIn = (chatId) => [...running.keys()].filter((key) => key.startsWith(`${chatId}:`)).map((key) => key.slice(chatId.length + 1));
 
-  return { status, signIn, install, load, hasSession, send, newSession, moveChat, note, stop, runningIn };
+  return { status, signIn, install, load, hasSession, send, newSession, note, stop, runningIn };
 }
