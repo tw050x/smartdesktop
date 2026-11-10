@@ -374,6 +374,12 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
       await save(chatId, chats);
       onEvent({ windowId, chatId, conversation, type: 'messages', messages: convo.messages });
     };
+    // Another AI than the one last talked to here: a line across saying so, as it doesn't know what
+    // the other said (a new session, or back to its own from before).
+    const lastBy = convo.messages.findLast((m) => m.role === 'user' || m.role === 'assistant')?.by;
+    if (lastBy && lastBy !== provider.id) {
+      await add({ role: 'event', text: convo.sessions[provider.id] ? `Back to ${provider.name}` : `New session with ${provider.name}` });
+    }
     await add({ role: 'user', text });
 
     // A thread's first message branches from the main conversation with the same AI, if any.
