@@ -12,7 +12,7 @@ import path from 'node:path';
 export const APP_NAME = 'SmartDoc';
 export const APP_ID = 'com.tw050x.smartdoc';
 export const REPOSITORY = 'tw050x/smartdoc';
-export const WEBSITE = 'https://tw050x.github.io/smartdoc/';
+export const WEBSITE = 'https://smartdoc.tw050x.net/';
 export const DEFAULT_PORT = 47815;
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 

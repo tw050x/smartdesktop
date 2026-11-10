@@ -20,7 +20,7 @@
     "url": "git+https://github.com/tw050x/smartdoc.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://tw050x.github.io/smartdoc/",
+  "homepage": "https://smartdoc.tw050x.net/",
   "keywords": [
     "mcp",
     "document",

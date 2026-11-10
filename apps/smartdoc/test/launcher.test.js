@@ -81,7 +81,7 @@ describe('opening the app', () => {
     // the app runs on macOS; on a Mac without SmartDoc, that it isn't installed.
     const env = { SMARTDOC_PORT: '1', SMARTDOC_USER_DATA: tempDir('no-app') };
     await assert.rejects(ensureRunning({ env, execPath: '/usr/local/bin/node', platform: 'linux' }), /runs on macOS/);
-    assert.match(new NotInstalled().message, /isn't installed on this computer\. Tell the user to download it from https:\/\/tw050x\.github\.io\/smartdoc\//);
+    assert.match(new NotInstalled().message, /isn't installed on this computer\. Tell the user to download it from https:\/\/smartdoc\.tw050x\.net\//);
   });
 });
 

@@ -136,7 +136,7 @@ export async function setup({ out = console.log, ask = terminalAsk() } = {}) {
     } else out(note('Skipped.'));
   }
 
-  out(`\nFor other agents, open ${APP_NAME} and click its MCP server status, at the top right.`);
+  out(`\nFor other AI apps, open ${APP_NAME}, click its status at the top left, then Connect another AI app yourself.`);
   return failed ? 1 : 0;
 }
 

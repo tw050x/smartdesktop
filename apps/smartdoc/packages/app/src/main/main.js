@@ -868,7 +868,7 @@ async function documentFromDraft(docId, variationId, draftId) {
 // (opened from the server pill, or Connect an AI in the menu) shows how to set up each AI app,
 // and can add SmartDoc to Claude Desktop itself.
 
-const WEBSITE = 'https://tw050x.github.io/smartdoc/';
+const WEBSITE = 'https://smartdoc.tw050x.net/';
 const { setups, claudeDesktopStatus, addToClaudeDesktop, waitCommand } = createConnect({
   isPackaged: app.isPackaged,
   execPath: process.execPath,

@@ -12,7 +12,7 @@ Commands:
   wait            Stay until the user has done what an AI is waiting for (wait --help)
 
 SmartDoc itself is a Mac app: install it with the install command, or download it from
-https://tw050x.github.io/smartdoc/.`;
+https://smartdoc.tw050x.net/.`;
 
 const [command, ...rest] = process.argv.slice(2);
 
