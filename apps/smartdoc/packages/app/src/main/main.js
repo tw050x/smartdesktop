@@ -757,7 +757,9 @@ function openChatWindow(ctx, view) {
   // Where it is relative to the app window, to open there again.
   win.on('move', remember);
   win.on('resize', remember);
-  // Opened from the app, which is active: at the floating level straight away (see followChat).
+  // Clicked away from, it hides unless its app window has the focus (see keepChatWithFocus).
+  win.on('blur', () => setTimeout(() => keepChatWithFocus(ctx)));
+  // Above the app window (see keepChatWithFocus).
   win.setAlwaysOnTop(true, 'floating');
   // Out of the way when the user shows all windows (Mission Control, App Exposé): a floating window
   // would otherwise stay on top of them (the user found it in the way).
@@ -774,24 +776,52 @@ function openChatWindow(ctx, view) {
 }
 
 // The chat floats in a window of its own, which the user moves independently of the app window (the
-// user's choice: as a child window it moved with it), but it stays on top of it: while the app is
-// the active one, the chat is at the floating windows' level, above every ordinary window (however
-// often the app window is clicked: going back over it when that came forward wasn't enough), and
-// while another app is the active one it's hidden, as a Mac's floating palettes are, back as soon as
-// the app is (the user's choice: left as an ordinary window then, it showed in Mission Control,
-// which leaves out only windows above the ordinary ones, and got in the way every time). It hides
-// while the app window is minimised and closes with it, and in full screen, where a window of its
-// own can't follow, the chat docks.
-const chatWindows = () => [...windows.values()].map((ctx) => ctx.chat?.win).filter((win) => win && !win.isDestroyed());
-app.on('did-become-active', () => {
-  for (const ctx of windows.values()) {
-    const win = ctx.chat?.win;
-    if (!win || win.isDestroyed()) continue;
-    win.setAlwaysOnTop(true, 'floating');
-    if (ctx.win.isVisible() && !ctx.win.isMinimized()) win.showInactive();
+// user's choice: as a child window it moved with it), above it at the floating windows' level
+// (however often the app window is clicked: going back over it when that came forward wasn't
+// enough). It shows only while its app window or the chat itself has the focus, and hides as soon as
+// the focus goes anywhere else, another app or another window of this one (the user's choice: left
+// showing, macOS showed it in Mission Control even above the ordinary windows and marked to be left
+// out, and it got in the way). It hides while the app window is minimised and closes with it, and in
+// full screen, where a window of its own can't follow, the chat docks.
+// Coming back to the app, the chat waits for the windows to settle (Mission Control's animation as
+// they go back into place, which nothing reports the end of), then fades in (the user's choice).
+const SETTLE_MS = 450;
+const FADE_MS = 160;
+let activatedAt = 0;
+app.on('did-become-active', () => { activatedAt = Date.now(); });
+function keepChatWithFocus(ctx) {
+  const win = ctx.chat?.win;
+  if (!win || win.isDestroyed() || ctx.win.isDestroyed()) return;
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused !== ctx.win && focused !== win) {
+    clearTimeout(ctx.chat.showing);
+    clearInterval(win.fading);
+    win.hide();
+    win.setOpacity(1);
+    return;
   }
-});
-app.on('did-resign-active', () => chatWindows().forEach((win) => win.hide()));
+  if (win.isVisible() || !ctx.win.isVisible() || ctx.win.isMinimized()) return;
+  const wait = activatedAt + SETTLE_MS - Date.now();
+  if (wait > 0) {
+    clearTimeout(ctx.chat.showing);
+    ctx.chat.showing = setTimeout(() => keepChatWithFocus(ctx), wait);
+    return;
+  }
+  fadeIn(win);
+}
+function fadeIn(win) {
+  const start = Date.now();
+  clearInterval(win.fading);
+  win.setOpacity(0);
+  win.showInactive();
+  const step = setInterval(() => {
+    if (win.isDestroyed()) return clearInterval(step);
+    const t = Math.min(1, (Date.now() - start) / FADE_MS);
+    win.setOpacity(1 - (1 - t) ** 3);
+    if (t === 1) clearInterval(step);
+  }, 16);
+  win.fading = step;
+}
 function followChat(ctx) {
   // The window loaded again (a reload) while its chat floats: it's told, so it sends the chat what
   // it shows.
@@ -799,9 +829,12 @@ function followChat(ctx) {
     if (ctx.chat) ctx.win.webContents.send('chat-mode', { mode: 'floating' });
   });
   const chatWin = () => (ctx.chat && !ctx.chat.win.isDestroyed() ? ctx.chat.win : null);
-  ctx.win.on('show', () => chatWin()?.showInactive());
+  // The focus moves in steps, one window losing it before the next has it, so where it went is
+  // looked at once it's there.
+  const settle = () => setTimeout(() => keepChatWithFocus(ctx));
+  ctx.win.on('focus', settle);
+  ctx.win.on('blur', settle);
   ctx.win.on('minimize', () => chatWin()?.hide());
-  ctx.win.on('restore', () => chatWin()?.showInactive());
   ctx.win.on('hide', () => chatWin()?.hide());
   ctx.win.on('closed', () => chatWin()?.destroy());
   ctx.win.on('enter-full-screen', () => closeChatWindow(ctx, true));
