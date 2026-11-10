@@ -142,6 +142,10 @@ export const PROVIDERS = {
   },
 };
 
+// An AI saying the session it was asked to carry on isn't there (Codex: "no rollout found";
+// Claude Code: "No conversation found").
+export const sessionGone = (text) => /no rollout found|no conversation found|session[^\n]*(not found|does not exist|doesn.t exist)/i.test(text);
+
 // The chat a window's draft has: one for each draft of each variation of each document.
 export const chatIdOf = (doc) => (doc ? `${doc.id}/${doc.variationId}/${doc.currentDraftId}` : null);
 
@@ -375,60 +379,91 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
     // A thread's first message branches from the main conversation with the same AI, if any.
     const resume = convo.sessions[provider.id] ?? null;
     const fork = !resume && conversation !== 'main' ? chats.main.sessions[provider.id] ?? null : null;
-    const args = provider.args({ prompt: prompt ?? text, systemPrompt, mcp: mcp(sessionHeaders), resume, fork });
-
-    const child = spawn(tool, args, { cwd: workDir, env: await env(provider), stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    running.set(key, child);
     onEvent({ windowId, chatId, conversation, type: 'running', running: true });
-    let buffer = '';
-    let errors = '';
-    let replied = false;
-    let failed = null;
-    const handle = async (line) => {
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        return;
-      }
-      const out = provider.read(event);
-      if (out.sessionId && convo.sessions[provider.id] !== out.sessionId) {
-        convo.sessions[provider.id] = out.sessionId;
-        await save(chatId, chats);
-      }
-      for (const message of out.messages) {
-        if (message.role === 'assistant') replied = true;
-        await add(message);
-      }
-      if (out.error) failed = out.error;
-    };
-    let queue = Promise.resolve();
-    child.stdout.on('data', (chunk) => {
-      buffer += chunk;
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) if (line.trim()) queue = queue.then(() => handle(line));
-    });
-    child.stderr.on('data', (chunk) => (errors += chunk));
-    return new Promise((resolve) => {
-      const finish = async (code) => {
-        await queue;
-        if (buffer.trim()) await handle(buffer);
-        running.delete(key);
-        if (child.stopped) await add({ role: 'step', text: 'Stopped' });
-        else if (failed && !replied) await add({ role: 'error', text: failed });
-        else if (code && !replied) await add({ role: 'error', text: errors.trim().split('\n').at(-1) || `${provider.name} couldn’t run.` });
-        onEvent({ windowId, chatId, conversation, type: 'running', running: false });
-        resolve();
+
+    // One run of the AI, its replies and steps added as they come.
+    const runOnce = async (runPrompt) => {
+      const args = provider.args({ prompt: runPrompt, systemPrompt, mcp: mcp(sessionHeaders), resume, fork });
+      const child = spawn(tool, args, { cwd: workDir, env: await env(provider), stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      running.set(key, child);
+      let buffer = '';
+      let errors = '';
+      let replied = false;
+      let failed = null;
+      const handle = async (line) => {
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          return;
+        }
+        const out = provider.read(event);
+        if (out.sessionId && convo.sessions[provider.id] !== out.sessionId) {
+          convo.sessions[provider.id] = out.sessionId;
+          await save(chatId, chats);
+        }
+        for (const message of out.messages) {
+          if (message.role === 'assistant') replied = true;
+          await add(message);
+        }
+        if (out.error) failed = out.error;
       };
-      child.on('exit', finish);
-      child.on('error', (error) => {
-        errors += error.message;
-        finish(1);
+      let queue = Promise.resolve();
+      child.stdout.on('data', (chunk) => {
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) if (line.trim()) queue = queue.then(() => handle(line));
       });
-    });
+      child.stderr.on('data', (chunk) => (errors += chunk));
+      return new Promise((resolve) => {
+        const finish = async (code) => {
+          await queue;
+          if (buffer.trim()) await handle(buffer);
+          resolve({ code, failed, replied, errors, stopped: Boolean(child.stopped) });
+        };
+        child.on('exit', finish);
+        child.on('error', (error) => {
+          errors += error.message;
+          finish(1);
+        });
+      });
+    };
+
+    const result = await runOnce(prompt ?? text);
+    // The AI's session for this chat has gone (its data cleared, or the AI reinstalled): said
+    // plainly, with a way to start a new session (newSession), rather than the AI's own error, so
+    // the user can fix it instead if they can.
+    const gone = !result.stopped && !result.replied && (resume || fork) && sessionGone(`${result.failed ?? ''}\n${result.errors}`);
+    running.delete(key);
+    if (result.stopped) await add({ role: 'step', text: 'Stopped' });
+    else if (gone) await add({ role: 'error', kind: 'session-gone', provider: provider.id, text: `${provider.name} couldn’t carry on this conversation: its earlier session for it can’t be found. Its data may have been cleared, or ${provider.tool} reinstalled. If you can get it back, send your message again; otherwise start a new session, which won’t remember what was said here before.` });
+    else if (result.failed && !result.replied) await add({ role: 'error', text: result.failed });
+    else if (result.code && !result.replied) await add({ role: 'error', text: result.errors.trim().split('\n').at(-1) || `${provider.name} couldn’t run.` });
+    onEvent({ windowId, chatId, conversation, type: 'running', running: false });
+  }
+
+  // A new session with an AI in a conversation, the user's choice once its old one has gone: the
+  // next message starts afresh, after a line saying so. A thread's session was branched from the
+  // main conversation's, so if that's the one that's gone, the main conversation starts afresh too.
+  async function newSession(chatId, conversation, id) {
+    const provider = PROVIDERS[id] ?? PROVIDERS.claude;
+    const chats = await load(chatId);
+    const convo = conversationOf(chats, conversation);
+    const line = (c) => c.messages.push({ id: `m-${Date.now().toString(36)}-${c.messages.length}`, at: new Date().toISOString(), role: 'event', text: `New session with ${provider.name}` });
+    const fromMain = conversation !== 'main' && !convo.sessions[provider.id] && chats.main.sessions[provider.id];
+    delete convo.sessions[provider.id];
+    line(convo);
+    if (fromMain) {
+      delete chats.main.sessions[provider.id];
+      line(chats.main);
+    }
+    await save(chatId, chats);
+    for (const key of fromMain ? [conversation, 'main'] : [conversation]) {
+      onEvent({ chatId, conversation: key, type: 'messages', messages: conversationOf(chats, key).messages });
+    }
   }
 
   function stop(chatId, conversation) {
@@ -440,5 +475,5 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
 
   const runningIn = (chatId) => [...running.keys()].filter((key) => key.startsWith(`${chatId}:`)).map((key) => key.slice(chatId.length + 1));
 
-  return { status, signIn, install, load, hasSession, send, stop, runningIn };
+  return { status, signIn, install, load, hasSession, send, newSession, stop, runningIn };
 }

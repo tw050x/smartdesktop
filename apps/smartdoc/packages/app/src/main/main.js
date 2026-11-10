@@ -677,10 +677,14 @@ const agent = createAgent({
   mcp: (headers) => ({ url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}`, ...headers } }),
   // To try the AIs' setup in a development build without touching the user's own (see agent.js).
   trial: app.isPackaged ? null : { home: process.env.SMARTDOC_AI_HOME || null, hide: process.env.SMARTDOC_AI_HIDE || '' },
+  // To the window the AI was asked from, or, for a change to a chat not from a window (a new
+  // session), to every window: each shows only its own draft's chat.
   onEvent: (event) => {
-    const ctx = [...windows.values()].find((c) => c.id === event.windowId);
-    ctx?.win.webContents.send('agent-event', event);
-    ctx?.chat?.win.webContents.send('agent-event', event);
+    const to = event.windowId ? [...windows.values()].filter((c) => c.id === event.windowId) : [...windows.values()];
+    for (const ctx of to) {
+      ctx.win.webContents.send('agent-event', event);
+      ctx.chat?.win.webContents.send('agent-event', event);
+    }
   },
 });
 
@@ -1157,6 +1161,7 @@ handle('agent-chats', async () => {
 });
 handle('agent-send', (provider, conversation, text) => chatSend(provider, conversation, text));
 handle('agent-stop', (conversation) => agent.stop(chatIdOf(current().workspace.document), conversation));
+handle('agent-new-session', (provider, conversation) => agent.newSession(chatIdOf(current().workspace.document), conversation, provider));
 handle('chat-float', (view) => openChatWindow(current(), view));
 handle('chat-dock', (view) => {
   const ctx = current();

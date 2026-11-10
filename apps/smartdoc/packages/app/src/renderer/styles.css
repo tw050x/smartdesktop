@@ -1005,6 +1005,9 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .chat-message.event { align-self: stretch; display: flex; align-items: center; gap: 8px; max-width: none; color: var(--muted); font-size: 11.5px; }
 .chat-message.event::before, .chat-message.event::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .chat-message.error { align-self: stretch; padding: 7px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del-text); }
+/* The AI's session has gone: said plainly, not as a failure, with a way to start a new one. */
+.chat-message.error.session-gone { display: grid; gap: 10px; justify-items: start; padding: 10px 12px; background: var(--subtle-bg); color: var(--text-2); }
+.chat-message.error.session-gone .chat-paragraph { line-height: 1.45; }
 .chat-paragraph + .chat-paragraph { margin-top: 8px; }
 .chat-paragraph { white-space: pre-wrap; }
 .chat-list-block { margin: 0; padding-left: 20px; }

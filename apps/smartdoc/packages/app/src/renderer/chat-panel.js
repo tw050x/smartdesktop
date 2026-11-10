@@ -452,12 +452,27 @@ export function createChatPanel({ el, api, review, windowed = false, onDock, onF
     return `Chat started ${day}, ${time}`;
   }
 
-  function messageElements(messages) {
+  function messageElements(messages, key = conversation()) {
+    const latest = messagesOf(key).at(-1)?.id;
     return messages.map((message) => {
-      const node = div(`chat-message ${message.role}`);
+      const node = div(`chat-message ${message.role}${message.kind ? ` ${message.kind}` : ''}`);
       if (message.role === 'assistant') node.append(...formatted(message.text));
       else if (message.role === 'step' || message.role === 'event') node.textContent = message.text;
       else for (const paragraph of message.text.split(/\n{2,}/)) node.append(div('chat-paragraph', paragraph));
+      // The AI's session for the conversation has gone: while that's the latest thing, a way to
+      // start a new one (the user may fix it instead, and send again).
+      if (message.kind === 'session-gone' && message.id === latest && !isRunning(key)) {
+        const start = button('secondary-button chat-new-session', 'Start a new session', async () => {
+          start.disabled = true;
+          try {
+            await api.agentNewSession(message.provider, key);
+          } catch (error) {
+            start.disabled = false;
+            addLocal(key, { role: 'error', text: failureText(error) });
+          }
+        });
+        node.append(start);
+      }
       return node;
     });
   }

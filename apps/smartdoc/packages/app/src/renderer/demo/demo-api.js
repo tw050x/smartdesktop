@@ -314,6 +314,7 @@ export function createDemoApi() {
     agentChats: async () => ({ chatId: chatId(), ...structuredClone(chatOf()) }),
     agentSend: async () => true, // what's sent, and the AI's answer, are the director's
     agentStop: async () => {},
+    agentNewSession: async () => {},
     agentInstall: () => new Promise((resolve) => (chat.pending = resolve)),
     agentSignIn: () => new Promise((resolve) => (chat.pending = resolve)),
     agentInstallHelp: async () => {},

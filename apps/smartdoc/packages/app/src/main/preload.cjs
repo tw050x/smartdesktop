@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('smartdoc', {
   agentChats: () => call('agent-chats'),
   agentSend: (provider, conversation, text) => call('agent-send', provider, conversation, text),
   agentStop: (conversation) => call('agent-stop', conversation),
+  agentNewSession: (provider, conversation) => call('agent-new-session', provider, conversation),
   agentInstallHelp: (id) => call('agent-install-help', id),
   onAgentEvent: on('agent-event'),
   onAgentProgress: on('agent-progress'),
