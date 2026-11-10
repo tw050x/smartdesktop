@@ -88,3 +88,16 @@
 
 /* The demo's window is shorter than most, and its scenes are framed around pages near the top. */
 body .pages { padding-top: var(--card-gap); }
+
+/* The chat's window, when the demo plays on its own (on the website it's beside the window, in a
+   frame of the site's): floating over the right side, as the app's own chat window can. */
+.demo-own-chat {
+  position: fixed;
+  z-index: 50;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18), 0 18px 48px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.demo-own-chat.shown { opacity: 1; }

@@ -101,6 +101,12 @@
 .agent-tool span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 @keyframes agent-spin { to { transform: rotate(360deg); } }
 @keyframes agent-in { from { opacity: 0; transform: translateY(4px); } }
+/* The chat's window: the app's own chat (the demo's demo-chat.html), frameless, floating by the app
+   window's right edge as it does in the app, placed and scaled with it (placeChat in story.js), and
+   faded in while the demo says it shows. SmartDoc's: SmartSpec has the agent's window instead. */
+.camera.chat { width: 400px; height: 660px; border-radius: 10px; opacity: 0; transition: opacity 0.35s; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 18px 48px rgba(0, 0, 0, 0.22); }
+.camera.chat.shown { opacity: 1; }
+.camera.chat iframe { width: 400px; height: 660px; }
 /* Narrow: the window and the caption one above the other, either way round (story.js places
    them), and the progress dots in a row, centred at the foot, the current one long. */
 @media (max-width: 899px) {

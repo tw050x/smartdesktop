@@ -6,7 +6,7 @@ name: Website
 on:
   push:
     branches: [master]
-    paths: [site/**, packages/app/src/renderer/**, packages/app/src/main/anchors.js, packages/app/vite.demo.config.js, .github/workflows/pages.yml]
+    paths: [site/**, packages/app/src/renderer/**, packages/app/src/main/anchors.js, packages/app/src/main/describe-step.js, packages/app/vite.demo.config.js, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:

@@ -9,12 +9,15 @@
 //   - over the last fifth, the next scene's caption fades in
 // Scrolling back up plays it all the other way. On a step the camera holds still and the scene's
 // moment plays as the page scrolls through it, the step as long as the moment needs: the cursor
-// working the app, typing, and the .agent window floating over it while the agent's at work (in a
-// scene whose caption says so, data-agent). Scrolling back up runs it backwards. A step with no
-// caption (the hero) plays its moment through in time instead. The first scene's file is dragged
-// onto the window as the page scrolls through its step: over the window the app shows its drop
-// indicator, then the file drops and the document opens. Progress dots track the scenes. A page can change a step's scene and call story.replay() (the home page's hero does, as
-// it swaps tools), and hears 'story:scene' as a scene is built.
+// working the app, typing, and the AI at work: answering in the app's own chat, in a window of its
+// own (.camera.chat, the demo's demo-chat.html) floating by the app window's right edge, as it does
+// in the app (SmartDoc), or in the .agent window floating over it, standing for an AI app of the
+// visitor's (SmartSpec, in a scene whose caption says so, data-agent). Scrolling back up runs it
+// backwards. A step with no caption (the hero) plays its moment through in time instead. The
+// first scene's file is dragged onto the window as the page scrolls through its step: over the
+// window the app shows its drop indicator, then the file drops and the document opens. Progress
+// dots track the scenes. A page can change a step's scene and call story.replay() (the home page's
+// hero does, as it swaps tools), and hears 'story:scene' as a scene is built.
 
 const stage = document.querySelector('.stage');
 const camera = stage.querySelector('.camera');
@@ -29,6 +32,10 @@ const secondCamera = stage.querySelector('.camera.second');
 let secondDemo = null;
 let secondShowing = false;
 const twoWindows = (step) => Boolean(step.dataset.windows);
+// The chat's window: placed with the app's, at the demo's chatPlace, while the demo says it shows.
+const chatCamera = stage.querySelector('.camera.chat');
+const CHAT = { x: 1000, y: 70, width: 400, height: 660 }; // the demo's chatPlace (where it's dragged to), until it says
+let chatShown = false;
 const steps = [...document.querySelectorAll('.step')];
 const captions = [...stage.querySelectorAll('.caption')];
 const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
@@ -128,7 +135,8 @@ function framing(step) {
     const against = room.x; // the window's left edge on the column's
     x = against + (focus.x + focus.width) * k <= room.x + room.width ? against : Math.max(x, room.x);
   } else if (side === 'right') {
-    const against = room.x + room.width - WINDOW.width * k; // its right edge on the column's
+    // Its right edge on the column's (or the chat's window's, past it).
+    const against = room.x + room.width - Math.max(WINDOW.width, focus.x + focus.width) * k;
     x = against + focus.x * k >= room.x ? against : Math.min(x, against);
   }
   return { x, y, k };
@@ -141,7 +149,7 @@ function framing(step) {
 // a card, a column) up to its full size. A tablet shows a whole window whole.
 // What doesn't fit in the window's room is cut off at the room's edges (clip). The camera pans
 // across it: to the cursor while it's working, otherwise to the middle of what the scene's about
-// (or, for the agent at work, where the demo says, narrowX). The pan eases there frame by frame,
+// (or, for the AI at work, where the demo says, narrowX). The pan eases there frame by frame,
 // as the focus does.
 const EDGE = 12; // the space around the window
 const GAP = 20; // between the caption and the window
@@ -176,13 +184,14 @@ function narrowFraming(step) {
   const k = fit >= WHOLE
     ? Math.min(1, Math.max(Math.min(fit, (room.bottom - room.top) / WINDOW.height), focus.width < WINDOW.width ? detail : 0))
     : Math.min(1, Math.max(WHOLE, (room.bottom - room.top) / WINDOW.height, detail));
-  // Across: panned to the cursor, staying where it was while it's hidden (the agent at work, or
+  // Across: panned to the cursor, staying where it was while it's hidden (the AI at work, or
   // another scene being built), or before it's shown to where it'll first go (narrowX), or to the
   // middle of the focus; never past the window's edges.
   if (step === built && cursorAt) cursorWas.set(step, cursorAt);
   let target = cursorWas.get(step)?.x ?? focus.narrowX ?? focus.x + focus.width / 2;
   const half = (W - 2 * EDGE) / k / 2;
-  target = half * 2 >= WINDOW.width ? WINDOW.width / 2 : Math.min(WINDOW.width - half, Math.max(half, target));
+  const across = focus.chat ? Math.max(WINDOW.width, CHAT.x + CHAT.width) : WINDOW.width; // the chat's window too
+  target = half * 2 >= across ? across / 2 : Math.min(across - half, Math.max(half, target));
   let pan = pans.get(step);
   if (!pan || still.matches) pans.set(step, (pan = { x: target }));
   else if (pan.frame !== lastFrame) {
@@ -307,6 +316,7 @@ function render() {
   stage.classList.toggle('on-hero', a.dataset.side === 'below' && t < 0.2);
   if (!wide.matches) for (const step of steps) if (captionOf(step)) captionOf(step).style.setProperty('--narrow-top', `${narrowLayout(step).captionTop}px`);
   placeAgent(x, { top: y + clipTop * k, bottom: y + (WINDOW.height - clipBottom) * k });
+  placeChat(x, y, k, clipTop, clipBottom);
   placeFile(from, to, t, within, { x, y: lerp(fa.y, fb.y, u), k: lerp(fa.k, fb.k, u) });
 
   // The captions: the last fading out over the first fifth, moving up; the next fading in over the
@@ -397,7 +407,7 @@ function placeFile(from, to, t, within, view) {
   ghost.style.opacity = (1 - clamp((w - (DROP - 0.06)) / 0.06)).toFixed(3);
 }
 
-// --- The agent's side ----------------------------------------------------------------------
+// --- The agent's side (SmartSpec's) ----------------------------------------------------------
 
 const agentWindow = stage.querySelector('.agent');
 const agentBody = agentWindow?.querySelector('.agent-body');
@@ -440,6 +450,20 @@ function placeAgent(x, shown) {
   agentWindow.style.left = wide.matches ? `${Math.max(x, 0) + 32}px` : '';
   agentWindow.style.top = wide.matches ? '' : `${shown.top + (shown.bottom - shown.top) * 0.4}px`;
   agentWindow.style.height = wide.matches ? '' : `${(shown.bottom - shown.top) * 0.6 - EDGE}px`;
+}
+
+// --- The chat's window (SmartDoc's) -----------------------------------------------------------
+
+// Placed as the app's window is, at its place beside it (in the app window's pixels, scaled the
+// same), and cut off where the app's window is (narrow), showing while the demo says.
+function placeChat(x, y, k, clipTop, clipBottom) {
+  if (!chatCamera) return;
+  chatCamera.style.transform = `translate(${x + CHAT.x * k}px, ${y + CHAT.y * k}px) scale(${k})`;
+  const top = Math.max(0, clipTop - CHAT.y);
+  const bottom = Math.max(0, CHAT.y + CHAT.height - (WINDOW.height - clipBottom));
+  const out = -80 / k;
+  chatCamera.style.clipPath = top || bottom ? `inset(${top || out}px ${out}px ${bottom || out}px ${out}px)` : '';
+  chatCamera.classList.toggle('shown', chatShown);
 }
 
 // --- Progress ------------------------------------------------------------------------------
@@ -488,11 +512,34 @@ if (location.protocol === 'file:') {
   camera.insertAdjacentHTML('beforeend', '<div class="needs-server"><p>The demo needs the site served, not opened as a file. In the repository, run</p><code>npm run site</code><p>and open http://127.0.0.1:8765</p></div>');
 }
 
+// The chat's page loads beside the app's; the demo starts it once both have.
+const chatLoaded = new Promise((resolve) => {
+  const chatFrame = chatCamera?.querySelector('iframe');
+  if (!chatFrame || location.protocol === 'file:') return resolve(null);
+  if (chatFrame.contentDocument?.readyState === 'complete' && chatFrame.contentWindow.startChat) return resolve(chatFrame);
+  chatFrame.addEventListener('load', () => resolve(chatFrame));
+});
 frame.addEventListener('load', async () => {
   while (!frame.contentWindow.demo) await new Promise((resolve) => setTimeout(resolve, 50));
-  demo = frame.contentWindow.demo;
+  const loaded = frame.contentWindow.demo;
+  const chatFrame = await chatLoaded;
+  if (chatFrame) {
+    Object.assign(CHAT, loaded.chatPlace);
+    await loaded.attachChat(chatFrame.contentWindow, loaded.chatPlace);
+    loaded.onChatShown((on) => {
+      chatShown = on;
+      schedule();
+    });
+    // Dragged out of the way (in a scene that shows it can be), it goes with the drag.
+    loaded.onChatMoved?.((at) => {
+      Object.assign(CHAT, at);
+      schedule();
+    });
+    chatFrame.classList.add('loaded');
+  }
+  demo = loaded;
   demo.setInstant(still.matches);
-  demo.onAgent(showAgent);
+  demo.onAgent?.(showAgent);
   demo.onCursor((at) => {
     cursorAt = at;
     if (!wide.matches) schedule();

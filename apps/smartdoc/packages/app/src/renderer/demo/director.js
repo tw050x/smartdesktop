@@ -1,28 +1,41 @@
 // Plays the website demo one scene at a time, as the site's pages scroll (see site/story.js).
 // Going to a scene first builds its state at once (whether the document's been added, which
 // screen, which drafts exist, how far each review has got, what's been decided, which card is
-// open), so scenes can be reached in any order, scrolling up or down. Its moment is then a
-// timeline of beats: a drawn cursor moving to and clicking the real interface, typing into it,
-// and the agent's part (its messages and tool calls, for the site's agent window, and what they do
-// through the stand-in API, demo-api.js). The site puts the moment wherever its page has scrolled
-// to (seek), forwards or back, so the cursor and the typing follow the scrolling; on its own, the
-// demo plays each moment through in time (start).
+// open, what the chat says), so scenes can be reached in any order, scrolling up or down. Its
+// moment is then a timeline of beats: a drawn cursor moving to and clicking the real interface,
+// typing into it, and the AI's part in the chat (its replies and the steps it takes, and what they
+// do through the stand-in API, demo-api.js). The site puts the moment wherever its page has
+// scrolled to (seek), forwards or back, so the cursor, the typing and the chat follow the
+// scrolling; on its own, the demo plays each moment through in time (start).
+//
+// The chat is the app's own, in a window of its own (demo-chat.html, attached with attachChat),
+// floating by the app window's right edge as the app's does. The director drives both windows: the
+// cursor goes from one to the other (each draws its own, the one under it showing), and what the
+// chat says at any point is worked out from the scene's beats, so it follows the scrolling too.
 //
 // Going back over a beat that can't be undone (a click), the scene is built afresh and its beats
 // done again at once, up to the point asked for. The rest (the cursor's place, typing, what the
-// agent's said, the camera's focus) follow the point either way.
+// AI's said, the camera's focus) follow the point either way.
 //
 // Two sets of scenes: the home page's run-through of a real session, from opening the CV to a
 // variation for one job, and the features page's look at each part of the app.
 //
 // show(name) resolves with the part of the window the scene is about (its focus, in the window's
-// own pixels), for the site to bring into view, or null if another scene was asked for meanwhile.
-// It also says where across the window a narrow screen, showing only part of its width, should
-// centre on before the cursor's shown (narrowX): where the cursor first goes, or, for the agent at
-// work, the pages' right half and the margin beside them, where the suggestions and highlights
-// come in.
+// own pixels, the chat's window by its right edge counting too), for the site to bring into view,
+// or null if another scene was asked for meanwhile. It also says where across the window a narrow
+// screen, showing only part of its width, should centre on before the cursor's shown (narrowX):
+// where the cursor first goes, or, for the AI at work, the chat.
+
+import { describeStep } from '../../main/describe-step.js';
+import { makeCursor } from './hover.js';
 
 const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
+// Where the chat's window floats, in the app window's pixels: over its right side, and a little
+// past it, as a window of its own can be (the user wanted it over the window, and the window
+// larger, rather than beside it). It covers the cards in the right margin, as it would in the app,
+// so the scenes reach a suggestion through the chat's own list; and it can be dragged out of the
+// way (drag beats). A floating chat doesn't move the document: only the docked one does.
+export const CHAT_PLACE = { x: 1000, y: 70, width: 400, height: 660 };
 const CANCELLED = new Error('The scene changed.');
 const DOC = { id: 'demo', name: 'Alex Example CV.pdf' };
 // The findings' decisions, in the order they're decided (the review's order: profile, wording,
@@ -33,9 +46,11 @@ const DECISIONS = [
   { status: 'answered', answer: 'Rebuilt it; conversion rose 12%' },
   { status: 'accepted' },
 ];
-const IMPROVE_GOAL = 'Make it stand out to a hiring manager';
-const HIGHLIGHTS_GOAL = 'What a recruiter takes in at a glance';
-const VARIATION_PURPOSE = 'Tailor it to the product lead role at Acme: leading a team of 6 on the design system.';
+const IMPROVE_ASK = 'Review my CV and make it stand out to a hiring manager';
+const HIGHLIGHTS_ASK = 'What would a recruiter take in at a glance?';
+const REDRAFT_ASK = 'Write the next draft';
+const VARIATION_ASK = 'Make a version for the product lead role at Acme: leading a team of 6 on the design system';
+const TALK_ASK = 'Keep my wording, but make it clear I built it';
 // Where the cursor comes from at the start of a moment: a little below and right of where it's
 // first going, in the window's pixels.
 const CURSOR_FROM = { x: 160, y: 140 };
@@ -43,29 +58,20 @@ const CURSOR_FROM = { x: 160, y: 140 };
 // window's size, for the site to frame them before they're first built (see focusHints). The
 // scene's own measure replaces it once it's built.
 const FOCUS_HINTS = {
-  variation: { x: 380, y: 100, width: 836, height: 708 },
-  'f-options': { x: 654, y: 124, width: 626, height: 670 },
-  'f-edit': { x: 654, y: 401, width: 626, height: 341 },
-  'f-questions': { x: 654, y: 124, width: 626, height: 401 },
-  'f-structure': { x: 0, y: 124, width: 626, height: 328 },
+  variation: WINDOW,
   'f-focus': { x: 0, y: 0, width: 689, height: 282 },
-  'f-gaps': { x: 0, y: 14, width: 626, height: 213 },
   'f-variation': { x: 839, y: 100, width: 377, height: 708 },
   'f-document': { x: 839, y: 100, width: 421, height: 708 },
+  'f-setup': { x: 0, y: 0, width: 520, height: 800 },
 };
 // The top bar's left part and the focus menu that opens under it.
-const FOCUS_MENU = { x: 0, y: 0, width: 690, height: 300 };
-// Where a narrow screen centres a scene of the agent at work (see show).
-const AGENT_X = 900;
+// How far the chat's window is dragged to show what's under it: clear of the cards beside the pages.
+const CHAT_DRAG = 260;
+// Where a narrow screen centres a scene of the AI at work: the chat.
+const CHAT_X = CHAT_PLACE.x + CHAT_PLACE.width / 2;
 
 export function createDirector({ api }) {
-  const cursor = document.createElement('div');
-  cursor.className = 'demo-cursor';
-  // In the top layer, so it's drawn above everything, open dialogs included (see raise).
-  cursor.popover = 'manual';
-  cursor.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 2.5v17.2l4.6-4.4 2.9 6.6 2.7-1.2-2.9-6.5h6.4Z" fill="#1d1d1f" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
-  document.body.append(cursor);
-  cursor.showPopover();
+  const cursor = makeCursor();
   // A dialog opened since goes above it; shown again, it's back on top.
   const raise = () => {
     if (!document.querySelector('dialog[open]')) return;
@@ -79,36 +85,33 @@ export function createDirector({ api }) {
   let building = Promise.resolve();
   let current = null; // the scene asked for most recently
   let moment = null; // the built scene's moment (see show)
-  const agentListeners = [];
   const cursorListeners = [];
   let cursorWas = 'null';
+  // The chat's window, once attached: its page, where it floats, and its cursor.
+  let chat = null; // { win, doc, place, cursor }
+  let moved = { x: 0, y: 0 }; // how far it's been dragged from its place in this scene
+  const movedListeners = [];
+  // The scene's chat before its moment: { main: [messages], [item id]: [messages] }.
+  let chatBase = {};
+  const start = Date.now() - 6 * 60 * 1000; // the chat's messages are from a few minutes ago on
 
   const pause = (ms, id) => new Promise((resolve, reject) => setTimeout(() => (id === live ? resolve() : reject(CANCELLED)), instant ? 0 : ms));
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-  // What the agent has done so far, for the site to show in its agent window: { type: 'log',
-  // entries }, each a 'prompt' (text: what the user pasted), something the agent 'say's (text, as
-  // far as it's typed), or a 'tool' call (name, detail, and done once it's finished).
-  const agent = (event) => agentListeners.forEach((listener) => listener(event));
-
   // Waits until `find` returns something (the interface draws a moment after each change).
   async function waitFor(find, id, timeout = 8000) {
-    const start = performance.now();
+    const begin = performance.now();
     for (;;) {
       const found = find();
       if (found) return found;
-      if (performance.now() - start > timeout) throw new Error('The demo lost its place.');
+      if (performance.now() - begin > timeout) throw new Error('The demo lost its place.');
       await new Promise((resolve) => setTimeout(resolve, 40));
       if (id !== live) throw CANCELLED;
     }
   }
 
-  function showCursor(on) {
-    cursor.classList.toggle('shown', on);
-  }
-
-  // What the cursor is over shows as hovered (.demo-hover, see demo.js), and margin cards answer
-  // hovering too: the page fades behind the hovered card.
+  // What the cursor is over shows as hovered (.demo-hover, see hover.js), in whichever window it's
+  // in, and margin cards answer hovering too: the page fades behind the hovered card.
   let hoverShown = [];
   let hoverTarget = null;
   function hover(element) {
@@ -116,37 +119,48 @@ export function createDirector({ api }) {
     hoverTarget = element;
     for (const el of hoverShown) el.classList.remove('demo-hover');
     hoverShown = [];
-    for (let el = element; el && el !== document.body; el = el.parentElement) {
+    for (let el = element; el && el !== el.ownerDocument.body; el = el.parentElement) {
       el.classList.add('demo-hover');
       hoverShown.push(el);
     }
-    const slot = element?.closest('.margin-slot') ?? null;
+    const slot = element?.ownerDocument === document ? element.closest('.margin-slot') : null;
     if (slot === hovered) return;
     hovered?.dispatchEvent(new MouseEvent('mouseleave'));
     slot?.dispatchEvent(new MouseEvent('mouseenter'));
     hovered = slot;
   }
 
+  // --- Finding things in the two windows ---------------------------------------------------------
+
   const button = (scope, label) => [...document.querySelectorAll(`${scope} button`)].find((b) => b.textContent.trim() === label);
   const tab = (title) => [...document.querySelectorAll('.margin-tab')].find((t) => t.textContent.includes(title));
   const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+  // In the chat's window.
+  const inChat = (selector) => chat?.doc.querySelector(selector) ?? null;
+  const chatButton = (label, scope = '') => [...(chat?.doc.querySelectorAll(`${scope} button`) ?? [])].find((b) => b.textContent.trim() === label);
+  const chatRow = (title) => [...(chat?.doc.querySelectorAll('.chat-row') ?? [])].find((r) => r.textContent.includes(title));
+  const chatInput = () => inChat('.chat-compose textarea');
+  const chatSend = () => inChat('.chat-send');
   const union = (...rects) => {
     const rs = rects.filter(Boolean);
     if (!rs.length) return WINDOW;
-    const x = Math.min(...rs.map((r) => r.left));
-    const y = Math.min(...rs.map((r) => r.top));
-    return { x, y, width: Math.max(...rs.map((r) => r.right)) - x, height: Math.max(...rs.map((r) => r.bottom)) - y };
+    const x = Math.min(...rs.map((r) => r.left ?? r.x));
+    const y = Math.min(...rs.map((r) => r.top ?? r.y));
+    return { x, y, width: Math.max(...rs.map((r) => r.right ?? r.x + r.width)) - x, height: Math.max(...rs.map((r) => r.bottom ?? r.y + r.height)) - y };
   };
-  // An open card, with some of the page beside it (the side its text is on).
-  const cardFocus = (side) => {
-    const r = rect('.margin-slot.open');
-    if (!r) return WINDOW;
-    const reach = 380;
-    const y = Math.max(0, r.top - 40);
-    return side === 'r'
-      ? { x: r.left - reach, y, width: r.width + reach + 20, height: r.height + 80 }
-      : { x: Math.max(0, r.left - 20), y, width: r.width + reach + 20, height: r.height + 80 };
+  const place = () => {
+    const at = chat?.place ?? CHAT_PLACE;
+    return { ...at, x: at.x + moved.x, y: at.y + moved.y };
   };
+  function moveChat(to) {
+    if (to.x === moved.x && to.y === moved.y) return;
+    moved = to;
+    movedListeners.forEach((listener) => listener(place()));
+  }
+  // The app window with the chat's window by it.
+  const withChat = () => union(WINDOW, place());
+  // The chat's window, with `reach` of the app window beside it (the text a thread is about).
+  const chatFocus = (reach = 440) => ({ x: place().x - reach, y: Math.max(0, place().y - 30), width: place().width + reach, height: place().height + 60 });
   // The top bar's left part, with whatever menu is open under it.
   const topLeft = () => union({ left: 0, top: 0, right: 640, bottom: 44 }, rect('.tool-card:not([hidden])'));
 
@@ -160,19 +174,25 @@ export function createDirector({ api }) {
     document.querySelector('dialog[open]')?.close();
     document.querySelectorAll('.demo-menu, .demo-file').forEach((el) => el.remove());
     document.getElementById('document')?.classList.remove('dragging');
+    if (document.body.classList.contains('mcp-open')) document.getElementById('server-pill')?.click();
+    if (chat) {
+      chat.doc.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); // closes the AI picker's menu
+      const input = chatInput();
+      if (input?.value) setText(input, '');
+    }
   }
 
   // Remembered per document (see app-shell.js): every scene starts on all the findings, in the
-  // document view.
+  // document view, and the chat opens in its own window, on Claude.
   function resetViews() {
     try {
       localStorage.setItem(`smartdoc.show.${DOC.id}`, 'all');
       localStorage.setItem(`smartdoc.view.${DOC.id}`, 'document');
+      localStorage.setItem('chat-in-window', '1');
+      localStorage.setItem('chat-ai', 'claude');
     } catch {}
   }
 
-  // The reviews as far as they've got: { improve: [shown, done], highlights: [shown, done] }, a
-  // review left out not started.
   // Selects text on the page as a press and release there would, or clears the selection. (Not
   // bubbling: only the pages hear the press, as the app's own handling of a press isn't needed.)
   function selectOnPage(range) {
@@ -183,9 +203,12 @@ export function createDirector({ api }) {
     window.dispatchEvent(new MouseEvent('mouseup'));
   }
 
+  // The reviews as far as they've got: { improve: [shown, done], highlights: [shown, done] }, a
+  // review left out not started.
   function progress({ improve, highlights } = {}) {
     api.clearComments();
     api.setAiControl(null);
+    for (let i = 0; i < api.reviews.improve.items.length; i++) api.reviseItem(i, null);
     api.setProgress('improve', improve ? { started: true, shown: improve[0], done: improve[1] } : { started: false, shown: 0, done: false });
     api.setProgress('highlights', highlights ? { started: true, shown: highlights[0], done: highlights[1] } : { started: false, shown: 0, done: false });
   }
@@ -193,10 +216,12 @@ export function createDirector({ api }) {
   const ALL_HIGHLIGHTS = [5, true];
 
   // The document on draft `n` in `tool`, with the first `decided` findings decided (and the drafts
-  // up to `n` made).
+  // up to `n` made). A scene with the chat opens it (openChat); one without puts it away, once
+  // it's built (so it stays from one scene with it to the next).
   async function onDocument(n, tool, { decided = 0, reviews = {}, made = n } = {}, id) {
     api.state.added = true;
     api.setMade(made);
+    api.setAis();
     progress(reviews);
     resetViews();
     const s = api.state;
@@ -215,36 +240,91 @@ export function createDirector({ api }) {
     api.state.added = added;
     api.setMade(made, variation);
     progress(reviews);
+    hideChat();
     if (api.state.screen !== 'home') api.showHome(); // (on the home screen already, setMade listed it afresh)
     closeAll();
     await waitFor(() => (added ? document.querySelector('#home-drafts .home-item') : document.querySelector('#home-documents .home-empty')), id);
   }
 
-  // Opens a card at once, as clicking its tab does, and scrolls the page so it's in view (a tab
-  // further down the page may be out of sight), then waits for it to stop moving so its place can
-  // be measured.
-  async function open(title, id) {
-    (await waitFor(() => tab(title), id)).click();
-    const card = await waitFor(() => rect('.margin-slot.open'), id);
-    const view = document.getElementById('document').getBoundingClientRect();
-    if (card.top < view.top + 40 || card.bottom > view.bottom - 40) {
-      document.getElementById('document').scrollBy({ top: card.top - view.top - 120, behavior: 'instant' });
-    }
-    await settle(id);
+  // --- The chat ----------------------------------------------------------------------------------
+
+  // A message in the chat, as agent.js keeps them: n numbers it, so it's the same each time.
+  const message = (convo, n, role, text) => ({ id: `demo-${convo}-${n}`, at: new Date(start + n * 20 * 1000).toISOString(), by: 'claude', role, text });
+  // A conversation that's already happened, from its turns: [role, text] each.
+  const said = (convo, turns) => turns.map(([role, text], n) => message(convo, n, role, text));
+
+  let chatWanted = false; // whether the scene being built opens the chat
+  let chatDraft = null; // the draft whose chat the scene is in (accepting a preview moves on from it)
+  function hideChat() {
+    if (api.chatShown) api.showChat(false);
+  }
+  // Each scene's chat starts from nothing but what it sets.
+  function forgetChat() {
+    chatWanted = false;
+    chatBase = {};
+    chatDraft = null;
+    api.clearChats();
+    builds++;
+    setCommitTimes();
   }
 
-  // Waits until the open card stops moving (a few frames in the same place), for up to 2 seconds.
-  async function settle(id) {
-    let last = null;
-    let still = 0;
-    const start = performance.now();
-    while (still < 4 && performance.now() - start < 2000) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      if (id !== live) throw CANCELLED;
-      const top = rect('.margin-slot.open')?.top;
-      still = top === last ? still + 1 : 0;
-      last = top;
-    }
+  // The chat's window open on a conversation ('main' or an item's id), with what's been said so
+  // far in this draft's chat (`base`), waiting for it to show it.
+  async function openChat(view, base, id) {
+    chatWanted = true;
+    chatBase = base;
+    chatDraft = api.chatDraft;
+    api.setChat(base, [], chatDraft);
+    api.showChat(true, view);
+    if (!chat) return;
+    await waitFor(() => inChat('.chat-panel:not([hidden]) .chat-body'), id);
+    if (view !== 'main') await waitFor(() => inChat('.chat-thread-title'), id);
+    else if (Object.values(base).some((m) => m.length)) await waitFor(() => inChat('.chat-body .chat-message:not(.chat-start)'), id);
+    await waitFor(() => inChat('.chat-compose textarea:not([disabled])'), id);
+    // The findings card folded, as it starts.
+    inChat('.chat-list-head[aria-expanded="true"]')?.click();
+    await frame();
+  }
+
+  // What's been said in each scene's chat before its moment.
+  const ASKED = [['user', IMPROVE_ASK], ['step', 'Looking over the document'], ['step', 'Reading the document'], ['step', 'Starting a review']];
+  const REVIEWED = [
+    ...ASKED,
+    ...api.reviews.improve.items.map((item) => ['step', describeStep('add_finding', { title: item.title })]),
+    ['step', 'Finishing the review'],
+    ['assistant', 'Done: four suggestions, each beside the text it’s about. The profile is the big one. It could be anyone’s, so I’ve offered two rewrites. I’ve also asked what came of the checkout work, since a result would make that line much stronger.'],
+  ];
+  const HIGHLIGHTED = [
+    ['user', HIGHLIGHTS_ASK],
+    ['step', 'Reading the document'],
+    ['step', 'Starting a review'],
+    ...api.reviews.highlights.highlights.map((h) => ['step', describeStep('add_highlight', { title: h.title })]),
+    ['step', 'Finishing the review'],
+    ['assistant', 'At a glance: six years of platform leadership and a 12% lift in conversion. One gap: you don’t say how big your team at Acme is.'],
+  ];
+
+  // When each review was finished: between its last step and the AI's reply (both conversations
+  // have their 'Finishing the review' second from the end), where the chat puts its card.
+  // A millisecond more for each scene built: the chat keeps a review's list unfolded by when it
+  // was finished, and each scene starts with it folded.
+  let builds = 0;
+  const finishedAfter = (n) => new Date(start + n * 20 * 1000 + 10 * 1000 + builds).toISOString();
+  const setCommitTimes = () => api.setCommitTimes({ improve: finishedAfter(REVIEWED.length - 2), highlights: finishedAfter(HIGHLIGHTED.length - 2) });
+  setCommitTimes();
+
+  // --- Placing the cursor, and other helpers -------------------------------------------------------
+
+  // The chat's list of suggestions unfolded (it starts folded), a suggestion opened from it, and
+  // back from its thread to the conversation (the list stays unfolded).
+  const unfoldList = () => click(() => inChat('.chat-list-head'));
+  const openRow = (title) => click(() => chatRow(title));
+  const backToChat = () => click(() => inChat('.chat-back'));
+
+  // Opens a finding's thread in the chat, as clicking its card in the margin does.
+  async function openThread(title, id) {
+    (await waitFor(() => tab(title), id)).click();
+    await waitFor(() => inChat('.chat-thread-title')?.textContent.includes(title.slice(0, 12)), id);
+    await frame();
   }
 
   // Selects a variation on the home screen (choosing one draws the list afresh, so its row is
@@ -306,14 +386,14 @@ export function createDirector({ api }) {
   // --- Beats -----------------------------------------------------------------------------
   // A moment's beats, each taking `ms` of the timeline (which sets how far the page scrolls for
   // it):
-  //   - move: the cursor goes to what `find` finds
+  //   - move: the cursor goes to what `find` finds (in either window)
   //   - press: the cursor presses, then `act` (a click) is done on what `find` finds
   //   - typed: text typed into what `find` finds, a character at a time
   //   - act: something done once the beat's reached (`undo` takes it back; without one, going
   //     back over it builds the scene afresh)
-  //   - log: the agent's part: 'clear', a 'prompt', something it 'say's (typed out over the beat)
-  //     or a 'tool' call (under way over the beat, done at its end, when its `act` is done)
-    //   - hide: the cursor's put away (while the agent works)
+  //   - log: the AI's part, in the chat: the user's message ('prompt'), something it 'say's (typed
+  //     out over the beat) or a 'tool' it calls (a step in the chat, its `act` done at its end)
+  //   - hide: the cursor's put away (while the AI works)
 
   const wait = (ms) => ({ ms });
   const move = (find, ms = 650) => ({ ms, find, move: true });
@@ -324,17 +404,36 @@ export function createDirector({ api }) {
     { ms: text.length * 32, find, typed: text },
   ];
   const act = (fn, undo, ms = 0) => ({ ms, act: fn, undo });
-
-  // The agent at work: the prompt pasted to it, then each step in turn: { say } for something it
-  // says (typed out), or { tool, detail, act, undo, done, wait } for a SmartDoc tool call, under
-  // way for `wait`, then showing `done` once its `act` is done.
-  const agentWork = (prompt, steps) => [
-    { ms: 0, log: 'clear', hide: true },
-    { ms: 800, log: 'prompt', text: prompt },
-    ...steps.map((step) => (step.say
-      ? { ms: 500 + step.say.length * 14, log: 'say', text: step.say }
-      : { ms: step.wait ?? 700, log: 'tool', name: step.tool, detail: step.detail ?? '', done: step.done ?? step.detail ?? '', act: step.act, undo: step.act ? step.undo : undefined })),
+  // The chat's window dragged by its header by (dx, dy), out of the way of what's under it.
+  const dragChat = (dx, dy) => [
+    move(() => inChat('.chat-head')),
+    { ms: 200, find: () => inChat('.chat-head'), press: true },
+    { ms: 900, drag: { dx, dy } },
+    wait(200),
   ];
+  // The chat's send button clicked: what's written goes (the chat empties its box itself, unless
+  // it's still busy from a scene before, so it's emptied here too).
+  const send = () => [move(chatSend), wait(120), { ms: 330, find: chatSend, press: true, act: (el) => { el.click(); setText(chatInput(), ''); } }];
+
+  // The user writing to the AI in the chat (in a thread, if `convo` is an item's id), then the AI
+  // at work: each step in turn, { say } for something it says (typed out), or { tool, input, act,
+  // undo, wait } for a SmartDoc tool it calls, a step in the chat while it's under way, its `act`
+  // done at its end. The chat shows it working until it's said its last.
+  let works = 0;
+  const ask = (text, steps, convo = 'main') => {
+    const work = ++works;
+    const beats = [
+      ...typeInto(chatInput, text),
+      wait(200),
+      ...send(),
+      { ms: 300, log: 'prompt', text, convo, work, hide: true },
+      ...steps.map((step) => (step.say
+        ? { ms: 500 + step.say.length * 14, log: 'say', text: step.say, convo, work }
+        : { ms: step.wait ?? 700, log: 'tool', text: describeStep(step.tool, step.input ?? {}), convo, work, act: step.act, undo: step.act ? step.undo : undefined })),
+    ];
+    beats.at(-1).last = true;
+    return beats;
+  };
 
   // A stand-in for the system's right-click menu (the app shows macOS's own), at the cursor.
   const contextMenu = (find, labels) => [
@@ -352,26 +451,20 @@ export function createDirector({ api }) {
   ];
   const menuItem = (n) => () => document.querySelectorAll('.demo-menu-item')[n];
 
-  // Types a goal in the focus menu's new focus and copies its prompt, as the user does to start a
-  // review; the prompt goes to the agent.
-  const askInFocusMenu = (goal) => [
-    ...click(() => document.getElementById('focus-button')),
-    wait(400),
-    ...typeInto(() => document.querySelector('#focus-card:not([hidden]) .focus-goal-input'), goal),
-    wait(300),
-    ...click(() => button('.focus-new', 'Copy the prompt')),
-    wait(700),
-    act(closeAll),
-  ];
-
   // --- Seeking -------------------------------------------------------------------------------
 
-  // Where the cursor points at an element: a little in from its left, below its middle.
+  // Where the cursor points at an element, in the app window's pixels (the chat's window floating
+  // at its place): a little in from its left, below its middle.
   const pointAt = (el) => {
     const r = el.getBoundingClientRect();
-    return { x: r.left + Math.min(r.width * 0.5, 60), y: r.top + r.height * 0.6 };
+    const off = el.ownerDocument === document ? { x: 0, y: 0 } : place();
+    return { x: off.x + r.left + Math.min(r.width * 0.5, 60), y: off.y + r.top + r.height * 0.6 };
   };
   const ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
+  const overChat = (point) => {
+    const p = place();
+    return Boolean(chat && api.chatShown && point && point.x >= p.x && point.x <= p.x + p.width && point.y >= p.y && point.y <= p.y + p.height);
+  };
 
   // The element a beat is about, found once per build (waiting for it to be drawn).
   async function element(beat, id) {
@@ -411,12 +504,12 @@ export function createDirector({ api }) {
     // The beat the point's in, and how far through it (beats taking no time are done once reached).
     const at = p * m.total;
     let k = 0;
-    let start = 0;
-    while (k < beats.length && start + beats[k].ms <= at) {
-      start += beats[k].ms;
+    let begin = 0;
+    while (k < beats.length && begin + beats[k].ms <= at) {
+      begin += beats[k].ms;
       k++;
     }
-    const u = k < beats.length && beats[k].ms ? Math.min(1, (at - start) / beats[k].ms) : 0;
+    const u = k < beats.length && beats[k].ms ? Math.min(1, (at - begin) / beats[k].ms) : 0;
 
     // Back: undoing what can be, or building the scene afresh if anything can't.
     if (k < m.done) {
@@ -439,11 +532,14 @@ export function createDirector({ api }) {
 
   async function rebuild(m) {
     closeAll();
-    agent({ type: 'log', entries: [] });
+    forgetChat();
+    moveChat({ x: 0, y: 0 });
     await SCENES[m.name].build(m.id);
+    if (!chatWanted) hideChat();
     await frame();
     m.found.clear();
     m.done = 0;
+    m.chat = null;
   }
 
   // Draws the moment's continuous parts at beat k, u of the way through it.
@@ -454,10 +550,11 @@ export function createDirector({ api }) {
     if (id !== live) return;
 
     // The cursor: at the last place it moved to, or on its way to the next; hidden before its first
-    // move and while the agent works.
+    // move and while the AI works.
     let from = null; // (none before its first move: it comes from near where that goes)
     let shown = false;
     let last = null; // the element the cursor last arrived at
+    let dragged = { x: 0, y: 0 }; // the chat's window, dragged so far
     for (let i = 0; i < k; i++) {
       if (beats[i].hide) {
         shown = false;
@@ -469,8 +566,19 @@ export function createDirector({ api }) {
         last = found.el;
         shown = true;
       }
+      if (beats[i].drag) {
+        dragged = { x: dragged.x + beats[i].drag.dx, y: dragged.y + beats[i].drag.dy };
+        if (from) from = { x: from.x + beats[i].drag.dx, y: from.y + beats[i].drag.dy };
+      }
     }
     let point = from;
+    if (beat?.drag && from) {
+      // The window and the cursor holding its header go together.
+      const e = ease(u);
+      dragged = { x: dragged.x + beat.drag.dx * e, y: dragged.y + beat.drag.dy * e };
+      point = { x: from.x + beat.drag.dx * e, y: from.y + beat.drag.dy * e };
+    }
+    moveChat(dragged);
     if (beat?.move) {
       const to = m.found.get(beat).point;
       from ??= { x: Math.min(WINDOW.width - 20, to.x + CURSOR_FROM.x), y: Math.min(WINDOW.height - 20, to.y + CURSOR_FROM.y) };
@@ -480,35 +588,48 @@ export function createDirector({ api }) {
       if (u < 1) last = null;
     }
     raise();
-    showCursor(shown && !instant);
+    // Each window draws its own cursor: the chat's while the cursor's over it, as it's in front.
+    const visible = shown && !instant;
+    const inChatWindow = visible && overChat(point);
+    cursor.classList.toggle('shown', visible && !inChatWindow);
+    chat?.cursor?.classList.toggle('shown', inChatWindow);
     // Where it is, for the site to keep in view on a narrow screen.
-    const where = JSON.stringify(shown && !instant ? point : null);
+    const where = JSON.stringify(visible ? point : null);
     if (where !== cursorWas) {
       cursorWas = where;
       cursorListeners.forEach((listener) => listener(JSON.parse(where)));
     }
-    if (point) cursor.style.transform = `translate(${point.x}px, ${point.y}px)`;
-    cursor.classList.toggle('pressed', Boolean(beat?.press && u > 0 && u < 1));
+    if (point) {
+      cursor.style.transform = `translate(${point.x}px, ${point.y}px)`;
+      if (chat?.cursor) chat.cursor.style.transform = `translate(${point.x - place().x}px, ${point.y - place().y}px)`;
+    }
+    const pressed = Boolean((beat?.press && u > 0 && u < 1) || (beat?.drag && u < 1));
+    cursor.classList.toggle('pressed', pressed);
+    chat?.cursor?.classList.toggle('pressed', pressed);
     hover(shown ? last : null);
 
     // Typing: as much of the text as the point's reached.
     if (beat?.typed !== undefined) setText(m.found.get(beat).el, beat.typed.slice(0, Math.round(beat.typed.length * u)));
 
-    // The agent's part so far.
-    let entries = [];
+    // The chat: what was said before the moment, then what's been said in it so far, and where the
+    // AI is still at work.
+    const conversations = structuredClone(chatBase);
+    let running = null;
     for (let i = 0; i <= k && i < beats.length; i++) {
       const b = beats[i];
+      if (!b.log) continue;
       const partial = i === k;
-      if (b.log === 'clear') entries = [];
       if (partial && !(u > 0) && b.ms) continue;
-      if (b.log === 'prompt') entries.push({ kind: 'prompt', text: b.text });
-      if (b.log === 'say') entries.push({ kind: 'say', text: partial ? b.text.slice(0, Math.round(b.text.length * u)) : b.text });
-      if (b.log === 'tool') entries.push({ kind: 'tool', name: b.name, detail: partial ? b.detail : b.done, done: !partial });
+      const convo = (conversations[b.convo] ??= []);
+      const role = { prompt: 'user', say: 'assistant', tool: 'step' }[b.log];
+      const text = b.log === 'say' && partial ? b.text.slice(0, Math.round(b.text.length * u)) : b.text;
+      if (text) convo.push(message(b.convo, convo.length, role, text));
+      running = b.last && !(partial && u < 1) ? null : b.convo;
     }
-    const log = JSON.stringify(entries);
-    if (log !== m.log) {
-      m.log = log;
-      agent({ type: 'log', entries });
+    const chatNow = JSON.stringify([conversations, running]);
+    if (chatNow !== m.chat) {
+      m.chat = chatNow;
+      api.setChat(conversations, running ? [running] : [], chatDraft ?? undefined);
     }
   }
 
@@ -584,153 +705,178 @@ export function createDirector({ api }) {
         }),
       ]),
     },
-    // What the review is for, typed in the focus menu, and the prompt copied for the agent.
+    // The chat opened, Claude chosen (or ChatGPT: it's the user's own), and what the review is for
+    // written to it.
     ask: {
-      build: (id) => onDocument(0, 'improve', {}, id),
-      focus: () => FOCUS_MENU,
-      beats: () => askInFocusMenu(IMPROVE_GOAL),
+      async build(id) {
+        await onDocument(0, 'improve', {}, id);
+        await openChat('main', {}, id);
+      },
+      focus: withChat,
+      beats: () => [
+        wait(400),
+        ...click(() => inChat('.chat-ai')),
+        wait(700),
+        ...click(() => [...(chat?.doc.querySelectorAll('.chat-ai-option') ?? [])].find((o) => o.textContent.includes('Claude'))),
+        wait(400),
+        ...typeInto(chatInput, IMPROVE_ASK),
+        wait(300),
+        ...send(),
+        { ms: 400, log: 'prompt', text: IMPROVE_ASK, convo: 'main', work: -1, last: true },
+      ],
     },
-    // The agent reads the CV and adds its suggestions one by one, then finishes.
+    // The AI reads the CV and adds its suggestions one by one, beside their text and in the chat's
+    // list, then finishes.
     review: {
-      narrowX: AGENT_X,
-      build: (id) => onDocument(0, 'improve', { reviews: { improve: [0, false] } }, id),
-      focus: () => WINDOW,
-      beats: () => agentWork(`Review “${DOC.name}” in SmartDoc and suggest improvements, focusing on: ${IMPROVE_GOAL}`, [
-        { say: 'I’ll read your CV first, then go through it as a hiring manager would.' },
-        { tool: 'get_document_info', done: '2 pages, 640 words' },
-        { tool: 'get_document', done: 'pages 1–2', wait: 1100 },
-        { tool: 'start_review', detail: IMPROVE_GOAL },
-        ...api.reviews.improve.items.map((item, i) => ({
-          tool: 'add_finding', detail: item.title, wait: 900,
-          act: () => api.setProgress('improve', { shown: i + 1 }),
-          undo: () => api.setProgress('improve', { shown: i }),
-        })),
-        {
-          tool: 'commit_review', wait: 600, done: `${api.reviews.improve.items.length} suggestions`,
-          act: () => api.setProgress('improve', { done: true }),
-          undo: () => api.setProgress('improve', { done: false }),
-        },
-        { say: 'Done: four suggestions are in SmartDoc. The profile is the big one. It could be anyone’s, so I’ve offered two rewrites. I’ve also asked what came of the checkout work, since a result would make that line much stronger.' },
-      ]),
-    },
-    // A rewrite chosen, and a wording change accepted.
-    decide: {
-      build: (id) => onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id),
-      focus: () => WINDOW,
-      beats: () => [
-        wait(500),
-        ...click(() => button('.review-bar', 'Next ›')),
-        wait(900),
-        ...click(() => document.querySelector('.margin-card .option input')),
-        wait(1000),
-        ...click(() => button('.review-bar', 'Next ›')),
-        wait(1000),
-        ...click(() => button('.margin-card', 'Accept')),
-      ],
-    },
-    // A question answered, and a move accepted.
-    answer: {
-      build: (id) => onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id),
-      focus: () => WINDOW,
-      beats: () => [
-        wait(500),
-        act((_, id) => open('What came of the checkout', id)),
-        wait(500),
-        ...typeInto(() => document.querySelector('.margin-card .decision-answer'), DECISIONS[2].answer),
-        ...click(() => button('.margin-card', 'Answer')),
-        wait(900),
-        ...click(() => button('.review-bar', 'Next ›')),
-        wait(1000),
-        ...click(() => button('.margin-card', 'Accept')),
-      ],
-    },
-    // Everything decided: the prompt goes to the agent, which writes a preview of Draft 1; it opens
-    // by itself, and accepting it makes it the draft.
-    redraft: {
-      narrowX: AGENT_X,
-      build: (id) => onDocument(0, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS }, made: 0 }, id),
-      focus: () => WINDOW,
-      beats: () => [
-        wait(500),
-        ...click(() => document.querySelector('.copy-prompt')),
-        wait(500),
-        ...agentWork(`I’ve made my decisions in SmartDoc. Apply the review and write the next draft of “${DOC.name}”.`, [
-          { tool: 'get_decisions', done: '4 decided' },
-          { say: 'You chose the first rewrite, accepted the wording and the move, and told me conversion rose 12%. Writing the next draft now.' },
+      narrowX: CHAT_X,
+      async build(id) {
+        await onDocument(0, 'improve', { reviews: { improve: [0, false] } }, id);
+        await openChat('main', { main: said('main', [['user', IMPROVE_ASK]]) }, id);
+      },
+      focus: withChat,
+      beats: () => {
+        const beats = [
+          wait(300),
+          ...[['get_document_info'], ['get_document'], ['start_review']].map(([tool]) => ({ ms: tool === 'get_document' ? 1100 : 700, log: 'tool', text: describeStep(tool), convo: 'main', work: 0, hide: true })),
+          ...api.reviews.improve.items.map((item, i) => ({
+            ms: 900, log: 'tool', text: describeStep('add_finding', { title: item.title }), convo: 'main', work: 0,
+            act: () => api.setProgress('improve', { shown: i + 1 }),
+            undo: () => api.setProgress('improve', { shown: i }),
+          })),
           {
-            tool: 'apply_review', detail: 'Draft 1', wait: 2000, done: 'Draft preview written',
-            act: () => api.showPreview(1),
-            undo: () => api.showDraft(0),
+            ms: 600, log: 'tool', text: describeStep('commit_review'), convo: 'main', work: 0,
+            act: () => api.setProgress('improve', { done: true }),
+            undo: () => api.setProgress('improve', { done: false }),
           },
-          { say: 'Have a look at the draft preview in SmartDoc. The profile now leads with your platform work, Skills come first, and the checkout line has its result. Accept it and it becomes Draft 1.' },
+          { ms: 2600, log: 'say', text: REVIEWED.at(-1)[1], convo: 'main', work: 0, last: true },
+          wait(600),
+        ];
+        // It was already at work when the scene began: the user had just sent it.
+        return beats;
+      },
+    },
+    // A suggestion opened from its card in the margin, a rewrite chosen in its thread in the chat,
+    // and a wording change accepted.
+    decide: {
+      async build(id) {
+        await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+      },
+      focus: withChat,
+      beats: () => [
+        wait(500),
+        ...unfoldList(),
+        wait(500),
+        ...openRow('Rewrite the profile'),
+        wait(700),
+        ...click(() => inChat('.margin-card .option input')),
+        wait(900),
+        ...backToChat(),
+        wait(500),
+        ...openRow('Lead with what you built'),
+        wait(700),
+        ...click(() => chatButton('Accept', '.margin-card')),
+        wait(600),
+      ],
+    },
+    // A question answered in its thread, and a move accepted.
+    answer: {
+      async build(id) {
+        await onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+      },
+      focus: withChat,
+      beats: () => [
+        wait(500),
+        ...unfoldList(),
+        wait(500),
+        ...openRow('What came of the checkout'),
+        wait(600),
+        ...typeInto(() => inChat('.margin-card .decision-answer'), DECISIONS[2].answer),
+        ...click(() => chatButton('Answer', '.margin-card')),
+        wait(900),
+        ...backToChat(),
+        wait(500),
+        ...openRow('Put Skills before Experience'),
+        wait(700),
+        ...click(() => chatButton('Accept', '.margin-card')),
+        wait(600),
+      ],
+    },
+    // Everything decided: asked for in the chat, the AI writes a preview of Draft 1, which opens by
+    // itself; accepting it makes it the draft, and the new draft's chat starts afresh.
+    redraft: {
+      narrowX: CHAT_X,
+      async build(id) {
+        await onDocument(0, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS }, made: 0 }, id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+      },
+      focus: withChat,
+      beats: () => [
+        wait(400),
+        ...ask(REDRAFT_ASK, [
+          { tool: 'get_review', wait: 600 },
+          { say: 'You chose the first rewrite, accepted the wording and the move, and told me conversion rose 12%. Writing the next draft now.' },
+          { tool: 'apply_review', wait: 2000, act: () => api.showPreview(1), undo: () => api.showDraft(0) },
+          { say: 'Have a look at the draft preview. The profile leads with your platform work, Skills come first, and the checkout line has its result. Accept it and it becomes Draft 1.' },
         ]),
         wait(400),
         ...click(() => button('.review-bar', 'Accept as Draft 1')),
-        wait(1000),
+        wait(1200),
       ],
     },
-    // The other tool: switched to, asked what matters, and its highlights added one by one.
+    // The other tool: switched to, and asked in the chat what a recruiter would see; its highlights
+    // added one by one.
     highlight: {
-      narrowX: AGENT_X,
-      build: (id) => onDocument(1, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS } }, id),
-      focus: () => WINDOW,
+      narrowX: CHAT_X,
+      async build(id) {
+        await onDocument(1, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS } }, id);
+        await openChat('main', {}, id);
+      },
+      focus: withChat,
       beats: () => [
         wait(400),
         ...click(() => document.getElementById('tool-button')),
         wait(400),
         ...click(() => [...document.querySelectorAll('#tool-card .tool-option')].find((o) => o.textContent.includes('Review and highlight'))),
         wait(500),
-        ...askInFocusMenu(HIGHLIGHTS_GOAL),
-        act(() => api.setProgress('highlights', { started: true, shown: 0, done: false })),
-        ...agentWork(`Go through “${DOC.name}” in SmartDoc and highlight the key information for: ${HIGHLIGHTS_GOAL}`, [
-          { say: 'I’ll read Draft 1 the way a recruiter skims it: the first few seconds count most.' },
-          { tool: 'get_document', done: 'Draft 1, pages 1–2', wait: 1000 },
-          { tool: 'start_review', detail: 'Recruiter skim' },
+        ...ask(HIGHLIGHTS_ASK, [
+          { tool: 'get_document', wait: 1000 },
+          { tool: 'start_review', act: () => api.setProgress('highlights', { started: true, shown: 0, done: false }), undo: () => api.setProgress('highlights', { started: false, shown: 0, done: false }) },
           ...api.reviews.highlights.highlights.map((h, i) => ({
-            tool: 'add_highlight', detail: h.title,
+            tool: 'add_highlight', input: { title: h.title },
             act: () => api.setProgress('highlights', { shown: i + 1 }),
             undo: () => api.setProgress('highlights', { shown: i }),
           })),
-          {
-            tool: 'commit_review', wait: 500, done: `${api.reviews.highlights.highlights.length} highlights`,
-            act: () => api.setProgress('highlights', { done: true }),
-            undo: () => api.setProgress('highlights', { done: false }),
-          },
-          { say: 'A recruiter will take in six years of platform leadership and a 12% conversion lift at a glance. One gap: you don’t say how big your team at Acme is.' },
+          { tool: 'commit_review', wait: 500, act: () => api.setProgress('highlights', { done: true }), undo: () => api.setProgress('highlights', { done: false }) },
+          { say: HIGHLIGHTED.at(-1)[1] },
         ]),
       ],
     },
-    // Home: Draft 1's menu, New Variation, the job typed in, and the agent makes the variation.
+    // A version for one job, asked for in the chat: the AI makes a variation from Draft 1, tailors
+    // it, and home shows the new variation, the original as it was.
     variation: {
-      build: (id) => onHome({ made: 1, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id),
-      focus: () => union(rect('.home-column:nth-child(2)'), rect('.home-column:nth-child(3)'), { left: 380, right: 900, top: 240, bottom: 560 }),
+      narrowX: CHAT_X,
+      async build(id) {
+        await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
+        await openChat('main', { main: said('main', HIGHLIGHTED) }, id);
+      },
+      focus: withChat,
       beats: () => [
-        wait(500),
-        ...contextMenu(() => document.querySelector('#home-drafts .home-item'), ['New Variation…', 'New Document from Draft', 'Delete this draft']),
-        move(menuItem(0)),
-        { ms: 0, find: menuItem(0), act: (el) => el.classList.add('active') },
-        wait(300),
-        act(() => {
-          document.querySelector('.demo-menu')?.remove();
-          api.requestVariation({ docId: DOC.id, docName: DOC.name, variationId: 'original', variationName: 'Original', draft: 1 });
-        }),
-        ...typeInto(() => document.querySelector('#variation-dialog[open] #variation-purpose'), VARIATION_PURPOSE),
-        wait(300),
-        ...click(() => document.getElementById('variation-copy')),
-        wait(900),
-        act(() => document.querySelector('dialog[open]')?.close()),
-        ...agentWork(`Make a variation of “${DOC.name}” in SmartDoc from Draft 1, and tailor it for: ${VARIATION_PURPOSE}`, [
-          {
-            tool: 'create_variation', detail: 'from Draft 1', wait: 1100, done: 'Acme product lead',
-            act: () => api.setMade(1, true),
-            undo: () => api.setMade(1, false),
-          },
+        wait(400),
+        ...ask(VARIATION_ASK, [
+          { tool: 'create_variation', wait: 1100, act: () => api.setMade(1, true), undo: () => api.setMade(1, false) },
           { say: 'The job leads with the design system and a team of six, so I’ll bring those to the top.' },
-          { tool: 'get_document', done: 'Draft 1, pages 1–2' },
-          { tool: 'apply_review', detail: 'Draft 2', wait: 1600, done: 'Draft preview written' },
-          { say: 'Made “Acme product lead” and wrote a draft preview of its Draft 2 for the job, for you to accept. Your original CV and its drafts are unchanged.' },
+          { tool: 'get_document' },
+          { tool: 'apply_review', wait: 1600 },
+          { say: 'Made “Acme product lead” from Draft 1, with a draft preview of its Draft 2 for the job, for you to accept. Your original CV and its drafts are as they were.' },
         ]),
-        act((_, id) => selectVariation('Acme', id)),
+        wait(600),
+        act(async (_, id) => {
+          await onHome({ made: 1, variation: true, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
+          await selectVariation('Acme', id);
+        }),
+        wait(900),
       ],
     },
 
@@ -742,58 +888,91 @@ export function createDirector({ api }) {
       focus: () => WINDOW,
       beats: () => [wait(600), move(() => tab('Lead with what you built')), wait(1400), move(() => tab('Rewrite the profile'))],
     },
-    // Options: a choice of rewrites.
+    // The chat: your own AI, Claude or ChatGPT, chosen in its header.
+    'f-chat': {
+      async build(id) {
+        await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+      },
+      // The app's window and the chat's, as far as it's dragged.
+      focus: () => union(WINDOW, { ...place(), x: place().x + CHAT_DRAG }),
+      beats: () => [
+        wait(600),
+        ...click(() => inChat('.chat-ai')),
+        wait(600),
+        move(() => [...(chat?.doc.querySelectorAll('.chat-ai-option') ?? [])].find((o) => o.textContent.includes('ChatGPT'))),
+        wait(1200),
+        ...click(() => [...(chat?.doc.querySelectorAll('.chat-ai-option') ?? [])].find((o) => o.textContent.includes('Claude'))),
+        wait(500),
+        // A window of its own: moved out of the way of the cards beside the pages.
+        ...dragChat(CHAT_DRAG, 0),
+        wait(300),
+        move(() => tab('Lead with what you built')),
+        wait(900),
+      ],
+    },
+    // Options: a choice of rewrites, in the suggestion's thread.
     'f-options': {
       async build(id) {
         await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
-        await open('Rewrite the profile', id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+        await openThread('Rewrite the profile', id);
       },
-      focus: () => cardFocus('r'),
-      beats: () => [wait(900), ...click(() => document.querySelectorAll('.margin-card .option input')[1])],
+      focus: () => chatFocus(),
+      beats: () => [wait(900), ...click(() => chat?.doc.querySelectorAll('.margin-card .option input')[1])],
     },
-    // A change: accept, reject or edit it, and comment for the agent.
+    // A change: accept, reject or edit it.
     'f-edit': {
       async build(id) {
         await onDocument(0, 'improve', { decided: 1, reviews: { improve: ALL_FINDINGS } }, id);
-        await open('Lead with what you built', id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+        await openThread('Lead with what you built', id);
       },
-      focus: () => cardFocus('r'),
-      beats: () => [wait(800), ...click(() => button('.margin-card', 'Edit'))],
+      focus: () => chatFocus(),
+      beats: () => [wait(800), ...click(() => chatButton('Edit', '.margin-card'))],
+    },
+    // Talking a suggestion over in its thread: the AI reworks it there.
+    'f-talk': {
+      narrowX: CHAT_X,
+      async build(id) {
+        await onDocument(0, 'improve', { decided: 1, reviews: { improve: ALL_FINDINGS } }, id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+        await openThread('Lead with what you built', id);
+      },
+      focus: () => chatFocus(),
+      beats: () => {
+        const item = api.reviews.improve.items[1];
+        return [
+          wait(500),
+          ...ask(TALK_ASK, [
+            {
+              tool: 'revise_finding', wait: 1200,
+              act: () => api.reviseItem(1, { proposal: { before: item.proposal.before, after: 'Responsible for the design system 4 teams use across 3 apps, which I built' } }),
+              undo: () => api.reviseItem(1, null),
+            },
+            { say: 'Done: it keeps “Responsible for” and says you built it. Decide on the new version above.' },
+          ], item.id),
+        ];
+      },
     },
     // Questions only the user can answer.
     'f-questions': {
       async build(id) {
         await onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id);
-        await open('What came of the checkout', id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+        await openThread('What came of the checkout', id);
       },
-      focus: () => cardFocus('r'),
-      beats: () => [wait(600), ...typeInto(() => document.querySelector('.margin-card .decision-answer'), DECISIONS[2].answer)],
+      focus: () => chatFocus(),
+      beats: () => [wait(600), ...typeInto(() => inChat('.margin-card .decision-answer'), DECISIONS[2].answer)],
     },
     // Structure and design, in the left margin.
     'f-structure': {
       async build(id) {
         await onDocument(0, 'improve', { decided: 3, reviews: { improve: ALL_FINDINGS } }, id);
-        await open('Put Skills before Experience', id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
       },
-      focus: () => cardFocus('l'),
-      beats: () => [],
-    },
-    // Progress, and To do: only what's left.
-    'f-todo': {
-      build: (id) => onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id),
-      focus: () => WINDOW,
-      beats: () => [wait(700), ...click(() => document.querySelector('#done-switch button[data-show="todo"]'))],
-    },
-    // Every draft kept, stepped through in the top bar.
-    'f-drafts': {
-      build: (id) => onDocument(1, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS } }, id),
-      focus: () => ({ x: 240, y: 0, width: 800, height: 380 }), // the top bar's draft arrows, and the page under them
-      beats: () => [
-        wait(700),
-        ...click(() => document.getElementById('draft-prev')),
-        wait(1600),
-        ...click(() => document.getElementById('draft-next')),
-      ],
+      focus: withChat,
+      beats: () => [wait(600), ...click(() => tab('Put Skills before Experience')), wait(900)],
     },
     // A comment of the user's own: text selected, the comment typed, and its card in the margin.
     'f-comment': {
@@ -818,6 +997,110 @@ export function createDirector({ api }) {
         wait(900),
       ],
     },
+    // Everything in the review in one list in the chat, in the order to work through it, each
+    // decided one ticked: the card, folded to how many are left, opened.
+    'f-todo': {
+      async build(id) {
+        await onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+        await waitFor(() => inChat('.chat-list'), id);
+        inChat('.chat-list').scrollIntoView({ block: 'center' });
+      },
+      focus: () => chatFocus(160),
+      beats: () => [wait(500), ...click(() => inChat('.chat-list-head')), wait(500), ...[0, 1, 2, 3].flatMap((n) => [move(() => chat?.doc.querySelectorAll('.chat-row')[n], 450), wait(350)])],
+    },
+    // Every draft kept, each with its own chat: picked from the list in the top bar.
+    'f-drafts': {
+      async build(id) {
+        await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
+        api.setChat({ main: said('main', [...REVIEWED, ['user', REDRAFT_ASK], ['step', 'Writing the next draft'], ['assistant', 'Have a look at the draft preview. Accept it and it becomes Draft 1.']]) }, [], 'original');
+        await openChat('main', { main: said('main', HIGHLIGHTED) }, id);
+      },
+      focus: withChat,
+      beats: () => [
+        wait(700),
+        ...click(() => document.getElementById('draft-button')),
+        wait(700),
+        ...click(() => [...document.querySelectorAll('#draft-card .draft-option')].find((o) => o.textContent.includes('Original'))),
+        wait(1600),
+      ],
+    },
+    // The preview beside the draft it was written from, stepping through what changed.
+    'f-compare': {
+      async build(id) {
+        await onDocument(0, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS }, made: 0 }, id);
+        await api.showPreview(1);
+        (await waitFor(() => button('.review-bar', 'Compare with Original'), id)).click();
+        await waitFor(() => document.querySelector('.compare-mark'), id, 15000);
+      },
+      focus: () => WINDOW,
+      beats: () => [
+        wait(700),
+        ...click(() => document.querySelector('.compare-step[aria-label="Next change"]')),
+        wait(1300),
+        ...click(() => document.querySelector('.compare-step[aria-label="Next change"]')),
+      ],
+    },
+    // Focuses: what each review is for, and a prompt for another AI app to start a new one.
+    'f-focus': {
+      async build(id) {
+        await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
+        document.getElementById('focus-button').click();
+        await waitFor(() => document.querySelector('#focus-card:not([hidden]) .focus-goal-input'), id);
+      },
+      focus: topLeft,
+      beats: () => [wait(700), ...typeInto(() => document.querySelector('#focus-card .focus-goal-input'), 'Anything that would worry a hiring manager')],
+    },
+    // Highlights: the key information, ranked, by category.
+    'f-highlights': {
+      build: (id) => onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id),
+      focus: () => WINDOW,
+      beats: () => [wait(600), move(() => tab('Six years leading platform work')), wait(1200), move(() => tab('Conversion up 12%'))],
+    },
+    // What the document doesn't say.
+    'f-gaps': {
+      async build(id) {
+        await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
+        await openChat('main', { main: said('main', HIGHLIGHTED) }, id);
+        await openThread('No team size', id);
+      },
+      focus: withChat,
+      beats: () => [],
+    },
+    // The highlights as a list.
+    'f-list': {
+      build: (id) => onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id),
+      focus: () => WINDOW,
+      beats: () => [wait(600), ...click(() => document.querySelector('#view-switch button[data-view="list"]'))],
+    },
+    // Setting an AI up from the app: installed with its maker's installer, how far it's got where
+    // the button was, then signed in on its maker's page.
+    'f-setup': {
+      async build(id) {
+        await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
+        api.setAis({ codex: { installed: false, loggedIn: false } });
+        document.getElementById('server-pill').click();
+        await waitFor(() => [...document.querySelectorAll('#ai-list .ai-row')].find((r) => r.textContent.includes('Codex') && r.querySelector('button')), id);
+      },
+      focus: () => ({ x: 0, y: 0, width: 520, height: 800 }),
+      beats: () => {
+        const codex = () => [...document.querySelectorAll('#ai-list .ai-row')].find((r) => r.textContent.includes('Codex'));
+        const percent = (n) => act(() => api.aiProgress('codex', 'install', 'Downloading Codex…', n), undefined, 160);
+        return [
+          wait(600),
+          ...click(() => codex()?.querySelector('button')),
+          act(() => api.aiProgress('codex', 'install', 'Getting ready to install Codex…'), undefined, 500),
+          ...[4, 11, 19, 28, 37, 45, 54, 63, 71, 80, 88, 95, 99].map(percent),
+          act(() => api.aiProgress('codex', 'install', 'Setting up Codex…'), undefined, 700),
+          act(() => api.finishSetup({ codex: { installed: true } })),
+          wait(700),
+          ...click(() => codex()?.querySelector('button')),
+          act(() => api.aiProgress('codex', 'sign-in', 'Waiting for you to sign in in your browser…'), undefined, 1400),
+          act(() => api.finishSetup({ codex: { loggedIn: true } })),
+          wait(900),
+        ];
+      },
+    },
     // Two AIs at once, a window each (the site shows the second scene in a second window beside the
     // first): one reviewing the original, the other picking out the key information in Draft 1.
     'f-windows': {
@@ -841,53 +1124,6 @@ export function createDirector({ api }) {
         wait(700),
         act(() => api.setProgress('highlights', { shown }), () => api.setProgress('highlights', { shown: shown - 1 })),
       ]),
-    },
-    // The preview beside the draft it was written from, stepping through what changed.
-    'f-compare': {
-      async build(id) {
-        await onDocument(0, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS }, made: 0 }, id);
-        await api.showPreview(1);
-        (await waitFor(() => button('.review-bar', 'Compare with Original'), id)).click();
-        await waitFor(() => document.querySelector('.compare-mark'), id, 15000);
-      },
-      focus: () => WINDOW,
-      beats: () => [
-        wait(700),
-        ...click(() => document.querySelector('.compare-step[aria-label="Next change"]')),
-        wait(1300),
-        ...click(() => document.querySelector('.compare-step[aria-label="Next change"]')),
-      ],
-    },
-    // Focuses: what each review is for, and the prompt to start a new one.
-    'f-focus': {
-      async build(id) {
-        await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
-        document.getElementById('focus-button').click();
-        await waitFor(() => document.querySelector('#focus-card:not([hidden]) .focus-goal-input'), id);
-      },
-      focus: topLeft,
-      beats: () => [wait(700), ...typeInto(() => document.querySelector('#focus-card .focus-goal-input'), 'Anything that would worry a hiring manager')],
-    },
-    // Highlights: the key information, ranked, by category.
-    'f-highlights': {
-      build: (id) => onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id),
-      focus: () => WINDOW,
-      beats: () => [wait(600), ...click(() => button('.review-bar', 'Next ›'))],
-    },
-    // What the document doesn't say.
-    'f-gaps': {
-      async build(id) {
-        await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
-        await open('No team size', id);
-      },
-      focus: () => cardFocus('l'),
-      beats: () => [],
-    },
-    // The highlights as a list.
-    'f-list': {
-      build: (id) => onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id),
-      focus: () => WINDOW,
-      beats: () => [wait(600), ...click(() => document.querySelector('#view-switch button[data-view="list"]'))],
     },
     // Home: documents, variations and drafts.
     'f-home': {
@@ -922,6 +1158,21 @@ export function createDirector({ api }) {
 
   return {
     scenes: Object.keys(SCENES),
+    // Where the chat's window floats by the app's, in the app window's pixels (CHAT_PLACE).
+    chatPlace: CHAT_PLACE,
+    // The chat's window (demo-chat.html, loaded beside this one): started with this demo's API, and
+    // driven from here. `at` is where it floats, if not at CHAT_PLACE.
+    async attachChat(win, at = CHAT_PLACE) {
+      while (!win.startChat) await new Promise((resolve) => setTimeout(resolve, 30));
+      if (!chat) win.startChat(api);
+      chat = { win, doc: win.document, place: at, cursor: win.demoCursor };
+    },
+    // Hears whether the chat's window shows, for the site to show it, and where it's been dragged
+    // to (in the app window's pixels).
+    onChatShown: (listener) => api.onChatShown(listener),
+    onChatMoved(listener) {
+      movedListeners.push(listener);
+    },
     setInstant(on) {
       instant = on;
     },
@@ -956,9 +1207,6 @@ export function createDirector({ api }) {
         tick();
       });
     },
-    onAgent(listener) {
-      agentListeners.push(listener);
-    },
     // Hears where the cursor is (in the window's pixels) as it moves, or null when it's hidden.
     onCursor(listener) {
       cursorListeners.push(listener);
@@ -970,13 +1218,16 @@ export function createDirector({ api }) {
       moment = null;
       playing++;
       const scene = SCENES[name] ?? SCENES['intro-improve'];
-      agent({ type: 'log', entries: [] });
       const result = Promise.all([building, seeking]).then(async () => {
         if (id !== live) return null;
-        showCursor(false);
+        cursor.classList.remove('shown');
+        chat?.cursor?.classList.remove('shown');
         hover(null);
         try {
+          forgetChat();
+          moveChat({ x: 0, y: 0 });
           await scene.build(id);
+          if (!chatWanted) hideChat();
           await frame();
         } catch (error) {
           if (error !== CANCELLED) console.warn(error);
@@ -986,8 +1237,8 @@ export function createDirector({ api }) {
         const beats = scene.beats();
         // Where the cursor first goes, if it's drawn already: a narrow screen starts there.
         const first = beats.find((beat) => beat.move)?.find();
-        const focus = { ...scene.focus(), narrowX: scene.narrowX ?? (first ? pointAt(first).x : undefined) };
-        moment = { id, name: SCENES[name] ? name : 'intro-improve', beats, total: lengthOf(beats), done: 0, found: new Map(), log: '[]' };
+        const focus = { ...scene.focus(), narrowX: scene.narrowX ?? (first ? pointAt(first).x : undefined), chat: api.chatShown };
+        moment = { id, name: SCENES[name] ? name : 'intro-improve', beats, total: lengthOf(beats), done: 0, found: new Map(), chat: null };
         return focus;
       });
       building = result.catch(() => {});

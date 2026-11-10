@@ -4,6 +4,10 @@
 // reports a draft's page texts. The director (director.js) sets the scene through the first group
 // of methods: whether the document has been added, which screen shows, which drafts exist, how far
 // each review has got (as the agent adds to it) and what's been decided.
+//
+// It's the chat window's API too (demo-chat.html, the app's chat-window.js): the same object, so
+// the two windows talk as the app's do through its main process. Each draft has a chat of its
+// own; the director sets what's in it as the scene goes (setChat), and which AIs are set up.
 
 import { resolveQuote } from '../../main/anchors.js';
 import { DOCUMENT, DRAFTS, HIGHLIGHTS, IMPROVE, VARIATION } from './scenario.js';
@@ -17,6 +21,12 @@ const DEMO_LAUNCHER = {
 
 const day = (n) => new Date(Date.parse(DOCUMENT.importedAt) + n * 864e5).toISOString();
 
+// The AIs the chat can run, as main/agent.js reports them: both set up, unless a scene says not.
+const AIS = {
+  claude: { id: 'claude', name: 'Claude', tool: 'Claude Code', installers: ['Anthropic’s installer'], installed: true, loggedIn: true, account: 'Claude account' },
+  codex: { id: 'codex', name: 'ChatGPT', tool: 'Codex', installers: ['OpenAI’s installer'], installed: true, loggedIn: true, account: 'ChatGPT account' },
+};
+
 export function createDemoApi() {
   const listeners = {};
   const on = (name) => (callback) => (listeners[name] ??= []).push(callback);
@@ -26,6 +36,14 @@ export function createDemoApi() {
   const pdfs = {}; // draft id → the PDF's bytes, fetched once
   const pageTexts = {}; // draft id → its page texts, once drawn
   const reviews = { improve: review(IMPROVE, 0), highlights: review(HIGHLIGHTS, 1) };
+  // When each review was finished, once it is: where its card goes in the chat (setCommitTimes).
+  const committedAt = {};
+  // The chat: whether its window shows, each draft's conversations (draft id → { main, threads,
+  // running }), the AIs, what the app window last sent it, and an install or sign-in under way.
+  const chat = { shown: false, drafts: {}, ais: structuredClone(AIS), state: null, pending: null };
+  const draftShowing = () => DRAFTS[state.draft].id; // a preview's chat is its draft's
+  const chatId = (draftId = draftShowing()) => `${DOCUMENT.id}/original/${draftId}`;
+  const chatOf = (draftId = draftShowing()) => (chat.drafts[draftId] ??= { main: { messages: [], sessions: {} }, threads: {}, running: [] });
 
   // Back to the start: no document added, nothing shown, no reviews.
   function reset() {
@@ -96,7 +114,7 @@ export function createDemoApi() {
     const r = reviews[state.tool];
     const p = state.progress[state.tool];
     if (!p.started || r.draftId !== DRAFTS[state.draft].id) return null;
-    return { ...r, status: p.done ? 'committed' : 'open', items: r.items.slice(0, p.shown), highlights: r.highlights.slice(0, p.shown) };
+    return { ...r, status: p.done ? 'committed' : 'open', committedAt: p.done ? committedAt[state.tool] ?? null : null, items: r.items.slice(0, p.shown), highlights: r.highlights.slice(0, p.shown) };
   };
 
   async function showDraft(n) {
@@ -169,7 +187,7 @@ export function createDemoApi() {
   }
 
   reset();
-  return {
+  const api = {
     // The window's back and forward can't reopen anywhere here (see history-nav.js).
     isDemo: true,
     // --- For the director ---
@@ -190,11 +208,24 @@ export function createDemoApi() {
       state.variation = variation;
       if (state.screen === 'home') emit('recent', listed());
     },
+    // When each review is finished, once it is: { improve, highlights }, ISO times.
+    setCommitTimes(times) {
+      Object.assign(committedAt, times);
+    },
     // How far a review has got: { started, shown, done }.
     setProgress(type, progress) {
       state.progress[type] = { ...state.progress[type], ...progress };
       if (state.screen === 'document' && state.tool === type) emit('review', current());
       if (state.screen === 'home') emit('recent', listed());
+    },
+    // A finding of the improvement review reworked by the AI (as revise_finding does), or, with no
+    // changes, back as the scenario has it.
+    reviseItem(index, changes) {
+      const item = reviews.improve.items[index];
+      const source = IMPROVE.items[index];
+      if (changes) Object.assign(item, changes, { decision: { status: 'pending' }, revisedAt: new Date().toISOString() });
+      else Object.assign(item, { title: source.title, body: source.body ?? '', proposal: source.proposal ?? null, options: source.options ?? null, question: source.question ?? null, revisedAt: null });
+      if (state.screen === 'document') emit('review', current());
     },
     // The first `count` findings decided as the scenario has them (the rest undecided).
     setDecided(count, decisions) {
@@ -203,6 +234,54 @@ export function createDemoApi() {
     },
     // The AI working in this window, for the top bar.
     setAiControl: (name) => emit('ai-control', name),
+    // The chat's window: shown (on a conversation: 'main' or an item's id) or not.
+    showChat(on, view = 'main') {
+      if (on === chat.shown && !on) return;
+      chat.shown = on;
+      emit('chat-mode', { mode: on ? 'floating' : 'closed', view });
+      emit('chat-shown', on);
+      if (on) emit('chat-open-item', view === 'main' ? null : view);
+    },
+    get chatShown() { return chat.shown; },
+    onChatShown: on('chat-shown'),
+    // What's in the draft's chat: { main: [messages], [item id]: [messages] }, and the
+    // conversations the AI is working in. Only what's changed is sent to the chat.
+    setChat(conversations, running = [], draftId = draftShowing()) {
+      const store = chatOf(draftId);
+      for (const [key, messages] of Object.entries(conversations)) {
+        const convo = key === 'main' ? store.main : (store.threads[key] ??= { messages: [], sessions: {} });
+        if (JSON.stringify(convo.messages) === JSON.stringify(messages)) continue;
+        convo.messages = messages;
+        emit('agent-event', { chatId: chatId(draftId), conversation: key, type: 'messages', messages });
+      }
+      for (const key of new Set([...store.running, ...running])) {
+        const now = running.includes(key);
+        if (now !== store.running.includes(key)) emit('agent-event', { chatId: chatId(draftId), conversation: key, type: 'running', running: now });
+      }
+      store.running = [...running];
+    },
+    // Forgets every draft's chat (a scene starts from what it sets).
+    clearChats() {
+      for (const [draftId, store] of Object.entries(chat.drafts)) {
+        for (const key of store.running) emit('agent-event', { chatId: chatId(draftId), conversation: key, type: 'running', running: false });
+      }
+      chat.drafts = {};
+    },
+    // The draft whose chat shows (a preview's is its draft's).
+    get chatDraft() { return draftShowing(); },
+    // Which AIs are installed and signed in: { codex: { installed: false } }, the rest as AIS has.
+    setAis(changes = {}) {
+      api.finishSetup(); // one left under way ends
+      chat.ais = structuredClone(AIS);
+      for (const [id, change] of Object.entries(changes)) Object.assign(chat.ais[id], change);
+    },
+    // An install or sign-in getting on (as agent.js reports it), and its end.
+    aiProgress: (id, stage, line, percent = null) => emit('agent-progress', { id, stage, line, percent }),
+    finishSetup(changes) {
+      if (changes) for (const [id, change] of Object.entries(changes)) Object.assign(chat.ais[id], change);
+      chat.pending?.(structuredClone(chat.ais));
+      chat.pending = null;
+    },
     // Opens the new-variation card, as right-clicking a draft and choosing New Variation does.
     requestVariation: (request) => emit('variation', request),
 
@@ -230,6 +309,45 @@ export function createDemoApi() {
     getAppearance: async () => 'system',
     setAppearance: async () => {},
 
+    // --- The chat (the app's window and the chat's) ---
+    agentStatus: async () => structuredClone(chat.ais),
+    agentChats: async () => ({ chatId: chatId(), ...structuredClone(chatOf()) }),
+    agentSend: async () => true, // what's sent, and the AI's answer, are the director's
+    agentStop: async () => {},
+    agentInstall: () => new Promise((resolve) => (chat.pending = resolve)),
+    agentSignIn: () => new Promise((resolve) => (chat.pending = resolve)),
+    agentInstallHelp: async () => {},
+    onAgentEvent: on('agent-event'),
+    onAgentProgress: on('agent-progress'),
+    onChatMode: on('chat-mode'),
+    chatFloat(view) {
+      api.showChat(true, view);
+    },
+    chatClose() {
+      api.showChat(false);
+    },
+    chatDock() {
+      api.showChat(false);
+    },
+    chatOpenItem(id) {
+      if (!chat.shown) api.showChat(true, id ?? 'main');
+      else emit('chat-open-item', id);
+    },
+    onChatOpenItem: on('chat-open-item'),
+    // What the app's window shows, for the chat's window (kept for when it starts).
+    chatState(next) {
+      chat.state = next;
+      emit('chat-state', next);
+    },
+    onChatState(callback) {
+      on('chat-state')(callback);
+      if (chat.state) callback(chat.state);
+    },
+    chatReady: async () => ({ view: 'main' }),
+    chatFocus: (id) => emit('chat-focus', id),
+    onChatFocus: on('chat-focus'),
+    openPreview: async () => showPreview(state.made + 1),
+
     onRecentDocuments: on('recent'),
     onAiControl: on('ai-control'),
     releaseAiControl: async () => {},
@@ -238,7 +356,11 @@ export function createDemoApi() {
     variationsOf: async () => variationsOf(),
     focusesFor: async () => ({ current: [], earlier: [] }),
     prepareDraft: async () => {},
-    openDraft: async () => {},
+    // A draft chosen in the top bar's list (draft-picker.js).
+    openDraft: async (_docId, _variationId, draftId) => {
+      const n = DRAFTS.findIndex((d) => d.id === draftId);
+      if (n !== -1 && n <= state.made) await showDraft(n);
+    },
     showDraftMenu: async () => {},
     showDocumentMenu: async () => {},
     showVariationMenu: async () => {},
@@ -326,4 +448,5 @@ export function createDemoApi() {
       emit('review', current());
     },
   };
+  return api;
 }
