@@ -1017,3 +1017,5 @@ button:disabled { opacity: 0.5; cursor: default; }
 .compare-pages.stepping :is(.diff-added, .diff-removed):not(.current) { opacity: 0.45; }
 .compare-pages :is(.diff-added, .diff-removed).current { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+
+.server-off #server-retry { margin-top: 8px; }

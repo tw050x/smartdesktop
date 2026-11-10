@@ -54,7 +54,11 @@ export const APP_MARKUP = `
       <dt>Address</dt><dd id="server-url"></dd>
       <dt>Access</dt><dd>This computer only, with the app’s token</dd>
     </dl>
-    <p class="panel-note" id="server-off" hidden>The server couldn’t start. Another copy of the app may be running.</p>
+    <!-- Why the server isn't running, in plain words, and a way to try again (see server-status.js). -->
+    <div class="server-off" id="server-off" hidden>
+      <p class="panel-note" id="server-off-text"></p>
+      <button type="button" class="secondary-button" id="server-retry">Try again</button>
+    </div>
 
     <section class="mcp-setup" id="mcp-setup">
       <h3>Set up an AI app</h3>

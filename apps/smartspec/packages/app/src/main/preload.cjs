@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld('smartspec', {
   getAppearance: () => call('get-appearance'),
   setAppearance: (appearance) => call('set-appearance', appearance),
   onMcpStatus: on('mcp-status'),
+  mcpStatus: () => call('mcp-status'),
+  retryMcp: () => call('mcp-retry'),
   onShowConnect: on('show-connect'),
   onUpdates: on('updates'),
   // The SmartSpec menu's Settings….

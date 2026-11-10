@@ -28,6 +28,21 @@ const CLAUDE_DESKTOP = {
   unreadable: { text: 'Claude Desktop’s settings file isn’t in a form SmartSpec can safely change. Add SmartSpec yourself, below.' },
 };
 
+// Why the server isn't running, for the user: what's using its port, if that's it, and what to do.
+function offReason(status) {
+  if (status.reason === 'port-in-use') {
+    const { holder, port } = status;
+    if (holder?.kind === 'smartspec') {
+      const which = holder.development ? 'A development copy of SmartSpec' : 'Another copy of SmartSpec';
+      return `${which} is already open and running the server your AI connects to, so this one can’t run its own. Your AI works with that copy. Quit it and this one takes over by itself within a few seconds.`;
+    }
+    const who = holder?.kind === 'other' ? `Another app, ${holder.name},` : 'Another app on this Mac';
+    return `${who} is using port ${port}, which SmartSpec’s server needs, so your AI can’t connect. Quit that app and SmartSpec starts its server by itself within a few seconds.`;
+  }
+  if (status.reason === 'error') return `The server couldn’t start: ${status.message}`;
+  return 'The server couldn’t start.';
+}
+
 export function createServerStatus({ api }) {
   const pill = document.getElementById('server-pill');
   const label = document.getElementById('server-pill-label');
@@ -36,6 +51,8 @@ export function createServerStatus({ api }) {
   const stateEl = document.getElementById('server-state');
   const urlEl = document.getElementById('server-url');
   const off = document.getElementById('server-off');
+  const offText = document.getElementById('server-off-text');
+  const retry = document.getElementById('server-retry');
   const aiLabel = document.getElementById('server-pill-ai');
   const release = document.getElementById('ai-release');
   const releaseText = document.getElementById('ai-release-text');
@@ -47,11 +64,15 @@ export function createServerStatus({ api }) {
     pill.dataset.state = status.state;
     stateEl.textContent = STATES[status.state];
     label.textContent = LABELS[status.state];
-    const title = aiName ? `${TITLES[status.state]}. ${aiName} works in this window.` : TITLES[status.state];
+    const base = status.state === 'off' && status.reason === 'port-in-use'
+      ? (status.holder?.kind === 'smartspec' ? 'MCP server: another copy of SmartSpec is running it' : 'MCP server: its port is in use by another app')
+      : TITLES[status.state];
+    const title = aiName ? `${base}. ${aiName} works in this window.` : base;
     pill.title = title;
     pill.setAttribute('aria-label', title);
     urlEl.textContent = status.url ?? '—';
     off.hidden = status.state !== 'off';
+    if (status.state === 'off') offText.textContent = offReason(status);
   }
 
   async function showSetups() {
@@ -188,6 +209,21 @@ export function createServerStatus({ api }) {
   api.onMcpStatus((next) => {
     status = next;
     render();
+  });
+  // Asked for at once too: a status sent before this window was listening (a reload, say) would
+  // otherwise leave it saying Starting… for good.
+  api.mcpStatus?.().then((next) => {
+    status = next;
+    render();
+  });
+  retry.addEventListener('click', async () => {
+    retry.disabled = true;
+    try {
+      status = await api.retryMcp();
+      render();
+    } finally {
+      retry.disabled = false;
+    }
   });
   api.onShowConnect(() => setOpen(true));
   document.getElementById('ai-release-button').addEventListener('click', () => api.releaseAiControl());

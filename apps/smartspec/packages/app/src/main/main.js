@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnect } from './connect.js';
-import { MCP_PORT, startMcpServer } from './mcp-server.js';
+import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
 import { confirm } from './confirm.js';
@@ -47,6 +47,10 @@ const windows = new Map(); // webContents id → { id, win, ready, session, unto
 let lastFocused = null;
 let mcp = null; // { url, token } once the MCP server is listening
 let mcpStarting = true;
+let mcpProblem = null; // why it isn't running: { reason: 'port-in-use', port, holder } or { reason: 'error', message }
+let lastMcpStatus = null;
+let mcpRetry = null;
+const MCP_RETRY_MS = 5000; // while the port is taken, how often to try again, so it starts once it's free
 const store = createStore(app.getPath('userData'));
 // Where the user has placed things in each schematic's focus view, on this computer only.
 const layouts = createLayouts(path.join(app.getPath('userData'), 'layouts'));
@@ -164,7 +168,32 @@ function createWindow({ focus = true } = {}) {
   return ctx;
 }
 
-const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : { state: mcpStarting ? 'starting' : 'off' });
+const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : mcpStarting ? { state: 'starting' } : { state: 'off', ...mcpProblem });
+
+// Starts the MCP server, or says why it couldn't. A taken port is tried again every few seconds
+// (another copy of the app may be quitting); anything else waits for the user's Try again.
+async function startMcp() {
+  clearTimeout(mcpRetry);
+  if (mcp) return mcpStatus();
+  try {
+    mcp = await startMcpServer(aiForServer, app.getPath('userData'));
+    mcpProblem = null;
+    setInterval(sweepSessions, SWEEP_MS).unref();
+  } catch (error) {
+    mcp = null;
+    mcpProblem = error?.code === 'EADDRINUSE'
+      ? { reason: 'port-in-use', port: MCP_PORT, holder: await portHolder(MCP_PORT) }
+      : { reason: 'error', message: error?.message ?? String(error) };
+    if (error?.code === 'EADDRINUSE') mcpRetry = setTimeout(startMcp, MCP_RETRY_MS);
+  }
+  const changed = mcpStarting || JSON.stringify(mcpStatus()) !== lastMcpStatus;
+  mcpStarting = false;
+  if (changed) {
+    lastMcpStatus = JSON.stringify(mcpStatus());
+    broadcast('mcp-status', mcpStatus());
+  }
+  return mcpStatus();
+}
 
 function updateMenu() {
   Menu.setApplicationMenu(buildMenu({
@@ -499,6 +528,9 @@ handle('ai-control-release', ({ session }) => {
   if (session) releaseWindow(session);
 });
 handle('mcp-setup', (_ctx, target) => mcpSetup(target));
+// Asked for by the window as it starts, so it never waits on a status sent before it was listening.
+handle('mcp-status', () => mcpStatus());
+handle('mcp-retry', () => startMcp());
 handle('copy-mcp-setup', async (_ctx, target) => clipboard.writeText(await mcpSetup(target)));
 handle('claude-desktop-status', () => claudeDesktopStatus());
 handle('add-to-claude-desktop', (ctx) => confirmAddToClaudeDesktop(ctx));
@@ -512,14 +544,7 @@ handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 
 app.whenReady().then(async () => {
   const first = createWindow();
-  try {
-    mcp = await startMcpServer(aiForServer, app.getPath('userData'));
-    setInterval(sweepSessions, SWEEP_MS).unref();
-  } catch {
-    mcp = null; // e.g. the port is taken by another copy of the app
-  }
-  mcpStarting = false;
-  broadcast('mcp-status', mcpStatus());
+  await startMcp();
   updates.start();
   await first.ready;
   offerMoveToApplications(first);
