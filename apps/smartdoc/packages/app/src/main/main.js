@@ -758,7 +758,7 @@ function openChatWindow(ctx, view) {
   win.on('move', remember);
   win.on('resize', remember);
   // Opened from the app, which is active: at the floating level straight away (see followChat).
-  floatChat(win, true);
+  win.setAlwaysOnTop(true, 'floating');
   // Out of the way when the user shows all windows (Mission Control, App Exposé): a floating window
   // would otherwise stay on top of them (the user found it in the way).
   win.setHiddenInMissionControl?.(true);
@@ -777,15 +777,21 @@ function openChatWindow(ctx, view) {
 // user's choice: as a child window it moved with it), but it stays on top of it: while the app is
 // the active one, the chat is at the floating windows' level, above every ordinary window (however
 // often the app window is clicked: going back over it when that came forward wasn't enough), and
-// when another app becomes active it's an ordinary window again, so that app's windows go over it.
-// It hides while the app window is minimised and closes with it, and in full screen, where a window
-// of its own can't follow, the chat docks.
-const floatChat = (win, on) => {
-  if (win && !win.isDestroyed()) win.setAlwaysOnTop(on, 'floating');
-};
-const chatWindows = () => [...windows.values()].map((ctx) => ctx.chat?.win).filter(Boolean);
-app.on('did-become-active', () => chatWindows().forEach((win) => floatChat(win, true)));
-app.on('did-resign-active', () => chatWindows().forEach((win) => floatChat(win, false)));
+// while another app is the active one it's hidden, as a Mac's floating palettes are, back as soon as
+// the app is (the user's choice: left as an ordinary window then, it showed in Mission Control,
+// which leaves out only windows above the ordinary ones, and got in the way every time). It hides
+// while the app window is minimised and closes with it, and in full screen, where a window of its
+// own can't follow, the chat docks.
+const chatWindows = () => [...windows.values()].map((ctx) => ctx.chat?.win).filter((win) => win && !win.isDestroyed());
+app.on('did-become-active', () => {
+  for (const ctx of windows.values()) {
+    const win = ctx.chat?.win;
+    if (!win || win.isDestroyed()) continue;
+    win.setAlwaysOnTop(true, 'floating');
+    if (ctx.win.isVisible() && !ctx.win.isMinimized()) win.showInactive();
+  }
+});
+app.on('did-resign-active', () => chatWindows().forEach((win) => win.hide()));
 function followChat(ctx) {
   // The window loaded again (a reload) while its chat floats: it's told, so it sends the chat what
   // it shows.
