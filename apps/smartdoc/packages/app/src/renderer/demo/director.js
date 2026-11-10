@@ -33,9 +33,12 @@ const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
 // Where the chat's window floats, in the app window's pixels: over its right side, and a little
 // past it, as a window of its own can be (the user wanted it over the window, and the window
 // larger, rather than beside it). It covers the cards in the right margin, as it would in the app,
-// so the scenes reach a suggestion through the chat's own list; and it can be dragged out of the
-// way (drag beats). A floating chat doesn't move the document: only the docked one does.
+// so scenes that open one drag it out of the way first (drag beats). A floating chat doesn't move
+// the document: only the docked one does.
 export const CHAT_PLACE = { x: 1000, y: 70, width: 400, height: 660 };
+// Where a suggestion opened from its card floats (the app keeps where the user last put it): over
+// the page, left of the chat.
+const PANEL_PLACE = { left: 560, top: 150 };
 const CANCELLED = new Error('The scene changed.');
 const DOC = { id: 'demo', name: 'Alex Example CV.pdf' };
 // The findings' decisions, in the order they're decided (the review's order: profile, wording,
@@ -137,8 +140,9 @@ export function createDirector({ api }) {
   const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
   // In the chat's window.
   const inChat = (selector) => chat?.doc.querySelector(selector) ?? null;
-  const chatButton = (label, scope = '') => [...(chat?.doc.querySelectorAll(`${scope} button`) ?? [])].find((b) => b.textContent.trim() === label);
-  const chatRow = (title) => [...(chat?.doc.querySelectorAll('.chat-row') ?? [])].find((r) => r.textContent.includes(title));
+  // In the floating panel of the suggestion opened from its card.
+  const inPanel = (selector) => document.querySelector(`.margin-opened:not([hidden]) ${selector}`);
+  const panelButton = (label) => [...document.querySelectorAll('.margin-opened:not([hidden]) button')].find((b) => b.textContent.trim() === label);
   const chatInput = () => inChat('.chat-compose textarea');
   const chatSend = () => inChat('.chat-send');
   const union = (...rects) => {
@@ -157,10 +161,14 @@ export function createDirector({ api }) {
     moved = to;
     movedListeners.forEach((listener) => listener(place()));
   }
-  // The app window with the chat's window by it.
+  // The app window with the chat's window by it, and as far as a scene drags it aside (CHAT_DRAG).
   const withChat = () => union(WINDOW, place());
-  // The chat's window, with `reach` of the app window beside it (the text a thread is about).
-  const chatFocus = (reach = 440) => ({ x: place().x - reach, y: Math.max(0, place().y - 30), width: place().width + reach, height: place().height + 60 });
+  const withChatDragged = () => union(WINDOW, { ...place(), x: place().x + CHAT_DRAG });
+  // The suggestion open in its panel, with room round it.
+  const panelFocus = (pad = 40) => {
+    const r = rect('.margin-opened:not([hidden])');
+    return r ? { x: r.left - pad, y: Math.max(0, r.top - pad), width: r.width + pad * 2, height: r.height + pad * 2 } : WINDOW;
+  };
   // The top bar's left part, with whatever menu is open under it.
   const topLeft = () => union({ left: 0, top: 0, right: 640, bottom: 44 }, rect('.tool-card:not([hidden])'));
 
@@ -190,6 +198,7 @@ export function createDirector({ api }) {
       localStorage.setItem(`smartdoc.view.${DOC.id}`, 'document');
       localStorage.setItem('chat-in-window', '1');
       localStorage.setItem('chat-ai', 'claude');
+      localStorage.setItem('opened-card-place', JSON.stringify(PANEL_PLACE));
     } catch {}
   }
 
@@ -278,11 +287,8 @@ export function createDirector({ api }) {
     api.showChat(true, view);
     if (!chat) return;
     await waitFor(() => inChat('.chat-panel:not([hidden]) .chat-body'), id);
-    if (view !== 'main') await waitFor(() => inChat('.chat-thread-title'), id);
-    else if (Object.values(base).some((m) => m.length)) await waitFor(() => inChat('.chat-body .chat-message:not(.chat-start)'), id);
+    if (Object.values(base).some((m) => m.length)) await waitFor(() => inChat('.chat-body .chat-message:not(.chat-start)'), id);
     await waitFor(() => inChat('.chat-compose textarea:not([disabled])'), id);
-    // The findings card folded, as it starts.
-    inChat('.chat-list-head[aria-expanded="true"]')?.click();
     await frame();
   }
 
@@ -314,18 +320,14 @@ export function createDirector({ api }) {
 
   // --- Placing the cursor, and other helpers -------------------------------------------------------
 
-  // The chat's list of suggestions unfolded (it starts folded), a suggestion opened from it, and
-  // back from its thread to the conversation (the list stays unfolded).
-  const unfoldList = () => click(() => inChat('.chat-list-head'));
-  const openRow = (title) => click(() => chatRow(title));
-  const backToChat = () => click(() => inChat('.chat-back'));
-
-  // Opens a finding's thread in the chat, as clicking its card in the margin does.
-  async function openThread(title, id) {
+  // Opens a suggestion in its floating panel, as clicking its card beside the page does.
+  async function openCard(title, id) {
     (await waitFor(() => tab(title), id)).click();
-    await waitFor(() => inChat('.chat-thread-title')?.textContent.includes(title.slice(0, 12)), id);
+    await waitFor(() => document.querySelector('.margin-opened:not([hidden]) .margin-opened-title')?.textContent.includes(title.slice(0, 12)), id);
     await frame();
   }
+  // A conversation so far, then the line of context the app posts as a suggestion's opened.
+  const saidThenLooking = (turns, title) => [...said('main', turns), { ...message('main', turns.length, 'event', `Looking at “${title}”`), kind: 'context', focus: true, about: title }];
 
   // Selects a variation on the home screen (choosing one draws the list afresh, so its row is
   // looked up again each time).
@@ -404,6 +406,9 @@ export function createDirector({ api }) {
     { ms: text.length * 32, find, typed: text },
   ];
   const act = (fn, undo, ms = 0) => ({ ms, act: fn, undo });
+  // A line of context the app posts to the chat as the user looks at or decides something (it goes
+  // to the AI with their next message): `about` for what they're looking at.
+  const note = (text, about = null) => ({ ms: 250, log: 'note', text, about, convo: 'main' });
   // The chat's window dragged by its header by (dx, dy), out of the way of what's under it.
   const dragChat = (dx, dy) => [
     move(() => inChat('.chat-head')),
@@ -621,6 +626,12 @@ export function createDirector({ api }) {
       const partial = i === k;
       if (partial && !(u > 0) && b.ms) continue;
       const convo = (conversations[b.convo] ??= []);
+      if (b.log === 'note') {
+        // Looking at something new replaces a line about what was looked at before, as in the app.
+        if (b.about && convo.at(-1)?.kind === 'context' && convo.at(-1).focus) convo.pop();
+        convo.push({ ...message(b.convo, convo.length, 'event', b.text), kind: 'context', ...(b.about && { focus: true, about: b.about }) });
+        continue;
+      }
       const role = { prompt: 'user', say: 'assistant', tool: 'step' }[b.log];
       const text = b.log === 'say' && partial ? b.text.slice(0, Math.round(b.text.length * u)) : b.text;
       // A reply still being written out: the chat shows no Working while it is.
@@ -756,53 +767,63 @@ export function createDirector({ api }) {
         return beats;
       },
     },
-    // A suggestion opened from its card in the margin, a rewrite chosen in its thread in the chat,
-    // and a wording change accepted.
+    // The chat moved aside, a suggestion opened from its card beside the page, a rewrite picked and
+    // confirmed in its panel, and a wording change accepted: each noted in the chat, for the AI.
     decide: {
       async build(id) {
         await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
         await openChat('main', { main: said('main', REVIEWED) }, id);
       },
-      focus: withChat,
-      beats: () => [
-        wait(500),
-        ...unfoldList(),
-        wait(500),
-        ...openRow('Rewrite the profile'),
-        wait(700),
-        ...click(() => inChat('.margin-card .option input')),
-        wait(900),
-        ...backToChat(),
-        wait(500),
-        ...openRow('Lead with what you built'),
-        wait(700),
-        ...click(() => chatButton('Accept', '.margin-card')),
-        wait(600),
-      ],
+      focus: () => withChatDragged(),
+      beats: () => {
+        const profile = api.reviews.improve.items[0];
+        return [
+          wait(400),
+          ...dragChat(CHAT_DRAG, 0),
+          ...click(() => tab('Rewrite the profile')),
+          note(`Looking at “${profile.title}”`, profile.title),
+          wait(600),
+          ...click(() => inPanel('.option input')),
+          wait(300),
+          ...click(() => panelButton('Confirm')),
+          note(`Chose “${profile.options[0].label}” for “${profile.title}”`),
+          wait(700),
+          ...click(() => tab('Lead with what you built')),
+          note('Looking at “Lead with what you built”', 'Lead with what you built'),
+          wait(600),
+          ...click(() => panelButton('Accept')),
+          note('Accepted “Lead with what you built”'),
+          wait(600),
+        ];
+      },
     },
-    // A question answered in its thread, and a move accepted.
+    // A question answered in its panel, and a move accepted.
     answer: {
       async build(id) {
         await onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id);
         await openChat('main', { main: said('main', REVIEWED) }, id);
       },
-      focus: withChat,
-      beats: () => [
-        wait(500),
-        ...unfoldList(),
-        wait(500),
-        ...openRow('What came of the checkout'),
-        wait(600),
-        ...typeInto(() => inChat('.margin-card .decision-answer'), DECISIONS[2].answer),
-        ...click(() => chatButton('Answer', '.margin-card')),
-        wait(900),
-        ...backToChat(),
-        wait(500),
-        ...openRow('Put Skills before Experience'),
-        wait(700),
-        ...click(() => chatButton('Accept', '.margin-card')),
-        wait(600),
-      ],
+      focus: () => withChatDragged(),
+      beats: () => {
+        const question = api.reviews.improve.items[2];
+        return [
+          wait(400),
+          ...dragChat(CHAT_DRAG, 0),
+          ...click(() => tab('What came of the checkout')),
+          note(`Looking at “${question.title}”`, question.title),
+          wait(500),
+          ...typeInto(() => inPanel('.decision-answer'), DECISIONS[2].answer),
+          ...click(() => panelButton('Answer')),
+          note(`Answered “${question.title}”`),
+          wait(800),
+          ...click(() => tab('Put Skills before Experience')),
+          note('Looking at “Put Skills before Experience”', 'Put Skills before Experience'),
+          wait(600),
+          ...click(() => panelButton('Accept')),
+          note('Accepted “Put Skills before Experience”'),
+          wait(600),
+        ];
+      },
     },
     // Everything decided: asked for in the chat, the AI writes a preview of Draft 1, which opens by
     // itself; accepting it makes it the draft, and the new draft's chat starts afresh.
@@ -889,14 +910,14 @@ export function createDirector({ api }) {
       focus: () => WINDOW,
       beats: () => [wait(600), move(() => tab('Lead with what you built')), wait(1400), move(() => tab('Rewrite the profile'))],
     },
-    // The chat: your own AI, Claude or ChatGPT, chosen in its header.
+    // The chat: your own AI, Claude or ChatGPT, chosen under its message box.
     'f-chat': {
       async build(id) {
         await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
         await openChat('main', { main: said('main', REVIEWED) }, id);
       },
       // The app's window and the chat's, as far as it's dragged.
-      focus: () => union(WINDOW, { ...place(), x: place().x + CHAT_DRAG }),
+      focus: () => withChatDragged(),
       beats: () => [
         wait(600),
         ...click(() => inChat('.chat-ai')),
@@ -912,35 +933,33 @@ export function createDirector({ api }) {
         wait(900),
       ],
     },
-    // Options: a choice of rewrites, in the suggestion's thread.
+    // Options: a choice of rewrites, picked then confirmed, in the suggestion's panel.
     'f-options': {
       async build(id) {
         await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
-        await openChat('main', { main: said('main', REVIEWED) }, id);
-        await openThread('Rewrite the profile', id);
+        await openCard('Rewrite the profile', id);
       },
-      focus: () => chatFocus(),
-      beats: () => [wait(900), ...click(() => chat?.doc.querySelectorAll('.margin-card .option input')[1])],
+      focus: () => panelFocus(),
+      beats: () => [wait(900), ...click(() => document.querySelectorAll('.margin-opened:not([hidden]) .option input')[1]), wait(500), ...click(() => panelButton('Confirm'))],
     },
     // A change: accept, reject or edit it.
     'f-edit': {
       async build(id) {
         await onDocument(0, 'improve', { decided: 1, reviews: { improve: ALL_FINDINGS } }, id);
-        await openChat('main', { main: said('main', REVIEWED) }, id);
-        await openThread('Lead with what you built', id);
+        await openCard('Lead with what you built', id);
       },
-      focus: () => chatFocus(),
-      beats: () => [wait(800), ...click(() => chatButton('Edit', '.margin-card'))],
+      focus: () => panelFocus(),
+      beats: () => [wait(800), ...click(() => panelButton('Edit'))],
     },
-    // Talking a suggestion over in its thread: the AI reworks it there.
+    // Talking a suggestion over: the chat knows which one's open, and the AI reworks it in its panel.
     'f-talk': {
       narrowX: CHAT_X,
       async build(id) {
         await onDocument(0, 'improve', { decided: 1, reviews: { improve: ALL_FINDINGS } }, id);
-        await openChat('main', { main: said('main', REVIEWED) }, id);
-        await openThread('Lead with what you built', id);
+        await openChat('main', { main: saidThenLooking(REVIEWED, 'Lead with what you built') }, id);
+        await openCard('Lead with what you built', id);
       },
-      focus: () => chatFocus(),
+      focus: () => union(panelFocus(), place()),
       beats: () => {
         const item = api.reviews.improve.items[1];
         return [
@@ -951,8 +970,8 @@ export function createDirector({ api }) {
               act: () => api.reviseItem(1, { proposal: { before: item.proposal.before, after: 'Responsible for the design system 4 teams use across 3 apps, which I built' } }),
               undo: () => api.reviseItem(1, null),
             },
-            { say: 'Done: it keeps “Responsible for” and says you built it. Decide on the new version above.' },
-          ], item.id),
+            { say: 'Done: it keeps “Responsible for” and says you built it. Decide on the new version in its card.' },
+          ]),
         ];
       },
     },
@@ -960,11 +979,10 @@ export function createDirector({ api }) {
     'f-questions': {
       async build(id) {
         await onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id);
-        await openChat('main', { main: said('main', REVIEWED) }, id);
-        await openThread('What came of the checkout', id);
+        await openCard('What came of the checkout', id);
       },
-      focus: () => chatFocus(),
-      beats: () => [wait(600), ...typeInto(() => inChat('.margin-card .decision-answer'), DECISIONS[2].answer)],
+      focus: () => panelFocus(),
+      beats: () => [wait(600), ...typeInto(() => inPanel('.decision-answer'), DECISIONS[2].answer)],
     },
     // Structure and design, in the left margin.
     'f-structure': {
@@ -973,7 +991,7 @@ export function createDirector({ api }) {
         await openChat('main', { main: said('main', REVIEWED) }, id);
       },
       focus: withChat,
-      beats: () => [wait(600), ...click(() => tab('Put Skills before Experience')), wait(900)],
+      beats: () => [wait(600), ...click(() => tab('Put Skills before Experience')), note('Looking at “Put Skills before Experience”', 'Put Skills before Experience'), wait(900)],
     },
     // A comment of the user's own: text selected, the comment typed, and its card in the margin.
     'f-comment': {
@@ -998,17 +1016,22 @@ export function createDirector({ api }) {
         wait(900),
       ],
     },
-    // Everything in the review in one list in the chat, in the order to work through it, each
-    // decided one ticked: the card, folded to how many are left, opened.
+    // The chat follows along: what's opened and decided is noted there, for the AI with the next
+    // message, and the message box says what a question would be about.
     'f-todo': {
       async build(id) {
         await onDocument(0, 'improve', { decided: 2, reviews: { improve: ALL_FINDINGS } }, id);
         await openChat('main', { main: said('main', REVIEWED) }, id);
-        await waitFor(() => inChat('.chat-list'), id);
-        inChat('.chat-list').scrollIntoView({ block: 'center' });
       },
-      focus: () => chatFocus(160),
-      beats: () => [wait(500), ...click(() => inChat('.chat-list-head')), wait(500), ...[0, 1, 2, 3].flatMap((n) => [move(() => chat?.doc.querySelectorAll('.chat-row')[n], 450), wait(350)])],
+      focus: withChat,
+      beats: () => [
+        wait(500),
+        ...click(() => tab('Put Skills before Experience')),
+        note('Looking at “Put Skills before Experience”', 'Put Skills before Experience'),
+        wait(700),
+        move(chatInput),
+        wait(1200),
+      ],
     },
     // Every draft kept, each with its own chat: picked from the list in the top bar.
     'f-drafts': {
@@ -1062,8 +1085,8 @@ export function createDirector({ api }) {
     'f-gaps': {
       async build(id) {
         await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
-        await openChat('main', { main: said('main', HIGHLIGHTED) }, id);
-        await openThread('No team size', id);
+        await openChat('main', { main: saidThenLooking(HIGHLIGHTED, 'No team size') }, id);
+        await openCard('No team size', id);
       },
       focus: withChat,
       beats: () => [],

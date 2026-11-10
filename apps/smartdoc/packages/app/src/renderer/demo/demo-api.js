@@ -23,8 +23,8 @@ const day = (n) => new Date(Date.parse(DOCUMENT.importedAt) + n * 864e5).toISOSt
 
 // The AIs the chat can run, as main/agent.js reports them: both set up, unless a scene says not.
 const AIS = {
-  claude: { id: 'claude', name: 'Claude', tool: 'Claude Code', installers: ['Anthropic’s installer'], installed: true, loggedIn: true, account: 'Claude account' },
-  codex: { id: 'codex', name: 'ChatGPT', tool: 'Codex', installers: ['OpenAI’s installer'], installed: true, loggedIn: true, account: 'ChatGPT account' },
+  claude: { id: 'claude', name: 'Claude', tool: 'Claude Code', installers: ['Anthropic’s installer'], installed: true, loggedIn: true, account: 'Claude account', models: [{ id: 'claude-fable-5-1', name: 'Fable 5.1' }, { id: 'claude-opus-5-5', name: 'Opus 5.5' }, { id: 'claude-sonnet-5-5', name: 'Sonnet 5.5' }, { id: 'claude-haiku-5-5', name: 'Haiku 5.5' }] },
+  codex: { id: 'codex', name: 'ChatGPT', tool: 'Codex', installers: ['OpenAI’s installer'], installed: true, loggedIn: true, account: 'ChatGPT account', models: [] },
 };
 
 export function createDemoApi() {
