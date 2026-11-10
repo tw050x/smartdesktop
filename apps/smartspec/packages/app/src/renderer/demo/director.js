@@ -506,7 +506,7 @@ export function createDirector({ api }) {
         ...click(marker),
         wait(1600),
         act(closeAll),
-        ...click(() => document.getElementById('proposal-accept')),
+        ...click(() => document.querySelector('[data-action="proposal-accept"]')),
         wait(1000),
       ],
     },

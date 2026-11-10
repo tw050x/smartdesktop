@@ -12,6 +12,8 @@ export default defineConfig({
         main: 'src/renderer/index.html',
         // A question asked in a window of its own (main/confirm.js).
         confirm: 'src/renderer/confirm.html',
+        // The chat, floating in a window of its own (main.js, chat-window.js).
+        chat: 'src/renderer/chat.html',
       },
     },
   },

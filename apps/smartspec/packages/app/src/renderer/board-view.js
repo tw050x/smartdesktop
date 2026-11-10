@@ -10,7 +10,7 @@
 // first needed by `build(id)`) and its card (`.board-card`). The board calls `onChange(layout)` when
 // the user has moved or sized something, and `onBring(id)` when a card is clicked.
 
-import { bringToMiddle, cardnessAtEdge, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, toFront, zoneAt, zoneAtEdge } from './board.js';
+import { bringToMiddle, cardnessAtEdge, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
 import { watchPage } from './page-view.js';
 import { longPressed } from './long-press.js';
 
@@ -39,13 +39,19 @@ const GRIPS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 export function watchBoard(board, { layout: first, build, onChange = () => {}, onBring = () => {} }) {
   let layout = first;
   let dragging = null; // the item being moved
+  let justDragged = false; // a drag has just ended: the click that ends it does nothing more
   let placed = null; // the item last dropped, which stays exactly where it was put
   const items = () => [...board.querySelectorAll(':scope > .board-item')];
   const itemOf = (id) => board.querySelector(`:scope > .board-item[data-item="${CSS.escape(id)}"]`);
   const size = () => ({ width: board.clientWidth, height: board.clientHeight });
 
   // The box an item shows in, as fractions: the middle's, if it fills it.
-  const shownBox = (id) => (fills(layout, id, dragging) ? { ...layout.boxes[id], ...fillBox(size()) } : layout.boxes[id]);
+  // Open items in the middle that would hide one another are drawn as a cascade (see stagger):
+  // worked out afresh each time everything is placed, except while one is being resized, so nothing
+  // moves under the pointer.
+  let staggered = {};
+  let resizing = null;
+  const shownBox = (id) => (fills(layout, id, dragging) ? { ...layout.boxes[id], ...fillBox(size()) } : staggered[id] ? { ...layout.boxes[id], ...staggered[id] } : layout.boxes[id]);
 
   // An item's full view, built the first time it's shown.
   const fullOf = (element) => {
@@ -98,13 +104,17 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const one = {
       id, element, cx: box.cx * width, cy: box.cy * height,
       full: { width: box.w * width, height: box.h * height },
-      fixed: element.classList.contains('board-comment') ? commentSize(element) : null,
+      fixed: element.classList.contains('board-comment') ? commentSize(element, false) : null,
       shrink: id === dragging || id === placed ? element.keepShrink ?? 1 : 1,
     };
     // An item with no edge kept, whose centre is where cards go, is a card.
     one.e = box.ex != null && !filling ? box.ex : zoneAt(box.cx) === 'edge' ? 0 : edgeFromCentre(one);
     const zone = zoneAtEdge(one.e);
     one.side = zone === 'middle' ? null : box.cx < 0.5 ? 'left' : 'right';
+    // A comment needing nothing more is folded to one line on a side (unless the user opened it
+    // there), and shows in full in the middle: the user wanted to read it there too. Its width is the
+    // same either way, so where it shows doesn't depend on which.
+    if (one.fixed) one.fixed = commentSize(element, zone === 'middle' || Boolean(element.querySelector('.comment-card.unfolded')));
     one.cardness = one.fixed ? 1 : cardnessAtEdge(one.e);
     // The open view is built the first time it's needed; until it's there, the card shows.
     one.built = one.cardness < 1 ? Boolean(fullOf(element)) : Boolean(element.querySelector(':scope > .board-full'));
@@ -128,16 +138,19 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   // A comment card's size: its own width, and as tall as what's in it. Measured once, on a hidden
   // copy: measuring the card itself, on every move, stopped everything gliding mid-way and made
   // cards jump to their new places.
-  function commentSize(element) {
-    if (element.commentSize) return element.commentSize;
+  function commentSize(element, open) {
+    element.commentSizes ??= {};
+    if (element.commentSizes[open]) return element.commentSizes[open];
     const card = element.querySelector(':scope > .board-card');
     const copy = card.cloneNode(true);
+    // Measured folded or in full (see look).
+    copy.querySelector('.comment-card')?.classList.toggle('unfolded', open);
     Object.assign(copy.style, { position: 'absolute', visibility: 'hidden', pointerEvents: 'none', left: '-10000px', top: '0', width: `${COMMENT_WIDTH}px`, height: 'auto', transform: 'none', transition: 'none' });
     board.append(copy);
     const height = copy.offsetHeight || 120;
     copy.remove();
     const measured = { width: COMMENT_WIDTH + FRAME, height: height + FRAME };
-    if (height) element.commentSize = measured;
+    if (height) element.commentSizes[open] = measured;
     return measured;
   }
 
@@ -283,6 +296,7 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   const placeAll = () => {
     board.classList.toggle('stacked', narrow());
     shownAt = {};
+    if (!resizing) staggered = stagger(layout, size(), dragging ? [dragging] : []);
     const looks = items().map(look).filter(Boolean);
     // What's being dragged stays under the pointer, and the things on its side move out of its way
     // as it goes, gliding there.
@@ -415,6 +429,8 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
         layout = { boxes: { ...layout.boxes, [id]: { ...box, cx: (left + frameNow.w / 2) / width, cy: (top + frameNow.h / 2) / height } } };
       }
       dragging = null;
+      justDragged = true;
+      setTimeout(() => { justDragged = false; });
       // Let go first, so that springing back inside the window glides there: taken off it in the
       // same moment it's moved, the browser moved it without a transition.
       element.classList.remove('held');
@@ -434,10 +450,14 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     board.addEventListener('pointerup', onEnd);
     board.addEventListener('pointercancel', onEnd);
   });
-  // The drag is the click: a card dragged isn't also followed.
+  // The drag is the click: a card dragged isn't also followed, nor a comment it is opened or folded.
   board.addEventListener('click', (event) => {
-    if (event.target.closest?.('.board-card')) event.preventDefault();
+    if (!event.target.closest?.('.board-card')) return;
+    event.preventDefault();
+    if (justDragged) event.stopPropagation();
   }, true);
+  // A comment opened or folded on a side takes its new size there (see commentCard).
+  board.addEventListener('comment-folded', () => placeAll());
 
   // Resizing, in the middle, from an edge or a corner: the other edges stay put. Double-clicking a
   // grip lets go of the size, so a lone item fills the middle again.
@@ -448,7 +468,10 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const id = element.dataset.item;
     settleFilling();
     const { width, height } = size();
-    const box = layout.boxes[id];
+    // One drawn smaller in a cascade is resized from what shows, which becomes its size.
+    const box = { ...layout.boxes[id], ...staggered[id] };
+    resizing = id;
+    delete staggered[id];
     // Anything open can be resized, in the middle or scaled down at the side. It keeps its scale
     // while it's resized (its edge, ex, is held), and its edges follow the pointer where it shows.
     const origin = board.getBoundingClientRect();
@@ -477,6 +500,8 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       board.removeEventListener('pointerup', onEnd);
       board.removeEventListener('pointercancel', onEnd);
       board.classList.remove('resizing');
+      resizing = null;
+      placeAll();
       changed();
     };
     board.addEventListener('pointermove', onMove);

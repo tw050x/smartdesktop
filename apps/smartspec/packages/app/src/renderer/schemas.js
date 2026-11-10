@@ -8,8 +8,9 @@ import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments }
 import { closeThread, openThread, refreshThread } from './comment-overlay.js';
 import { shadeScrolling } from './scroll-shade.js';
 import { watchLongPress } from './long-press.js';
-import { itemView, kindLabel, sequenceKey } from './item-views.js';
+import { itemView, kindLabel, sequenceKey, wipeView } from './item-views.js';
 import { markInline, readText } from './diff-marks.js';
+import { diffOf } from './item-diffs.js';
 import { CROSS, openCompare } from './compare-view.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
@@ -57,8 +58,6 @@ function kindIcon(kind, label) {
 const ARROW_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
 const OPEN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5,21q-0.83,0-1.41-0.59T3,19V5Q3,4.17 3.59,3.59T5,3h7V5H5V19H19V12h2v7q0,0.82-0.59,1.41T19,21H5Zm4.7-5.3L8.3,14.3L17.6,5H14V3h7v7H19V6.4L9.7,15.7Z"/></svg>';
 const FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"/></svg>';
-// Two pages side by side: comparing writing with the draft it changes.
-const COMPARE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7.5" height="16" rx="1.5"/><rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/></svg>';
 const LEAVE_FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M22 3.41 16.71 8.7 20 12h-8V4l3.29 3.29L20.59 2zM3.41 22l5.29-5.29L12 20v-8H4l3.29 3.29L2 20.59z"/></svg>';
 const HOME_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>';
 // SmartDoc's folder icons: a folder on home's list, and New folder.
@@ -112,7 +111,15 @@ const rememberedView = () => {
 const CHANGE_LABELS = { added: 'New', changed: 'Changed', removed: 'Removed' };
 const smoothly = () => typeof document.startViewTransition === 'function' && document.visibilityState === 'visible' && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focusMenu, viewSwitch, api }) {
+// `onShown({ chatId, name })` hears what the window shows, for the chat (see app-shell.js): home
+// ('home', name null), or a schematic's draft (`<schematic>/<draft>`; a proposal is the draft it
+// changes', or `<schematic>/new` for a new schematic's first). `onCards(cards, shortcuts)` hears what there is
+// to decide about what it shows (drawn in the bottom bar: see showBar) and what to ask the AI about
+// it, as shortcuts for the chat (see reviewBar); `onAsk(text)` sends the chat's AI a
+// request (from the question before accepting); `onNote(note)` gives the chat a line of context for
+// the AI, about what the user looked at or did ({ text, detail, focus, about }: see note in
+// main/agent.js).
+export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focusMenu, viewSwitch, api, onShown = () => {}, onCards = () => {}, onAsk = () => {}, onNote = () => {} }) {
   // A level: { schemaId, draftId (null for the latest), proposal (showing the proposed change),
   // label, item (what's selected in it), focus (a part of it to bring into view) }.
   let path = [];
@@ -122,6 +129,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   const sorts = Object.fromEntries(Object.entries(SORTS).map(([column, options]) => [column, options.find(([id]) => id === rememberedSort(column)) ?? options[0]]));
   const modes = createModeSwitcher({ card: modeCard, onChange: () => render() });
   let rendering = 0;
+  let aiWaiting = []; // the proposals an AI in another app is waiting on (`smartspec wait`)
   let homeShowing = false; // home's columns rise in only as it arrives, not each time it's drawn again
   // A schema shows one item with what links to it, or a list of everything in it. Remembered on this
   // computer, as a convenience.
@@ -239,8 +247,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       if (!path.length && !homeShowing) view.classList.add('arriving');
       homeShowing = !path.length;
       el.replaceChildren(view);
-      bottomBar.replaceChildren(...(view.bottomBar ?? []));
-      bottomBar.hidden = !view.bottomBar;
+      showBar(view.bottomBar);
+      onCards(view.bottomBar?.cards ?? [], view.bottomBar?.shortcuts ?? []);
       crumbs.replaceChildren(...breadcrumb());
       crumbs.title = path.map((one) => one.label).join(' › ');
       draftNav.replaceChildren(...(view.draftNav ?? []));
@@ -350,6 +358,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   }
 
   async function homeView() {
+    onShown({ chatId: 'home', name: null });
     const [all, { groups }, folders] = await Promise.all([api.listSchemas(), api.listGroups(), api.folders()]);
     folderState = folders;
     if (shownFolder && !folderById(shownFolder)) shownFolder = null;
@@ -865,6 +874,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return path.length ? schemaView(top()) : homeView();
     }
     here.label = shown.name;
+    onShown({ chatId: `${here.schemaId}/${here.proposal ? shown.basedOn ?? 'new' : shown.draftId}`, name: shown.name });
 
     const uses = new Map(shown.uses.map((use) => [use.id, use]));
     // What the proposal removes can still be opened while reviewing it, to see what goes.
@@ -887,6 +897,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     };
 
     here.choices = { shown };
+    approvals = new Set(here.proposal ? shown.approved ?? [] : []);
     if (modes.mode() === 'test') {
       const page = testView(shown);
       page.draftNav = draftControls(here, shown);
@@ -999,31 +1010,60 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
   // The draft controls: the draft showing, with arrows to the ones either side, and its note on
   // hover. A proposal counts as the draft it would become.
+  // The drafts, in the top bar just after the focus, as SmartDoc's: the draft showing (or the next
+  // draft's preview, for a proposal), opening a card of the schematic's drafts, newest first, each
+  // with when it was made and its note, the proposal waiting on it first as the next draft's preview,
+  // the one showing marked. Choosing one shows it. It replaced Previous and Next buttons either side
+  // of the name (the user's choice, as in SmartDoc).
+  const draftCard = Object.assign(document.createElement('div'), { className: 'tool-card draft-card', id: 'draft-card', hidden: true });
+  draftCard.setAttribute('role', 'menu');
+  draftCard.setAttribute('aria-label', 'Drafts');
+  document.body.append(draftCard);
+  let draftButton = null;
+  const CHEVRON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
   function draftControls(here, shown) {
-    const step = (enabled, label, symbol, onclick) => h('button', { className: 'icon-button', type: 'button', 'aria-label': label, title: label, disabled: !enabled, onclick }, symbol);
-    if (here.proposal) {
-      return [
-        step(shown.total > 0, 'Back to the current draft', '‹', () => { here.proposal = false; here.draftId = null; remember(); render(); }),
-        h('span', { className: 'draft-label', title: shown.note }, `Draft ${shown.total + 1} preview`),
-        step(false, 'Next draft', '›'),
-      ];
-    }
-    const at = shown.number - 1;
-    // The latest follows the schema as it changes; an earlier one stays where it is.
-    const goTo = (delta) => () => { here.draftId = at + delta === shown.line.length - 1 ? null : shown.line[at + delta]; render(); };
-    return [
-      step(shown.line[at - 1], 'Previous draft', '‹', goTo(-1)),
-      h('span', { className: 'draft-label', title: shown.note }, `Draft ${shown.number} of ${shown.total}`),
-      // Past the latest draft is the proposal waiting on it, if there is one: the next draft's preview.
-      shown.line[at + 1] || !shown.proposal
-        ? step(shown.line[at + 1], 'Next draft', '›', goTo(1))
-        : step(true, `Draft ${shown.total + 1} preview`, '›', () => { here.proposal = true; here.draftId = null; remember(); render(); }),
-    ];
+    const label = here.proposal ? `Draft ${shown.total + 1} preview` : `Draft ${shown.number} of ${shown.total}`;
+    const button = h('button', { className: 'tool-button draft-button', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: shown.note ?? null, onclick: () => openDrafts(here, shown, button) },
+      h('span', { className: 'draft-label' }, label));
+    button.insertAdjacentHTML('beforeend', CHEVRON);
+    draftButton = button;
+    closeDrafts();
+    return [button];
   }
+  function closeDrafts() {
+    draftCard.hidden = true;
+    draftButton?.setAttribute('aria-expanded', 'false');
+  }
+  async function openDrafts(here, shown, button) {
+    if (!draftCard.hidden) return closeDrafts();
+    const at = button.getBoundingClientRect();
+    draftCard.style.left = `${Math.max(8, Math.min(innerWidth - 320 - 8, at.left))}px`;
+    draftCard.replaceChildren(h('p', { className: 'focus-empty' }, 'Loading drafts…'));
+    draftCard.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    const drafts = await api.listDrafts(here.schemaId).catch(() => []);
+    if (draftCard.hidden) return;
+    const when = (date) => (date ? new Date(date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null);
+    const option = (name, about, checked, go) => h('button', { className: 'tool-option draft-option', type: 'button', role: 'menuitemradio', 'aria-checked': String(checked), onclick: () => { closeDrafts(); if (!checked) go(); } },
+      h('span', { className: 'tool-option-text' }, h('strong', {}, name), about && h('span', { className: 'draft-about' }, about)));
+    const waiting = here.proposal ? shown : shown.proposal;
+    draftCard.replaceChildren(
+      waiting && option(`Draft ${shown.total + 1} preview`, [when(waiting.createdAt), 'Proposed by the AI, for you to review'].filter(Boolean).join(' · '), Boolean(here.proposal), () => { here.proposal = true; here.draftId = null; remember(); render(); }),
+      ...drafts.map((draft) => option(`Draft ${draft.number}`, [when(draft.createdAt), draft.note].filter(Boolean).join(' · '), !here.proposal && draft.id === shown.draftId,
+        () => { here.proposal = false; here.draftId = draft.latest ? null : draft.id; remember(); render(); })),
+    );
+    if (!drafts.length && !waiting) draftCard.append(h('p', { className: 'focus-empty' }, 'No drafts yet.'));
+  }
+  document.addEventListener('pointerdown', (event) => {
+    if (!draftCard.hidden && !draftCard.contains(event.target) && !draftButton?.contains(event.target)) closeDrafts();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !draftCard.hidden) closeDrafts();
+  });
 
-  // The controls are centred in the top bar while there's room. When the breadcrumb reaches them they
-  // move along to sit just after it; when that leaves no room before the right-hand controls, the
-  // label goes, then the controls too. Each time starts from everything shown.
+  // Left-aligned, just after the breadcrumb (its mode and focus), as SmartDoc's: when that leaves no
+  // room before the right-hand controls, the label goes, then the control too. Each time starts from
+  // everything shown.
   const DRAFT_NAV_GAP = 12;
   function placeDraftNav() {
     if (draftNav.hidden) return;
@@ -1031,15 +1071,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const bar = draftNav.parentElement.getBoundingClientRect();
     const end = draftNav.parentElement.querySelector('.top-bar-end').getBoundingClientRect().left - DRAFT_NAV_GAP - bar.left;
     const fits = () => {
-      draftNav.classList.remove('pushed');
-      draftNav.style.left = '';
       const last = crumbs.lastElementChild?.getBoundingClientRect().right ?? bar.left;
       const start = last + DRAFT_NAV_GAP - bar.left;
-      const width = draftNav.offsetWidth;
-      if (bar.width / 2 - width / 2 >= start) return bar.width / 2 + width / 2 <= end;
       draftNav.classList.add('pushed');
       draftNav.style.left = `${start}px`;
-      return start + width <= end;
+      return start + draftNav.offsetWidth <= end;
     };
     if (fits()) return;
     draftNav.classList.add('compact');
@@ -1047,58 +1083,147 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     draftNav.classList.add('collapsed');
   }
 
+
   // The bottom bar is about this view. It shows everywhere but home, so it always has something to
   // say: the app's own short sentence on what's being done now or what needs doing, not the AI's note
-  // and not what each button does, on one line that never wraps (the full sentence is on hover). Its
-  // buttons, if any, are the way to do it. The first of these that applies is what it says.
+  // and not what each button does, on one line that never wraps (the full sentence is on hover).
+  // What there is to decide is a card in the chat's conversation, saying what it is, with its
+  // buttons, not in the bar (the user wants the chat to be where they work, the AI leading):
+  // `{ said, cards }`, each card as chat-panel.js takes them, its actions with `run`. The first of
+  // these that applies is what it says.
   const reviewLine = (said) => h('p', { className: 'review-bar-text', title: said }, said);
+  // The bottom bar is the actions bar: what there is to decide about the view (a card from
+  // reviewBar), what it is and a line on what's happening now and what deciding does, on the left,
+  // with its buttons on the right (the user's choice: it was a sentence, then a banner across the
+  // top); with nothing to decide, its sentence on what's going on. It explains, and no more: what's
+  // in a proposal, and the AI's note on it, are for the board and the chat (the user's choice).
+  function showBar(view) {
+    bottomBar.hidden = !view;
+    if (!view) return bottomBar.replaceChildren();
+    const card = view.cards?.[0];
+    if (!card) return bottomBar.replaceChildren(reviewLine(view.said));
+    const line = [...(card.lines ?? []), card.decide].filter(Boolean).join(' ');
+    bottomBar.replaceChildren(
+      h('div', { className: 'review-bar-card' },
+        h('div', { className: 'review-bar-title' }, card.title),
+        line && h('div', { className: 'review-bar-line', title: line }, line),
+      ),
+      h('div', { className: 'review-bar-actions' }, ...(card.actions ?? []).map((action) => h('button', {
+        className: action.kind === 'primary' ? 'primary-button' : 'secondary-button',
+        type: 'button',
+        'data-action': action.id,
+        title: action.title ?? null,
+        onclick: () => action.run?.(),
+      }, action.label))));
+  }
+  const bar = (said, card = null, shortcuts = []) => ({ said, cards: card ? [card] : [], shortcuts: shortcuts.filter(Boolean) });
+  const many = (n, one, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
   function reviewBar(here, shown) {
     const name = shown.name;
-    // A proposal under review, and its answers.
+    // A proposal under review: the card says what it is and what accepting does, with the user's
+    // answers. Comments the AI hasn't answered are a shortcut over the message box: the go-ahead
+    // for an AI in another app waiting on the proposal, to deal with them before accepting (its wait
+    // ends saying so: see store.sendComments), or else a request to the chat's AI to answer them;
+    // shown again for each new comment (its `key`).
     if (here.proposal) {
-      // Comments the AI hasn't answered can be sent to it, to deal with before accepting: its wait
-      // ends saying so (see store.sendComments). Once sent, they're with it until it answers.
       const { waiting = 0, sent = 0 } = shown.forTheAi ?? {};
       const unsent = waiting - sent;
-      const many = (n) => (n === 1 ? '1 comment' : `${n} comments`);
-      return [
-        reviewLine(sent && !unsent ? `The AI is dealing with your ${many(sent)} on ${name}.`
-          : shown.total ? `You're reviewing changes the AI has proposed to ${name}.` : `You're reviewing ${name}, a new schematic the AI has proposed.`),
-        h('button', { className: 'secondary-button', type: 'button', id: 'proposal-discard', onclick: () => answer(() => api.discardProposal(here.schemaId)) }, 'Discard'),
-        (waiting > 0) && h('button', {
-          className: 'secondary-button',
-          type: 'button',
-          id: 'proposal-send-comments',
-          disabled: !unsent,
-          title: unsent ? 'Ask the AI to answer your comments, and change what it proposed if it needs to' : 'The AI has your comments',
-          onclick: () => answer(() => api.sendComments(here.schemaId)),
-        }, unsent ? `Send ${many(unsent)} to AI` : 'Sent to AI'),
-        h('button', { className: 'primary-button', type: 'button', id: 'proposal-accept', onclick: () => answer(() => api.acceptProposal(here.schemaId)) }, 'Accept'),
-      ].filter(Boolean);
+      const aiWaits = aiWaiting.includes(shown.proposalId);
+      const isNew = !shown.total;
+      const askText = `I’ve commented on the ${isNew ? 'proposed new schematic' : 'proposed changes to'} ${name} (schematic ${here.schemaId}). Read my comments, answer each one, and propose again if they need changes.`;
+      // Comments sent to an AI in another app that has stopped waiting may be with it, or not: the
+      // chat's AI can still be asked.
+      const shortcut = unsent > 0 && aiWaits
+        ? { id: 'send-comments', key: `send-comments:${shown.proposalId}:${unsent}`, kind: 'primary', label: `Send ${many(unsent, 'comment')} to your AI`, title: 'Ask the AI to answer your comments, and change what it proposed if it needs to', run: () => answer(() => api.sendComments(here.schemaId)) }
+        : waiting > 0 && !aiWaits && { id: 'ask-comments', key: `ask-comments:${shown.proposalId}:${waiting}`, label: `Ask the AI to answer ${waiting === 1 ? 'your comment' : `your ${waiting} comments`}`, title: 'Asks the AI in the chat to answer your comments, and change what it proposed if they need it', text: askText };
+      // An item full screen: the bar is about it.
+      const item = here.full ? fullItem(here, shown) : null;
+      const reviewed = bar(sent && !unsent ? `The AI is dealing with your ${many(sent, 'comment')} on ${name}.`
+        : isNew ? `You're reviewing ${name}, a new schematic the AI has proposed.` : `You're reviewing changes the AI has proposed to ${name}.`, {
+        id: `proposal-${shown.proposalId}`,
+        at: shown.createdAt ?? null,
+        title: item ? `${item.title}, ${isNew ? `in the new schematic ${name}` : `in the proposed changes to ${name}`}` : isNew ? `New schematic: ${name}` : `Proposed changes to ${name}`,
+        lines: [
+          item?.line ?? approvedLine(shown),
+          sent && !unsent ? `The AI is dealing with your ${many(sent, 'comment')}.`
+            : unsent ? `You have ${many(unsent, 'comment')} the AI hasn’t answered${aiWaits ? ', and it’s waiting for the go-ahead' : ''}.` : null,
+        ].filter(Boolean),
+        decide: isNew ? 'Accept to make it a schematic, or discard it.' : `Accept to make it draft ${shown.total + 1} of ${name}, or discard it.`,
+        actions: [
+          { id: 'proposal-discard', label: 'Discard', run: () => answer(async () => {
+            await api.discardProposal(here.schemaId);
+            // The chat stays the draft's, so it knows what became of the proposal.
+            onNote({ text: `Discarded the proposed ${isNew ? 'new schematic' : 'changes to'} ${name}`, detail: `Discarded the proposed ${isNew ? 'new schematic' : 'changes to'} ${name} (schematic ${here.schemaId})` });
+          }) },
+          { id: 'proposal-accept', label: 'Accept', kind: 'primary', run: () => answer(async () => {
+            if (await api.acceptProposal(here.schemaId) === 'ask') onAsk(askText);
+          }) },
+        ],
+      }, [shortcut]);
+      // The proposal is decided from the schematic's own view, not from one item in it (the user's
+      // choice): full screen, the bar only says how the item shows.
+      if (item) Object.assign(reviewed.cards[0], { decide: null, actions: [] });
+      return reviewed;
     }
     // A proposal waiting on this schematic.
     if (shown.proposal) {
-      return [
-        reviewLine(`The AI has proposed changes to ${name} for you to review.`),
-        h('button', { className: 'primary-button', type: 'button', id: 'view-proposal', onclick: () => { here.proposal = true; render(); } }, 'Review'),
-      ];
+      return bar(`The AI has proposed changes to ${name} for you to review.`, {
+        id: `proposal-${shown.proposal.id}`,
+        at: shown.proposal.createdAt ?? null,
+        title: `Proposed changes to ${name}`,
+        decide: 'Review them to accept or discard them.',
+        actions: [{ id: 'view-proposal', label: 'Review', kind: 'primary', run: () => { here.proposal = true; render(); } }],
+      });
     }
-    if (modes.mode() === 'test') return [reviewLine(`Contract tests for ${name} aren't built yet.`)];
+    if (modes.mode() === 'test') return bar(`Contract tests for ${name} aren't built yet.`);
     // An earlier draft, with the way back to the latest.
     if (shown.number < shown.total) {
-      return [
-        reviewLine(`You're looking at draft ${shown.number} of ${name}. Draft ${shown.total} is the latest.`),
-        h('button', { className: 'secondary-button', type: 'button', id: 'latest-draft', onclick: () => { here.draftId = null; remember(); render(); } }, 'Go to the latest'),
-      ];
+      return bar(`You're looking at draft ${shown.number} of ${name}. Draft ${shown.total} is the latest.`, {
+        id: `earlier-${shown.draftId}`,
+        at: null,
+        title: `Draft ${shown.number} of ${shown.total}`,
+        decide: `This is an earlier draft of ${name}. Draft ${shown.total} is the latest.`,
+        actions: [{ id: 'latest-draft', label: 'Go to the latest', run: () => { here.draftId = null; remember(); render(); } }],
+      });
     }
     // Inside a schematic embedded in another.
     const within = path.length > 1 ? `, inside ${path[path.length - 2].label}` : '';
-    if (layout === 'overview') return [reviewLine(`You're looking at everything in ${name}${within}.`)];
-    if (!here.full) return [reviewLine(`You're working on ${name}${within}.`)];
+    if (layout === 'overview') return bar(`You're looking at everything in ${name}${within}.`);
+    if (!here.full) return bar(`You're working on ${name}${within}.`);
     const use = shown.uses.find((one) => one.id === here.item);
-    if (use) return [reviewLine(use.missing ? `The schematic embedded here is no longer available.` : `${use.name} is embedded in ${name}, at its draft ${use.number}.`)];
+    if (use) return bar(use.missing ? `The schematic embedded here is no longer available.` : `${use.name} is embedded in ${name}, at its draft ${use.number}.`);
     const what = here.item === CONTRACT ? `the contract of ${name}` : `${shown.items.find((one) => one.id === here.item)?.title ?? here.item}, in ${name}${within}`;
-    return [reviewLine(`You're looking at ${what}, full screen.`)];
+    return bar(`You're looking at ${what}, full screen.`);
+  }
+
+  // How many of the proposal's changes the user has approved, for the bar.
+  function approvedLine(shown) {
+    const changes = shown.changes;
+    if (!changes) return null;
+    const total = Object.keys(changes.items).length + changes.removed.length + (changes.contract ? 1 : 0);
+    const done = approvals.size;
+    if (!total) return null;
+    if (!done) return `Approve each change as you go, or accept them all as proposed.`;
+    return done >= total ? `You’ve approved all ${total === 1 ? 'of it' : `${total} changes`}.` : `You’ve approved ${done} of ${total} changes; the rest are accepted as proposed.`;
+  }
+
+  // The item showing full screen while a proposal is reviewed: its title, and a line on how it shows
+  // (or what the proposal does to it). Its controls are in its own drawer (see cardDrawer).
+  const SHOWING = {
+    changes: () => 'Showing what the proposal changes in it: new in green, removed in red, changed in amber.',
+    before: (number) => `Showing it as it is in draft ${number}.`,
+    after: () => 'Showing it as it would be once accepted.',
+  };
+  function fullItem(here, shown) {
+    const use = shown.uses.find((one) => one.id === here.item);
+    const title = here.item === CONTRACT ? 'The contract' : use ? use.name ?? use.id : shown.items.find((one) => one.id === here.item)?.title
+      ?? shown.changes?.removed?.find((one) => one.id === here.item)?.title ?? here.item;
+    const mark = here.item === CONTRACT ? (shown.changes?.contract ? 'changed' : null)
+      : shown.changes?.removed?.some((one) => one.id === here.item) ? 'removed' : shown.changes?.items?.[here.item];
+    const diff = here.fullDiff;
+    const line = diff?.showing ? SHOWING[diff.showing](diff.basedOn)
+      : mark === 'added' ? 'New in this proposal.' : mark === 'removed' ? 'The proposal removes it.' : mark === 'changed' ? 'The proposal changes it.' : 'The proposal doesn’t change it.';
+    return { title, line };
   }
 
   // Where this is in the schema's drafts.
@@ -1132,7 +1257,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   const moves = (id) => `view-transition-name: item-${id}`;
   // A comment on the whole schematic has a place on the board like an item's, under this and its id.
   const WHOLE = 'comment:';
-  const marker = (mark) => mark && pill(CHANGE_LABELS[mark], `item-change ${mark}`);
+  // What the proposal does to an item, until the user approves it: then Accepted (the user's choice).
+  const marker = (mark, approved = false) => (!mark ? [] : approved ? [pill('Accepted', 'item-change accepted')] : [pill(CHANGE_LABELS[mark], `item-change ${mark}`)]);
+  // The changes the user has approved in the proposal showing (see approveButton).
+  let approvals = new Set();
 
   // Where the user has placed each schematic's items on the board, as loaded, or as changed here
   // since (see board.js). Kept on this computer a moment after the user stops moving things, never
@@ -1224,7 +1352,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       h('div', { className: 'board-card comment-board-card' }, wholeCommentCard(here, on, comment))));
     const board = h('div', { className: 'board' }, ...items, ...wholeCards);
     const threads = threadsFor(here, on, groups, (id) => titleOf(id, shown, uses, removed));
-    board.watch = { schemaId: here.schemaId, ids: [...ids, ...onWhole.map((comment) => `${WHOLE}${comment.id}`)], centre, left: into, right: ids.filter((id) => id !== centre && !into.includes(id)), build, groups, threads };
+    board.watch = { schemaId: here.schemaId, ids: [...ids, ...onWhole.map((comment) => `${WHOLE}${comment.id}`)], centre, left: into, right: ids.filter((id) => id !== centre && !into.includes(id)), build, groups, threads, name: shown.name, proposal: Boolean(here.proposal), title: (id) => titleOf(id, shown, uses, removed) };
     board.threads = threads.find;
     // A long press on an open item starts a comment on what was pressed; on empty space, a comment
     // on the whole schematic, put where it was pressed.
@@ -1274,11 +1402,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       },
       onChange: (next) => keepLayout(schemaId, next),
       // A card clicked comes to the middle, which is a step back and forward go through.
+      // What the user brought to the middle is what they're looking at: a line of context for the chat.
       onBring: (id) => {
         const here = top();
         if (!here || here.schemaId !== schemaId) return;
         here.item = id;
         remember();
+        const title = board.watch.title(id);
+        onNote({ text: `Looking at “${title}”`, detail: `Looking at the item “${title}” (${id}) of ${board.watch.name}${board.watch.proposal ? ', as the AI has proposed it' : ''}`, focus: true, about: title });
       },
     });
     remark = watchComments(board, { groups, open: (group, x, y) => threads.open(group.target, x, y) });
@@ -1304,21 +1435,34 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       if (use) openUse(use, parseLink(href).target);
       else follow(href, id);
     });
+    if (full) here.fullDiff = null;
     const body = h('div', { className: 'focus-body' });
+    // Why the proposal changes it, as the AI said (`reasons` in propose_schematic), while it's
+    // reviewed, and what the user does about the change (Before · Changes · After and Approve): in a
+    // drawer along the bottom of the card, so its title row is only its title (see cardDrawer).
+    // Full screen too (the user's choice); the bottom bar then says what the item is and how it shows.
+    const reason = here.proposal ? shown.reasons?.[use ? null : id] : null;
+    const foot = [];
     if (use) {
       await useOverview(use, middle, body, openUse);
     } else if (item) {
-      middle.append(paneHead(item.title, item.description, mark(item.id), pill(kindLabel(item), 'kind-pill')));
-      const view = itemView(item, (link) => follow(link, id));
-      // Writing the proposal changes shows what changed, in the card: added words green, removed ones
-      // struck through in red (see diff-marks.js).
-      if (changedWriting(here, shown, item, mark)) {
-        api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).then((earlier) => {
-          if (typeof earlier?.markdown === 'string') markInline(view, readText((element) => renderMarkdown(element, earlier.markdown)));
-        }).catch(() => {});
-      }
-      // Where a canvas has been moved to is kept for each size it shows at.
-      const place = `${item.id}:${Boolean(full)}`;
+      middle.append(paneHead(item.title, item.description, mark(item.id), pill(kindLabel(item), 'kind-pill'), approvals.has(item.id)));
+      // An item the proposal under review changes shows Before, its Changes (the default) or After,
+      // as its card's switch says (the user's choice): see changedView.
+      const onLink = (link) => follow(link, id);
+      const earlier = here.proposal && shown.basedOn && mark(item.id) === 'changed'
+        ? await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null) : null;
+      // Changes, unless the user has approved it: then After, as it will be (the user's choice). Either
+      // way, until they pick another.
+      const showing = earlier ? here.diffs?.[item.id] ?? (approvals.has(item.id) ? 'after' : 'changes') : 'after';
+      const view = changedView(item, earlier, showing, onLink);
+      if (earlier) foot.push(diffSwitch(here, item.id, showing));
+      // Writing can be compared with the draft side by side too: a button of its own beside the
+      // switch, as it opens a view across the window rather than changing how the card shows.
+      if (earlier && changedWriting(here, shown, item, mark)) foot.push(h('button', { type: 'button', className: 'side-by-side', title: 'Open it beside the draft it changes, across the window', onclick: () => openCompareOf(here, shown, item) }, 'Side by side'));
+      if (earlier && full) here.fullDiff = { showing, basedOn: shown.line.indexOf(shown.basedOn) + 1 };
+      // Where a canvas has been moved to is kept for each size it shows at, and each way it shows.
+      const place = `${item.id}:${Boolean(full)}:${showing}`;
       here.views ??= {};
       const drawing = view.querySelector?.(':scope > svg');
       const canvas = view.classList.contains('diagram') && !still
@@ -1335,7 +1479,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       }
       body.append(canvas);
     } else if (id === CONTRACT) {
-      middle.append(paneHead('Contract', shown.summary, mark(CONTRACT)));
+      middle.append(paneHead('Contract', shown.summary, mark(CONTRACT), null, approvals.has(CONTRACT)));
       const contract = h('div', {});
       if (shown.contract) renderMarkdown(contract, shown.contract);
       else contract.append(h('p', { className: 'muted' }, 'No contract yet.'));
@@ -1351,10 +1495,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       body.append(h('p', { className: 'muted' }, 'This item couldn’t be read.'));
     }
     middle.append(body);
-    if (isRemoved?.(id)) middle.append(h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed'));
+    // What's removed says so across it, or Accepted once the user has approved the removal.
+    if (isRemoved?.(id)) middle.append(h('span', { className: 'removed-over', 'aria-hidden': 'true' }, approvals.has(id) ? 'Accepted' : 'Removed'));
+    // Each change is the user's to approve, as a SmartDoc finding is to decide (see approveButton);
+    // full screen, in the bottom bar with the item's switch.
+    const change = here.proposal && !use ? mark(id) : null;
+    if (change && actionsOf(middle)) foot.push(approveButton(here, shown, id, change, item?.title));
+    if (foot.length || reason) middle.append(full ? floatingCard(middle, foot, reason) : cardDrawer(here, id, middle, foot, reason));
     actionsOf(middle).append(fullButton(here, id));
-    // And it can be compared with the draft side by side, across the window.
-    if (item && changedWriting(here, shown, item, mark)) actionsOf(middle).prepend(compareButton(here, shown, item));
 
     // A diagram is a canvas, writing is a page, and a table or image sits on a surface of its own.
     const canvas = body.querySelector(':scope > .diagram-canvas');
@@ -1374,8 +1522,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       if (writing) body.prepend(h('div', { className: 'sheet-head' }, middle.querySelector('.pane-title')));
       // No bar across the top: what it held floats over the content.
       const head = middle.querySelector('.pane-head');
-      const pills = middle.querySelector('.pane-title .status-pills');
-      middle.append(h('div', { className: 'full-actions' }, pills, ...actionsOf(head).children));
+      // Only its buttons: whether it's new or changed is the bottom bar's to say (the user's choice).
+      middle.append(h('div', { className: 'full-actions' }, ...actionsOf(head).children));
       head.remove();
     }
     // Where its content goes on out of sight, an inner shadow says so (a canvas pans instead).
@@ -1393,7 +1541,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return h('div', { className: 'focus-neighbour board-card removed' },
         kindIcon(gone.kind, kindLabel(gone)),
         h('span', { className: 'title-row' }, h('strong', {}, gone.title)),
-        h('span', { className: 'removed-over', 'aria-hidden': 'true' }, 'Removed'));
+        h('span', { className: 'removed-over', 'aria-hidden': 'true' }, approvals.has(id) ? 'Accepted' : 'Removed'));
     }
     const use = uses.get(id);
     if (use) {
@@ -1412,7 +1560,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       : await previewOf(id, shown, uses, content).catch(() => null));
     return h('div', { className: 'focus-neighbour board-card' },
       !contract && item && kindIcon(item.kind, kindLabel(item)),
-      h('span', { className: 'title-row' }, h('strong', {}, contract ? 'Contract' : item?.title ?? id), statusPills(marker(mark(id)))),
+      h('span', { className: 'title-row' }, h('strong', {}, contract ? 'Contract' : item?.title ?? id), statusPills(...marker(mark(id), approvals.has(id)))),
       h('span', { className: 'focus-meta' }, contract ? 'What it promises and needs' : item?.description),
       preview);
   }
@@ -1437,23 +1585,190 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return button;
   }
 
+  // An item the proposal changes, as one of three (the switch in its title bar): as it is in the
+  // draft ('before'), as proposed ('after'), or with what changed marked ('changes'): writing with
+  // its added and removed words (diff-marks.js), a diagram or table drawn from both versions
+  // (item-diffs.js), an image wiped between the two.
+  function changedView(item, earlier, showing, onLink) {
+    if (!earlier || showing === 'after') return itemView(item, onLink);
+    if (showing === 'before') return itemView(earlier, onLink);
+    if (item.kind === 'image' && earlier.kind === 'image') return wipeView(item, earlier);
+    if (item.kind === 'document' && typeof earlier.markdown === 'string') {
+      const view = itemView(item, onLink);
+      markInline(view, readText((element) => renderMarkdown(element, earlier.markdown)));
+      return view;
+    }
+    const diff = diffOf(item, earlier);
+    return diff ? itemView(diff.item, onLink, diff) : itemView(item, onLink);
+  }
+  // Approving a change: the user's say on it before the proposal is accepted. Accepting doesn't wait
+  // for it: what isn't approved is accepted as proposed, and the confirmation says so (the user's
+  // choice, as SmartDoc goes on with sensible defaults). The chat is told, as a line of context.
+  const APPROVE_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function approveButton(here, shown, key, change, title) {
+    const approved = approvals.has(key);
+    const what = key === CONTRACT ? 'the contract' : `“${title ?? key}”`;
+    const doing = change === 'added' ? `adding ${what}` : change === 'removed' ? `removing ${what}` : `the change to ${what}`;
+    const button = h('button', {
+      className: 'approve-button',
+      type: 'button',
+      'aria-pressed': String(approved),
+      title: approved ? `You’ve approved ${doing}. Click to take it back.` : `Approve ${doing}`,
+      onclick: () => answer(async () => {
+        await api.approveChange(here.schemaId, key, !approved);
+        const said = `${approved ? 'Took back approving' : 'Approved'} ${doing}`;
+        onNote({ text: said, detail: `${said} in the proposal for ${shown.name} (schematic ${here.schemaId})` });
+      }),
+    });
+    button.innerHTML = APPROVE_ICON;
+    button.append(approved ? 'Approved' : 'Approve');
+    return button;
+  }
+
+  const DIFF_WAYS = [['before', 'Before', 'As it is in the draft'], ['changes', 'Changes', 'What the proposal changes, marked'], ['after', 'After', 'As it would be, once accepted']];
+  // The drawer along the bottom of a card under review: its controls in a row (or, with none, a
+  // heading), and below them why the item changes, scrolling. A handle on its top edge drags it
+  // taller or shorter; double-clicking the handle opens or closes it (the user's choice: it doesn't
+  // go back to a size). Its size is kept for each item while the app is open, never stored. Full
+  // screen, it's a floating card instead (see floatingCard).
+  const DRAWER_OPEN = 140;
+  function cardDrawer(here, key, card, controls, reason) {
+    here.drawers ??= {};
+    const kept = (here.drawers[key] ??= { open: false, height: null });
+    const row = h('div', { className: 'card-drawer-row' }, ...(controls.length ? controls : [h('strong', { className: 'card-drawer-title' }, 'Why it changes')]));
+    const more = reason && h('div', { className: 'card-drawer-more' }, controls.length > 0 && h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason));
+    const drawer = h('div', { className: 'card-drawer' }, row, more);
+    // Pressing in it never picks up the card or starts a comment.
+    drawer.addEventListener('pointerdown', (event) => event.stopPropagation());
+    drawer.addEventListener('dblclick', (event) => event.stopPropagation());
+    // The content stops above it shut, and it lies over the content when it's opened.
+    requestAnimationFrame(() => card.style.setProperty('--drawer-shut', `${row.offsetHeight + 1}px`));
+    if (!more) return drawer;
+    if (!controls.length) drawer.classList.add('titled');
+    const shut = () => row.offsetHeight + 1; // its row and its top border
+    const most = () => Math.max(shut() + 40, (card.clientHeight || 400) * 0.7);
+    const size = (height, open) => {
+      drawer.classList.toggle('open', open);
+      drawer.style.height = open ? `${height}px` : '';
+      card.style.setProperty('--drawer-height', `${open ? height : drawer.offsetHeight}px`);
+    };
+    // Opened before it's been sized, it's as tall as what it says.
+    const natural = () => {
+      drawer.classList.add('open');
+      drawer.style.height = '';
+      return drawer.offsetHeight + 2;
+    };
+    const show = () => size(Math.min(most(), kept.height ?? (kept.open ? natural() : DRAWER_OPEN)), kept.open);
+    // Drawn again (anything decided redraws the board), it's as it was, without opening again.
+    drawer.classList.add('dragging');
+    requestAnimationFrame(() => {
+      show();
+      requestAnimationFrame(() => drawer.classList.remove('dragging'));
+    });
+
+    const handle = h('div', { className: 'card-drawer-handle', role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Why it changes', title: 'Drag to make it bigger or smaller. Double-click to open or close it.' });
+    handle.addEventListener('dblclick', () => {
+      kept.open = !kept.open;
+      show();
+    });
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      // Followed on the window: the board takes the pointer for its own drags, which a capture here
+      // would lose part way.
+      // An item at a side is scaled down as a whole: the pointer moves in screen pixels.
+      const scale = drawer.getBoundingClientRect().height / drawer.offsetHeight || 1;
+      const start = event.clientY;
+      const from = drawer.offsetHeight;
+      drawer.classList.add('dragging');
+      let height = from;
+      const move = (moved) => {
+        height = Math.min(most(), Math.max(shut(), from - (moved.clientY - start) / scale));
+        size(height, height > shut() + 1);
+      };
+      const end = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+        drawer.classList.remove('dragging');
+        // Let go nearly shut, it shuts; otherwise it stays as it was left, and opens to that.
+        kept.open = height > shut() + 24;
+        if (kept.open) kept.height = height;
+        show();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    });
+    drawer.prepend(handle);
+    return drawer;
+  }
+
+  // Full screen, the same as a card floating over the content, a fixed size with what it says
+  // scrolling, which the user drags anywhere by any part of it but its buttons (the user's choice:
+  // across the bottom it was mostly empty). Where it was put is kept while the app is open.
+  let floatPlace = null;
+  function floatingCard(card, controls, reason) {
+    const float = h('div', { className: 'change-float' },
+      h('div', { className: 'change-float-grip', 'aria-hidden': 'true' }),
+      controls.length > 0 && h('div', { className: 'card-drawer-row' }, ...controls),
+      reason && h('div', { className: 'change-float-why' }, h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason)));
+    const place = (left, top) => {
+      const room = card.getBoundingClientRect();
+      const x = Math.min(Math.max(0, left), Math.max(0, room.width - float.offsetWidth));
+      const y = Math.min(Math.max(0, top), Math.max(0, room.height - float.offsetHeight));
+      Object.assign(float.style, { left: `${x}px`, top: `${y}px`, bottom: 'auto' });
+      return { left: x, top: y };
+    };
+    if (floatPlace) requestAnimationFrame(() => { floatPlace = place(floatPlace.left, floatPlace.top); });
+    float.addEventListener('dblclick', (event) => event.stopPropagation());
+    float.addEventListener('pointerdown', (event) => {
+      // Pressing in it never picks up the item or starts a comment.
+      event.stopPropagation();
+      if (event.button !== 0 || event.target.closest('button, .change-float-why p')) return;
+      event.preventDefault();
+      const box = float.getBoundingClientRect();
+      const room = card.getBoundingClientRect();
+      const grab = { x: event.clientX - box.left, y: event.clientY - box.top };
+      float.classList.add('moving');
+      const move = (moved) => { floatPlace = place(moved.clientX - room.left - grab.x, moved.clientY - room.top - grab.y); };
+      const end = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+        float.classList.remove('moving');
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    });
+    return float;
+  }
+
+  function diffSwitch(here, id, showing) {
+    return h('div', { className: 'diff-switch', role: 'group', 'aria-label': 'Show' }, ...DIFF_WAYS.map(([way, label, about]) => h('button', {
+      type: 'button',
+      title: about,
+      'aria-pressed': String(way === showing),
+      onclick: () => {
+        here.diffs = { ...here.diffs, [id]: way };
+        render();
+      },
+    }, label)));
+  }
+
   // Writing that the proposal under review changes, from a draft there is to compare it with.
   const changedWriting = (here, shown, item, mark) => Boolean(here.proposal && shown.basedOn && item?.kind === 'document' && mark(item.id) === 'changed');
 
   // Opens the writing beside the draft it changes, across the window (see compare-view.js).
-  function compareButton(here, shown, item) {
-    const name = 'Compare with the draft, side by side';
-    const button = h('button', { className: 'icon-button', type: 'button', title: name, 'aria-label': name, onclick: async () => {
-      const earlier = await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null);
-      openCompare({
-        title: item.title,
-        beforeLabel: `Draft ${shown.line.indexOf(shown.basedOn) + 1}`,
-        afterLabel: 'Proposed',
-        render: (element, which) => renderMarkdown(element, which === 'before' ? earlier?.markdown ?? '' : item.markdown),
-      });
-    } });
-    button.innerHTML = COMPARE_ICON;
-    return button;
+  async function openCompareOf(here, shown, item) {
+    const earlier = await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null);
+    openCompare({
+      title: item.title,
+      beforeLabel: `Draft ${shown.line.indexOf(shown.basedOn) + 1}`,
+      afterLabel: 'Proposed',
+      render: (element, which) => renderMarkdown(element, which === 'before' ? earlier?.markdown ?? '' : item.markdown),
+    });
   }
 
   // A close button: a cross.
@@ -1754,6 +2069,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       comments,
       send: async (text) => {
         await api.addComment(here.schemaId, { ...on, target: bareTarget(target), text });
+        // What the user said there is context for the chat too.
+        const title = target.title ?? titleFor(target.item);
+        onNote({ text: `Commented on “${title}”`, detail: `Commented on “${title}”${target.quote ? ` (on the words “${target.quote}”)` : ''}: “${text}”` });
         render();
       },
       remove: async (comment) => {
@@ -1849,11 +2167,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
   // The title alone along the top. What it is, and its description, are on a card while pointing at
   // the title, or with it focused from the keyboard.
-  const paneHead = (title, detail, mark, tag = null) => {
+  const paneHead = (title, detail, mark, tag = null, approved = false) => {
     const about = (tag || detail) && h('div', { className: 'title-card', role: 'tooltip', id: 'title-card' }, tag, detail && h('span', { className: 'title-card-detail' }, detail));
     return h('div', { className: 'pane-head' },
       h('div', { className: 'pane-title' },
-        h('div', { className: 'title-row' }, h('h2', about ? { tabIndex: 0, 'aria-describedby': 'title-card' } : {}, title), statusPills(marker(mark))),
+        h('div', { className: 'title-row' }, h('h2', about ? { tabIndex: 0, 'aria-describedby': 'title-card' } : {}, title), statusPills(...marker(mark, approved))),
         about),
       h('div', { className: 'pane-actions' }));
   };
@@ -1880,6 +2198,13 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
   });
   api.onSchemasChanged(render);
+  // While an AI in another app waits on a proposal, the chat offers it the go-ahead.
+  const heardWaiting = (list) => {
+    aiWaiting = list ?? [];
+    if (path.length) render();
+  };
+  api.aiWaiting?.().then(heardWaiting, () => {});
+  api.onAiWaiting?.(heardWaiting);
   api.onNewSchema(newSchema);
   // An AI's proposal, in the window it works in.
   api.onShowSchema(({ schemaId, name }) => {

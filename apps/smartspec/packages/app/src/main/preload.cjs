@@ -44,7 +44,12 @@ contextBridge.exposeInMainWorld('smartspec', {
   deleteComment: (id, commentId) => call('delete-comment', id, commentId),
   setNoFurtherAction: (id, commentId, flag) => call('set-no-further-action', id, commentId, flag),
   acceptProposal: (id) => call('accept-proposal', id),
+  // The user's approval of one change in the proposal (an item's id, or 'contract'), or taking it back.
+  approveChange: (id, key, flag) => call('approve-change', id, key, flag),
   sendComments: (id) => call('send-comments', id),
+  // The proposals an AI in another app is waiting on (`smartspec wait`), and when that changes.
+  aiWaiting: () => call('ai-waiting'),
+  onAiWaiting: on('ai-waiting'),
   discardProposal: (id) => call('discard-proposal', id),
   onSchemasChanged: on('schemas-changed'),
   onShowSchema: on('show-schema'),
@@ -69,4 +74,31 @@ contextBridge.exposeInMainWorld('smartspec', {
   // The SmartSpec menu's Settings….
   onShowSettings: on('show-settings'),
   onFullScreenChange: on('full-screen'),
+  // The chat with the user's own AI, run by the app (see agent.js). Each draft of a schematic has
+  // its own chat, and home one of its own: the window says which (chatId).
+  agentStatus: () => call('agent-status'),
+  agentSignIn: (id) => call('agent-sign-in', id),
+  agentInstall: (id) => call('agent-install', id),
+  agentChats: (chatId) => call('agent-chats', chatId),
+  agentSend: (provider, conversation, text, chatId, options) => call('agent-send', provider, conversation, text, chatId, options),
+  agentStop: (conversation, chatId) => call('agent-stop', conversation, chatId),
+  agentNewSession: (provider, conversation, chatId) => call('agent-new-session', provider, conversation, chatId),
+  agentInstallHelp: (id) => call('agent-install-help', id),
+  onAgentEvent: on('agent-event'),
+  onAgentProgress: on('agent-progress'),
+  // The chat floating in a window of its own (see chat-window.js), and what the app's window shows.
+  chatFloat: (view) => call('chat-float', view),
+  chatDock: (view) => call('chat-dock', view),
+  chatClose: () => call('chat-close'),
+  chatState: (state) => call('chat-state', state),
+  chatReady: () => call('chat-ready'),
+  // A line of context for the chat, for the AI with the user's next message (see note in agent.js).
+  chatNote: (chatId, note) => call('chat-note', chatId, note),
+  // A button over the floating chat's message box, done by the app's window (see app-shell.js).
+  chatAction: (id) => call('chat-action', id),
+  onChatAction: on('chat-action'),
+  chatAsk: (text) => call('chat-ask', text),
+  onChatAsk: on('chat-ask'),
+  onChatMode: on('chat-mode'),
+  onChatState: on('chat-state'),
 });

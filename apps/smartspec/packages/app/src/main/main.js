@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROVIDERS, createAgent } from './agent.js';
+import { anchorOf, firstPlace, placeFrom } from './chat-anchor.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -54,7 +56,7 @@ const MCP_RETRY_MS = 5000; // while the port is taken, how often to try again, s
 const store = createStore(app.getPath('userData'));
 // Where the user has placed things in each schematic's focus view, on this computer only.
 const layouts = createLayouts(path.join(app.getPath('userData'), 'layouts'));
-const waits = createWaits({ store });
+const waits = createWaits({ store, onChange: () => broadcast('ai-waiting', waits.active()) });
 
 // For every window: what's the same in all of them.
 const broadcast = (channel, value) => {
@@ -151,6 +153,7 @@ function createWindow({ focus = true } = {}) {
     openLink(url);
     return { action: 'deny' };
   });
+  followChat(ctx);
   ctx.ready = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
   ctx.ready.then(() => {
     win.webContents.send('mcp-status', mcpStatus());
@@ -289,6 +292,8 @@ const schemasFor = (session, ctx) => ({
     }
     const made = await store.propose(proposal);
     sessions.claim(session, schemaClaim(made.schema));
+    // Asked for in the home's chat, a new schematic's own chat carries the conversation on.
+    if (!proposal.schemaId && ctx.chatFrom === 'home' && session === ctx.chatSession) await agent.moveChat('home', `${made.schema}/new`);
     ctx.win.webContents.send('show-schema', { schemaId: made.schema, name: proposal.name ?? '' });
     if (!ctx.win.isVisible()) ctx.win.showInactive();
     return {
@@ -386,12 +391,173 @@ async function offerMoveToApplications(ctx) {
 
 const updates = createUpdates({ report: (status) => broadcast('updates', status) });
 
+// --- The chat: the user's own AI, run by the app (see agent.js) ------------------------------
+// The AI works in the window the chat is in, as an AI session of its own bound to that window,
+// with SmartSpec's tools only, through the app's own MCP server.
+
+const agent = createAgent({
+  userData: app.getPath('userData'),
+  mcp: (headers) => ({ url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}`, ...headers } }),
+  // To try the AIs' setup in a development build without touching the user's own (see agent.js).
+  trial: app.isPackaged ? null : { home: process.env.SMARTSPEC_AI_HOME || null, hide: process.env.SMARTSPEC_AI_HIDE || '' },
+  // To the window the AI was asked from, or, for a change to a chat not from a window (a new
+  // session, a moved chat), to every window: each shows only its own chat.
+  onEvent: (event) => {
+    const to = event.windowId ? [...windows.values()].filter((c) => c.id === event.windowId) : [...windows.values()];
+    for (const ctx of to) {
+      ctx.win.webContents.send('agent-event', event);
+      ctx.chat?.win.webContents.send('agent-event', event);
+    }
+  },
+});
+// Installing and signing in say how they're getting on, to every window (the panel and the chat
+// both show it).
+const agentProgress = (progress) => {
+  for (const ctx of windows.values()) {
+    ctx.win.webContents.send('agent-progress', progress);
+    ctx.chat?.win.webContents.send('agent-progress', progress);
+  }
+};
+
+// Floating, the chat is a window of its own, kept on top of the app window it belongs to and moved
+// independently of it (see followChat). The user can put it anywhere, inside the window or out of
+// it, and it opens again where it was beside that window (see chat-anchor.js). It does everything as that window: its requests run as that
+// window's (chatOwners), and that window's interface sends it what it shows (chat-state).
+const chatOwners = new Map(); // the chat window's webContents id → the ctx of the window it belongs to
+
+function openChatWindow(ctx) {
+  if (ctx.chat) return ctx.chat.win.show();
+  const parent = ctx.win.getBounds();
+  const size = ctx.chatSize ?? { width: 400, height: firstPlace(parent).height };
+  const bounds = ctx.chatAnchor ? placeFrom(parent, ctx.chatAnchor, size) : firstPlace(parent);
+  const win = new BrowserWindow({
+    ...bounds,
+    minWidth: 320,
+    minHeight: 300,
+    frame: false,
+    show: false,
+    title: 'Chat',
+    backgroundColor: windowColours().background,
+    fullscreenable: false,
+    webPreferences: {
+      preload: path.join(dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      additionalArguments: [`--smartspec-window=${ctx.id}`],
+    },
+  });
+  ctx.chat = { win, docking: false };
+  const contentsId = win.webContents.id;
+  chatOwners.set(contentsId, ctx);
+  const remember = () => {
+    if (win.isDestroyed() || ctx.win.isDestroyed()) return;
+    const b = win.getBounds();
+    ctx.chatAnchor = anchorOf(ctx.win.getBounds(), b);
+    ctx.chatSize = { width: b.width, height: b.height };
+  };
+  // Where it is relative to the app window, to open there again.
+  win.on('move', remember);
+  win.on('resize', remember);
+  // Opened from the app, which is active: at the floating level straight away (see followChat).
+  floatChat(win, true);
+  // Out of the way when the user shows all windows (Mission Control, App Exposé): a floating window
+  // would otherwise stay on top of them (the user found it in the way).
+  win.setHiddenInMissionControl?.(true);
+  win.once('ready-to-show', () => win.show());
+  win.on('closed', () => {
+    chatOwners.delete(contentsId);
+    const { docking } = ctx.chat ?? {};
+    ctx.chat = null;
+    if (!ctx.win.isDestroyed()) ctx.win.webContents.send('chat-mode', { mode: docking ? 'docked' : 'closed' });
+  });
+  win.loadFile(path.join(dirname, '../../build/renderer/chat.html'));
+  ctx.win.webContents.send('chat-mode', { mode: 'floating' });
+}
+
+// The chat floats in a window of its own, which the user moves independently of the app window (the
+// user's choice: as a child window it moved with it), but it stays on top of it: while the app is
+// the active one, the chat is at the floating windows' level, above every ordinary window (however
+// often the app window is clicked: going back over it when that came forward wasn't enough), and
+// when another app becomes active it's an ordinary window again, so that app's windows go over it.
+// It hides while the app window is minimised and closes with it, and in full screen, where a window
+// of its own can't follow, the chat docks.
+const floatChat = (win, on) => {
+  if (win && !win.isDestroyed()) win.setAlwaysOnTop(on, 'floating');
+};
+const chatWindows = () => [...windows.values()].map((ctx) => ctx.chat?.win).filter(Boolean);
+app.on('did-become-active', () => chatWindows().forEach((win) => floatChat(win, true)));
+app.on('did-resign-active', () => chatWindows().forEach((win) => floatChat(win, false)));
+function followChat(ctx) {
+  // The window loaded again (a reload) while its chat floats: it's told, so it sends the chat what
+  // it shows.
+  ctx.win.webContents.on('did-finish-load', () => {
+    if (ctx.chat) ctx.win.webContents.send('chat-mode', { mode: 'floating' });
+  });
+  const chatWin = () => (ctx.chat && !ctx.chat.win.isDestroyed() ? ctx.chat.win : null);
+  ctx.win.on('show', () => chatWin()?.showInactive());
+  ctx.win.on('minimize', () => chatWin()?.hide());
+  ctx.win.on('restore', () => chatWin()?.showInactive());
+  ctx.win.on('hide', () => chatWin()?.hide());
+  ctx.win.on('closed', () => chatWin()?.destroy());
+  ctx.win.on('enter-full-screen', () => closeChatWindow(ctx, true));
+}
+
+function closeChatWindow(ctx, dock) {
+  if (!ctx.chat) return;
+  ctx.chat.docking = dock;
+  ctx.chat.win.close();
+}
+
+const CHAT_SYSTEM = 'You are working inside the SmartSpec app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, beside the window they are working in, and the SmartSpec tools act on that window: never call use_window. Follow the SmartSpec server\'s instructions. When the user wants a schematic made or changed, propose it with propose_schematic: only they can accept or discard it, in the app, so tell them to look at it there. Never run a wait command: the user tells you what they decided when they next write. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain. A message may start with [What I\'ve done in the app since my last message, for context: …]: what the user did and looked at in the app since they last wrote, so you know what they mean by \"this\"; use it, and don\'t repeat it back. When it helps, end your reply with up to three short questions the user might want to ask you next, in their words, each on its own line as <suggest>question</suggest>: the app shows them as buttons, not as text.';
+
+// What the window shows, for the AI: home, or a schematic (by name and id), and whether it's a
+// new one still waiting to be accepted.
+async function chatWhere(chatId) {
+  if (chatId === 'home') return 'The window shows SmartSpec\'s home: the user\'s domains and schematics. To make a new schematic, propose one.';
+  const [schemaId, draft] = chatId.split('/');
+  const schema = await store.getSchema(schemaId).catch(() => null) ?? await store.getProposal(schemaId).catch(() => null);
+  const name = schema?.name ? `“${schema.name}”` : 'a schematic';
+  return draft === 'new'
+    ? `The window shows ${name} (schematic_id ${schemaId}), a new schematic proposed and waiting for the user to accept it.`
+    : `The window shows the schematic ${name} (schematic_id ${schemaId}). “This schematic” means this one.`;
+}
+
+async function chatSend(ctx, providerId, conversation, text, chatId, { model = null } = {}) {
+  const provider = PROVIDERS[providerId] ?? PROVIDERS.claude;
+  const client = `smartspec-${provider.id}`;
+  if (!chatId) throw new Error('This window isn’t showing anything to chat about yet.');
+  if (!mcp) throw new Error(`SmartSpec’s server isn’t running, so ${provider.name} can’t work in this window.`);
+  const sessionId = `chat-${ctx.id}`;
+  const session = sessions.touch(sessionId, client);
+  if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
+    throw new Error(`${clientLabel(ctx.session.client)} is working in this window. Release it from the panel first.`);
+  }
+  if (session.ctx !== ctx) {
+    if (session.ctx) releaseWindow(session);
+    setSessionWindow(session, ctx);
+  }
+  // Where the conversation was asked from, for a new schematic to carry it on (see propose).
+  ctx.chatFrom = chatId;
+  ctx.chatSession = session;
+  const systemPrompt = `${CHAT_SYSTEM} ${await chatWhere(chatId)}`;
+  // Calls keep the session alive; between them, while the AI thinks, this does.
+  const keepAlive = setInterval(() => sessions.touch(sessionId, client), 10 * 1000);
+  agent.send({ provider: provider.id, windowId: ctx.id, chatId, conversation, text, systemPrompt, model, sessionHeaders: { 'x-smartspec-session': sessionId, 'x-smartspec-client': client } })
+    .catch((error) => {
+      ctx.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
+      ctx.chat?.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
+    })
+    .finally(() => clearInterval(keepAlive));
+  return true;
+}
+
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself: each handler gets that window first.
 const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
   try {
-    return { ok: true, value: await fn(windows.get(event.sender.id) ?? lastFocused, ...args) };
+    return { ok: true, value: await fn(windows.get(event.sender.id) ?? chatOwners.get(event.sender.id) ?? lastFocused, ...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
@@ -425,7 +591,8 @@ async function discardProposal(ctx, schemaId) {
 
 // Asks first, in a window of its own (confirm.js), as a draft can't be taken back. Comments the AI
 // hasn't answered are raised there, with the offer to send them to it before accepting (see
-// store.sendComments). Says what was done: 'accepted', 'sent' or 'cancel'.
+// store.sendComments), or to ask the chat's AI to answer them. Says what was done: 'accepted',
+// 'sent', 'ask' (the window asks its chat's AI) or 'cancel'.
 const MOST_LISTED = 4;
 const QUOTE = 90;
 async function acceptProposal(ctx, schemaId) {
@@ -441,26 +608,54 @@ async function acceptProposal(ctx, schemaId) {
   });
   if (open.length > MOST_LISTED) quoted.push(`and ${open.length - MOST_LISTED} more`);
   const many = (n) => (n === 1 ? '1 comment' : `${n} comments`);
+  // Ask: the chat's AI is asked to answer them, straight away (the window sends it the request).
+  const ask = { label: `Ask the AI to answer ${waiting === 1 ? 'it' : 'them'}`, choice: 'ask' };
+  const aiWaits = waits.active().includes(proposal.proposalId);
+  // Changes the user hasn't approved are accepted as proposed, as a SmartDoc review goes on with
+  // sensible defaults: said, never in the way (the user's choice).
+  const changes = proposal.changes;
+  const keys = [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? ['contract'] : [])];
+  const unapproved = keys.filter((key) => !proposal.approved?.includes(key));
+  const titleOf = (key) => (key === 'contract' ? 'the contract' : proposal.items.find((item) => item.id === key)?.title ?? changes.removed.find((one) => one.id === key)?.title ?? key);
+  const named = unapproved.slice(0, MOST_LISTED).map((key) => `“${titleOf(key)}”`.replace('“the contract”', 'the contract'));
+  if (unapproved.length > MOST_LISTED) named.push(`${unapproved.length - MOST_LISTED} more`);
+  const list = (words) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`);
+  const notApproved = !unapproved.length ? ''
+    : unapproved.length === keys.length ? `You haven’t approved any of the ${keys.length === 1 ? 'change' : `${keys.length} changes`}: ${unapproved.length === 1 ? 'it is' : 'they are'} accepted as proposed. `
+      : `You haven’t approved ${unapproved.length === 1 ? 'the change to' : `${unapproved.length} of the ${keys.length} changes:`} ${list(named)}${unapproved.length === 1 ? ', which is' : ', which are'} accepted as proposed. `;
   const question = !waiting
-    ? { title: `Accept ${what}?`, message: becomes, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Accept', choice: 'accept', kind: 'primary' }] }
+    ? { title: `Accept ${what}?`, message: `${notApproved}${becomes}`, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Accept', choice: 'accept', kind: 'primary' }] }
     : sent === waiting
+      // Sent to an AI in another app, which may be at work on them, or may have stopped.
       ? {
         title: `Accept ${what}?`,
-        message: `The AI hasn’t answered the ${many(sent)} you sent it yet. ${becomes}`,
+        message: `The AI hasn’t answered the ${many(sent)} you sent it yet. If it isn’t working on ${sent === 1 ? 'it' : 'them'}, ask the AI here.`,
         points: quoted,
-        buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, { label: 'Keep waiting', choice: 'cancel', kind: 'primary' }],
+        after: `${notApproved}${becomes}`,
+        buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, ask, { label: 'Keep waiting', choice: 'cancel', kind: 'primary' }],
       }
-      : {
-        title: `Accept ${what}?`,
-        message: `You have ${many(waiting)} the AI hasn’t answered. Send ${waiting === 1 ? 'it' : 'them'} to the AI, to deal with before you accept?`,
-        points: quoted,
-        buttons: [{ label: 'Cancel', choice: 'cancel', apart: true }, { label: 'Accept anyway', choice: 'accept' }, { label: 'Send to AI', choice: 'send', kind: 'primary' }],
-      };
+      : aiWaits
+        ? {
+          title: `Accept ${what}?`,
+          message: `You have ${many(waiting)} the AI hasn’t answered. Send ${waiting === 1 ? 'it' : 'them'} to the AI, to deal with before you accept?`,
+          points: quoted,
+          after: notApproved.trim() || null,
+          buttons: [{ label: 'Cancel', choice: 'cancel', apart: true }, { label: 'Accept anyway', choice: 'accept' }, { label: 'Send to AI', choice: 'send', kind: 'primary' }],
+        }
+        // No AI in another app is waiting to be sent them: the chat's AI is asked.
+        : {
+          title: `Accept ${what}?`,
+          message: `You have ${many(waiting)} the AI hasn’t answered.`,
+          points: quoted,
+          after: `${notApproved}${becomes}`,
+          buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, { label: 'Cancel', choice: 'cancel' }, { ...ask, kind: 'primary' }],
+        };
   const choice = await confirm(ctx?.win, question);
   if (choice === 'send') {
     await store.sendComments(schemaId);
     return 'sent';
   }
+  if (choice === 'ask') return 'ask';
   if (choice !== 'accept') return 'cancel';
   await store.accept(schemaId);
   sessions.release(schemaClaim(schemaId));
@@ -519,9 +714,11 @@ handle('list-comments', (_ctx, id, options) => store.listComments(id, options));
 handle('list-earlier-comments', (_ctx, id, options) => store.listEarlierComments(id, options));
 handle('add-comment', (_ctx, id, comment) => store.addComment(id, comment));
 handle('delete-comment', (_ctx, id, commentId) => store.deleteComment(id, commentId));
+handle('approve-change', (_ctx, id, key, flag) => store.approveChange(id, key, flag));
 handle('set-no-further-action', (_ctx, id, commentId, flag) => store.setNoFurtherAction(id, commentId, flag));
 handle('accept-proposal', (ctx, id) => acceptProposal(ctx, id));
 handle('send-comments', (_ctx, id) => store.sendComments(id));
+handle('ai-waiting', () => waits.active());
 handle('discard-proposal', (ctx, id) => discardProposal(ctx, id));
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', ({ session }) => {
@@ -537,6 +734,43 @@ handle('add-to-claude-desktop', (ctx) => confirmAddToClaudeDesktop(ctx));
 handle('get-updates', () => updates.status);
 handle('check-updates', () => updates.check());
 handle('install-update', () => updates.install());
+// The chat (see chatSend above and agent.js).
+handle('agent-status', () => agent.status());
+handle('agent-sign-in', (_ctx, id) => agent.signIn(id, agentProgress));
+handle('agent-install', (_ctx, id) => agent.install(id, agentProgress));
+handle('agent-install-help', (_ctx, id) => shell.openExternal((PROVIDERS[id] ?? PROVIDERS.claude).installHelp));
+handle('agent-chats', async (_ctx, chatId) => (chatId ? { chatId, ...(await agent.load(chatId)), running: agent.runningIn(chatId) } : null));
+handle('agent-send', (ctx, provider, conversation, text, chatId, options) => chatSend(ctx, provider, conversation, text, chatId, options));
+handle('agent-stop', (_ctx, conversation, chatId) => agent.stop(chatId, conversation));
+handle('agent-new-session', (_ctx, provider, conversation, chatId) => agent.newSession(chatId, conversation, provider));
+handle('chat-float', (ctx) => openChatWindow(ctx));
+handle('chat-dock', (ctx) => closeChatWindow(ctx, true));
+handle('chat-close', (ctx) => closeChatWindow(ctx, false));
+// What the app window shows, passed on to its chat window (kept for when it opens).
+handle('chat-state', (ctx, state) => {
+  ctx.chatState = state;
+  ctx.chat?.win.webContents.send('chat-state', state);
+});
+handle('chat-action', (ctx, id) => ctx.win.webContents.send('chat-action', id));
+// A line of context for the chat (what the user did or looked at), for the AI with their next
+// message: in the chat the window says (see note in agent.js).
+handle('chat-note', (_ctx, chatId, note) => agent.note(chatId, note));
+// The app window asks its floating chat to send the AI a request (see app-shell.js).
+// A chat window still starting is sent it once it's ready (chat-ready).
+handle('chat-ask', (ctx, text) => {
+  if (ctx.chat?.ready) ctx.chat.win.webContents.send('chat-ask', text);
+  else if (ctx.chat) ctx.chat.asked = text;
+});
+handle('chat-ready', (ctx) => {
+  setTimeout(() => {
+    if (!ctx.chat) return;
+    if (ctx.chatState) ctx.chat.win.webContents.send('chat-state', ctx.chatState);
+    ctx.chat.ready = true;
+    if (ctx.chat.asked) ctx.chat.win.webContents.send('chat-ask', ctx.chat.asked);
+    ctx.chat.asked = null;
+  });
+  return { view: 'main' };
+});
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 

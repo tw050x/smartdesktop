@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, filling, fillMiddle, fills, layoutToSave, placeNew, scaleAtEdge, separate, settleFilling, settleSize, toFront, zoneAt, zoneAtEdge, zoneOf } from '../packages/app/src/renderer/board.js';
+import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, filling, fillMiddle, fills, layoutToSave, placeNew, scaleAtEdge, separate, SMALLEST_SCALE, settleFilling, settleSize, stagger, STAGGER, toFront, zoneAt, zoneAtEdge, zoneOf } from '../packages/app/src/renderer/board.js';
 
 const board = { width: 1400, height: 900 };
 
@@ -19,8 +19,8 @@ test('open, it shrinks steadily as its outer edge nears the side, down to its sm
   assert.equal(scaleAtEdge(0.15), 1);
   const out = [0.14, 0.12, 0.1, 0.07, 0.031].map(scaleAtEdge);
   for (let i = 1; i < out.length; i++) assert.ok(out[i] < out[i - 1]);
-  assert.ok(Math.abs(scaleAtEdge(0.03) - 0.25) < 1e-9);
-  assert.ok(Math.abs(scaleAtEdge(-0.1) - 0.25) < 1e-9);
+  assert.ok(Math.abs(scaleAtEdge(0.03) - SMALLEST_SCALE) < 1e-9);
+  assert.ok(Math.abs(scaleAtEdge(-0.1) - SMALLEST_SCALE) < 1e-9);
 });
 
 test('at its smallest it is its card, and the swap is at one point', () => {
@@ -28,7 +28,7 @@ test('at its smallest it is its card, and the swap is at one point', () => {
   assert.equal(cardnessAtEdge(0.031), 0);
   assert.equal(cardnessAtEdge(0.03), 1);
   assert.equal(cardnessAtEdge(-0.05), 1);
-  assert.equal(scaleAtEdge(0.03), 0.25);
+  assert.ok(Math.abs(scaleAtEdge(0.03) - SMALLEST_SCALE) < 1e-9);
   assert.equal(zoneAtEdge(0.2), 'middle');
   assert.equal(zoneAtEdge(0.1), 'side');
   assert.equal(zoneAtEdge(0), 'edge');
@@ -225,4 +225,41 @@ test('a card keeps the way out it took, unless another is clearly better', () =>
   assert.equal(separate([open, { ...card, prefer: 'down', lock: true }], bounds).ways.card, 'down');
   // Not locked any more: down at half its cost (146) still loses to up (108).
   assert.equal(separate([open, { ...card, prefer: 'down' }], bounds).ways.card, 'up');
+});
+
+test('open items in the middle that hide one another are drawn as a cascade', () => {
+  const board = { width: 1000, height: 800 };
+  const full = { cx: 0.5, cy: 0.5, w: 0.6, h: 0.9, sized: true };
+  const layout = { boxes: { a: { ...full, z: 1 }, b: { ...full, z: 2 }, side: { cx: 0.04, cy: 0.5, w: 0.3, h: 0.3, ex: 0, z: 0 } } };
+  const drawn = stagger(layout, board);
+  assert.deepEqual(Object.keys(drawn).sort(), ['a', 'b']);
+  const px = (box) => ({ left: (box.cx - box.w / 2) * 1000, top: (box.cy - box.h / 2) * 800, width: box.w * 1000, height: box.h * 800 });
+  const [back, front] = [px(drawn.a), px(drawn.b)];
+  // The one behind keeps the top left; the one in front starts a step lower and to the right.
+  assert.ok(Math.abs(back.left - 200) < 1e-6 && Math.abs(back.top - 40) < 1e-6);
+  assert.ok(Math.abs(front.left - back.left - STAGGER) < 1e-6 && Math.abs(front.top - back.top - STAGGER) < 1e-6);
+  // Both a step smaller, so together they take the space the two took.
+  assert.ok(Math.abs(back.width - (600 - STAGGER)) < 1e-6 && Math.abs(front.height - (720 - STAGGER)) < 1e-6);
+  // The layout itself is left as it was.
+  assert.deepEqual(layout.boxes.a, { ...full, z: 1 });
+});
+
+test('items that show enough of each other, or a small one in front of a big one, stay as they are', () => {
+  const board = { width: 1000, height: 800 };
+  const apart = { boxes: { a: { cx: 0.4, cy: 0.5, w: 0.3, h: 0.5, z: 1 }, b: { cx: 0.6, cy: 0.5, w: 0.3, h: 0.5, z: 2 } } };
+  assert.deepEqual(stagger(apart, board), {});
+  const smallInFront = { boxes: { big: { cx: 0.5, cy: 0.5, w: 0.6, h: 0.9, z: 1 }, small: { cx: 0.5, cy: 0.5, w: 0.2, h: 0.2, z: 2 } } };
+  assert.deepEqual(stagger(smallInFront, board), {});
+  // What's being dragged is left out, so the one it was over gets its own size back.
+  const over = { boxes: { a: { cx: 0.5, cy: 0.5, w: 0.6, h: 0.9, z: 1 }, b: { cx: 0.5, cy: 0.5, w: 0.6, h: 0.9, z: 2 } } };
+  assert.deepEqual(stagger(over, board, ['b']), {});
+});
+
+test('three that hide one another cascade in order, back to front', () => {
+  const board = { width: 1000, height: 800 };
+  const box = { cx: 0.5, cy: 0.5, w: 0.45, h: 0.72 };
+  const drawn = stagger({ boxes: { c: { ...box, z: 3 }, a: { ...box, z: 1 }, b: { ...box, z: 2 } } }, board);
+  const left = (id) => (drawn[id].cx - drawn[id].w / 2) * 1000;
+  assert.ok(left('a') < left('b') && left('b') < left('c'));
+  assert.ok(Math.abs(left('c') - left('a') - 2 * STAGGER) < 1e-6);
 });

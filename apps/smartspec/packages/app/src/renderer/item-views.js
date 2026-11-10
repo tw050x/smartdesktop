@@ -7,6 +7,21 @@ import { inlineMarkdown, renderMarkdown } from './markdown.js';
 // Each kind of item's way of rendering. Whatever the kind, a part that can be linked to has
 // data-part, and one that links elsewhere calls `onLink`. Labels are drawn as plain text, so a
 // diagram can't carry a script; images go in an <img>, where an SVG's scripts don't run.
+//
+// Under review, a diagram or table can be drawn as both versions together (see item-diffs.js):
+// `diff` marks each part that changed, as a class on it (change-added, change-removed, change-changed),
+// what's removed faded where it was, and in a sequence a whole row that's new or gone banded across.
+
+// The class that marks a part's change, if any, and what a changed one said before, as its tooltip.
+const diffClass = (diff, id) => (diff?.status.get(id) ? ` change-${diff.status.get(id)}` : '');
+function wasTitle(diff, id, element) {
+  const before = diff?.was.get(id);
+  if (before == null) return element;
+  const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+  title.textContent = `Was: ${before}`;
+  element.prepend(title);
+  return element;
+}
 
 const SVG = 'http://www.w3.org/2000/svg';
 function svg(tag, attributes = {}, ...children) {
@@ -103,21 +118,22 @@ function edgeLabel(label, x, y, from = 'middle') {
   ];
 }
 
-function flowView(item, onLink) {
+function flowView(item, onLink, diff = null) {
   const layout = layoutFlow(item, measure);
   const { root, arrow } = canvas(layout.width, layout.height);
   for (const edge of layout.edges) {
-    const group = svg('g', { class: 'diagram-edge', 'data-part': edgeId(edge) }, svg('path', { d: route(edge.points), class: 'diagram-line', 'marker-end': arrow }), svg('path', { d: route(edge.points), class: 'diagram-hit' }));
+    const id = edgeId(edge);
+    const group = svg('g', { class: `diagram-edge${diffClass(diff, id)}`, 'data-part': id }, svg('path', { d: route(edge.points), class: 'diagram-line', 'marker-end': arrow }), svg('path', { d: route(edge.points), class: 'diagram-hit' }));
     if (edge.label) group.append(...edgeLabel(edge.label, edge.labelX, edge.labelY));
     linkPart(group, edge.link, onLink);
-    root.append(group);
+    root.append(wasTitle(diff, id, group));
   }
   for (const node of layout.nodes) {
-    const group = svg('g', { class: 'diagram-node', 'data-part': node.id },
+    const group = svg('g', { class: `diagram-node${diffClass(diff, node.id)}`, 'data-part': node.id },
       svg('rect', { x: node.x - node.width / 2, y: node.y - node.height / 2, width: node.width, height: node.height, rx: 8, class: 'diagram-box' }),
       text(node.label, node.x, node.y, 'diagram-text'));
     linkPart(group, node.link, onLink);
-    root.append(group);
+    root.append(wasTitle(diff, node.id, group));
   }
   return root;
 }
@@ -250,16 +266,27 @@ export function sequenceKey(parts) {
 const FADE = 28;
 let fades = 0;
 
-function sequenceView(item, onLink) {
+function sequenceView(item, onLink, diff = null) {
   const layout = layoutSequence(item, measure);
   const { root, arrow } = canvas(layout.width, layout.height);
+  // A row that's new or gone is banded across the whole diagram, behind what's in it: a message's,
+  // or a box's (loop, alt and the like) from its top to its bottom.
+  const band = (id, top, bottom, inBox = false) => svg('rect', { x: 0, y: top, width: layout.width, height: bottom - top, class: `change-band change-band-${diff.status.get(id)}${inBox ? ' change-row' : ''}`, 'data-about': id });
+  // A part inside a box that's itself new or gone is in that box's band, so it isn't banded again.
+  const order = new Map((item.messages ?? []).map((message, index) => [message.id, index]));
+  const inBandedGroup = (id) => (item.groups ?? []).some((group) => group.id !== id && ['added', 'removed'].includes(diff?.status.get(group.id))
+    && order.get(group.from) <= order.get(id) && order.get(id) <= order.get(group.to));
+  const banded = (id) => ['added', 'removed'].includes(diff?.status.get(id)) && !inBandedGroup(id);
+  // Its messages are still rows of their own, unshaded (the box's band shades them) until pointed at,
+  // as each row of something new or gone is.
+  const rowed = (id) => banded(id) || (['added', 'removed'].includes(diff?.status.get(id)) && inBandedGroup(id));
   // The heads say what each column is, so they're drawn last and stay in view as the canvas moves
   // down (see onView below). The lifelines and everything else stay where they are.
   const headsTop = layout.boxes.length ? 2 : layout.headTop + 4;
   const headsBottom = layout.headTop + 4 + HEAD_BOX;
   const heads = svg('g', { class: 'diagram-heads' });
   for (const box of layout.boxes) {
-    const group = svg('g', { class: 'diagram-box-group', 'data-part': box.id },
+    const group = svg('g', { class: `diagram-box-group${diffClass(diff, box.id)}`, 'data-part': box.id },
       svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: layout.end.top - 6, rx: 8, class: 'diagram-participants-box' }), svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: 22, rx: 8, class: 'diagram-box-hit' }));
     if (box.label) heads.append(text(box.label, (box.left + box.right) / 2, 13, 'diagram-label'));
     linkPart(group, box.link, onLink);
@@ -268,23 +295,48 @@ function sequenceView(item, onLink) {
   for (const one of layout.participants) {
     const size = measure(one.label);
     const width = size.width + 24;
-    const line = svg('g', { class: 'diagram-life', 'data-about': one.id }, svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-lifeline' }), svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-hit' }));
-    const head = svg('g', { class: 'diagram-node', 'data-part': one.id },
+    const line = svg('g', { class: `diagram-life${diffClass(diff, one.id)}`, 'data-about': one.id }, svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-lifeline' }), svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-hit' }));
+    const head = svg('g', { class: `diagram-node${diffClass(diff, one.id)}`, 'data-part': one.id },
       svg('g', {}, svg('rect', { x: one.x - width / 2, y: layout.headTop + 4, width, height: HEAD_BOX, rx: 8, class: 'diagram-box' }), text(one.label, one.x, layout.headTop + 4 + HEAD_BOX / 2, 'diagram-text')));
     linkPart(line, one.link, onLink);
     linkPart(head, one.link, onLink);
     root.append(line);
-    heads.append(head);
+    heads.append(wasTitle(diff, one.id, head));
   }
   for (const bar of layout.activations) {
-    const element = svg('rect', { x: bar.x - 5, y: bar.top, width: 10, height: bar.bottom - bar.top, rx: 2, class: 'diagram-activation', 'data-part': bar.id });
+    const element = svg('rect', { x: bar.x - 5, y: bar.top, width: 10, height: bar.bottom - bar.top, rx: 2, class: `diagram-activation${diffClass(diff, bar.id)}`, 'data-part': bar.id });
     linkPart(element, bar.link, onLink);
     root.append(element);
   }
   for (const group of layout.groups) {
     const element = groupView(group);
+    if (diff?.status.get(group.id)) element.classList.add(`change-${diff.status.get(group.id)}`);
+    if (banded(group.id)) element.prepend(band(group.id, group.top - 4, group.bottom + 4));
     linkPart(element, group.link, onLink);
-    root.append(element);
+    root.append(wasTitle(diff, group.id, element));
+  }
+  // Each banded message's row, from above its label to below its line; rows of the same kind one
+  // after another join into one band, a block that's new or gone.
+  const rows = new Map();
+  if (diff) {
+    let previous = null;
+    for (const message of layout.messages) {
+      if (!rowed(message.id)) {
+        previous = null;
+        continue;
+      }
+      const self = message.x1 === message.x2;
+      const height = measure(message.label).height;
+      const labelTop = self ? message.y + 2 - height / 2 - 3 : message.y - 12 - (height - LINE) / 2 - height / 2 - 3;
+      const row = { top: Math.min(labelTop, message.y - 10) - 6, bottom: message.y + (self ? 18 : 6) + 8, status: diff.status.get(message.id), inBox: !banded(message.id) };
+      if (previous && previous.status === row.status) {
+        const middle = (previous.bottom + row.top) / 2;
+        previous.bottom = Math.max(previous.bottom, middle);
+        row.top = Math.min(row.top, middle);
+      }
+      rows.set(message.id, row);
+      previous = row;
+    }
   }
   for (const message of layout.messages) {
     const self = message.x1 === message.x2;
@@ -295,12 +347,14 @@ function sequenceView(item, onLink) {
     // A message's label sits above its line, its lines all above it; a message to its own lifeline
     // has its label beside its loop, clear of the lifeline.
     const above = message.y - 12 - (measure(message.label).height - LINE) / 2;
-    const group = svg('g', { class: 'diagram-edge', 'data-part': message.id },
+    const row = rows.get(message.id);
+    const group = svg('g', { class: `diagram-edge${diffClass(diff, message.id)}`, 'data-part': message.id },
+      ...(row ? [band(message.id, row.top, row.bottom, row.inBox)] : []),
       svg('path', { d: path, class: `diagram-line${message.reply ? ' reply' : ''}`, 'marker-end': arrow }),
       svg('path', { d: path, class: 'diagram-hit' }),
       ...(self ? edgeLabel(message.label, message.x1 + 44, message.y + 2, 'left') : edgeLabel(message.label, (message.x1 + message.x2) / 2, above)));
     linkPart(group, message.link, onLink);
-    root.append(group);
+    root.append(wasTitle(diff, message.id, group));
   }
   // Where the sequence ends: a box across the lifelines, which stop at it.
   const end = layout.end;
@@ -343,7 +397,10 @@ function sequenceView(item, onLink) {
   const id = `heads-fade-${++fades}`;
   const top = headsTop - 8;
   const fadeTo = headsBottom + FADE;
-  const fading = svg('rect', { x: -20000, y: top, width: 40000 + layout.width, height: fadeTo - top, fill: `url(#${id}-gradient)`, visibility: 'hidden' });
+  const fading = svg('g', { visibility: 'hidden' },
+    svg('rect', { x: -20000, y: top, width: 40000 + layout.width, height: fadeTo - top, fill: `url(#${id}-gradient)` }),
+    // And everything above them, so nothing shows through between the heads and the card's top.
+    svg('rect', { x: -20000, y: top - 20000, width: 40000 + layout.width, height: 20000, fill: 'black' }));
   root.querySelector('defs').append(
     svg('linearGradient', { id: `${id}-gradient`, x1: 0, y1: 0, x2: 0, y2: 1 },
       svg('stop', { offset: 0, 'stop-color': 'black' }),
@@ -365,20 +422,38 @@ function sequenceView(item, onLink) {
   return root;
 }
 
-function tableView(item, onLink) {
+function tableView(item, onLink, diff = null) {
   const table = document.createElement('table');
   table.className = 'item-table';
   const head = table.createTHead().insertRow();
   for (const column of item.columns) {
     const cell = document.createElement('th');
     cell.textContent = column.label;
+    if (diff?.status.get(column.id)) cell.className = `change-${diff.status.get(column.id)}`;
+    if (diff?.was.has(column.id)) cell.title = `Was: ${diff.was.get(column.id)}`;
     head.append(cell);
   }
   const body = table.createTBody();
   for (const row of item.rows) {
     const line = body.insertRow();
     line.dataset.part = row.id;
-    for (const column of item.columns) inlineMarkdown(line.insertCell(), row.cells?.[column.id] ?? '');
+    if (['added', 'removed'].includes(diff?.status.get(row.id))) line.className = `change-${diff.status.get(row.id)}`;
+    for (const column of item.columns) {
+      const cell = line.insertCell();
+      inlineMarkdown(cell, row.cells?.[column.id] ?? '');
+      // A column that's new or gone is marked down its cells; a cell that changed shows what it held,
+      // struck through, before what it holds now.
+      const columnChange = diff?.status.get(column.id);
+      if (columnChange === 'added' || columnChange === 'removed') cell.classList.add(`change-${columnChange}`);
+      const before = diff?.cells?.get(row.id)?.get(column.id);
+      if (before !== undefined) {
+        cell.classList.add('change-changed');
+        const old = document.createElement('del');
+        old.className = 'change-was';
+        inlineMarkdown(old, before || '—');
+        cell.prepend(old, ' ');
+      }
+    }
     linkPart(line, row.link, onLink);
   }
   const holder = document.createElement('div');
@@ -395,6 +470,59 @@ function imageView(item) {
   return image;
 }
 
+// An image the proposal changes, as both together: the new one over the old, wiped away from the
+// left by dragging the line between them (or pressing anywhere on it), to show the old one under it.
+// It starts on the new one (the user's choice), the line at the left edge.
+export function wipeView(after, before) {
+  const holder = document.createElement('div');
+  holder.className = 'image-wipe';
+  const under = imageView(before);
+  under.classList.add('image-wipe-before');
+  const over = imageView(after);
+  over.classList.add('image-wipe-after');
+  const line = document.createElement('div');
+  line.className = 'image-wipe-line';
+  line.setAttribute('role', 'slider');
+  line.setAttribute('aria-label', 'Wipe between the old image and the new one');
+  line.setAttribute('aria-valuemin', '0');
+  line.setAttribute('aria-valuemax', '100');
+  line.tabIndex = 0;
+  const label = (words, className) => Object.assign(document.createElement('span'), { className: `image-wipe-label ${className}`, textContent: words });
+  holder.append(under, over, line, label('Before', 'before'), label('After', 'after'));
+  const set = (fraction) => {
+    const at = Math.max(0, Math.min(1, fraction));
+    holder.style.setProperty('--wipe', `${at * 100}%`);
+    line.setAttribute('aria-valuenow', String(Math.round(at * 100)));
+  };
+  set(0);
+  const follow = (event) => {
+    const box = holder.getBoundingClientRect();
+    set((event.clientX - box.left) / box.width);
+  };
+  holder.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation(); // not a drag of the card it's in
+    holder.setPointerCapture(event.pointerId);
+    follow(event);
+    const move = (m) => follow(m);
+    const end = () => {
+      holder.removeEventListener('pointermove', move);
+      holder.removeEventListener('lostpointercapture', end);
+    };
+    holder.addEventListener('pointermove', move);
+    holder.addEventListener('lostpointercapture', end);
+  });
+  line.addEventListener('keydown', (event) => {
+    const now = Number(line.getAttribute('aria-valuenow')) / 100;
+    if (event.key === 'ArrowRight') set(now + 0.05);
+    else if (event.key === 'ArrowLeft') set(now - 0.05);
+    else return;
+    event.preventDefault();
+  });
+  return holder;
+}
+
 function documentView(item) {
   const element = document.createElement('div');
   renderMarkdown(element, item.markdown);
@@ -403,9 +531,10 @@ function documentView(item) {
 
 const VIEWS = { document: documentView, flow: flowView, sequence: sequenceView, table: tableView, image: imageView };
 
-// An item's view. `onLink(target)` follows a link, in the form it's written.
-export function itemView(item, onLink) {
-  const view = VIEWS[item.kind](item, onLink);
+// An item's view. `onLink(target)` follows a link, in the form it's written. `diff` (a diagram's or
+// table's, from item-diffs.js) draws `item`, both versions together, with what changed marked.
+export function itemView(item, onLink, diff = null) {
+  const view = VIEWS[item.kind](item, onLink, diff);
   if (view.classList.contains('diagram-svg')) {
     const holder = document.createElement('div');
     holder.className = 'diagram';

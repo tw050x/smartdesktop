@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const pending = new Map(); // the asking window's webContents id → its finish
-const WIDTH = 460;
+const WIDTH = 540; // room for three buttons on one line
 
 ipcMain.on('confirm-response', (event, choice) => {
   pending.get(event.sender.id)?.(choice);
@@ -26,7 +26,7 @@ ipcMain.on('confirm-fit', (event, height) => {
   if (actual < wanted) dialog.setContentSize(WIDTH, wanted + (wanted - actual));
 });
 
-// `question`: { title, message, points (lines listed under the message), buttons: [{ label,
+// `question`: { title, message, points (lines listed under the message), after (a line under those), buttons: [{ label,
 // choice, kind ('primary' or 'secondary'), apart (set off on the left) }] }. The last button is
 // the default (Return); Escape cancels.
 export function confirm(parent, question) {

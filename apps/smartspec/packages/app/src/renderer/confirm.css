@@ -45,7 +45,9 @@ p {
 .buttons .push-left { margin-right: auto; }
 
 button {
+  flex: none;
   min-width: 84px;
+  white-space: nowrap;
   padding: 6px 14px;
   border-radius: 7px;
   font: inherit;
@@ -65,3 +67,6 @@ ul {
   overflow-wrap: anywhere;
 }
 li + li { margin-top: 4px; }
+
+/* What follows the list: what accepting does, and what it takes as proposed. */
+#after { margin-top: 12px; }

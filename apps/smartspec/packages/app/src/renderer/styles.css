@@ -3,6 +3,9 @@
      system does; each colour below is light-dark(its light value, its dark value). */
   color-scheme: light dark;
   --top-bar-height: 44px;
+  /* The chat, docked at the right: as wide as the user dragged it (--chat-chosen, see chat-panel.js),
+     else a share of the window, and never more than half of it. */
+  --chat-width: min(var(--chat-chosen, clamp(320px, 30vw, 440px)), 50vw);
 
   --bg: light-dark(#ffffff, #232326); /* cards and panels */
   --border: light-dark(#e2e2e7, #3a3a3f);
@@ -10,6 +13,12 @@
   --text: light-dark(#1d1d1f, #f2f2f4);
   --text-2: light-dark(#3c3c43, #d1d1d6); /* body text on cards, a step softer than --text */
   --muted: light-dark(#6e6e73, #a1a1a8);
+  --faint: light-dark(#aeaeb4, #5a5a60);
+  --del-bg: light-dark(#fdecec, #3a2224); /* an error in the chat */
+  --del-text: light-dark(#8a1f1f, #f19a9a);
+  --decided-text: light-dark(#1f7a45, #5cc98a); /* an AI that's ready */
+  --thumb: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.28));
+  --thumb-active: light-dark(rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.42));
   --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
   --hover-tint: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
   --skeleton: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
@@ -102,6 +111,8 @@ body:not(.platform-darwin) .top-bar {
 .server-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0a100; } /* starting */
 .server-pill[data-state="running"] .server-dot { background: #1f9d55; }
 .server-pill[data-state="off"] .server-dot { background: #d64545; }
+.chat-button { -webkit-app-region: no-drag; }
+.chat-button[aria-pressed="true"] { background: var(--button-hover); color: var(--accent); }
 
 .server-pill { position: relative; z-index: 33; } /* stays on top of the mask and the MCP panel */
 .server-pill { transition: background-color 0.3s ease, border-color 0.3s ease; }
@@ -135,24 +146,24 @@ body:not(.platform-darwin) .top-bar {
 }
 .mcp-open .mcp-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
 
-/* A full-height panel on the right, top bar included, laid over the content (which stays where
+/* A full-height panel on the left, top bar included, laid over the content (which stays where
    it is) rather than pushing it aside. Its own top bar lines up with the window's and holds the
-   close button on the left; the window's server pill stays on top of it on the right. Only the
-   content below scrolls. It slides in from past the window's right edge, and hides once it has
+   close button on the right; the window's status pill stays on top of it on the left. Only the
+   content below scrolls. It slides in from past the window's left edge, and hides once it has
    slid back out. */
 .mcp-card {
   position: fixed;
   z-index: 32;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: min(var(--mcp-width, 380px), 100vw);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
-  box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12);
-  transform: translateX(calc(100% + 28px)); /* past the edge, shadow included */
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.06), 8px 0 28px rgba(0, 0, 0, 0.12);
+  transform: translateX(calc(-100% - 28px)); /* past the edge, shadow included */
   visibility: hidden;
   transition: transform 0.2s ease, visibility 0s 0.2s;
   -webkit-app-region: no-drag;
@@ -160,9 +171,9 @@ body:not(.platform-darwin) .top-bar {
 .mcp-open .mcp-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
 /* Dragging the handle below the minimum slides the panel out (and lifts the mask) while the
    handle keeps following the pointer; letting go there closes it. */
-.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(100% + 28px)); }
+.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(-100% - 28px)); }
 .mcp-open.mcp-closing .mcp-mask { opacity: 0; }
-.mcp-card-bar { flex: none; display: flex; align-items: center; height: var(--top-bar-height); padding: 0 8px; }
+.mcp-card-bar { flex: none; display: flex; align-items: center; justify-content: flex-end; height: var(--top-bar-height); padding: 0 8px; }
 /* The panel's titles ("MCP server", "Set up an AI app") are underlined, and a title with content
    above it has room above it too, so each section reads as separate. */
 .mcp-card .panel h3 { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
@@ -171,20 +182,20 @@ body:not(.platform-darwin) .top-bar {
 .mcp-card > .panel > section > h3:first-child { margin-top: 0; }
 .mcp-card > .panel { flex: 1; overflow: hidden auto; padding-top: 4px; }
 
-/* The panel's drag handle sits just outside its left edge, vertically centred on the window,
+/* The panel's drag handle sits just outside its right edge, vertically centred on the window,
    and slides in and out with it. */
 .mcp-resizer {
   position: fixed;
   z-index: 32;
   top: 50%;
-  right: min(var(--mcp-width, 380px), 100vw);
+  left: min(var(--mcp-width, 380px), 100vw);
   width: 14px;
   height: 128px;
   margin-top: -64px;
   display: grid;
   place-items: center;
   cursor: col-resize;
-  transform: translateX(calc(min(var(--mcp-width, 380px), 100vw) + 28px));
+  transform: translateX(calc(-1 * (min(var(--mcp-width, 380px), 100vw) + 28px)));
   visibility: hidden;
   transition: transform 0.2s ease, visibility 0s 0.2s;
   -webkit-app-region: no-drag;
@@ -205,6 +216,29 @@ body:not(.platform-darwin) .top-bar {
 .server-details dt { color: var(--muted); }
 .server-details dd { margin: 0; overflow-wrap: anywhere; }
 .mcp-setup[hidden] { display: none; }
+.panel-hint.server-intro { margin: 0 0 12px; }
+/* The AIs the chat runs, a row each (see server-status.js). */
+.ai-list { display: grid; gap: 8px; margin-top: 10px; }
+.ai-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.ai-row-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.ai-row-text span { color: var(--muted); font-size: 12px; }
+.ai-row-text .ai-row-how { margin-top: 4px; color: var(--text-2); }
+/* Installing or signing in: the step in words under the name, and the percentage done (or a
+   spinner) in the button's place (see ai-progress.js). */
+.ai-row-text .ai-progress-line { color: var(--text-2); }
+.ai-progress { flex: none; align-self: flex-start; display: flex; align-items: center; justify-content: flex-end; min-width: 36px; min-height: 18px; color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.ai-spinner { flex: none; width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: ai-spin 0.8s linear infinite; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ai-spinner { animation-duration: 2.4s; } }
+.chat-setup-progress { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+.chat-setup-progress .ai-progress-line { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); font-size: 12px; }
+.chat-setup-progress .ai-progress { align-self: center; }
+.ai-row .secondary-button { align-self: flex-start; }
+.ai-ready { flex: none; align-self: flex-start; color: var(--decided-text); font-size: 12px; font-weight: 600; line-height: 1.4; } /* level with the title */
+/* Connecting an AI app by hand, folded away. */
+.manual-setup { margin-top: 20px; }
+.manual-setup > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.manual-setup[open] > summary { margin-bottom: 4px; }
 
 /* The AI app to set up: a full-width button with its chevron at the end, opening a menu of the
    apps below it, as wide as the button. */
@@ -280,6 +314,16 @@ body:not(.platform-darwin) .top-bar {
 /* One short sentence on one line: it never wraps, and is cut short only when the window is too
    narrow for it (the whole sentence is on hover). The buttons keep their size. */
 .review-bar-text { overflow: hidden; flex: 1; min-width: 0; margin: 0; white-space: nowrap; text-overflow: ellipsis; }
+/* What there is to decide (see showBar in schemas.js): what it is, what changed and what deciding
+   does, and the AI's note, then its buttons. */
+.review-bar-card { display: grid; gap: 2px; flex: 1; min-width: 0; padding: 2px 0; }
+/* One title row, and at most two lines under it: what's happening now and what deciding does. The
+   buttons sit at the bar's bottom. */
+.review-bar-title { overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.review-bar-line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--text-2, var(--muted)); }
+.review-bar-actions { display: flex; flex: none; gap: 8px; align-items: center; }
+/* With something to decide, its buttons sit at the bar's bottom, beside its last line, not centred. */
+.review-bar:has(.review-bar-card) { align-items: flex-end; }
 .review-bar > button { flex: none; }
 
 /* --- The schemas (see schemas.js) ------------------------------------------------------------ */
@@ -468,6 +512,11 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .draft-nav .icon-button { font-size: 18px; line-height: 1; }
 .draft-nav .icon-button:disabled { opacity: 1; color: light-dark(#aeaeb4, #5a5a60); cursor: default; }
 .draft-label { color: var(--text); font-weight: 500; white-space: nowrap; }
+/* The drafts' card, under the draft button (see draftControls in schemas.js), as SmartDoc's. */
+.draft-card { width: 320px; max-height: calc(100vh - var(--top-bar-height) - 24px); overflow: auto; }
+.draft-card[hidden] { display: none; }
+.draft-option { padding: 8px 12px; }
+.draft-about { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 .mode-empty { display: grid; place-content: center; justify-items: center; gap: 8px; height: 100%; padding: 24px; text-align: center; }
 .mode-empty h1 { margin: 0; font-size: 18px; font-weight: 600; }
@@ -622,6 +671,14 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .board-item > .board-card { gap: 2px; padding: 6px 9px; }
 .board-item > .board-card .title-row strong { font-size: 12px; }
 .board-item > .board-card .title-row .pill { font-size: 10px; padding: 0 6px; }
+/* Its icon and title shrink with the card, so a smaller card is the same card smaller rather than
+   one its icon and title fill (the user's choice). */
+.board-item:not(.board-comment) > .board-card { container-type: inline-size; }
+.board-item:not(.board-comment) > .board-card > .kind-icon svg { width: clamp(18px, 22cqw, 38px); height: clamp(18px, 22cqw, 38px); }
+.board-item:not(.board-comment) > .board-card > .kind-icon { margin-bottom: clamp(2px, 2.5cqw, 4px); }
+.board-item:not(.board-comment) > .board-card .title-row strong { font-size: clamp(10px, 8.5cqw, 12px); }
+.board-item:not(.board-comment) > .board-card .title-row .pill { font-size: clamp(9px, 7cqw, 10px); }
+.board-item:not(.board-comment) > .board-card .title-row .card-meta { font-size: clamp(9px, 7.5cqw, 11px); }
 .board-item.lit { border-color: var(--accent); }
 .board-full { position: relative; overflow: hidden; }
 .board-full > .pane-head { cursor: grab; touch-action: none; user-select: none; }
@@ -704,8 +761,10 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
    colour; a click opens it again to read. */
 .focus-neighbour.comment-card.done { border-left-color: var(--border-strong); cursor: pointer; }
 .comment-card.done .comment-top { align-items: center; }
-.comment-card.done .comment-about { -webkit-line-clamp: 1; }
-.comment-card.done:not(.unfolded) > :not(.comment-top) { display: none; }
+.comment-card.done:not(.unfolded):not(.board-item.in-middle *) .comment-about { -webkit-line-clamp: 1; }
+/* Folded, except in the board's middle, where it's read in full (see look in board-view.js). */
+.comment-card.done:not(.unfolded):not(.board-item.in-middle *) > :not(.comment-top) { display: none; }
+.board-item.in-middle .comment-card.done { cursor: default; }
 .card-comment.done { opacity: 0.7; }
 /* An earlier comment, from the draft this came from: dashed and faded, no comment colour, counted
    nowhere, with a button to say it again here. */
@@ -872,6 +931,12 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .item-change { font-size: 11.5px; font-weight: 600; }
 .item-change.added, .item-change.changed { color: var(--accent); }
 .item-change.removed { color: light-dark(#b23c3c, #ff8f8f); text-decoration: none; }
+.item-change.accepted { color: var(--change-add); }
+/* Approving a change in the proposal: a quiet button until it's pressed, then green. */
+/* The app's button size (30px, as its icon buttons and Discard and Accept), as is the switch beside it. */
+.approve-button { display: inline-flex; align-items: center; gap: 5px; flex: none; box-sizing: border-box; height: 30px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: default; }
+.approve-button:hover { background: var(--button-hover); }
+.approve-button[aria-pressed="true"] { border-color: color-mix(in srgb, var(--change-add) 55%, transparent); background: var(--change-add-bg); color: var(--change-add); }
 .pane-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .pane-title { display: grid; flex: 1; gap: 1px; min-width: 0; }
 .pane-title h2 { min-width: 0; margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
@@ -892,15 +957,16 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .board-full .canvas-body, .board-full .table-body, .board-full .image-body { background: var(--bg); }
 .focus-full .focus-card, .focus-full .focus-card.embeds { flex: 1; min-width: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .focus-full .focus-card { position: relative; z-index: 1; }
-.full-actions { position: absolute; top: 12px; right: 16px; z-index: 2; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
-.full-actions .status-pills { margin: 0 6px; }
+.full-actions .icon-button { width: 24px; height: 24px; border-radius: 6px; }
+.full-actions { position: absolute; top: 12px; right: 16px; z-index: 2; display: flex; align-items: center; box-sizing: border-box; height: 30px; gap: 2px; padding: 2px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
 .canvas-body { position: relative; padding: 0; overflow: hidden; }
 .focus-body .diagram.diagram-canvas { position: absolute; inset: 0; overflow: hidden; padding: 0; border: 0; border-radius: 0; background: none; cursor: grab; touch-action: none; }
 .canvas-dots { position: absolute; inset: 0; background-image: radial-gradient(var(--border) 1px, transparent 1px); pointer-events: none; }
 .diagram-canvas.panning { cursor: grabbing; }
 .diagram-canvas > .diagram-svg { position: absolute; top: 0; left: 0; max-width: none; height: revert-layer; overflow: visible; transform-origin: 0 0; user-select: none; }
-.canvas-controls { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); cursor: default; }
-.canvas-controls button { min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+/* Groups of controls over the content are the app's button height, 30px, as are the buttons beside them. */
+.canvas-controls { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; box-sizing: border-box; height: 30px; gap: 2px; padding: 2px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); cursor: default; }
+.canvas-controls button { min-width: 24px; height: 24px; padding: 0 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
 .canvas-controls button:hover { background: var(--button-hover); }
 .canvas-amount { min-width: 42px; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; }
 .sheet-body { display: flex; flex-direction: column; padding: 0 0 16px; }
@@ -946,7 +1012,8 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 /* --- Panels ------------------------------------------------------------------------------- */
 .panel { padding: 16px 16px 24px; user-select: none; }
 .panel h3 { margin: 20px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.panel-note[hidden] { display: none; }
+.panel-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.panel-hint[hidden], .panel-note[hidden] { display: none; }
 .panel-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--subtle-bg); color: var(--muted); font-size: 12px; }
 .primary-button, .secondary-button {
   padding: 5px 12px;
@@ -997,6 +1064,84 @@ button:disabled { opacity: 0.5; cursor: default; }
 .scroll-shade { position: absolute; z-index: 2; pointer-events: none; border-radius: inherit;
   --shade: light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.5)); transition: box-shadow 0.15s ease; }
 
+/* --- What a proposal changes in a diagram, table or image (item-diffs.js, item-views.js) ------ */
+/* New: green. Removed: kept where it was, on faded red, its content faded too, back to full while
+   pointed at, to read it. Changed: amber. A sequence's whole new or gone row is banded across. */
+:root { --change-add: light-dark(#1f9d55, #46c37b); --change-add-bg: light-dark(rgba(40, 175, 85, 0.16), rgba(40, 175, 85, 0.24));  --change-add-hover: light-dark(rgba(40, 175, 85, 0.3), rgba(40, 175, 85, 0.42)); --change-del: light-dark(#cc3b3b, #ff7b7b); --change-del-bg: light-dark(rgba(226, 60, 60, 0.12), rgba(226, 60, 60, 0.18)); --change-mod: light-dark(#c98a12, #f0b443); }
+.diagram-svg .change-added .diagram-box, .diagram-svg .change-added .diagram-label-bg { fill: var(--change-add-bg); stroke: var(--change-add); }
+.diagram-svg .change-added .diagram-line { stroke: var(--change-add); }
+.diagram-svg .change-removed { opacity: 0.4; transition: opacity 0.15s ease; }
+.diagram-svg .change-removed:hover { opacity: 1; }
+.diagram-svg .change-removed .diagram-box, .diagram-svg .change-removed .diagram-label-bg { fill: var(--change-del-bg); stroke: var(--change-del); stroke-dasharray: 5 4; }
+.diagram-svg .change-removed .diagram-line, .diagram-svg .change-removed .diagram-lifeline { stroke: var(--change-del); stroke-dasharray: 5 4; }
+.diagram-svg .change-changed .diagram-box, .diagram-svg .change-changed .diagram-label-bg { stroke: var(--change-mod); stroke-width: 2; }
+.diagram-svg .change-changed .diagram-line { stroke: var(--change-mod); }
+.diagram-svg .change-added .diagram-group-frame { stroke: var(--change-add); }
+.diagram-svg .change-changed .diagram-group-frame { stroke: var(--change-mod); stroke-width: 2; }
+.diagram-svg .change-removed .diagram-group-frame { stroke: var(--change-del); stroke-dasharray: 5 4; }
+.diagram-svg rect.change-added, .diagram-svg .diagram-activation.change-added { fill: var(--change-add-bg); stroke: var(--change-add); }
+.diagram-svg .change-band { stroke: none; }
+.diagram-svg .change-band-added { fill: var(--change-add-bg); }
+.diagram-svg .change-band-removed { fill: var(--change-del-bg); }
+/* A row inside a box that's new or gone is shaded by the box's band, so its own shows only while
+   it's pointed at; a new row is picked out on hover, as a removed one comes back to full. */
+.diagram-svg .change-band.change-row { fill: transparent; transition: fill 0.15s ease; }
+.diagram-svg .change-band { transition: fill 0.15s ease; }
+.diagram-svg .diagram-edge.change-added:hover > .change-band { fill: var(--change-add-hover); }
+.diagram-svg .diagram-edge.change-removed:hover > .change-band.change-row { fill: var(--change-del-bg); }
+.item-table tr.change-added > td, .item-table th.change-added, .item-table td.change-added { background: var(--change-add-bg); }
+.item-table tr.change-removed > td, .item-table th.change-removed, .item-table td.change-removed { background: var(--change-del-bg); }
+.item-table tr.change-removed > td > *, .item-table tr.change-removed > td, .item-table td.change-removed, .item-table th.change-removed { color: color-mix(in srgb, currentColor 45%, transparent); transition: color 0.15s ease; }
+.item-table tr.change-removed:hover > td, .item-table td.change-removed:hover, .item-table th.change-removed:hover { color: inherit; }
+.item-table td.change-changed { box-shadow: inset 2px 0 0 var(--change-mod); }
+.item-table .change-was { color: var(--change-del); }
+/* The switch in a changed item's title bar: Before, Changes, After (see changedView in schemas.js). */
+.diff-switch { display: flex; flex: none; box-sizing: border-box; height: 30px; gap: 1px; padding: 2px; border-radius: 7px; background: light-dark(#e3e3e8, #2c2c31); }
+.diff-switch button { height: 26px; padding: 0 10px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.diff-switch button:hover { color: var(--text); }
+.diff-switch button[aria-pressed="true"] { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 0.15); }
+/* Under review, the drawer along the bottom of a card: the change's controls in a row, and why it
+   changes below them, scrolling, shown as the drawer is dragged open by the handle on its top edge
+   (cardDrawer in schemas.js). */
+/* It lies over the card's content, which keeps its size as it's dragged (the user's choice): the
+   content stops above it shut (--drawer-shut), and it's drawn over the content when it's opened. */
+.card-drawer { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border); background: var(--bg); border-radius: 0 0 var(--card-radius) var(--card-radius); transition: height 0.2s ease; }
+.card-drawer.open { box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.16); }
+.focus-card:has(> .card-drawer) { padding-bottom: var(--drawer-shut, 43px); }
+.card-drawer.dragging { transition: none; }
+.card-drawer-row { display: flex; flex: none; align-items: center; gap: 8px; padding: 6px 8px; }
+/* Approve at the far end, the ways to look at the change together at the start. */
+.card-drawer-row > .approve-button { margin-left: auto; }
+.card-drawer.titled .card-drawer-row { padding: 8px 14px; }
+.card-drawer-title { display: block; color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.card-drawer-more { display: none; flex: 1; min-height: 0; overflow: auto; padding: 2px 14px 12px; color: var(--text); font-size: 13px; line-height: 1.5; }
+.card-drawer-more p { margin: 3px 0 0; }
+.card-drawer.titled .card-drawer-more { padding-top: 0; }
+.card-drawer.titled .card-drawer-more p { margin: 0; }
+.card-drawer.open .card-drawer-more { display: block; }
+/* The handle: a grip on the drawer's top edge, half outside it, to drag. */
+.card-drawer-handle { position: absolute; z-index: 2; top: -7px; left: 50%; width: 44px; height: 14px; margin-left: -22px; border-radius: 7px; cursor: ns-resize; touch-action: none; }
+.card-drawer-handle::before { content: ""; position: absolute; top: 5px; left: 8px; right: 8px; height: 4px; border-radius: 2px; background: var(--border-strong); transition: background 0.15s ease; }
+.card-drawer-handle:hover::before, .card-drawer.dragging .card-drawer-handle::before { background: var(--muted); }
+/* Full screen, a card floating over the content instead, a fixed size, what it says scrolling, dragged
+   anywhere by any part of it but its buttons (floatingCard in schemas.js). It starts at the bottom left. */
+.change-float { position: absolute; z-index: 2; left: 16px; bottom: 16px; display: flex; flex-direction: column; box-sizing: border-box; width: 420px; max-width: calc(100% - 32px); padding: 4px 0 6px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.22); cursor: grab; touch-action: none; }
+.change-float.moving { cursor: grabbing; }
+.change-float button { cursor: default; }
+.change-float-grip { flex: none; width: 30px; height: 4px; margin: 2px auto 2px; border-radius: 2px; background: var(--border-strong); }
+.change-float-why { max-height: 96px; overflow: auto; padding: 2px 14px 4px; font-size: 13px; line-height: 1.5; }
+.change-float-why p { margin: 3px 0 0; cursor: text; }
+/* An image wiped between the old and the new: the new over the old, cut away from the left. */
+.image-wipe { position: relative; display: grid; cursor: ew-resize; user-select: none; touch-action: none; }
+.image-wipe > img { grid-area: 1 / 1; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.image-wipe-after { clip-path: inset(0 0 0 var(--wipe, 0%)); }
+.image-wipe-line { position: absolute; top: 0; bottom: 0; left: var(--wipe, 0%); width: 2px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.6); }
+.image-wipe-line::after { content: ""; position: absolute; top: 50%; left: 50%; width: 14px; height: 28px; border-radius: 7px; background: var(--accent); transform: translate(-50%, -50%); }
+.image-wipe-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.image-wipe-label { position: absolute; top: 8px; padding: 2px 7px; border-radius: 5px; background: rgb(0 0 0 / 0.55); color: #fff; font-size: 11px; font-weight: 600; pointer-events: none; }
+.image-wipe-label.before { left: 8px; }
+.image-wipe-label.after { right: 8px; }
+
 /* --- What a proposal changes in writing (diff-marks.js, compare-view.js) --------------------- */
 /* As SmartDoc marks them: added green, removed red; in one view the removed words are struck through. */
 .diff-added { border-radius: 2px; background: light-dark(rgba(40, 175, 85, 0.24), rgba(40, 175, 85, 0.32)); }
@@ -1019,3 +1164,170 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 
 .server-off #server-retry { margin-top: 8px; }
+
+/* --- The chat (see chat-panel.js, as SmartDoc's) ----------------------------------------------
+   Docked, a column at the right the window makes room for (the content, and the top and bottom
+   bars' ends, are kept clear of it); floating, a window of its own (chat.html). */
+.chat-docked .content { margin-right: var(--chat-width); }
+.chat-docked .top-bar { padding-right: calc(var(--chat-width) + 8px); }
+#chat-panel[hidden] { display: none; }
+/* Docked, the full height of the window, over the top and bottom bars' right ends: only the
+   server's status shows over it (.server-pill's z-index), under the MCP panel and its mask. */
+.chat-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 29;
+  display: flex; flex-direction: column; box-sizing: border-box; width: var(--chat-width); min-height: 0;
+  border-left: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px;
+}
+/* The bottom bar's sentence and actions stay clear of it. */
+.chat-docked .review-bar { padding-right: calc(var(--chat-width) + 16px); }
+/* Its left edge resizes it, from 300px to half the window; double-clicking goes back to the usual width. */
+.chat-resizer { position: absolute; top: 0; bottom: 0; left: -4px; z-index: 1; width: 8px; cursor: col-resize; -webkit-app-region: no-drag; }
+.chat-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.15s ease; }
+.chat-resizer:hover::after, .chat-resizing .chat-resizer::after { opacity: 1; transition-delay: 0.15s; }
+/* A grip in the middle of the edge says it can be dragged; the whole edge drags. */
+.chat-resizer::before {
+  content: ""; position: absolute; top: 50%; left: 1px; z-index: 1; width: 6px; height: 36px; margin-top: -18px;
+  border-radius: 3px; background: var(--border-strong); box-shadow: 0 0 0 2px var(--bg);
+}
+.chat-resizer:hover::before, .chat-resizing .chat-resizer::before { background: var(--accent); }
+.chat-resizing, .chat-resizing * { cursor: col-resize !important; user-select: none; }
+.chat-panel.windowed .chat-resizer { display: none; }
+/* In its own window (chat.html): the whole window, moved by its header. */
+body.chat-window-body { display: flex; background: var(--bg); }
+.chat-panel.windowed { position: relative; flex: 1; min-width: 0; width: auto; border-left: 0; } /* never wider than the window, whatever is in it */
+.chat-panel.windowed .chat-head { -webkit-app-region: drag; }
+.chat-panel.windowed .chat-head button { -webkit-app-region: no-drag; }
+.chat-head { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 6px 8px 6px 12px; background: var(--bg); user-select: none; }
+/* Docked: the top row is level with the top bar, as tall and as draggable; then the title's row. */
+.chat-panel:not(.windowed) .chat-head { box-sizing: border-box; height: var(--top-bar-height); min-height: 0; padding: 0 8px; -webkit-app-region: drag; }
+.chat-panel:not(.windowed) .chat-head button { -webkit-app-region: no-drag; }
+.chat-head .icon-button[hidden] { display: none; }
+.chat-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.chat-status { flex: 1; min-width: 0; } /* an empty space filling the header, pushing the AI picker to the right */
+.chat-scroll { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; } /* a thread slides in and out within it */
+/* The header is on the sidebar's background with no line under it: the conversation fades out as
+   it scrolls up under it, as it does under the message box at the bottom. */
+.chat-scroll::before { content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: 20px; background: linear-gradient(to bottom, var(--bg), transparent); pointer-events: none; }
+/* Which AI the chat works with: its name, opening a small menu of the AIs and where each stands. */
+/* Under the message box: which AI and which of its models, each a small button opening a menu above it. */
+.chat-pickers { display: flex; align-items: center; gap: 2px; margin: -2px 0 -4px -4px; }
+.chat-pick { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.chat-pick[hidden] { display: none; }
+.chat-pick:hover, .chat-pick[aria-expanded="true"] { background: var(--button-hover); color: var(--text); }
+.chat-pick.chat-ai { color: var(--text); font-weight: 600; }
+.chat-ai-menu { position: absolute; z-index: 30; display: grid; gap: 2px; min-width: 220px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: 0 8px 28px rgb(0 0 0 / 0.2); }
+.chat-ai-menu[hidden] { display: none; }
+.chat-ai-option { display: grid; gap: 1px; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.chat-ai-option:hover { background: var(--hover-tint); }
+.chat-ai-option.chosen .chat-ai-option-name { color: var(--accent); }
+.chat-ai-option-name { font-weight: 600; }
+.chat-ai-option-state { color: var(--muted); font-size: 12px; }
+
+.chat-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 12px 12px calc(var(--chat-foot, 52px) + 4px); display: flex; flex-direction: column; gap: 10px; }
+.chat-scrollbar { position: absolute; top: 0; right: 0; bottom: var(--chat-foot, 52px); margin: 6px 2px; } /* the app's scrollbar (scrollbar.js), over the conversation's right edge */
+.chat-body > * { flex: none; } /* each its full height: the conversation scrolls, nothing in it is squeezed */
+.chat-empty { color: var(--muted); font-size: 12.5px; line-height: 1.45; text-align: left; }
+.chat-setup { display: grid; gap: 8px; padding: 12px; border-radius: 10px; background: var(--subtle-bg); }
+.chat-setup-text { line-height: 1.45; }
+.chat-setup-note { color: var(--muted); font-size: 12px; }
+/* Every item of the review, as rows that open their threads. */
+.chat-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+/* Its header row folds and unfolds it (folded at first): a chevron, what it is, how many are left. */
+.chat-list-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.chat-list-head:hover { background: var(--button-hover); }
+.chat-list.open .chat-list-head { border-bottom: 1px solid var(--border); }
+.chat-list-chevron { flex: none; color: var(--muted); transition: transform 0.15s ease; }
+.chat-list.open .chat-list-chevron { transform: rotate(90deg); }
+.chat-list-title { flex: 1; font-weight: 600; }
+.chat-list-count { color: var(--muted); font-size: 12px; }
+.chat-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.chat-list-head + .chat-row { border-top: 0; }
+.chat-row:hover { background: var(--hover-tint); }
+.chat-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.chat-row-icon { display: grid; flex: none; color: var(--item-color); }
+.chat-row-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chat-row-state { flex: none; color: var(--muted); font-size: 11.5px; }
+.chat-row.decided .chat-row-title { color: var(--muted); }
+.chat-row.decided .chat-row-state { color: var(--decided-text); }
+.chat-row.earlier .chat-row-icon { color: var(--muted); }
+/* The conversation: the user's messages on the right, the AI's on the left, its steps as quiet lines. */
+.chat-message { max-width: 92%; line-height: 1.45; user-select: text; }
+.chat-message.user { align-self: flex-end; padding: 7px 10px; border-radius: 12px 12px 4px 12px; background: var(--accent); color: #fff; }
+.chat-message.assistant { align-self: flex-start; }
+.chat-message.step { align-self: flex-start; color: var(--muted); font-size: 12px; }
+.chat-message.step::before { content: "•"; margin-right: 6px; }
+/* What the window opened, noted in the conversation: a quiet line across it. */
+.chat-message.event { align-self: stretch; display: flex; align-items: center; gap: 8px; max-width: none; color: var(--muted); font-size: 11.5px; }
+.chat-message.event::before, .chat-message.event::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.chat-message.error { align-self: stretch; padding: 7px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del-text); }
+/* The AI's session has gone: said plainly, not as a failure, with a way to start a new one. */
+.chat-message.error.session-gone { display: grid; gap: 10px; justify-items: start; padding: 10px 12px; background: var(--subtle-bg); color: var(--text-2); }
+.chat-message.error.session-gone .chat-paragraph { line-height: 1.45; }
+.chat-paragraph + .chat-paragraph { margin-top: 8px; }
+.chat-paragraph { white-space: pre-wrap; }
+.chat-list-block { margin: 0; padding-left: 20px; }
+.chat-list-block li + li { margin-top: 2px; }
+.chat-paragraph + .chat-list-block, .chat-list-block + .chat-paragraph { margin-top: 8px; }
+.chat-message code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 12px; }
+.chat-working { color: var(--accent); font-size: 12px; }
+.chat-working::after { content: "…"; animation: chat-dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
+@keyframes chat-dots { from { width: 0; } to { width: 1.2em; } }
+/* The message box floats over the conversation's bottom, on the sidebar's background, which
+   starts as a fade above it so the conversation fades out as it scrolls behind it. No bar, no line. */
+.chat-foot {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; display: grid; gap: 8px; box-sizing: border-box;
+  padding: 24px 12px 12px; background: linear-gradient(to bottom, transparent, var(--bg) 24px); pointer-events: none; /* the same space below the message box as at its sides */
+}
+.chat-foot > * { pointer-events: auto; }
+.chat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-chips:empty { display: none; }
+.chat-chip { padding: 5px 10px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--bg); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.chat-chip:hover { background: var(--button-hover); }
+.chat-chip.primary { border-color: var(--accent); color: var(--accent); }
+/* What the user did or looked at in the window, posted to the conversation as context for their
+   next message (see chat-panel.js): a quiet line across it, as other notes are. */
+.chat-message.event.context { color: var(--muted); font-style: italic; }
+/* A question the AI suggested asking next: a shortcut like the others, in its own quieter style. */
+.chat-chip.suggested { border-style: dashed; }
+/* The message box: what's written wraps and the box grows with it (up to a third of the window,
+   then scrolls), the send button inside it, held at its bottom right corner. */
+.chat-compose { position: relative; display: flex; }
+.chat-compose textarea {
+  flex: 1; min-width: 0; box-sizing: border-box; min-height: 36px; max-height: 30vh; padding: 7px 40px 7px 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
+  font: inherit; line-height: 1.45; field-sizing: content; resize: none; overflow-wrap: anywhere;
+}
+.chat-compose textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.chat-send {
+  /* A rounded square tucked into the box's corner: its corners follow the box's, 4px in. */
+  position: absolute; right: 4px; bottom: 4px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 7px; background: var(--accent); color: #fff; cursor: pointer;
+}
+.chat-send:disabled { background: var(--border-strong); color: var(--bg); cursor: default; }
+.chat-send:not(:disabled):hover { filter: brightness(1.1); }
+.chat-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chat-send.stop { background: var(--del-text); }
+
+/* The app's own scrollbar (scrollbar.js), in the chat: no track, just a thin thumb at the right
+   edge, shown only when there's something to scroll. Hovering its strip for a moment widens the
+   thumb; it narrows straight away on leaving, and stays wide while dragged. */
+.scrollbar { position: relative; width: 14px; z-index: 3; visibility: hidden; }
+.scrollbar.scrollable { visibility: visible; }
+.scrollbar-thumb { position: absolute; top: 0; right: 3px; width: 4px; border-radius: 4px; background: var(--thumb); transition: width 0.15s ease, background-color 0.15s ease; }
+.scrollbar:hover .scrollbar-thumb { width: 8px; transition-delay: 0.35s; }
+.scrollbar.dragging .scrollbar-thumb { width: 8px; background: var(--thumb-active); transition-delay: 0s; }
+
+/* The app's own tooltips (tooltips.js): a small dark card, above everything, never in the way. */
+.tooltip {
+  position: fixed; z-index: 100; max-width: 320px; padding: 4px 8px; border-radius: 6px;
+  background: light-dark(#2b2b30, #f2f2f4); color: light-dark(#f2f2f4, #1c1c1f);
+  font-size: 12px; line-height: 1.35; white-space: pre-line; pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+.tooltip[hidden] { display: none; }
+/* A page's zoom controls sit in the card's corner: above its drawer, when it has one. */
+.focus-card:has(> .card-drawer) > .canvas-controls { bottom: calc(var(--drawer-height, 43px) + 12px); }
+.focus-card:has(> .card-drawer) > .focus-body .canvas-controls { bottom: calc(var(--drawer-height, 43px) - var(--drawer-shut, 43px) + 12px); }
+/* Side by side, beside the switch: it opens a view across the window. The app's button height. */
+.side-by-side { flex: none; box-sizing: border-box; height: 30px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: default; }
+.side-by-side:hover { background: var(--button-hover); }

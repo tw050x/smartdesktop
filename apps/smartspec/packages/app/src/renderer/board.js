@@ -9,7 +9,7 @@
 // of the board's width.
 export const FULL_FROM = 0.15; // this far in or more, an item is open at full size
 export const SMALLEST_BY = 0.03; // by here it's at its smallest, and from here out it's its card
-export const SMALLEST_SCALE = 0.25; // its smallest
+export const SMALLEST_SCALE = 0.18; // its smallest (the user found 0.25 left cards mostly empty)
 export const MIDDLE = [0.3, 0.7]; // without a known edge, centres in here count as the middle
 export const EDGE = 0.07; // and centres nearer than this to a side as cards
 export const FILL = [0.2, 0.8]; // what a lone item in the middle fills, across
@@ -148,6 +148,51 @@ export function filling(layout, id, board) {
   const fill = fillBox(board);
   const near = (a, b) => Math.abs(a - b) < 0.005;
   return box.ex == null && near(box.cx, fill.cx) && near(box.cy, fill.cy) && near(box.w, fill.w) && near(box.h, fill.h);
+}
+
+// Open items in the middle are drawn where the user put them, overlapping as they like, but one
+// mustn't hide another: the user found two at full size, one over the other, left no way to see
+// what was behind. So where one shows less than STAGGER px beyond those in front of it on every side,
+// those items are drawn as a cascade over the space they take together: the one furthest back at
+// its top left, each one further forward STAGGER px lower and to the right, and each made that much
+// smaller from the side the others are on, so every one behind keeps its title bar and left edge in
+// view. Only how they're drawn: their boxes stay as the user left them, so moving one away gives the
+// rest their own size back. `board` is the board's size in px; `skip`, ids left out (what's being
+// dragged). Returns the boxes drawn differently, by id.
+export const STAGGER = 40;
+export function stagger(layout, board, skip = []) {
+  const { width, height } = board;
+  const open = inMiddle(layout).filter((id) => !skip.includes(id)).map((id) => {
+    const box = layout.boxes[id];
+    return { id, z: box.z ?? 0, left: (box.cx - box.w / 2) * width, right: (box.cx + box.w / 2) * width, top: (box.cy - box.h / 2) * height, bottom: (box.cy + box.h / 2) * height };
+  }).sort((a, b) => a.z - b.z || a.id.localeCompare(b.id));
+  // `back` hardly shows past `front` anywhere.
+  const hidden = (back, front) => back.left > front.left - STAGGER && back.right < front.right + STAGGER && back.top > front.top - STAGGER && back.bottom < front.bottom + STAGGER;
+  // Items that hide one another, directly or through another, cascade together.
+  const group = new Map(open.map((one) => [one.id, one.id]));
+  const root = (id) => (group.get(id) === id ? id : root(group.get(id)));
+  for (const [i, back] of open.entries()) {
+    for (const front of open.slice(i + 1)) if (hidden(back, front)) group.set(root(back.id), root(front.id));
+  }
+  const groups = new Map();
+  for (const one of open) groups.set(root(one.id), [...(groups.get(root(one.id)) ?? []), one]);
+  const drawn = {};
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const span = {
+      left: Math.min(...members.map((one) => one.left)), right: Math.max(...members.map((one) => one.right)),
+      top: Math.min(...members.map((one) => one.top)), bottom: Math.max(...members.map((one) => one.bottom)),
+    };
+    const steps = members.length - 1;
+    // Never so many steps that an item is less than three quarters of the space.
+    const step = Math.min(STAGGER, ((span.right - span.left) * 0.25) / steps, ((span.bottom - span.top) * 0.25) / steps);
+    const w = span.right - span.left - steps * step;
+    const h = span.bottom - span.top - steps * step;
+    members.forEach((one, k) => {
+      drawn[one.id] = { cx: (span.left + k * step + w / 2) / width, cy: (span.top + k * step + h / 2) / height, w: w / width, h: h / height };
+    });
+  }
+  return drawn;
 }
 
 // In front of everything else.

@@ -1,6 +1,11 @@
 // The window's markup, put in an empty body before starting the interface (see app-shell.js).
 export const APP_MARKUP = `
 <header class="top-bar">
+  <!-- The app's status, first in the bar, just after the traffic lights: it opens the panel with
+       the AIs and the server, which slides in from the left (see server-status.js). -->
+  <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
+    <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span id="server-pill-label">Starting…</span><span id="server-pill-ai" hidden></span></span>
+  </button>
   <!-- Back and forward through where this window has been (see schemas.js). -->
   <div class="history-nav" id="history-nav" role="group" aria-label="History">
     <button class="icon-button" id="history-back" type="button" aria-label="Back" title="Back" disabled>
@@ -20,8 +25,9 @@ export const APP_MARKUP = `
       <button type="button" data-view="focus">Focus</button>
       <button type="button" data-view="overview">Overview</button>
     </div>
-    <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
-      <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span id="server-pill-label">MCP server</span><span id="server-pill-ai" hidden></span></span>
+    <!-- The chat with your AI, docked or in its own window (see chat-panel.js). -->
+    <button class="icon-button chat-button" id="chat-button" type="button" aria-label="Open the chat" title="Open the chat" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/><circle cx="8.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
     </button>
   </div>
 </header>
@@ -32,10 +38,13 @@ export const APP_MARKUP = `
 <div class="tool-card focus-menu" id="focus-menu" role="menu" aria-label="Focus" hidden></div>
 
 <main class="content" id="content"></main>
-<!-- The contextual bar: plain sentences about what's going on in this view, and what to do about it (see schemas.js). -->
+<!-- The actions bar: what there is to decide about this view, with its buttons, or a sentence on what's going on (see showBar in schemas.js). -->
 <footer class="review-bar" id="review-bar" aria-label="About this view" hidden></footer>
 
-<!-- MCP server details: a full-height panel that slides in over the right of the window, above a mask that dulls the rest. -->
+<!-- The chat with your AI: docked at the right, or floating in a window of its own (see chat-panel.js). -->
+<aside id="chat-panel" hidden></aside>
+
+<!-- The AIs and the MCP server: a full-height panel that slides in over the left of the window, above a mask that dulls the rest. -->
 <div class="mcp-mask" id="mcp-mask"></div>
 <aside class="mcp-card" id="mcp-card" role="dialog" aria-modal="true" aria-labelledby="mcp-card-title" inert>
   <div class="mcp-card-bar">
@@ -48,7 +57,15 @@ export const APP_MARKUP = `
       <p id="ai-release-text"></p>
       <button type="button" class="secondary-button" id="ai-release-button">Release this window</button>
     </div>
+    <!-- The AIs the chat runs: where each stands, and installing or signing in, a click each (see
+         server-status.js and main/agent.js). -->
+    <section class="ai-setup">
+      <h3>AI</h3>
+      <p class="panel-hint">The AI you work with in the chat runs on this Mac, signed in with your own account on its maker’s site. SmartSpec never sees your sign-in.</p>
+      <div class="ai-list" id="ai-list"></div>
+    </section>
     <h3 id="mcp-card-title">MCP server</h3>
+    <p class="panel-hint server-intro">How the AI reads your schematics and proposes its changes in SmartSpec: a server built into the app that only this Mac can reach. It’s also how you can connect another AI app yourself.</p>
     <dl class="server-details">
       <dt>Status</dt><dd id="server-state"></dd>
       <dt>Address</dt><dd id="server-url"></dd>
@@ -60,8 +77,10 @@ export const APP_MARKUP = `
       <button type="button" class="secondary-button" id="server-retry">Try again</button>
     </div>
 
+    <!-- For anyone who'd rather connect an AI app of their own to SmartSpec's server by hand. -->
+    <details class="manual-setup">
+      <summary>Connect another AI app yourself</summary>
     <section class="mcp-setup" id="mcp-setup">
-      <h3>Set up an AI app</h3>
       <!-- The AI app to set up: a button naming it, opening a menu of the apps (see server-status.js). -->
       <div class="app-picker">
         <button class="app-picker-button" id="app-picker-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="app-picker-menu">
@@ -102,10 +121,11 @@ export const APP_MARKUP = `
       </div>
       <p class="setup-note">Keep SmartSpec in your Applications folder: these point at it there. If you move it, set up your agents again.</p>
     </section>
+    </details>
   </div>
 </aside>
 
-<div class="mcp-resizer" id="mcp-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the MCP server panel" aria-controls="mcp-card"></div>
+<div class="mcp-resizer" id="mcp-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the panel" aria-controls="mcp-card"></div>
 
 <!-- Shown at the bottom of the window once an update has downloaded (see settings.js). -->
 <div class="update-toast" id="update-toast" role="status" hidden>

@@ -11,8 +11,17 @@ export class WaitRefused extends Error {
   }
 }
 
-// `store` says what became of a proposal, and its events say when something did.
-export function createWaits({ store }) {
+// `store` says what became of a proposal, and its events say when something did. `active()` lists
+// the proposals an AI is waiting on now, and `onChange` hears when that changes, so the app can offer
+// the go-ahead only while one is waiting (the chat's Confirm).
+export function createWaits({ store, onChange = () => {} }) {
+  const waiting = new Map(); // proposal id → how many waits on it
+  const count = (id, by) => {
+    const next = (waiting.get(id) ?? 0) + by;
+    if (next > 0) waiting.set(id, next);
+    else waiting.delete(id);
+    onChange();
+  };
   async function look(id) {
     try {
       const outcome = await store.proposalOutcome(id);
@@ -29,10 +38,12 @@ export function createWaits({ store }) {
       let cancel;
       const promise = new Promise((resolve, reject) => {
         let done = false;
+        count(id, 1);
         const finish = (settle, value) => {
           if (done) return;
           done = true;
           store.events.off('proposal', check);
+          count(id, -1);
           settle(value);
         };
         const check = () => look(id).then((result) => result && finish(resolve, result), (error) => finish(reject, error));
@@ -42,5 +53,6 @@ export function createWaits({ store }) {
       });
       return { promise, cancel };
     },
+    active: () => [...waiting.keys()],
   };
 }

@@ -198,6 +198,7 @@ export function buildServer(call, { version }) {
     goal: z.string().trim().min(1).optional().describe('The focus the user gave you for this work, in their words'),
     goal_title: z.string().trim().min(1).max(60).optional().describe('A short name for that focus'),
     note: z.string().trim().min(1).describe('What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as "Proposed change:"'),
+    reasons: z.record(z.string(), z.string().trim().min(1).max(300)).optional().describe('Why each item changes, keyed by its id ("contract" for the contract): one short sentence for each item you add, change or remove, shown on that item while the user reviews. Kept when you propose again; send one again to replace it.'),
   }, ({ schematic_id, uses, remove_items, item_order, goal_title, domain_id, ...proposal }, schemas) => schemas.propose({
     ...proposal,
     groupId: domain_id,

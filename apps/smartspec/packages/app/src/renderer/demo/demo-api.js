@@ -26,6 +26,11 @@ const DEMO_LAUNCHER = {
 };
 export const STATES = ['base', 'proposed', 'commented', 'revised', 'accepted'];
 
+const DEMO_AIS = {
+  claude: { id: 'claude', name: 'Claude', tool: 'Claude Code', installers: ['Anthropic’s installer'], installed: true, loggedIn: true, account: 'Claude account', models: [{ id: 'claude-fable-5-1', name: 'Fable 5.1' }, { id: 'claude-opus-5-5', name: 'Opus 5.5' }, { id: 'claude-sonnet-5-5', name: 'Sonnet 5.5' }, { id: 'claude-haiku-5-5', name: 'Haiku 5.5' }] },
+  codex: { id: 'codex', name: 'ChatGPT', tool: 'Codex', installers: ['OpenAI’s installer'], installed: true, loggedIn: true, account: 'ChatGPT account', models: [] },
+};
+
 export function createDemoApi() {
   const listeners = {};
   const on = (name) => (callback) => (listeners[name] ??= []).push(callback);
@@ -127,6 +132,7 @@ export function createDemoApi() {
     deleteComment: (id, commentId) => store.deleteComment(id, commentId),
     setNoFurtherAction: (id, commentId, flag) => store.setNoFurtherAction(id, commentId, flag),
     acceptProposal: (id) => store.accept(id),
+    approveChange: (id, key, flag) => store.approveChange(id, key, flag),
     sendComments: (id) => store.sendComments(id),
     discardProposal: (id) => store.discard(id),
     onSchemasChanged: on('schemas-changed'),
@@ -147,6 +153,9 @@ export function createDemoApi() {
       on('mcp-status')(callback);
       setTimeout(() => callback({ state: 'running', url: 'http://127.0.0.1:47825/mcp' }));
     },
+    mcpStatus: async () => ({ state: 'running', url: 'http://127.0.0.1:47825/mcp' }),
+    // The AIs the chat runs, installed and signed in, so the status pill says Ready.
+    agentStatus: async () => structuredClone(DEMO_AIS),
     onShowConnect: on('show-connect'),
     onUpdates: on('updates'),
     onShowSettings: on('show-settings'),

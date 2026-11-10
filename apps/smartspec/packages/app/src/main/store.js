@@ -280,6 +280,15 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     proposal: proposal.id, schema: schemaId, outcome, ...(draftId && { draft: draftId }), at: now(),
   });
 
+  // Each change a proposal makes, as the user approves it: an item's id, or `contract`.
+  const changeKeys = (changes) => [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? [CONTRACT] : [])];
+  // Whether a change is as it was in the proposal replaced (an item the same, or still gone).
+  const sameChange = (before, after, key) => {
+    if (key === CONTRACT) return before.contract === after.contract;
+    const was = before.items.find((item) => item.id === key);
+    const is = after.items.find((item) => item.id === key);
+    return JSON.stringify(was ?? null) === JSON.stringify(is ?? null);
+  };
   const finished = (schemaId, proposalId) => {
     events.emit('changed', schemaId);
     if (proposalId) events.emit('proposal', proposalId);
@@ -547,6 +556,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       const schema = await requireSchema(id);
       const proposal = await readProposal(id);
       if (!proposal) return null;
+      const changes = itemChanges(await latestRecord(schema), proposal);
       return {
         id,
         proposalId: proposal.id,
@@ -556,7 +566,11 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         ...(await describe(proposal, depth)),
         comments: await openCount(id, ON_PROPOSAL),
         forTheAi: await commentsWaiting(id, proposal),
-        changes: itemChanges(await latestRecord(schema), proposal),
+        changes,
+        // Why each item changes, as the AI said: only for what does change.
+        reasons: Object.fromEntries(Object.entries(proposal.reasons ?? {}).filter(([itemId]) => (itemId === CONTRACT ? changes.contract || !schema.line.length : changes.items[itemId] || changes.removed.some((one) => one.id === itemId)))),
+        // The changes the user has approved (see approveChange), of those there are.
+        approved: (proposal.approved ?? []).filter((key) => changeKeys(changes).includes(key)),
       };
     },
 
@@ -593,7 +607,18 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const existing = schemaId ? await requireSchema(schemaId) : null;
         if (groupId && !(await readGroups()).some((group) => group.id === groupId)) throw new Error(`There's no domain ${groupId}. list_domains shows the ones there are.`);
         const replaced = existing ? await readProposal(schemaId) : null;
-        const record = await buildRecord(replaced ?? (existing && await latestRecord(existing)), { ...change, note });
+        const { reasons: given, ...changes } = change;
+        const base = replaced ?? (existing && await latestRecord(existing));
+        const record = await buildRecord(base, { ...changes, note });
+        // Why each item changes, for the user reviewing it: those given before carry over, those
+        // given now replace them. Each is about an item there is, or was, or the contract.
+        const known = new Set([CONTRACT, ...record.items.map((item) => item.id), ...(base?.items ?? []).map((item) => item.id)]);
+        for (const id of Object.keys(given ?? {})) if (!known.has(id)) throw new Error(`There's no item ${id} for a reason to be about.`);
+        const reasons = { ...(replaced?.reasons ?? {}), ...(given ?? {}) };
+        if (Object.keys(reasons).length) record.reasons = reasons;
+        // What the user approved stays approved while the AI leaves it as it was.
+        const approved = (replaced?.approved ?? []).filter((key) => sameChange(replaced, record, key));
+        if (approved.length) record.approved = approved;
         const focus = goal?.trim() ? { goal: goal.trim(), title: focusTitle(goal, goalTitle) } : replaced?.focus;
         if (focus) record.focus = focus;
         if (existing && await embeds(record, existing.id)) throw new Error(`${record.name} can't embed itself, directly or through another schematic.`);
@@ -615,7 +640,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const schema = await requireSchema(schemaId);
         const proposal = await readProposal(schemaId);
         if (!proposal) throw new Error('There is no proposed change to accept.');
-        const { id: proposalId, basedOn, commentsSent, ...record } = proposal;
+        const { id: proposalId, basedOn, commentsSent, reasons, approved, ...record } = proposal; // (why each item changed, and what the user approved, were for the review)
         const draftId = newId();
         await writeJson(draftFile(schemaId, draftId), { ...record, id: draftId, parentId: schema.line.at(-1) ?? null, createdAt: now() });
         await writeSchema({ ...schema, line: [...schema.line, draftId] });
@@ -641,6 +666,24 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         await writeJson(proposalFile(schemaId), { ...proposal, commentsSent: { at: now(), comments: open.map((comment) => comment.id) } });
         finished(schemaId, proposal.id);
         return { schema: schemaId, proposal: proposal.id, comments: open.length };
+      });
+    },
+
+    // The user approves one of the proposal's changes (an item's id, or `contract`), or takes that
+    // back. Like a SmartDoc decision, it's the user's say on it before the whole is accepted; what
+    // isn't approved is accepted as proposed. The AI isn't told: it's the user's own checklist.
+    approveChange(schemaId, key, flag) {
+      return serial(async () => {
+        const schema = await requireSchema(schemaId);
+        const proposal = await readProposal(schemaId);
+        if (!proposal) throw new Error('There is no proposed change to approve.');
+        if (!changeKeys(itemChanges(await latestRecord(schema), proposal)).includes(key)) throw new Error(`The proposal doesn't change ${key}.`);
+        const approved = new Set(proposal.approved ?? []);
+        if (flag) approved.add(key);
+        else approved.delete(key);
+        await writeJson(proposalFile(schemaId), { ...proposal, approved: [...approved] });
+        events.emit('changed', schemaId);
+        return { approved: [...approved] };
       });
     },
 

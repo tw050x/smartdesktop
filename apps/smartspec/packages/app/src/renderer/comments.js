@@ -138,7 +138,9 @@ export function about(target) {
 const anchorAttributes = (target) => ({ 'data-part': target.part ?? null, 'data-quote': target.quote ?? null });
 
 // A comment marked "No further action required" folds to one line, its outcome and what it's on,
-// and opens again on a click to show what was said.
+// and opens again on a click to show what was said. On the board's middle it's always open (see
+// look in board-view.js), so a click there does nothing; elsewhere on the board, it says so, for the
+// board to give it its new size.
 export function commentCard(comment, { onDelete, onNoFurtherAction }) {
   const gone = comment.target.partMissing || comment.target.missing;
   const done = !isOpen(comment);
@@ -156,8 +158,9 @@ export function commentCard(comment, { onDelete, onNoFurtherAction }) {
   if (done) {
     card.title = 'No further action required. Click to see it.';
     card.addEventListener('click', (event) => {
-      if (event.target.closest('button')) return;
+      if (event.target.closest('button') || card.closest('.board-item.in-middle')) return;
       card.classList.toggle('unfolded');
+      card.dispatchEvent(new CustomEvent('comment-folded', { bubbles: true }));
     });
   }
   return card;
@@ -261,7 +264,10 @@ function spotOf(element, group) {
     const range = document.createRange();
     range.selectNodeContents(title);
     const rect = range.getBoundingClientRect();
-    return { x: rect.right + 6, y: rect.top + rect.height / 2, align: 'left', probe: [rect.right - 3, rect.top + rect.height / 2] };
+    // After its title and the tags beside it (New, Changed…), so it covers neither.
+    const pills = head.querySelector('.pane-title .status-pills')?.getBoundingClientRect();
+    const right = pills?.width && Math.abs(pills.top + pills.height / 2 - (rect.top + rect.height / 2)) < rect.height ? Math.max(rect.right, pills.right) : rect.right;
+    return { x: right + 6, y: rect.top + rect.height / 2, align: 'left', probe: [rect.right - 3, rect.top + rect.height / 2] };
   }
   const body = full.querySelector('.focus-body');
   const headSpot = () => {
@@ -365,7 +371,8 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
       // under another item. It fades in and out, and may hang over the item's edge.
       const [px, py] = spot?.probe ?? [spot?.x, spot?.y];
       const under = spot ? document.elementsFromPoint(px, py).find((hit) => !hit.closest('.comment-marker')) : null;
-      const seen = Boolean(under && element.contains(under));
+      // A card's drawer, or the card floating over full screen, covers what's under it too.
+      const seen = Boolean(under && element.contains(under) && !under.closest('.card-drawer, .change-float'));
       marker.classList.toggle('away', !seen);
       marker.style.zIndex = element?.style.zIndex || '1';
       if (!spot) continue;

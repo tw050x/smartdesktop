@@ -1173,6 +1173,18 @@
             "type": "string",
             "minLength": 1,
             "description": "What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as \"Proposed change:\""
+          },
+          "reasons": {
+            "description": "Why each item changes, keyed by its id (\"contract\" for the contract): one short sentence for each item you add, change or remove, shown on that item while the user reviews. Kept when you propose again; send one again to replace it.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
           }
         },
         "required": [

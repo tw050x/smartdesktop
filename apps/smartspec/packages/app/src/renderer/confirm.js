@@ -12,6 +12,10 @@ for (const point of question.points ?? []) {
   points.append(item);
 }
 if (!points.children.length) points.remove();
+// What follows the list, if anything.
+const after = document.getElementById('after');
+if (question.after) after.textContent = question.after;
+else after.remove();
 
 const container = document.getElementById('buttons');
 for (const { label, choice, kind = 'secondary', apart = false } of question.buttons ?? []) {

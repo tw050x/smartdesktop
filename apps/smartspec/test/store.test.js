@@ -593,3 +593,48 @@ describe('domains (groups in the store)', () => {
     await assert.rejects(store.moveGroup('nope', null), /no domain nope/);
   });
 });
+
+describe('why each item changes', () => {
+  test('the AI gives a reason for each item it changes, kept as it proposes again, and left out of the draft', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [doc('a'), doc('b'), doc('c')] });
+    await store.propose({ schemaId: schema, items: [doc('a', '# Changed')], removeItems: ['b'], note: 'Tidied', reasons: { a: 'Clearer heading.', b: 'Said again in a.' } });
+    let shown = await store.getProposal(schema);
+    assert.deepEqual(shown.reasons, { a: 'Clearer heading.', b: 'Said again in a.' });
+    // Proposing again keeps them, a new one replacing the old.
+    await store.propose({ schemaId: schema, items: [doc('d')], note: 'And d', reasons: { d: 'New detail.', a: 'Shorter heading.' } });
+    shown = await store.getProposal(schema);
+    assert.deepEqual(shown.reasons, { a: 'Shorter heading.', b: 'Said again in a.', d: 'New detail.' });
+    // Only for what changes: a reason for an item put back as it was isn't shown.
+    await store.propose({ schemaId: schema, items: [doc('a')], note: 'Back', reasons: {} });
+    shown = await store.getProposal(schema);
+    assert.equal(shown.reasons.a, undefined);
+    // About an item there is, or was, or the contract.
+    await assert.rejects(store.propose({ schemaId: schema, note: 'Odd', reasons: { nope: 'Why?' } }), /no item nope/);
+    const { draft } = await store.accept(schema);
+    const record = await store.getSchema(schema, { draftId: draft });
+    assert.equal(record.reasons, undefined);
+  });
+});
+
+describe('approving changes', () => {
+  test('the user approves changes one by one, kept while the AI leaves them as they were, and accepting needs none', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [doc('a'), doc('b'), doc('c')] });
+    await store.propose({ schemaId: schema, items: [doc('a', '# Changed'), doc('d')], removeItems: ['b'], note: 'Tidied' });
+    await store.approveChange(schema, 'a', true);
+    await store.approveChange(schema, 'b', true);
+    await store.approveChange(schema, 'd', true);
+    await store.approveChange(schema, 'd', false);
+    assert.deepEqual((await store.getProposal(schema)).approved.sort(), ['a', 'b']);
+    // Only what the proposal changes.
+    await assert.rejects(store.approveChange(schema, 'c', true), /doesn't change c/);
+    // Proposing again keeps what's still as it was, and drops what the AI changed again.
+    await store.propose({ schemaId: schema, items: [doc('a', '# Changed again')], note: 'Again' });
+    assert.deepEqual((await store.getProposal(schema)).approved, ['b']);
+    // Accepting doesn't wait for approvals, and they aren't kept with the draft.
+    const { draft } = await store.accept(schema);
+    const record = await store.getSchema(schema, { draftId: draft });
+    assert.equal(record.approved, undefined);
+  });
+});
