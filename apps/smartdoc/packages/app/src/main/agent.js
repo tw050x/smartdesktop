@@ -64,11 +64,21 @@ export const PROVIDERS = {
       return { dirs: [path.join(installHome, '.claude/downloads')], sizes };
     },
     installHelp: 'https://code.claude.com/docs/en/setup',
-    args({ prompt, systemPrompt, mcp, resume, fork }) {
+    // The models to choose from, each by its full name, so the version chosen is the one used (the
+    // user wanted versions shown; Claude Code's aliases follow whichever is newest). Update this as
+    // Claude's models change.
+    models: () => [
+      { id: 'claude-fable-5-1', name: 'Fable 5.1' },
+      { id: 'claude-opus-5-5', name: 'Opus 5.5' },
+      { id: 'claude-sonnet-5-5', name: 'Sonnet 5.5' },
+      { id: 'claude-haiku-5-5', name: 'Haiku 5.5' },
+    ],
+    args({ prompt, systemPrompt, mcp, resume, fork, model }) {
       const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose',
         '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { smartdoc: { type: 'http', url: mcp.url, headers: mcp.headers } } }),
         '--tools', '', '--allowedTools', 'mcp__smartdoc', '--setting-sources', 'project',
         '--append-system-prompt', systemPrompt];
+      if (model) args.push('--model', model);
       if (resume) args.push('--resume', resume);
       else if (fork) args.push('--resume', fork, '--fork-session');
       return args;
@@ -119,10 +129,22 @@ export const PROVIDERS = {
     installHelp: 'https://developers.openai.com/codex/cli',
     // Its own config is left out: it can name a model a ChatGPT account isn't allowed, and SmartDoc
     // gives it only SmartDoc's tools. Read-only, it can't change anything on the Mac.
-    args({ prompt, systemPrompt, mcp, resume, fork }) {
+    // The models to choose from: those Codex's own catalogue lists for the account (the
+    // models_cache.json it keeps in its home), in its order.
+    models: (environment) => {
+      try {
+        const file = path.join(environment.CODEX_HOME ?? path.join(home, '.codex'), 'models_cache.json');
+        const { models = [] } = JSON.parse(fs.readFileSync(file, 'utf8'));
+        return models.filter((m) => m.visibility === 'list' && m.slug).sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0)).map((m) => ({ id: m.slug, name: m.display_name ?? m.slug, about: m.description ?? null }));
+      } catch {
+        return [];
+      }
+    },
+    args({ prompt, systemPrompt, mcp, resume, fork, model }) {
       const headers = Object.entries(mcp.headers).map(([k, v]) => `${toml(k)} = ${toml(v)}`).join(', ');
       const args = ['exec', '--json', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules', '-s', 'read-only',
         '-c', `mcp_servers.smartdoc.url=${toml(mcp.url)}`, '-c', `mcp_servers.smartdoc.http_headers={ ${headers} }`];
+      if (model) args.push('-m', model);
       // It has no separate system prompt, so a new session's first message carries it.
       if (resume) return [...args, 'resume', resume, prompt];
       if (fork) return [...args, 'fork', fork, `${systemPrompt}\n\n${prompt}`];
@@ -173,6 +195,26 @@ function filesIn(dir, depth, since) {
   return out;
 }
 
+// What the user did or looked at in the app since their last message (the conversation's context
+// lines: see note), to go before their next message to the AI, so it knows what they're asking
+// about. Empty when there's nothing new.
+export function contextFor(messages) {
+  const since = messages.slice(messages.findLastIndex((m) => m.role === 'user') + 1).filter((m) => m.kind === 'context');
+  if (!since.length) return '';
+  return `[What I've done in the app since my last message, for context:\n${since.map((m) => `- ${m.detail ?? m.text}`).join('\n')}]\n\n`;
+}
+
+// The AI ends a reply with any follow-up questions it suggests as <suggest>…</suggest> lines (see
+// the chat's system prompt): taken out of what's shown and kept as the message's `suggestions`, for
+// the chat to offer as shortcuts. At most three.
+const SUGGEST = /<suggest>([\s\S]*?)<\/suggest>/g;
+export function withSuggestions(message) {
+  if (message.role !== 'assistant' || !message.text?.includes('<suggest>')) return message;
+  const suggestions = [...message.text.matchAll(SUGGEST)].map((match) => match[1].replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 3);
+  const text = message.text.replace(SUGGEST, '').replace(/\n{3,}/g, '\n\n').trim();
+  return { ...message, text, ...(suggestions.length && { suggestions }) };
+}
+
 // `trial` (development builds only) shows the AIs as if not set up, to try the setup without
 // touching the user's own: `home` gives each its own empty folder for its settings and sign-in (so
 // it's signed out, and signing in there leaves the real sign-in alone), and a home folder of its
@@ -183,6 +225,7 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
   const chatsDir = path.join(userData, 'chats');
   const workDir = path.join(userData, 'agent'); // an empty folder to run in, so no project settings load
   const running = new Map(); // `${chatId}:${conversation}` → child process
+  const live = new Map(); // chat id → its chats while a reply is being written in it (see note)
   const found = new Map(); // provider id → the path to its tool, once found
   let shellPath = null;
 
@@ -241,9 +284,11 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
       const base = { id: provider.id, name: provider.name, tool: provider.tool, installers: [provider.installer.label], installHelp: provider.installHelp };
       const tool = await find(provider, true);
       if (!tool) {
-        all[provider.id] = { ...base, installed: false, loggedIn: false };
+        all[provider.id] = { ...base, installed: false, loggedIn: false, models: [] };
         continue;
       }
+      // The models it offers, to choose from in the chat (none known: just its own default).
+      base.models = provider.models?.(await env(provider)) ?? [];
       const result = await run(tool, provider.statusArgs, { env: await env(provider), timeout: 15000 });
       try {
         all[provider.id] = { ...base, installed: true, ...provider.readStatus(result.stdout, result.code, result.stderr) };
@@ -360,7 +405,7 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
   // Sends the user's message in a conversation ('main' or a finding's id) to an AI, and streams
   // what it does back through onEvent (with the window it was sent from, and the draft's chat),
   // keeping it all with the draft.
-  async function send({ provider: id, windowId, chatId, conversation, text, prompt, systemPrompt, sessionHeaders }) {
+  async function send({ provider: id, windowId, chatId, conversation, text, prompt, systemPrompt, sessionHeaders, model = null }) {
     const provider = PROVIDERS[id] ?? PROVIDERS.claude;
     const key = `${chatId}:${conversation}`;
     if (running.has(key)) throw new Error(`${provider.name} is still working on this.`);
@@ -368,9 +413,12 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
     if (!tool) throw new Error(`${provider.tool} isn’t installed.`);
     await mkdir(workDir, { recursive: true });
     const chats = await load(chatId);
+    live.set(chatId, chats);
     const convo = conversationOf(chats, conversation);
+    // What the user has done in the app since their last message goes with this one (see note).
+    const context = conversation === 'main' ? contextFor(convo.messages) : '';
     const add = async (message) => {
-      convo.messages.push({ id: `m-${Date.now().toString(36)}-${convo.messages.length}`, at: new Date().toISOString(), by: provider.id, ...message });
+      convo.messages.push(withSuggestions({ id: `m-${Date.now().toString(36)}-${convo.messages.length}`, at: new Date().toISOString(), by: provider.id, ...message }));
       await save(chatId, chats);
       onEvent({ windowId, chatId, conversation, type: 'messages', messages: convo.messages });
     };
@@ -389,7 +437,9 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
 
     // One run of the AI, its replies and steps added as they come.
     const runOnce = async (runPrompt) => {
-      const args = provider.args({ prompt: runPrompt, systemPrompt, mcp: mcp(sessionHeaders), resume, fork });
+      // Only a model the AI offers (see models), else its own default.
+      const chosen = model && (provider.models?.(await env(provider)) ?? []).some((m) => m.id === model) ? model : null;
+      const args = provider.args({ prompt: runPrompt, systemPrompt, mcp: mcp(sessionHeaders), resume, fork, model: chosen });
       const child = spawn(tool, args, { cwd: workDir, env: await env(provider), stdio: ['ignore', 'pipe', 'pipe'] });
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
@@ -438,7 +488,7 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
       });
     };
 
-    const result = await runOnce(prompt ?? text);
+    const result = await runOnce(context + (prompt ?? text));
     // The AI's session for this chat has gone (its data cleared, or the AI reinstalled): said
     // plainly, with a way to start a new session (newSession), rather than the AI's own error, so
     // the user can fix it instead if they can.
@@ -448,6 +498,7 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
     else if (gone) await add({ role: 'error', kind: 'session-gone', provider: provider.id, text: `${provider.name} couldn’t carry on this conversation: its earlier session for it can’t be found. Its data may have been cleared, or ${provider.tool} reinstalled. If you can get it back, send your message again; otherwise start a new session, which won’t remember what was said here before.` });
     else if (result.failed && !result.replied) await add({ role: 'error', text: result.failed });
     else if (result.code && !result.replied) await add({ role: 'error', text: result.errors.trim().split('\n').at(-1) || `${provider.name} couldn’t run.` });
+    live.delete(chatId);
     onEvent({ windowId, chatId, conversation, type: 'running', running: false });
   }
 
@@ -479,7 +530,26 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
     child.kill('SIGTERM');
   }
 
+  // What the user did or looked at in the app, as a quiet line in the conversation: not sent to the
+  // AI by itself, but with the user's next message (contextFor), so it knows what has happened and
+  // what they were looking at. `detail` is what the AI is told, if it needs more than the line
+  // says. Looking at something new replaces a line about what they looked at before, if nothing
+  // came between, so the conversation doesn't fill with them. A chat a reply is being written in is
+  // added to as it's held (`live`), so neither loses the other's lines.
+  async function note(chatId, { text, detail = null, focus = false, about = null } = {}) {
+    if (!chatId || !text) return;
+    const chats = live.get(chatId) ?? (await load(chatId));
+    const messages = chats.main.messages;
+    const last = messages.at(-1);
+    if (last?.kind === 'context' && last.text === text) return;
+    const entry = { id: `m-${Date.now().toString(36)}-${messages.length}`, at: new Date().toISOString(), role: 'event', kind: 'context', text, ...(detail && { detail }), ...(focus && { focus: true }), ...(about && { about }) };
+    if (focus && last?.kind === 'context' && last.focus) messages[messages.length - 1] = entry;
+    else messages.push(entry);
+    await save(chatId, chats);
+    onEvent({ chatId, conversation: 'main', type: 'messages', messages });
+  }
+
   const runningIn = (chatId) => [...running.keys()].filter((key) => key.startsWith(`${chatId}:`)).map((key) => key.slice(chatId.length + 1));
 
-  return { status, signIn, install, load, hasSession, send, newSession, stop, runningIn };
+  return { status, signIn, install, load, hasSession, send, newSession, note, stop, runningIn };
 }

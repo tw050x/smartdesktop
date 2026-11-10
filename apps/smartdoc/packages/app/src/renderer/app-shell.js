@@ -518,7 +518,14 @@ export function startApp(appApi) {
     bar: document.getElementById('review-bar'),
     api,
     onMarks: setMarks,
-    onOpenItem: (id) => (chatFloating || (!chat.isOpen() && chatPrefersWindow()) ? api.chatOpenItem(id) : chat.openItem(id)),
+    // Opening an item beside the pages opens the chat too (the way it opened last), where the user
+    // can ask about it; what they looked at and decided goes to the chat as context.
+    onOpenItem: () => {
+      if (chatFloating || chat.isOpen()) return;
+      if (chatPrefersWindow() && api.chatFloat) api.chatFloat('main');
+      else chat.setOpen(true);
+    },
+    onNote: (note) => api.chatNote?.(note),
     onSuggestion: (next) => chat?.setSuggestion(next),
     // The bar keeps a way to open the chat while it's closed; the chat follows the review.
     onChange: () => {
@@ -551,7 +558,7 @@ export function startApp(appApi) {
       if (on !== document.body.classList.contains('chat-docked')) refitPages(() => document.body.classList.toggle('chat-docked', on));
       marginReview.layout();
     },
-    // Into a window of its own, on the same conversation or thread.
+    // Into a window of its own, with the same item open in its tray.
     onFloat: (view) => api.chatFloat?.(view),
     // Resized from its edge: the pages fit what's left.
     onResize: () => {
@@ -586,13 +593,10 @@ export function startApp(appApi) {
       sendChatState(true);
     } else if (mode === 'docked') {
       chat.openItem(view && view !== 'main' ? view : null);
-    } else {
-      marginReview.focus(null);
     }
+    // (A card open beside the pages stays open whatever the chat does: it's the window's, not the chat's.)
     marginReview.layout();
   });
-  // Choosing an item in the floating chat brings its text forward here.
-  api.onChatFocus?.((id) => marginReview.focus(id));
 
   const composer = createCommentComposer({
     wrapEl: document.getElementById('pages-wrap'),
@@ -711,7 +715,10 @@ export function startApp(appApi) {
     clearPages();
     toolSwitcher.close();
     current = { doc: null, review: null, tool: current.tool, preview: null };
+    // The chat is a document's: it closes with it, docked or in its own window (where, left open,
+    // it had nothing to send to and the chat button to close it had gone).
     chat.setOpen(false);
+    if (chatFloating) api.chatClose?.();
     chat.documentChanged(null);
     marginReview.update({ document: null, review: null, earlier: [], preview: null, filter: null });
     showView();

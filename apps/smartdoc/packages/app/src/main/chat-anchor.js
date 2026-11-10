@@ -1,7 +1,6 @@
 // Where the chat's own window sits relative to the app window it belongs to: measured from the
-// nearer of its sides and of its top and bottom, so resizing the app window from any edge keeps the
-// chat where it was beside that edge, inside the window or out of it. (Moving the app window moves
-// the chat with it by itself: it's a child window.)
+// nearer of its sides and of its top and bottom, so it opens again where it was beside that window.
+// (It moves independently of the app window, the user's choice: see followChat in main.js.)
 
 export function anchorOf(parent, child) {
   const right = child.x + child.width / 2 > parent.x + parent.width / 2;

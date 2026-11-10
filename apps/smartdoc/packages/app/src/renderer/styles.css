@@ -943,15 +943,17 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .chat-head .icon-button[hidden] { display: none; }
 .chat-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
 .chat-status { flex: 1; min-width: 0; } /* an empty space filling the header, pushing the AI picker to the right */
-.chat-scroll { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; } /* a thread slides in and out within it */
+.chat-scroll { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; }
 /* The header is on the sidebar's background with no line under it: the conversation fades out as
    it scrolls up under it, as it does under the message box at the bottom. */
 .chat-scroll::before { content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: 20px; background: linear-gradient(to bottom, var(--bg), transparent); pointer-events: none; }
-.chat-leaving { position: absolute; inset: 0; z-index: 2; background: var(--bg); }
 /* Which AI the chat works with: its name, opening a small menu of the AIs and where each stands. */
-.chat-ai { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; -webkit-app-region: no-drag; }
-.chat-ai:hover, .chat-ai[aria-expanded="true"] { background: var(--button-hover); }
-.chat-ai svg { color: var(--muted); }
+/* Under the message box: which AI and which of its models, each a small button opening a menu above it. */
+.chat-pickers { display: flex; align-items: center; gap: 2px; margin: -2px 0 -4px -4px; }
+.chat-pick { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.chat-pick[hidden] { display: none; }
+.chat-pick:hover, .chat-pick[aria-expanded="true"] { background: var(--button-hover); color: var(--text); }
+.chat-pick.chat-ai { color: var(--text); font-weight: 600; }
 .chat-ai-menu { position: absolute; z-index: 30; display: grid; gap: 2px; min-width: 220px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: 0 8px 28px rgb(0 0 0 / 0.2); }
 .chat-ai-menu[hidden] { display: none; }
 .chat-ai-option { display: grid; gap: 1px; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
@@ -960,14 +962,6 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .chat-ai-option-name { font-weight: 600; }
 .chat-ai-option-state { color: var(--muted); font-size: 12px; }
 
-/* The way back from a thread: a rounded square floating at the chat's top left. */
-.chat-back { position: absolute; top: 10px; left: 12px; z-index: 3; width: 32px; height: 32px; border-radius: 8px; background: var(--bg); box-shadow: 0 1px 3px rgb(0 0 0 / 0.2), 0 0 0 1px var(--border); }
-.chat-back[hidden] { display: none; }
-/* A thread's title, its first entry, beside the way back (level with it while at the top). */
-/* Its first line is level with the back button's middle (button 10px to 42px down, so its middle is
-   26px; the title starts at 10px, and 6px plus half its 20px line is 26px): a longer title wraps
-   onto lines below, never moving the first one up. */
-.chat-thread-title { box-sizing: border-box; min-height: 32px; padding: 6px 0 0 42px; margin-top: -2px; font-size: 15px; font-weight: 600; line-height: 1.35; user-select: text; }
 .chat-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 12px 12px calc(var(--chat-foot, 52px) + 4px); display: flex; flex-direction: column; gap: 10px; }
 .chat-scrollbar { position: absolute; top: 0; right: 0; bottom: var(--chat-foot, 52px); margin: 6px 2px; } /* the app's scrollbar (scrollbar.js), over the conversation's right edge */
 .chat-body > * { flex: none; } /* each its full height: the conversation scrolls, nothing in it is squeezed */
@@ -975,7 +969,7 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .chat-setup { display: grid; gap: 8px; padding: 12px; border-radius: 10px; background: var(--subtle-bg); }
 .chat-setup-text { line-height: 1.45; }
 .chat-setup-note { color: var(--muted); font-size: 12px; }
-/* Every item of the review, as rows that open their threads. */
+/* Every item of the review, as rows that open it in the tray. */
 .chat-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 /* Its header row folds and unfolds it (folded at first): a chevron, what it is, how many are left. */
 .chat-list-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -1017,13 +1011,17 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .chat-working { color: var(--accent); font-size: 12px; }
 .chat-working::after { content: "…"; animation: chat-dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
 @keyframes chat-dots { from { width: 0; } to { width: 1.2em; } }
-/* An item's card in its thread: the card in full, as wide as the chat. */
-.chat-body .margin-card { flex: none; border-left: 4px solid var(--item-color); box-shadow: none; border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); user-select: text; }
+/* An item open in the tray: its card in full, as wide as the chat. */
+/* What the user did or looked at in the window, posted to the conversation as context for their
+   next message (see chat-panel.js): a quiet line across it, as other notes are. */
+.chat-message.event.context { color: var(--muted); font-style: italic; }
+/* A question the AI suggested asking next: a shortcut like the others, in its own quieter style. */
+.chat-chip.suggested { border-style: dashed; }
 /* The message box floats over the conversation's bottom, on the sidebar's background, which
    starts as a fade above it so the conversation fades out as it scrolls behind it. No bar, no line. */
 .chat-foot {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; display: grid; gap: 8px; box-sizing: border-box;
-  padding: 24px 12px 8px; background: linear-gradient(to bottom, transparent, var(--bg) 24px); pointer-events: none;
+  padding: 24px 12px 12px; background: linear-gradient(to bottom, transparent, var(--bg) 24px); pointer-events: none; /* the same space below the message box as at its sides */
 }
 .chat-foot > * { pointer-events: auto; }
 .chat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1064,6 +1062,24 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .margin-layer > * { pointer-events: auto; }
 .margin-link { position: absolute; width: 2px; border-radius: 1px; pointer-events: none; }
 .margin-slot { position: absolute; z-index: 1; }
+/* An item open in a panel floating over the window (see showOpened in margin-review.js), moved by its
+   top: its kind and title along the top, what it says scrolling, its comment and decision along the
+   bottom. */
+.margin-opened { position: fixed; z-index: 35; display: flex; flex-direction: column; width: min(380px, calc(100vw - 16px)); max-height: min(70vh, 620px); border: 1px solid var(--border); border-radius: 12px; background: var(--bg); box-shadow: 0 4px 12px rgb(0 0 0 / 0.12), 0 16px 40px rgb(0 0 0 / 0.22); overflow: hidden; }
+.margin-opened[hidden] { display: none; }
+.margin-opened-head { display: grid; gap: 2px; padding: 10px 12px 10px; border-bottom: 1px solid var(--border); border-top: 3px solid var(--item-color); cursor: grab; }
+.margin-opened.moving, .margin-opened.moving .margin-opened-head { cursor: grabbing; user-select: none; }
+/* The card open in the floating panel: its tab beside the page hides while it's open. */
+.margin-slot.opened { visibility: hidden; }
+.margin-opened-top { display: flex; align-items: center; gap: 8px; }
+.margin-opened-top .margin-kind { flex: 1; }
+.margin-opened-top .margin-status { color: var(--muted); font-size: 12px; }
+.margin-opened-title { font-size: 15px; font-weight: 600; line-height: 1.35; user-select: text; }
+.margin-opened-body { flex: 1; min-height: 0; padding: 12px; overflow-y: auto; overscroll-behavior: contain; }
+.margin-opened-body .margin-card { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; user-select: text; }
+.margin-opened-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.margin-opened-foot > .decision-buttons, .margin-opened-foot > .decision-card { flex: 1; margin: 0; }
+.margin-opened-foot > .decision-comment { flex: 1 0 100%; box-sizing: border-box; max-height: 30vh; margin: 0; }
 .margin-slot.hovered { z-index: 5; }
 .margin-slot.open { z-index: 6; }
 .margin-slot.filtered-out { opacity: 0.35; }
@@ -1141,7 +1157,7 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .margin-close { display: grid; place-items: center; width: 26px; height: 26px; margin-right: -6px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .margin-close:hover { background: var(--button-hover); color: var(--text); }
 .margin-card-title { margin: 0; font-size: 13.5px; font-weight: 600; }
-.margin-card textarea {
+.margin-card textarea, .margin-opened-foot > textarea {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--border);
@@ -1153,7 +1169,7 @@ body.chat-window-body { display: flex; background: var(--bg); }
   resize: none;
   user-select: text;
 }
-.margin-card textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.margin-card textarea:focus, .margin-opened-foot > textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .decision-comment { min-height: calc(1lh + 14px); }
 .decision-answer { min-height: calc(2lh + 14px); }
 .finding-reply { margin: 0; font-size: 11px; color: var(--accent); }
@@ -1209,9 +1225,10 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .decision-card-hint { color: var(--muted); font-size: 11px; }
 .decision-card:hover .decision-card-hint { color: var(--accent); }
 
-/* The bar under the pages, the top bar's shade so it stands out (see margin-review.js): one line,
-   never two. A short sentence on the left, which gives way with an ellipsis only when the window is
-   too narrow for it, and what to do about it on the right, which never does. */
+/* The actions bar under the pages, the top bar's shade so it stands out (see renderBar in
+   margin-review.js): what's being worked on over a short sentence on where it stands, on the left,
+   each one line, giving way with an ellipsis only when the window is too narrow for it, and what to
+   do about it on the right, which never does. */
 .review-bar {
   grid-area: 2 / 1;
   display: flex;
@@ -1223,8 +1240,16 @@ body.chat-window-body { display: flex; background: var(--bg); }
   background: var(--top-bar-bg);
   font-size: 13px;
 }
-.review-bar-text { flex: 1; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.review-bar-card { display: grid; gap: 2px; flex: 1; min-width: 0; padding: 2px 0; }
+.review-bar-title { overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.review-bar-title[hidden] { display: none; }
+.review-bar-card:has(.review-bar-title:not([hidden])) .review-bar-text { color: var(--text-2, var(--muted)); }
+.review-bar-text { min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Under a title (one row), the sentence can take two lines, never more. */
+.review-bar-card:has(.review-bar-title:not([hidden])) .review-bar-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
 .review-bar-end { display: flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
+/* Under a title, its buttons sit at the bar's bottom, beside its last line, not centred. */
+.review-bar:has(.review-bar-title:not([hidden])) { align-items: flex-end; }
 .review-bar-end:empty { display: none; }
 .copy-prompt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; } /* at the bar's right end */
 /* Document | List, a two-part switch. The two parts are the same width, and the white thumb

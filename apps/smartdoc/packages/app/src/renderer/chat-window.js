@@ -39,7 +39,7 @@ export function startChatWindow(api) {
     onClose: () => api.chatClose(),
   });
 
-  // What it should show first waits for the review to arrive, as a thread needs its item.
+  // What it should show first waits for the review to arrive, as an item opened in the tray needs it.
   let docId = null;
   let first;
   api.onChatState((state) => {

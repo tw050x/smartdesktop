@@ -9,7 +9,7 @@ import { earlierComments, isDone, notCommentedAgain, onVersion } from '../main/c
 // its kind's icon and name and a short title, or, when the gutters are narrow, the icon alone.
 // Tabs never move off their line: one that would overlap the tab above joins it as another card
 // in that deck, which shows its top card and how many it holds. Undecided cards come first, then
-// notes, then decided ones. Clicking a card opens its thread in the chat panel (chat-panel.js), where
+// notes, then decided ones. Clicking a card opens it in full in the chat's tray (chat-panel.js), where
 // it's read and decided in full; the chat lists every card in the document's order (those about all
 // of it first).
 // Hovering a deck brings its top card's text forward on the page; the page tints every item's
@@ -58,15 +58,18 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // elements; `bar` is the bar under the pages. `onMarks` is given what to draw on the page:
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
-// `onOpenItem(id)` opens an item's thread in the chat; `onSuggestion(next)` gives the chat what to
+// `onOpenItem(id)` says an item was opened beside the pages (the chat opens with it); `onNote(note)`
+// gives the chat a line of context for the AI, about what the user looked at or decided ({ text,
+// detail, focus, about }: see note in main/agent.js); `onSuggestion(next)` gives the chat what to
 // ask the AI next ({ what, label, prompt, waiting }), or null; `onChange()` says the review redrew.
-export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onOpenItem, onSuggestion, onChange, onClearFilter }) {
+export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onOpenItem = () => {}, onNote = () => {}, onSuggestion, onChange, onClearFilter }) {
   let state = { document: null, review: null, earlier: [], tool: 'improve', view: 'document', filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
-  let focused = null; // the id of the item whose thread the chat shows: it stands out on the page
+  let focused = null; // the id of the item open beside the pages: it stands out on the page
   let iconOnly = false; // the gutters are too narrow for more than the kinds' icons
   let suggestion = null; // what to ask the AI next, for the chat (see renderBar)
   let hover = null; // the hovered deck's key
   const editing = new Set(); // ids of decided findings whose decision is being changed
+  const picked = new Map(); // finding id → the option picked, not yet confirmed: { decision, title }
   let decks = [];
   let items = []; // everything in the review
   let shown = []; // what's on the page: the review's items and earlier comments
@@ -164,6 +167,161 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     return `✓ ${STATUS_LABELS[d.status] ?? d.status}`;
   }
 
+  // --- An item open beside the pages ---------------------------------------------------------
+  // Clicking a deck opens its top card in a panel floating over the window, the card in full, to read
+  // and decide: its kind and title along the top (which it's moved by), what it says (which
+  // scrolls), and its comment for the AI and its decision along the bottom, always in view. The chat stays one conversation (the user found
+  // cards in it a distraction): opening it opens the chat too, with a line of context there saying
+  // what the user is looking at, for the AI with their next message, and so does each decision.
+  // Escape, its close button, or its card's tab again closes it.
+  const OPENED_WIDTH = 380;
+  const reviewed = (item) => order.find((i) => i.item === item) ?? { id: item.id, title: item.title, label: 'Finding' };
+  const DECIDED = { accepted: 'Accepted', rejected: 'Rejected', answered: 'Answered', acknowledged: 'Acknowledged' };
+  function noteDecision(cur, decision, choice = null) {
+    if (!decision?.status) return;
+    const verb = choice ? `Chose “${choice}” for` : cur.item?.kind === 'question' && decision.status === 'rejected' ? 'Skipped' : DECIDED[decision.status] ?? 'Decided';
+    onNote({ text: `${verb} “${cur.title}”`, detail: `${verb} the ${cur.label.toLowerCase()} “${cur.title}” (${cur.type ?? 'finding'} ${cur.id})${decision.edited ? `, with my own wording: “${decision.edited}”` : ''}${decision.answer ? `, answering: “${decision.answer}”` : ''}` });
+  }
+
+  function openCard(id) {
+    const item = id && shown.find((i) => i.id === id);
+    focused = item ? id : null;
+    render();
+    if (!item) return;
+    if (item.anchors.length) onReveal(item.anchors);
+    onOpenItem(id);
+    onNote({
+      text: `Looking at “${item.title}”`,
+      detail: `Looking at the ${item.label.toLowerCase()} “${item.title}” (${item.type} ${item.id}) in the review on screen`,
+      focus: true,
+      about: item.title,
+    });
+  }
+
+  // The panel floats over the window, free of the page (it doesn't scroll or zoom with it), and the
+  // user moves it by its top (the user's choice). It opens beside its card's tab, which hides while
+  // it's open, until the user has moved one: then where they put it last (kept for next time).
+  const PLACE_KEY = 'opened-card-place';
+  let panel = null; // the floating panel, made the first time a card is opened
+  let placedFor = null; // the item the panel was placed for, so it's placed once per opening
+  const keptPlace = () => {
+    try {
+      const place = JSON.parse(localStorage.getItem(PLACE_KEY));
+      return Number.isFinite(place?.left) && Number.isFinite(place?.top) ? place : null;
+    } catch {
+      return null;
+    }
+  };
+  // Inside the window, below its top bar, wholly in view where it can be.
+  function placePanel(left, top) {
+    const doc = layer.ownerDocument;
+    const view = doc.documentElement;
+    const topBar = doc.querySelector('.top-bar')?.getBoundingClientRect().bottom ?? 0;
+    const w = panel.offsetWidth;
+    const h = panel.offsetHeight;
+    panel.style.left = `${Math.round(Math.max(8, Math.min(view.clientWidth - w - 8, left)))}px`;
+    panel.style.top = `${Math.round(Math.max(topBar + 8, Math.min(view.clientHeight - Math.min(h, 120) - 8, top)))}px`;
+  }
+
+  function showOpened(geo) {
+    const item = focused && shown.find((i) => i.id === focused);
+    if (!item || !geo) {
+      if (panel) panel.hidden = true;
+      placedFor = null;
+      return;
+    }
+    const doc = layer.ownerDocument;
+    if (!panel) {
+      panel = el('div', 'margin-opened');
+      panel.setAttribute('role', 'dialog');
+      doc.body.append(panel);
+      dragPanel();
+    }
+    // A comment being written in it keeps what's written as it's drawn again.
+    const typing = panel.contains(doc.activeElement) ? doc.activeElement : null;
+    const kept = typing && { className: typing.className, value: typing.value, start: typing.selectionStart, end: typing.selectionEnd };
+    panel.style.setProperty('--item-color', item.color);
+    panel.style.setProperty('--item-kind-color', item.kindColor ?? item.color);
+    panel.setAttribute('aria-label', item.title);
+    const head = el('div', 'margin-opened-head');
+    head.title = 'Drag to move';
+    const close = el('button', 'margin-close', '×');
+    close.type = 'button';
+    close.title = 'Close';
+    close.setAttribute('aria-label', 'Close');
+    close.addEventListener('click', () => openCard(null));
+    const top = el('div', 'margin-opened-top');
+    top.append(el('span', 'margin-kind', item.whole ? `${item.label} · whole document` : item.label), el('span', 'margin-status', item.status), close);
+    head.append(top, el('div', 'margin-opened-title', item.title));
+    const card = fullCard(item);
+    card.querySelector('.margin-card-head')?.remove(); // its kind is in the panel's own head
+    const body = el('div', 'margin-opened-body');
+    body.append(card);
+    const foot = el('div', 'margin-opened-foot');
+    const comment = card.querySelector('.decision-comment');
+    const decision = card.querySelector('.decision-buttons, .decision-card');
+    if (comment) foot.append(comment);
+    if (decision) foot.append(decision);
+    const scrolled = placedFor === item.id ? panel.querySelector('.margin-opened-body')?.scrollTop ?? 0 : 0;
+    panel.replaceChildren(head, body);
+    if (foot.childElementCount) panel.append(foot);
+    panel.hidden = false;
+    body.scrollTop = scrolled;
+    if (placedFor !== item.id) {
+      placedFor = item.id;
+      const place = keptPlace();
+      if (place) placePanel(place.left, place.top);
+      else {
+        // Beside its tab, over the page, its top level with the tab's.
+        const tab = layer.querySelector(`.margin-slot[data-key="${CSS.escape(decks.find((d) => d.order.some((i) => i.id === item.id))?.key ?? '')}"]`)?.getBoundingClientRect();
+        const right = item.side === 'r';
+        const w = panel.offsetWidth;
+        if (tab) placePanel(right ? tab.right - w : tab.left, tab.top);
+        else placePanel((doc.documentElement.clientWidth - w) / 2, 120);
+      }
+    }
+    if (kept) {
+      const again = panel.querySelector(`.${kept.className.split(' ')[0]}`);
+      if (again) {
+        again.value = kept.value;
+        again.focus();
+        again.setSelectionRange(kept.start, kept.end);
+      }
+    }
+  }
+
+  // Dragged by its top (not its buttons), anywhere in the window; where it's left is kept.
+  function dragPanel() {
+    panel.addEventListener('pointerdown', (event) => {
+      const head = event.target.closest('.margin-opened-head');
+      if (!head || event.target.closest('button') || event.button !== 0) return;
+      event.preventDefault();
+      const at = panel.getBoundingClientRect();
+      const from = { x: event.clientX - at.left, y: event.clientY - at.top };
+      head.setPointerCapture(event.pointerId);
+      panel.classList.add('moving');
+      const move = (m) => placePanel(m.clientX - from.x, m.clientY - from.y);
+      const end = () => {
+        head.removeEventListener('pointermove', move);
+        head.removeEventListener('lostpointercapture', end);
+        panel.classList.remove('moving');
+        try {
+          localStorage.setItem(PLACE_KEY, JSON.stringify({ left: panel.offsetLeft, top: panel.offsetTop }));
+        } catch {}
+      };
+      head.addEventListener('pointermove', move);
+      head.addEventListener('lostpointercapture', end);
+    });
+    // The window resized: still wholly in it.
+    layer.ownerDocument.defaultView.addEventListener('resize', () => {
+      if (!panel.hidden) placePanel(panel.offsetLeft, panel.offsetTop);
+    });
+  }
+
+  layer.ownerDocument.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && focused && panel && !panel.hidden) openCard(null);
+  });
+
   // --- Where everything goes ------------------------------------------------------------------
 
   // The page geometry the margins hang off: the first page's edges and top, in layer coordinates.
@@ -260,6 +418,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     order = reviewOrder();
     const width = geo ? cardWidth(geo) : CARD_WIDTH;
     for (const deck of decks) layer.append(...deckElements(deck, geo, width));
+    showOpened(geo);
     renderBar();
     onSuggestion?.(suggestion);
     sendMarks();
@@ -273,7 +432,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const elements = [];
 
     // A line along the page edge from the deck back to its card's text, once they're apart.
-    if (!cur.whole && cur.y != null) {
+    if (!cur.whole && cur.y != null && cur.id !== focused) {
       const lineAt = cur.y + 2;
       const tabAt = deck.top + 12;
       if (Math.abs(tabAt - lineAt) > LINKED) {
@@ -288,7 +447,9 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       }
     }
 
-    const slot = el('div', `margin-slot margin-${right ? 'r' : 'l'}${iconOnly ? ' icon-only' : ''}${n > 1 ? ' multi' : ''}${cur.id === focused ? ' focused' : ''}${cur.decided ? ' decided' : ''}${cur.type === 'earlier' ? ' earlier' : ''}${deck.matches ? '' : ' filtered-out'}${hover === deck.key ? ' hovered' : ''}`);
+    // The card open in the floating panel is hidden here while it's open (the user's choice), its
+    // place kept so the deck doesn't move.
+    const slot = el('div', `margin-slot margin-${right ? 'r' : 'l'}${iconOnly ? ' icon-only' : ''}${n > 1 ? ' multi' : ''}${cur.id === focused ? ' focused opened' : ''}${cur.decided ? ' decided' : ''}${cur.type === 'earlier' ? ' earlier' : ''}${deck.matches ? '' : ' filtered-out'}${hover === deck.key ? ' hovered' : ''}`);
     slot.dataset.key = deck.key;
     Object.assign(slot.style, { top: `${deck.top}px`, width: `${width}px`, left: `${right ? geo.right + PAGE_SPACE : geo.left - width - PAGE_SPACE}px` });
     slot.style.setProperty('--item-color', cur.color);
@@ -302,9 +463,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   }
 
   // A deck: its top card's kind and a short title below, with how many cards the deck holds if
-  // more than one (the chat lists them all); in narrow gutters its kind's icon alone, with that
-  // number at its corner. Clicking it opens the top card's thread
-  // in the chat. A comment needing no further action, on its own, folds to one line: its outcome,
+  // more than one; in narrow gutters its kind's icon alone, with that number at its corner. Clicking
+  // it opens the top card beside it, over the page (see showOpened), and clicking it again closes it. A comment needing no further action, on its own, folds to one line: its outcome,
   // then the comment.
   function tab(deck) {
     const cur = deck.cur;
@@ -329,11 +489,11 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       button.title = deck.order.length > 1 ? `${cur.title} (and ${deck.order.length - 1} more here)` : cur.title;
     }
     button.setAttribute('aria-label', `${cur.label}: ${cur.title}`);
-    button.addEventListener('click', () => onOpenItem(cur.id));
+    button.addEventListener('click', () => openCard(focused === cur.id ? null : cur.id));
     return button;
   }
 
-  // The card in full, for its thread in the chat: everything to read and decide.
+  // The card in full, for the chat's tray: everything to read and decide.
   function fullCard(cur) {
     const card = el('div', `margin-card review-card${cur.decided ? ' decided' : ''}${cur.type === 'earlier' ? ' earlier' : ''}`);
     card.style.setProperty('--item-color', cur.color);
@@ -446,13 +606,14 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
 
   // The controls stay in place once a finding is decided (the options, the text boxes and the
   // comment); only the buttons give way to a card showing the decision, and clicking that card
-  // brings them back to change it. Options have no buttons: the chosen one simply stays selected.
+  // brings them back to change it. Options are picked, then confirmed.
   function decisionControls(item) {
     const box = el('div', 'decision');
     const decided = item.decision.status !== 'pending';
     // Making a decision ends any change to it; a comment alone doesn't.
     const decide = (decision) => {
       editing.delete(item.id);
+      noteDecision(reviewed(item), decision);
       return api.decide(item.id, decision);
     };
     const buttons = (...defs) => {
@@ -463,6 +624,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
         cancel.type = 'button';
         cancel.addEventListener('click', () => {
           editing.delete(item.id);
+          picked.delete(item.id);
           render();
         });
         row.append(cancel);
@@ -501,7 +663,26 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       }
       box.append(row);
     } else if (item.kind === 'options') {
-      box.append(optionList(item, true));
+      // Picking an option only picks it; Confirm decides (the user's choice: a choice made by a
+      // click alone was too easy to make by mistake).
+      const locked = decided && !editing.has(item.id);
+      box.append(optionList(item, !locked));
+      const row = buttons();
+      if (!locked) {
+        const pick = picked.get(item.id);
+        const confirm = el('button', 'primary-button', 'Confirm');
+        confirm.type = 'button';
+        confirm.disabled = !pick;
+        confirm.title = pick ? `Choose “${pick.title}”` : 'Pick one of these first';
+        confirm.addEventListener('click', () => {
+          picked.delete(item.id);
+          editing.delete(item.id);
+          noteDecision(reviewed(item), pick.decision, pick.title);
+          api.decide(item.id, pick.decision);
+        });
+        row.append(confirm);
+      }
+      box.append(row);
     } else if (item.kind === 'question') {
       const answer = el('textarea', 'decision-answer');
       answer.rows = 2;
@@ -552,18 +733,20 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   }
 
   // When the user can choose, the AI's options end with "None of these", which rejects them all.
+  // The options, as radio buttons: picking one only picks it (see decisionControls' Confirm).
   function optionList(item, selectable) {
     const list = el('div', 'option-list');
+    const pick = picked.get(item.id);
     const addOption = (title, description, checked, decision) => {
       const label = el('label', 'option');
       const radio = document.createElement('input');
       radio.type = 'radio';
       radio.name = `option-${item.id}`;
-      radio.checked = checked;
+      radio.checked = pick ? pick.title === title : checked;
       radio.disabled = !selectable;
       radio.addEventListener('change', () => {
-        editing.delete(item.id);
-        api.decide(item.id, decision);
+        picked.set(item.id, { decision, title });
+        render();
       });
       const text = el('span', 'option-text');
       text.append(el('strong', null, title));
@@ -572,7 +755,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       list.append(label);
     };
     item.options?.forEach((option, i) => addOption(option.label, option.text, item.decision.choice === i, { status: 'accepted', choice: i }));
-    if (selectable) addOption('None of these', null, item.decision.status === 'rejected', { status: 'rejected', choice: null });
+    if (selectable || item.decision.status === 'rejected') addOption('None of these', null, item.decision.status === 'rejected', { status: 'rejected', choice: null });
     return list;
   }
 
@@ -581,18 +764,37 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   // One line: a short sentence on the left on where the review stands or what needs doing, and on
   // the right what to do about it. The sentence gives way (an ellipsis) only when the window is too
   // narrow for it; the actions never do.
+  // The bottom bar is the actions bar (as SmartSpec's): what's being worked on (the review and its
+  // focus, or the draft preview) over a sentence on where it stands, on the left, and what to do
+  // about it on the right; with nothing being worked on, the sentence alone.
   function renderBar() {
     const review = state.review;
     suggestion = null;
     bar.replaceChildren();
+    const card = el('div', 'review-bar-card');
+    const heading = el('div', 'review-bar-title');
+    heading.hidden = true;
     const text = el('p', 'review-bar-text');
+    card.append(heading, text);
     const end = el('div', 'review-bar-end');
-    bar.append(text, end);
+    bar.append(card, end);
     const say = (sentence) => {
       text.textContent = sentence;
       text.title = sentence;
     };
-    if (state.preview) return renderPreviewBar(say, end);
+    const title = (words) => {
+      heading.textContent = words;
+      heading.title = words;
+      heading.hidden = !words;
+    };
+    if (state.preview) {
+      title(`Draft ${state.preview.number} preview`);
+      return renderPreviewBar(say, end);
+    }
+    if (review && !state.filter) {
+      const focus = review.title ?? review.goal ?? null;
+      title(isHighlights(review) ? `Key information${focus ? `: ${focus}` : ''}` : `Review${focus ? `: ${focus}` : ''}`);
+    }
     const comments = items.filter((i) => i.type === 'comment' && !i.done).length;
     const yourComments = comments === 1 ? 'your comment' : `your ${comments} comments`;
     // A review only the user's comments have started: nothing has happened until the AI is told.
@@ -735,7 +937,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   }
 
   function sendMarks() {
-    // The item whose thread the chat shows stands out on the page; otherwise the deck hovered.
+    // The item open in the chat's tray stands out on the page; otherwise the deck hovered.
     const reviewed = focused ? shown.find((i) => i.id === focused) : null;
     const hovered = reviewed ? null : decks.find((d) => d.key === hover)?.cur;
     const focus = reviewed ? [reviewed.id] : hovered ? [hovered.id] : [];
@@ -761,9 +963,9 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       const geo = geometry();
       return geo && { left: geo.right + PAGE_SPACE, width: cardWidth(geo) };
     },
-    // Opens an item's thread in the chat (from the highlights list, say).
+    // Opens an item beside the pages (from the highlights list, say).
     openItem(id) {
-      if (shown.some((i) => i.id === id)) onOpenItem(id);
+      if (shown.some((i) => i.id === id)) openCard(id);
     },
     // Everything in the review, in the order to work through it, for the chat's list.
     items: () => order,
@@ -772,12 +974,14 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     // What the chat's own window needs to show the same review: the state, with the earlier
     // comments found in the pages (it has none to look in).
     snapshot: () => ({ ...state, filter: null, earlierResolved: shown.filter((i) => i.type === 'earlier').map((i) => ({ ...i.earlier, anchors: i.anchors })) }),
-    // An item's card in full, for its thread: what it is, and its decision.
+    // Whether an item's decision is being changed (its buttons back after Change), which redraws it.
+    editing: (id) => editing.has(id),
+    // An item's card in full, for the chat's tray: what it is, and its decision.
     cardFor(id) {
       const item = order.find((i) => i.id === id);
       return item ? fullCard(item) : null;
     },
-    // The item whose thread is open stands out on the page, its text brought into view; null for none.
+    // The item open in the chat's tray stands out on the page, its text brought into view; null for none.
     focus(id) {
       if (focused === id) return;
       focused = id;
@@ -791,6 +995,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       focused = null;
       hover = null;
       editing.clear();
+      picked.clear();
       render();
     },
   };

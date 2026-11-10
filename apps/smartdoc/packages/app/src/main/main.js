@@ -689,10 +689,9 @@ const agent = createAgent({
 });
 
 // --- The chat in a window of its own ----------------------------------------------------------
-// Floating, the chat is a child window of the app window it belongs to: macOS keeps it above that
-// window only (other apps' windows go over both), moves it with it, and hides it with it. The user
-// can put it anywhere, inside the window or out of it; resizing the window keeps it by the edge it
-// was nearest (see chat-anchor.js). It does everything as that window: its requests run in that
+// Floating, the chat is a window of its own, kept on top of the app window it belongs to and moved
+// independently of it (see followChat). The user can put it anywhere, inside the window or out of
+// it, and it opens again where it was beside that window (see chat-anchor.js). It does everything as that window: its requests run in that
 // window's context (chatOwners), and that window's interface sends it what its review shows.
 
 const chatOwners = new Map(); // the chat window's webContents id → the ctx of the window it belongs to
@@ -708,7 +707,6 @@ function openChatWindow(ctx, view) {
   const bounds = ctx.chatAnchor ? placeFrom(parent, ctx.chatAnchor, size) : firstPlace(parent);
   const win = new BrowserWindow({
     ...bounds,
-    parent: ctx.win,
     minWidth: 320,
     minHeight: 300,
     frame: false,
@@ -733,9 +731,14 @@ function openChatWindow(ctx, view) {
     ctx.chatAnchor = anchorOf(ctx.win.getBounds(), b);
     ctx.chatSize = { width: b.width, height: b.height };
   };
-  // Any move or resize, by the user or with the app window, keeps where it is relative to it.
+  // Where it is relative to the app window, to open there again.
   win.on('move', remember);
   win.on('resize', remember);
+  // Opened from the app, which is active: at the floating level straight away (see followChat).
+  floatChat(win, true);
+  // Out of the way when the user shows all windows (Mission Control, App Exposé): a floating window
+  // would otherwise stay on top of them (the user found it in the way).
+  win.setHiddenInMissionControl?.(true);
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => {
     chatOwners.delete(contentsId);
@@ -747,14 +750,31 @@ function openChatWindow(ctx, view) {
   ctx.win.webContents.send('chat-mode', { mode: 'floating' });
 }
 
-// The app window keeps its chat by the edge it was nearest as it's resized, and in full screen,
-// where a window of its own can't follow, the chat docks.
+// The chat floats in a window of its own, which the user moves independently of the app window (the
+// user's choice: as a child window it moved with it), but it stays on top of it: while the app is
+// the active one, the chat is at the floating windows' level, above every ordinary window (however
+// often the app window is clicked: going back over it when that came forward wasn't enough), and
+// when another app becomes active it's an ordinary window again, so that app's windows go over it.
+// It hides while the app window is minimised and closes with it, and in full screen, where a window
+// of its own can't follow, the chat docks.
+const floatChat = (win, on) => {
+  if (win && !win.isDestroyed()) win.setAlwaysOnTop(on, 'floating');
+};
+const chatWindows = () => [...windows.values()].map((ctx) => ctx.chat?.win).filter(Boolean);
+app.on('did-become-active', () => chatWindows().forEach((win) => floatChat(win, true)));
+app.on('did-resign-active', () => chatWindows().forEach((win) => floatChat(win, false)));
 function followChat(ctx) {
-  ctx.win.on('resize', () => {
-    if (!ctx.chat || !ctx.chatAnchor || ctx.win.isFullScreen()) return;
-    const b = ctx.chat.win.getBounds();
-    ctx.chat.win.setBounds(placeFrom(ctx.win.getBounds(), ctx.chatAnchor, { width: b.width, height: b.height }));
+  // The window loaded again (a reload) while its chat floats: it's told, so it sends the chat what
+  // it shows.
+  ctx.win.webContents.on('did-finish-load', () => {
+    if (ctx.chat) ctx.win.webContents.send('chat-mode', { mode: 'floating' });
   });
+  const chatWin = () => (ctx.chat && !ctx.chat.win.isDestroyed() ? ctx.chat.win : null);
+  ctx.win.on('show', () => chatWin()?.showInactive());
+  ctx.win.on('minimize', () => chatWin()?.hide());
+  ctx.win.on('restore', () => chatWin()?.showInactive());
+  ctx.win.on('hide', () => chatWin()?.hide());
+  ctx.win.on('closed', () => chatWin()?.destroy());
   ctx.win.on('enter-full-screen', () => closeChatWindow(ctx, true));
 }
 
@@ -764,14 +784,14 @@ function closeChatWindow(ctx, dock) {
   ctx.chat.win.close();
 }
 
-const CHAT_SYSTEM = 'You are working inside the SmartDoc app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, beside their document, and the SmartDoc tools act on the window they are looking at: never call use_window, and only open another document if they ask. Follow the SmartDoc server\'s instructions for reviews. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain, and don\'t repeat what the app already shows (the findings and decisions are on screen).';
+const CHAT_SYSTEM = 'You are working inside the SmartDoc app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, beside their document, and the SmartDoc tools act on the window they are looking at: never call use_window, and only open another document if they ask. Follow the SmartDoc server\'s instructions for reviews. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain, and don\'t repeat what the app already shows (the findings and decisions are on screen). A message may start with [What I\'ve done in the app since my last message, for context: …]: what the user did and looked at in the app since they last wrote, so you know what they mean by \"this\"; use it, and don\'t repeat it back. When it helps, end your reply with up to three short questions the user might want to ask you next, in their words, each on its own line as <suggest>question</suggest>: the app shows them as buttons, not as text.';
 
 function chatThreadPrompt(item, text) {
   const finding = { id: item.id, kind: item.kind, title: item.title, body: item.body, quote: item.anchors?.map((a) => a.text).join(' … '), proposal: item.proposal, options: item.options, question: item.question, decision: item.decision };
   return `The user has opened one finding of the current review in the chat to ask about it:\n${JSON.stringify(finding, null, 2)}\n\nThe user says: ${text}`;
 }
 
-async function chatSend(providerId, conversation, text) {
+async function chatSend(providerId, conversation, text, { model = null } = {}) {
   const provider = PROVIDERS[providerId] ?? PROVIDERS.claude;
   const client = `smartdoc-${provider.id}`;
   const ctx = current();
@@ -798,7 +818,7 @@ async function chatSend(providerId, conversation, text) {
   }
   // Calls keep the session alive; between them, while Claude thinks, this does.
   const keepAlive = setInterval(() => sessions.touch(sessionId, client), 10 * 1000);
-  agent.send({ provider: provider.id, windowId: ctx.id, chatId, conversation, text, prompt, systemPrompt, sessionHeaders: { 'x-smartdoc-session': sessionId, 'x-smartdoc-client': client } })
+  agent.send({ provider: provider.id, windowId: ctx.id, chatId, conversation, text, prompt, systemPrompt, model, sessionHeaders: { 'x-smartdoc-session': sessionId, 'x-smartdoc-client': client } })
     .catch((error) => {
       ctx.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
       ctx.chat?.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
@@ -1159,7 +1179,7 @@ handle('agent-chats', async () => {
   const chatId = chatIdOf(current()?.workspace.document);
   return chatId ? { chatId, ...(await agent.load(chatId)), running: agent.runningIn(chatId) } : null;
 });
-handle('agent-send', (provider, conversation, text) => chatSend(provider, conversation, text));
+handle('agent-send', (provider, conversation, text, options) => chatSend(provider, conversation, text, options));
 handle('agent-stop', (conversation) => agent.stop(chatIdOf(current().workspace.document), conversation));
 handle('agent-new-session', (provider, conversation) => agent.newSession(chatIdOf(current().workspace.document), conversation, provider));
 handle('chat-float', (view) => openChatWindow(current(), view));
@@ -1181,6 +1201,9 @@ handle('chat-ready', () => {
   return { view: ctx.chat?.view ?? 'main' };
 });
 handle('chat-focus', (id) => current().win.webContents.send('chat-focus', id));
+// A line of context for the chat (what the user did or looked at), for the AI with their next
+// message: in the chat of the draft the window shows (see note in agent.js).
+handle('chat-note', (note) => agent.note(chatIdOf(current()?.workspace.document), note));
 handle('chat-open-item', (id) => openChatWindow(current(), id ?? 'main'));
 handle('agent-install-help', (id) => shell.openExternal((PROVIDERS[id] ?? PROVIDERS.claude).installHelp));
 handle('step-draft', (delta) => workspace.stepDraft(delta));

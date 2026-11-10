@@ -96,7 +96,8 @@ contextBridge.exposeInMainWorld('smartdoc', {
   agentSignIn: (id) => call('agent-sign-in', id),
   agentInstall: (id) => call('agent-install', id),
   agentChats: () => call('agent-chats'),
-  agentSend: (provider, conversation, text) => call('agent-send', provider, conversation, text),
+  // (`chatId` is the chat panel's, which SmartDoc's main process works out itself; `options` the model.)
+  agentSend: (provider, conversation, text, _chatId, options) => call('agent-send', provider, conversation, text, options),
   agentStop: (conversation) => call('agent-stop', conversation),
   agentNewSession: (provider, conversation) => call('agent-new-session', provider, conversation),
   agentInstallHelp: (id) => call('agent-install-help', id),
@@ -108,6 +109,8 @@ contextBridge.exposeInMainWorld('smartdoc', {
   chatClose: () => call('chat-close'),
   chatState: (state) => call('chat-state', state),
   chatReady: () => call('chat-ready'),
+  // A line of context for the chat, for the AI with the user's next message (see note in agent.js).
+  chatNote: (note) => call('chat-note', note),
   chatFocus: (id) => call('chat-focus', id),
   chatOpenItem: (id) => call('chat-open-item', id),
   onChatMode: on('chat-mode'),
