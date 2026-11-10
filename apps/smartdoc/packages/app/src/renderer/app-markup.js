@@ -2,6 +2,11 @@
 // both put it in an empty body before starting the interface (see app-shell.js).
 export const APP_MARKUP = `
 <header class="top-bar">
+  <!-- The server's status, first in the bar, just after the traffic lights: it opens the server
+       panel, which slides in from the left (see server-status.js). -->
+  <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
+    <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span id="server-pill-label">MCP server</span><span id="server-pill-ai" hidden></span></span>
+  </button>
   <!-- Back and forward through where this window has been (see history-nav.js). -->
   <div class="history-nav" id="history-nav" role="group" aria-label="History">
     <button class="icon-button" id="history-back" type="button" aria-label="Back" title="Back" disabled>
@@ -26,32 +31,31 @@ export const APP_MARKUP = `
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
     </button>
   </nav>
-  <!-- The open document's drafts, centred in the top bar: which one is showing, and the ones
-       either side. -->
-  <div class="draft-nav" id="draft-nav" role="group" aria-label="Drafts" hidden>
-    <button class="icon-button" id="draft-prev" type="button" aria-label="Previous draft" title="Previous draft">‹</button>
-    <span class="draft-label" id="draft-label"></span>
-    <button class="icon-button" id="draft-next" type="button" aria-label="Next draft" title="Next draft">›</button>
+  <!-- The open document's drafts, after the tool and focus in the top bar: which one is showing, opening a card to
+       choose another (see draft-picker.js). -->
+  <div class="draft-nav" id="draft-nav" hidden>
+    <button class="tool-button draft-button" id="draft-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="draft-card">
+      <span class="draft-label" id="draft-label"></span>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
   </div>
   <div class="top-bar-end">
-    <!-- All | To do, in Review and draft: with To do, decided findings are hidden (see app-shell.js). -->
-    <div class="view-switch" id="done-switch" role="group" aria-label="Show" hidden>
-      <button type="button" data-show="all">All</button>
-      <button type="button" data-show="todo">To do</button>
-    </div>
     <!-- Document | List, for a highlights review (see app-shell.js). -->
     <div class="view-switch" id="view-switch" role="group" aria-label="View" hidden>
       <button type="button" data-view="document">Document</button>
       <button type="button" data-view="list">List</button>
     </div>
-    <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
-      <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span id="server-pill-label">MCP server</span><span id="server-pill-ai" hidden></span></span>
+    <!-- The chat with Claude, docked or in its own window (see chat-panel.js). -->
+    <button class="icon-button chat-button" id="chat-button" type="button" aria-label="Open the chat" title="Open the chat" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/><circle cx="8.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
     </button>
   </div>
 </header>
 
 <!-- The tools to switch between, opened from the top bar's tool button (see tool-switcher.js). -->
 <div class="tool-card" id="tool-card" role="menu" aria-label="Tools" hidden></div>
+<!-- The drafts to choose from, opened from the draft's name in the top bar (see draft-picker.js). -->
+<div class="tool-card draft-card" id="draft-card" role="menu" aria-label="Drafts" hidden></div>
 <!-- The highlight tool's focuses, opened from the breadcrumb's focus (see focus-picker.js). -->
 <div class="tool-card focus-card" id="focus-card" role="dialog" aria-label="Focuses" hidden></div>
 
@@ -116,10 +120,22 @@ export const APP_MARKUP = `
       <ul class="find-drafts" id="find-drafts"></ul>
     </div>
   </div>
+  <!-- Zoom, at the bottom left of the document (see app-shell.js). -->
+  <div class="zoom-controls" id="zoom-controls" role="group" aria-label="Zoom">
+    <button class="icon-button" id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>
+    </button>
+    <button class="zoom-level" id="zoom-level" type="button" title="Back to the fitted size">100%</button>
+    <button class="icon-button" id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg>
+    </button>
+  </div>
+  <!-- The chat with Claude: docked at the right or floating anywhere in the window (see chat-panel.js). -->
+  <aside id="chat-panel" hidden></aside>
   <footer class="review-bar" id="review-bar" aria-label="Review"></footer>
 </main>
 
-<!-- MCP server details: a full-height panel that slides in over the right of the window, above a mask that dulls the rest. -->
+<!-- MCP server details: a full-height panel that slides in over the left of the window, above a mask that dulls the rest. -->
 <div class="mcp-mask" id="mcp-mask"></div>
 <aside class="mcp-card" id="mcp-card" role="dialog" aria-modal="true" aria-labelledby="mcp-card-title" inert>
   <div class="mcp-card-bar">
@@ -132,16 +148,30 @@ export const APP_MARKUP = `
       <p id="ai-release-text"></p>
       <button type="button" class="secondary-button" id="ai-release-button">Release this window</button>
     </div>
+    <!-- The AIs the chat runs: where each stands, and installing or signing in, a click each (see
+         server-status.js and main/agent.js). -->
+    <section class="ai-setup">
+      <h3>AI</h3>
+      <p class="panel-hint">The AI you work with in the chat runs on this Mac, signed in with your own account on its maker’s site. SmartDoc never sees your sign-in.</p>
+      <div class="ai-list" id="ai-list"></div>
+    </section>
     <h3 id="mcp-card-title">MCP server</h3>
+    <p class="panel-hint server-intro">How the AI reads your documents and makes its changes in SmartDoc: a server built into the app that only this Mac can reach. It’s also how you can connect another AI app yourself.</p>
     <dl class="server-details">
       <dt>Status</dt><dd id="server-state"></dd>
       <dt>Address</dt><dd id="server-url"></dd>
       <dt>Access</dt><dd>This computer only, with the app’s token</dd>
     </dl>
-    <p class="panel-note" id="server-off" hidden>The server couldn’t start. Another copy of the app may be running.</p>
+    <!-- Why the server isn't running, in plain words, and a way to try again (see server-status.js). -->
+    <div class="server-off" id="server-off" hidden>
+      <p class="panel-note" id="server-off-text"></p>
+      <button type="button" class="secondary-button" id="server-retry">Try again</button>
+    </div>
 
+    <!-- For anyone who'd rather connect an AI app of their own to SmartDoc's server by hand. -->
+    <details class="manual-setup">
+      <summary>Connect another AI app yourself</summary>
     <section class="mcp-setup" id="mcp-setup">
-      <h3>Set up an AI app</h3>
       <!-- The AI app to set up: a button naming it, opening a menu of the apps (see server-status.js). -->
       <div class="app-picker">
         <button class="app-picker-button" id="app-picker-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="app-picker-menu">
@@ -183,6 +213,7 @@ export const APP_MARKUP = `
       </div>
       <p class="setup-note">Keep SmartDoc in your Applications folder: these point at it there. If you move it, set up your agents again.</p>
     </section>
+    </details>
   </div>
 </aside>
 

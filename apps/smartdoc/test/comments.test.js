@@ -101,7 +101,7 @@ describe('the user’s comments', () => {
       assert.equal(acceptWarning({ preview: { at: later }, requests: [request('x', { afterCommit: true, onPreview: true, previewAt: at, createdAt: '2026-11-02T13:00:00.000Z' })] }), null);
     });
 
-    test('on a preview, the draft’s and earlier previews’ unanswered comments are offered', () => {
+    test('on a preview, the draft’s and earlier previews’ comments not dealt with are offered', () => {
       const r = { ...review, requests: [
         ...review.requests,
         request('replied', { anchors, onPreview: true, previewAt: at, replies: [{ who: 'ai', outcome: 'Noted' }] }),
@@ -111,7 +111,8 @@ describe('the user’s comments', () => {
         { ...request('a-keep', { anchors }), kind: 'keep' },
       ] };
       const offered = earlierComments({ review: r, preview: true, draftLabel: () => 'Draft 3' });
-      assert.deepEqual(offered.map((e) => [e.id, e.from]), [['draft', 'Draft 3'], ['old-preview', 'an earlier preview'], ['legacy-old', 'an earlier preview']]);
+      // One the AI replied to without marking it "No further action required" still needs something.
+      assert.deepEqual(offered.map((e) => [e.id, e.from]), [['draft', 'Draft 3'], ['old-preview', 'an earlier preview'], ['legacy-old', 'an earlier preview'], ['replied', 'an earlier preview']]);
     });
 
     test('on a draft, the comments of the review that made it are offered', () => {

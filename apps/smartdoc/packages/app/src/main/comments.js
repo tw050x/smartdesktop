@@ -27,15 +27,19 @@ export const currentRequests = (review) => (review?.requests ?? []).filter((requ
 export const unanswered = (request, review) => !isDone(request) && !request.replies?.length
   && !(review.items ?? []).some((item) => item.inResponseTo === request.id);
 
-// Comments from before the version showing that nobody has answered, for the window to show as
+// Not dealt with yet: not marked "No further action required" and no finding made in response. A
+// comment the AI replied to without marking it still needs something, so it counts.
+export const notActioned = (request, review) => !isDone(request) && !(review.items ?? []).some((item) => item.inResponseTo === request.id);
+
+// Comments from before the version showing that weren't dealt with, for the window to show as
 // earlier comments where their text is still in it (it finds the text; see margin-review.js).
 // On a preview: the review's comments on its draft and on earlier previews. On a draft made from
 // an accepted preview: every comment of the review that made it (`madeBy`). Each comes with where
 // it was written (`from`). Comments about no text don't carry over.
 export function earlierComments({ review, preview = false, madeBy = null, draftLabel, previewLabel = 'its preview' }) {
   const pick = (r, keep, from) => (r?.requests ?? [])
-    .filter((q) => q.kind === 'comment' && q.anchors?.length && keep(q) && unanswered(q, r))
-    .map((q) => ({ id: q.id, note: q.note, anchors: q.anchors, createdAt: q.createdAt, from: from(q) }));
+    .filter((q) => q.kind === 'comment' && q.anchors?.length && keep(q) && notActioned(q, r))
+    .map((q) => ({ id: q.id, note: q.note, anchors: q.anchors, createdAt: q.createdAt, from: from(q), replies: q.replies ?? [] }));
   if (preview) return review ? pick(review, (q) => !onCurrentPreview(q, review), (q) => (q.onPreview ? 'an earlier preview' : draftLabel(review.draftId))) : [];
   return madeBy ? pick(madeBy, () => true, (q) => (q.onPreview ? previewLabel : draftLabel(madeBy.draftId))) : [];
 }

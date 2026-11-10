@@ -7,7 +7,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
 import { createConnect } from './connect.js';
-import { MCP_PORT, startMcpServer } from './mcp-server.js';
+import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
+import { PROVIDERS, chatIdOf, createAgent } from './agent.js';
+import { anchorOf, firstPlace, placeFrom } from './chat-anchor.js';
 import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
@@ -91,6 +93,8 @@ const workspace = new Proxy({}, {
 });
 let mcp = null; // { url, token } once the MCP server is listening
 let mcpStarting = true;
+let mcpProblem = null; // why it isn't running: { reason: 'port-in-use', port, holder } or { reason: 'error', message }
+const MCP_RETRY_MS = 5000; // while the port is taken, how often to try again, so it starts once it's free
 
 // --- Appearance ----------------------------------------------------------------------------
 
@@ -158,8 +162,9 @@ function createWindow({ focus = true } = {}) {
   });
   // The window keeps its own title, not the page's, so a development build's is told apart.
   browser.on('page-title-updated', (e) => e.preventDefault());
-  const ctx = { id, win: browser, workspace: createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true };
+  const ctx = { id, win: browser, workspace: createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true, chat: null };
   windows.set(browser.webContents.id, ctx);
+  followChat(ctx);
   lastFocused = ctx;
   const inWindow = (fn) => (...args) => context.run(ctx, () => fn(...args));
   ctx.workspace.events.on('draft', inWindow(() => { ctx.untouched = false; return sendDraft(); }));
@@ -225,7 +230,34 @@ async function sendDraft() {
   updateMenu();
 }
 
-const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : { state: mcpStarting ? 'starting' : 'off' });
+const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : mcpStarting ? { state: 'starting' } : { state: 'off', ...mcpProblem });
+
+// Starts the MCP server, or says why it couldn't. A taken port is tried again every few seconds
+// (another copy of the app may be quitting); anything else waits for the user's Try again.
+let mcpRetry = null;
+async function startMcp() {
+  clearTimeout(mcpRetry);
+  if (mcp) return mcpStatus();
+  try {
+    mcp = await startMcpServer(aiForServer, app.getPath('userData'));
+    mcpProblem = null;
+    setInterval(sweepSessions, SWEEP_MS).unref();
+  } catch (error) {
+    mcp = null;
+    mcpProblem = error?.code === 'EADDRINUSE'
+      ? { reason: 'port-in-use', port: MCP_PORT, holder: await portHolder(MCP_PORT) }
+      : { reason: 'error', message: error?.message ?? String(error) };
+    if (error?.code === 'EADDRINUSE') mcpRetry = setTimeout(startMcp, MCP_RETRY_MS);
+  }
+  const changed = mcpStarting || JSON.stringify(mcpStatus()) !== lastMcpStatus;
+  mcpStarting = false;
+  if (changed) {
+    lastMcpStatus = JSON.stringify(mcpStatus());
+    broadcast('mcp-status', mcpStatus());
+  }
+  return mcpStatus();
+}
+let lastMcpStatus = null;
 
 async function sendEverything() {
   send('recent-documents', await recentForWindow());
@@ -619,6 +651,7 @@ const aiForServer = {
         if (session.docId && showing !== session.docId && name !== 'open_document' && !namesItsTarget(name, args)) {
           throw new Error(`This window has moved off the document you were working on. Nothing was changed. Tell the user, or call open_document with document_id ${session.docId} to go back to it.`);
         }
+        ctx.workspace.refuseOnOlderDraft(name, args);
         const key = ctx.workspace.claimKey(name, args);
         const holder = key && sessions.claim(session, key);
         if (holder) throw new Error(`${clientLabel(holder.client)} is already working on this in another SmartDoc window, so this change wasn't made. You can still read the document. Tell the user: they can release that window from its top bar.`);
@@ -626,7 +659,7 @@ const aiForServer = {
       const before = ctx.workspace.document?.id;
       const result = await run(ctx.workspace, documentsForAi);
       const after = ctx.workspace.document?.id ?? null;
-      if (name === 'open_document' || !session.docId) {
+      if (name === 'open_document' || name === 'create_document_from_draft' || !session.docId) {
         if (before !== after) sessions.releaseClaims(session);
         session.docId = after;
       }
@@ -634,6 +667,141 @@ const aiForServer = {
     });
   },
 };
+
+// --- The chat panel: Claude, run by the app (see agent.js) ------------------------------------
+// Claude works in the window the chat is in, as an AI session of its own bound to that window, with
+// SmartDoc's tools only, through the app's own MCP server.
+
+const agent = createAgent({
+  userData: app.getPath('userData'),
+  mcp: (headers) => ({ url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}`, ...headers } }),
+  // To try the AIs' setup in a development build without touching the user's own (see agent.js).
+  trial: app.isPackaged ? null : { home: process.env.SMARTDOC_AI_HOME || null, hide: process.env.SMARTDOC_AI_HIDE || '' },
+  onEvent: (event) => {
+    const ctx = [...windows.values()].find((c) => c.id === event.windowId);
+    ctx?.win.webContents.send('agent-event', event);
+    ctx?.chat?.win.webContents.send('agent-event', event);
+  },
+});
+
+// --- The chat in a window of its own ----------------------------------------------------------
+// Floating, the chat is a child window of the app window it belongs to: macOS keeps it above that
+// window only (other apps' windows go over both), moves it with it, and hides it with it. The user
+// can put it anywhere, inside the window or out of it; resizing the window keeps it by the edge it
+// was nearest (see chat-anchor.js). It does everything as that window: its requests run in that
+// window's context (chatOwners), and that window's interface sends it what its review shows.
+
+const chatOwners = new Map(); // the chat window's webContents id → the ctx of the window it belongs to
+
+function openChatWindow(ctx, view) {
+  if (ctx.chat) {
+    ctx.chat.win.webContents.send('chat-open-item', view === 'main' ? null : view);
+    ctx.chat.win.show();
+    return;
+  }
+  const parent = ctx.win.getBounds();
+  const size = ctx.chatSize ?? { width: 400, height: firstPlace(parent).height };
+  const bounds = ctx.chatAnchor ? placeFrom(parent, ctx.chatAnchor, size) : firstPlace(parent);
+  const win = new BrowserWindow({
+    ...bounds,
+    parent: ctx.win,
+    minWidth: 320,
+    minHeight: 300,
+    frame: false,
+    show: false,
+    title: 'Chat',
+    backgroundColor: windowColours().background,
+    fullscreenable: false,
+    webPreferences: {
+      preload: path.join(dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      additionalArguments: [`--smartdoc-window=${ctx.id}`],
+    },
+  });
+  ctx.chat = { win, view, docking: false };
+  const contentsId = win.webContents.id;
+  chatOwners.set(contentsId, ctx);
+  const remember = () => {
+    if (win.isDestroyed() || ctx.win.isDestroyed()) return;
+    const b = win.getBounds();
+    ctx.chatAnchor = anchorOf(ctx.win.getBounds(), b);
+    ctx.chatSize = { width: b.width, height: b.height };
+  };
+  // Any move or resize, by the user or with the app window, keeps where it is relative to it.
+  win.on('move', remember);
+  win.on('resize', remember);
+  win.once('ready-to-show', () => win.show());
+  win.on('closed', () => {
+    chatOwners.delete(contentsId);
+    const { docking, view: at } = ctx.chat ?? {};
+    ctx.chat = null;
+    if (!ctx.win.isDestroyed()) ctx.win.webContents.send('chat-mode', { mode: docking ? 'docked' : 'closed', view: at });
+  });
+  win.loadFile(path.join(dirname, '../../build/renderer/chat.html'));
+  ctx.win.webContents.send('chat-mode', { mode: 'floating' });
+}
+
+// The app window keeps its chat by the edge it was nearest as it's resized, and in full screen,
+// where a window of its own can't follow, the chat docks.
+function followChat(ctx) {
+  ctx.win.on('resize', () => {
+    if (!ctx.chat || !ctx.chatAnchor || ctx.win.isFullScreen()) return;
+    const b = ctx.chat.win.getBounds();
+    ctx.chat.win.setBounds(placeFrom(ctx.win.getBounds(), ctx.chatAnchor, { width: b.width, height: b.height }));
+  });
+  ctx.win.on('enter-full-screen', () => closeChatWindow(ctx, true));
+}
+
+function closeChatWindow(ctx, dock) {
+  if (!ctx.chat) return;
+  ctx.chat.docking = dock;
+  ctx.chat.win.close();
+}
+
+const CHAT_SYSTEM = 'You are working inside the SmartDoc app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, beside their document, and the SmartDoc tools act on the window they are looking at: never call use_window, and only open another document if they ask. Follow the SmartDoc server\'s instructions for reviews. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain, and don\'t repeat what the app already shows (the findings and decisions are on screen).';
+
+function chatThreadPrompt(item, text) {
+  const finding = { id: item.id, kind: item.kind, title: item.title, body: item.body, quote: item.anchors?.map((a) => a.text).join(' … '), proposal: item.proposal, options: item.options, question: item.question, decision: item.decision };
+  return `The user has opened one finding of the current review in the chat to ask about it:\n${JSON.stringify(finding, null, 2)}\n\nThe user says: ${text}`;
+}
+
+async function chatSend(providerId, conversation, text) {
+  const provider = PROVIDERS[providerId] ?? PROVIDERS.claude;
+  const client = `smartdoc-${provider.id}`;
+  const ctx = current();
+  const doc = ctx?.workspace.document;
+  if (!doc) throw new Error('Open a document first.');
+  if (!mcp) throw new Error(`SmartDoc’s server isn’t running, so ${provider.name} can’t work in this window.`);
+  const chatId = chatIdOf(doc); // the draft's chat
+  const sessionId = `chat-${ctx.id}`;
+  const session = sessions.touch(sessionId, client);
+  if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
+    throw new Error(`${clientLabel(ctx.session.client)} is working in this window. Release it from the server panel first.`);
+  }
+  if (session.ctx !== ctx) {
+    if (session.ctx) releaseWindow(session);
+    setSessionWindow(session, ctx);
+  }
+  let prompt = text;
+  let systemPrompt = CHAT_SYSTEM;
+  if (conversation !== 'main') {
+    const item = ctx.workspace.review?.items?.find((i) => i.id === conversation) ?? ctx.workspace.review?.highlights?.find((h) => h.id === conversation);
+    if (!item) throw new Error('That finding isn’t in the review showing.');
+    if (!(await agent.hasSession(chatId, conversation, provider.id))) prompt = chatThreadPrompt(item, text);
+    systemPrompt += ` This conversation is about one finding only, ${item.id} (“${item.title}”). Answer about it. If the user wants it changed, or a change would clearly help them decide, improve it with revise_finding; never change any other finding, and don't write a draft from here.`;
+  }
+  // Calls keep the session alive; between them, while Claude thinks, this does.
+  const keepAlive = setInterval(() => sessions.touch(sessionId, client), 10 * 1000);
+  agent.send({ provider: provider.id, windowId: ctx.id, chatId, conversation, text, prompt, systemPrompt, sessionHeaders: { 'x-smartdoc-session': sessionId, 'x-smartdoc-client': client } })
+    .catch((error) => {
+      ctx.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
+      ctx.chat?.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
+    })
+    .finally(() => clearInterval(keepAlive));
+  return true;
+}
 
 async function takeOverWindow(session, windowId) {
   const ctx = [...windows.values()].find((c) => c.id === windowId);
@@ -749,7 +917,7 @@ const updates = createUpdates({ report: (status) => broadcast('updates', status)
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself.
-const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => context.run(windows.get(event.sender.id) ?? lastFocused ?? {}, async () => {
+const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => context.run(windows.get(event.sender.id) ?? chatOwners.get(event.sender.id) ?? lastFocused ?? {}, async () => {
   try {
     return { ok: true, value: await fn(...args) };
   } catch (error) {
@@ -969,6 +1137,47 @@ async function mcpSetup(target) {
   return all[target];
 }
 handle('mcp-setup', (target) => mcpSetup(target));
+// Asked for by the window as it starts, so it never waits on a status sent before it was listening.
+handle('mcp-status', () => mcpStatus());
+handle('mcp-retry', () => startMcp());
+// The chat panel (see chatSend above and agent.js).
+handle('agent-status', () => agent.status());
+// Installing and signing in say how they're getting on, to every window (the server panel and the
+// chat both show it).
+const agentProgress = (progress) => {
+  broadcast('agent-progress', progress);
+  for (const ctx of windows.values()) ctx.chat?.win.webContents.send('agent-progress', progress);
+};
+handle('agent-sign-in', (id) => agent.signIn(id, agentProgress));
+handle('agent-install', (id) => agent.install(id, agentProgress));
+// The chat of the draft the window shows: each draft has its own.
+handle('agent-chats', async () => {
+  const chatId = chatIdOf(current()?.workspace.document);
+  return chatId ? { chatId, ...(await agent.load(chatId)), running: agent.runningIn(chatId) } : null;
+});
+handle('agent-send', (provider, conversation, text) => chatSend(provider, conversation, text));
+handle('agent-stop', (conversation) => agent.stop(chatIdOf(current().workspace.document), conversation));
+handle('chat-float', (view) => openChatWindow(current(), view));
+handle('chat-dock', (view) => {
+  const ctx = current();
+  if (ctx.chat) ctx.chat.view = view;
+  closeChatWindow(ctx, true);
+});
+handle('chat-close', () => closeChatWindow(current(), false));
+// What the app window's review shows, passed on to its chat window (kept for when it opens).
+handle('chat-state', (state) => {
+  const ctx = current();
+  ctx.chatState = state;
+  ctx.chat?.win.webContents.send('chat-state', state);
+});
+handle('chat-ready', () => {
+  const ctx = current();
+  setTimeout(() => ctx.chatState && ctx.chat?.win.webContents.send('chat-state', ctx.chatState));
+  return { view: ctx.chat?.view ?? 'main' };
+});
+handle('chat-focus', (id) => current().win.webContents.send('chat-focus', id));
+handle('chat-open-item', (id) => openChatWindow(current(), id ?? 'main'));
+handle('agent-install-help', (id) => shell.openExternal((PROVIDERS[id] ?? PROVIDERS.claude).installHelp));
 handle('step-draft', (delta) => workspace.stepDraft(delta));
 handle('draft-line', () => workspace.draftLine());
 handle('draft-pdf', (draftId) => workspace.draftPdf(draftId));
@@ -1003,14 +1212,7 @@ app.whenReady().then(async () => {
   const first = createWindow();
   await first.workspace.loadRecent();
   context.run(first, updateMenu);
-  try {
-    mcp = await startMcpServer(aiForServer, app.getPath('userData'));
-    setInterval(sweepSessions, SWEEP_MS).unref();
-  } catch {
-    mcp = null; // e.g. the port is taken by another copy of the app
-  }
-  mcpStarting = false;
-  broadcast('mcp-status', mcpStatus());
+  await startMcp();
   if (pendingOpen) importFile(pendingOpen);
   updates.start();
   await first.ready;

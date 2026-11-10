@@ -3,10 +3,11 @@ import { EventEmitter } from 'node:events';
 import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveQuote } from './anchors.js';
-import { commentsSincePreview, currentRequests, earlierComments, isDone, onEarlierPreview, previewComments, unansweredRequests } from './comments.js';
+import { commentsSincePreview, currentRequests, earlierComments, isDone, notCommentedAgain, onEarlierPreview, previewComments, unansweredRequests } from './comments.js';
 import { renderHtmlToPdf } from './render-draft.js';
 import * as folders from './folders.js';
 import * as labels from './labels.js';
+import { olderDraftRefusal } from './older-drafts.js';
 import { createStore, logTo } from './store.js';
 import { MAX_READ_CHARS, estimateTokens, findText, parsePages, textStats } from './text-stats.js';
 
@@ -173,14 +174,19 @@ export function createWorkspace(shared) {
     events.emit('review', review);
   }
 
-  // The comments from the draft this one was made from that nobody answered, for the window to show
-  // where their text is still in this one: those of the review whose preview became this draft.
-  async function earlierCommentsOnDraft(number) {
+  // The comments from earlier drafts that weren't dealt with, for the window to show where their
+  // text is still in this one: those of the review whose preview became this draft, and those it
+  // carried from before it in the same way, unless they were made again on it. Nothing is ever
+  // removed, so earlier drafts keep their comments as a record.
+  async function earlierCommentsOnDraft(number, draftId = doc.currentDraftId) {
     if (number < 1) return [];
     const before = doc.line[number - 1];
-    const madeBy = (await store.listReviews(doc.id, before)).find((r) => r.applications?.some((a) => a.draftId === doc.currentDraftId));
+    const madeBy = (await store.listReviews(doc.id, before)).find((r) => r.applications?.some((a) => a.draftId === draftId));
+    if (!madeBy) return [];
     const draftLabel = (id) => (id === store.ORIGINAL ? 'Original' : `Draft ${doc.line.indexOf(id)}`);
-    return earlierComments({ madeBy, draftLabel, previewLabel: `Draft ${number} preview` });
+    const own = earlierComments({ madeBy, draftLabel, previewLabel: `Draft ${number} preview` });
+    const older = notCommentedAgain(await earlierCommentsOnDraft(number - 1, before), madeBy);
+    return [...own, ...older.filter((e) => !own.some((o) => o.id === e.id))];
   }
 
   // The review the active tool shows on the current draft. In the highlight tool that's the focus
@@ -268,7 +274,7 @@ export function createWorkspace(shared) {
       name: doc.name,
       variation: { id: variation.id, name: variation.name, ...(variation.purpose && { purpose: variation.purpose }) },
       draft: number === 0 ? 'Original' : `Draft ${number} of ${newest}`,
-      ...(number < newest && { notNewest: `Draft ${newest} is the newest draft of this variation, and reviews and changes work on the draft showing.` }),
+      ...(number < newest && { notNewest: `Draft ${newest} is the newest draft of this variation. This older draft can be read, but not improved: to work on it, ask the user whether to fork it into a new variation or a new document.` }),
       ...(doc.createdFrom && { createdFrom: { id: doc.createdFrom.id, name: doc.createdFrom.name, draft: doc.createdFrom.draft } }),
     };
   };
@@ -337,12 +343,18 @@ export function createWorkspace(shared) {
     // and per goal in Review and highlight. Null for a change that needs no claim.
     claimKey(name, args = {}) {
       if (!doc) return null;
-      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'commit_review', 'apply_review', 'reply_to_comment'].includes(name)) return null;
+      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'revise_finding', 'commit_review', 'apply_review', 'reply_to_comment'].includes(name)) return null;
       const type = name === 'start_review' ? args.type ?? 'improve' : review ? typeOf(review) : null;
       if (!type) return null;
       if (type === 'improve') return `${doc.id}:improve:${doc.variationId}`;
       const goal = args.goal?.trim() || review?.goal;
       return goal ? `${doc.id}:highlights:${goal}` : null;
+    },
+    // An older draft can't be improved, whoever asks (see older-drafts.js).
+    refuseOnOlderDraft(name, args = {}) {
+      if (!doc) return;
+      const refusal = olderDraftRefusal({ line: doc.line, currentDraftId: doc.currentDraftId, variationName: activeVariation().name }, review ? typeOf(review) : null, name, args);
+      if (refusal) throw new Error(refusal);
     },
     get document() { return doc; },
     get review() { return review; },
@@ -548,6 +560,21 @@ export function createWorkspace(shared) {
       const beside = shared.folders.placement[docId];
       if (beside) await changeFolders(folders.moveDocument(shared.folders, made.id, beside));
       return { id: made.id, name: made.name };
+    },
+
+    // A new document from a draft of the open one, for an AI: by its variation (default: the one
+    // showing) and number (default: the draft showing).
+    async documentFromDraftForAi({ variation: fromId, draft } = {}) {
+      requireDoc();
+      const from = doc.variations.find((v) => v.id === (fromId ?? doc.variationId));
+      if (!from) throw new Error(`No variation ${fromId}. list_variations shows them.`);
+      const line = from.id === doc.variationId ? doc.line : from.line;
+      const number = draft ?? line.indexOf(from.id === doc.variationId ? doc.currentDraftId : from.currentDraftId);
+      if (!Number.isInteger(number) || number < 0 || number >= line.length) {
+        throw new Error(`No draft ${draft} in ${from.name}: it has the original (0) and drafts 1 to ${line.length - 1}.`);
+      }
+      const made = await this.documentFromDraft(doc.id, from.id, line[number]);
+      return { ...made, from: `${draftLabel(number)} of ${from.name}` };
     },
 
     async openDocument(docId) {
@@ -1062,6 +1089,29 @@ export function createWorkspace(shared) {
       return item;
     },
 
+    // The AI improves one finding, after talking it over with the user in its thread in the chat:
+    // its wording, reasons, suggestion, options or question. A finding already decided goes back
+    // to undecided, as what was decided on has changed, keeping the user's comment.
+    async reviseFinding({ id, title, body, proposal, options, question }) {
+      const r = requireType(requireReview(), 'improve');
+      const item = r.items.find((i) => i.id === id);
+      if (!item) throw new Error(`No finding ${id}.`);
+      if (options && item.kind !== 'options') throw new Error('Only an options finding has options.');
+      if (options && options.length < 2) throw new Error('Give at least two options.');
+      if (title !== undefined) item.title = requireText(title);
+      if (body !== undefined) item.body = body;
+      if (proposal) item.proposal = { ...item.proposal, ...proposal };
+      if (options) item.options = options;
+      if (question !== undefined) item.question = question;
+      const wasDecided = item.decision.status !== 'pending';
+      if (wasDecided) item.decision = { status: 'pending', ...(item.decision.comment ? { comment: item.decision.comment } : {}) };
+      item.revisedAt = new Date().toISOString();
+      markPreviewOutdated(r);
+      logTo(r, 'ai', `improved the finding “${item.title}”`);
+      await saveReview();
+      return { revised: id, decision: wasDecided ? 'back to undecided, for the user to decide again' : 'undecided' };
+    },
+
     // Removes a finding or a highlight, whichever the open review holds.
     removeItem(id) {
       return typeOf(requireOpenReview()) === 'highlights' ? this.removeHighlight(id) : this.removeFinding(id);
@@ -1296,7 +1346,8 @@ export function createWorkspace(shared) {
       delete r.previewCommentsSentAt;
       r.previewResult = { outcome: 'discarded', at: new Date().toISOString() };
       await dropPreview(r);
-      r.requests = r.requests.filter((q) => !q.onPreview); // about text that's gone
+      // Its comments stay, as a record: they belong to that preview, so nothing counts them now,
+      // and the next preview offers again those whose text is still in it.
       logTo(r, 'user', 'discarded the draft preview');
       await saveReview();
       leavePreview();

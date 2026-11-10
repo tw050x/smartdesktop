@@ -10,8 +10,12 @@ import { createFocusPicker } from './focus-picker.js';
 import { createHistoryNav } from './history-nav.js';
 import { createHighlightsList } from './highlights-list.js';
 import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
+import { createChatPanel } from './chat-panel.js';
+import { createDraftPicker } from './draft-picker.js';
+import { installTooltips } from './tooltips.js';
+import { customScrollbar } from './scrollbar.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
-import { RENDER_SCALE, drawPage, fitPageTo } from './pdf-page.js';
+import { RENDER_SCALE, drawPage, fitPageTo, sharpenPage } from './pdf-page.js';
 import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
@@ -30,6 +34,7 @@ export function startApp(appApi) {
     ? { ...appApi, copyText: (text) => appApi.copyText(promptNamingWindow(text, appApi.windowId)) }
     : appApi;
   document.body.innerHTML = APP_MARKUP;
+  installTooltips();
   const { platform, openDroppedFile, onFullScreenChange } = api;
   document.body.classList.add(`platform-${platform}`);
   onFullScreenChange((isFullScreen) => {
@@ -165,13 +170,69 @@ export function startApp(appApi) {
     return match ? [match[1], match[2] ?? '01', match[3] ?? '01'].join('-') : null;
   }
 
-  // Beside the find bar's column the pages keep their size if they can, and shrink if they must.
+  // --- Zoom ----------------------------------------------------------------------------------
+  // Controls at the bottom left of the document (−, the zoom, +), and pinching on the trackpad
+  // (or ⌘ and scrolling), zoom the pages from their fitted size, keeping what's under the pointer
+  // (or the middle of the view) where it is. 100% is the fitted size; clicking it goes back to that.
+  // Zoomed in, the pages are drawn again, sharper, once the zoom settles (sharpenPage).
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 3;
+  const ZOOM_STEPS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  let zoom = 1;
+  let sharpenTimer = null;
+  function sharpenSoon() {
+    clearTimeout(sharpenTimer);
+    sharpenTimer = setTimeout(() => {
+      for (const pageEl of pagesEl.querySelectorAll('.page')) sharpenPage(pageEl);
+    }, 250);
+  }
+  function zoomTo(next, at) {
+    next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+    if (Math.abs(next - zoom) < 0.001) return;
+    const view = documentEl.getBoundingClientRect();
+    const x = (at?.x ?? view.left + view.width / 2) - view.left;
+    const y = (at?.y ?? view.top + view.height / 2) - view.top;
+    const fx = (documentEl.scrollLeft + x) / documentEl.scrollWidth;
+    const fy = (documentEl.scrollTop + y) / documentEl.scrollHeight;
+    zoom = next;
+    pagesEl.querySelectorAll('.page').forEach(fitPage);
+    documentEl.scrollLeft = fx * documentEl.scrollWidth - x;
+    documentEl.scrollTop = fy * documentEl.scrollHeight - y;
+    document.body.classList.toggle('zoomed', zoom !== 1);
+    showZoom();
+    relayout();
+  }
+  const zoomControls = document.getElementById('zoom-controls');
+  const zoomLevel = document.getElementById('zoom-level');
+  function showZoom() {
+    zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+    document.getElementById('zoom-out').disabled = zoom <= ZOOM_MIN + 0.001;
+    document.getElementById('zoom-in').disabled = zoom >= ZOOM_MAX - 0.001;
+  }
+  const step = (direction) => zoomTo(direction > 0 ? ZOOM_STEPS.find((z) => z > zoom + 0.001) ?? ZOOM_MAX : [...ZOOM_STEPS].reverse().find((z) => z < zoom - 0.001) ?? ZOOM_MIN);
+  document.getElementById('zoom-in').addEventListener('click', () => step(1));
+  document.getElementById('zoom-out').addEventListener('click', () => step(-1));
+  zoomLevel.addEventListener('click', () => zoomTo(1));
+  // A pinch on the trackpad arrives as a wheel with Ctrl held (as does ⌘-scroll here).
+  documentEl.addEventListener('wheel', (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    if (!document.body.classList.contains('has-document')) return;
+    event.preventDefault();
+    zoomTo(zoom * Math.exp(-event.deltaY * 0.01), { x: event.clientX, y: event.clientY });
+  }, { passive: false });
+  showZoom();
+
+  // Beside the find bar's column, or the chat docked at the side, the pages keep their share of
+  // what's left (so the cards keep their gutters), and stay clear of it.
   const FIND_GUTTER = 24;
   function fitPage(pageEl) {
-    const besideFind = document.body.classList.contains('find-docked')
-      ? documentEl.clientWidth - parseFloat(getComputedStyle(documentEl).paddingRight) - 2 * FIND_GUTTER
-      : Infinity;
-    fitPageTo(pageEl, Math.min(documentEl.clientWidth * pageShare, besideFind));
+    const { classList } = document.body;
+    const docked = classList.contains('find-docked') || classList.contains('chat-docked');
+    const room = documentEl.clientWidth - (docked ? parseFloat(getComputedStyle(documentEl).paddingRight) : 0);
+    const besideFind = classList.contains('find-docked') ? room - 2 * FIND_GUTTER : Infinity;
+    // Zoomed, the fitted size times the zoom: in, a page can grow past the size it was drawn at.
+    fitPageTo(pageEl, Math.min(room * pageShare, besideFind) * zoom, Math.max(1, zoom));
+    if (pageEl.scale > 1) sharpenSoon();
     // The page resizers sit at the pages' edges.
     documentEl.parentElement.style.setProperty('--page-width', pageEl.style.width);
   }
@@ -270,65 +331,6 @@ export function startApp(appApi) {
   // the scrolling area's right edge with no visible track. In the PDF view,
   // loaded pages scroll the PDF view itself; the empty view doesn't scroll.
 
-  const THUMB_MIN = 32;
-
-  // `scrollbarEl` holds a `.scrollbar-thumb`; `scroller()` is the element it scrolls right now;
-  // `watch` lists the elements whose size changes the scroll range.
-  function customScrollbar({ scrollbarEl, scrollers, scroller, watch }) {
-    const thumbEl = scrollbarEl.querySelector('.scrollbar-thumb');
-
-    function geometry(el) {
-      const track = scrollbarEl.clientHeight;
-      const height = Math.max(THUMB_MIN, (el.clientHeight / el.scrollHeight) * track);
-      const range = el.scrollHeight - el.clientHeight;
-      return { track, height, range, top: range > 0 ? (el.scrollTop / range) * (track - height) : 0 };
-    }
-
-    function update() {
-      const el = scroller();
-      const { height, range, top } = geometry(el);
-      scrollbarEl.classList.toggle('scrollable', range > 0);
-      thumbEl.style.height = `${height}px`;
-      thumbEl.style.transform = `translateY(${top}px)`;
-    }
-
-    for (const el of scrollers) el.addEventListener('scroll', update, { passive: true });
-    const observer = new ResizeObserver(update);
-    for (const el of watch) observer.observe(el);
-    // Content that changes height without resizing a watched element (e.g. a list re-rendered).
-    for (const el of scrollers) new MutationObserver(update).observe(el, { childList: true, subtree: true });
-
-    // Dragging the thumb scrolls proportionally; clicking the track jumps so the thumb centres on
-    // the click; the wheel over the scrollbar scrolls as usual.
-    thumbEl.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const el = scroller();
-      const { track, height, range } = geometry(el);
-      const startY = e.clientY;
-      const startScroll = el.scrollTop;
-      thumbEl.setPointerCapture(e.pointerId);
-      scrollbarEl.classList.add('dragging');
-      const onMove = (m) => {
-        el.scrollTop = startScroll + ((m.clientY - startY) * range) / Math.max(1, track - height);
-      };
-      const onEnd = () => {
-        scrollbarEl.classList.remove('dragging');
-        thumbEl.removeEventListener('pointermove', onMove);
-        thumbEl.removeEventListener('lostpointercapture', onEnd);
-      };
-      thumbEl.addEventListener('pointermove', onMove);
-      thumbEl.addEventListener('lostpointercapture', onEnd);
-    });
-    scrollbarEl.addEventListener('pointerdown', (e) => {
-      const el = scroller();
-      const { track, height, range } = geometry(el);
-      const y = e.clientY - scrollbarEl.getBoundingClientRect().top - height / 2;
-      el.scrollTo({ top: (y / Math.max(1, track - height)) * range, behavior: 'smooth' });
-    });
-    scrollbarEl.addEventListener('wheel', (e) => scroller().scrollBy(e.deltaX, e.deltaY), { passive: true });
-    return update;
-  }
 
   // Only an open document scrolls; the empty pages shown without one don't.
   const updateScrollUi = customScrollbar({
@@ -359,6 +361,7 @@ export function startApp(appApi) {
     reveal: (match) => revealAnchors([match], documentEl),
     beforeOpen: () => {
       setComparing(false);
+      chat.setOpen(false);
       if (document.body.classList.contains('list-view-open')) setView('document');
     },
     // Open, it has a column of its own beside the pages, so it never covers them, and the review's
@@ -394,10 +397,7 @@ export function startApp(appApi) {
   // with arrows to the ones either side; hovering the label gives the draft's summary.
   const draftNav = document.getElementById('draft-nav');
   const draftLabel = document.getElementById('draft-label');
-  const draftPrev = document.getElementById('draft-prev');
-  const draftNext = document.getElementById('draft-next');
-  draftPrev.addEventListener('click', () => api.stepDraft(-1));
-  draftNext.addEventListener('click', () => api.stepDraft(1));
+  const draftPicker = createDraftPicker({ button: document.getElementById('draft-button'), card: document.getElementById('draft-card'), api, getTool: () => current.tool });
 
   // They're centred in the top bar while there's room. When the breadcrumb reaches them they move
   // along to sit just after it; when that leaves no room before the right-hand controls, the
@@ -413,15 +413,12 @@ export function startApp(appApi) {
     topBarStart.classList.remove('tight');
     const bar = topBar.getBoundingClientRect();
     const end = topBarEnd.getBoundingClientRect().left - DRAFT_NAV_GAP - bar.left;
+    // Left-aligned, just after the tool and focus, not centred.
     const fits = () => {
-      draftNav.classList.remove('pushed');
-      draftNav.style.left = '';
       const start = topBarStart.getBoundingClientRect().right + DRAFT_NAV_GAP - bar.left;
-      const width = draftNav.offsetWidth;
-      if (bar.width / 2 - width / 2 >= start) return bar.width / 2 + width / 2 <= end; // centred
       draftNav.classList.add('pushed');
       draftNav.style.left = `${start}px`;
-      return start + width <= end;
+      return start + draftNav.offsetWidth <= end;
     };
     if (fits()) return;
     topBarStart.classList.add('tight');
@@ -454,26 +451,6 @@ export function startApp(appApi) {
     } catch {}
     showView();
   }
-  // In Review and draft, all the findings or only those still to decide: also remembered per
-  // document.
-  const showKey = (docId) => `smartdoc.show.${docId}`;
-  function storedHideDone(docId) {
-    try {
-      return localStorage.getItem(showKey(docId)) === 'todo';
-    } catch {
-      return false;
-    }
-  }
-  function setShow(show) {
-    try {
-      if (current.doc) localStorage.setItem(showKey(current.doc.id), show);
-    } catch {}
-    showView();
-  }
-  const doneSwitch = document.getElementById('done-switch');
-  for (const button of doneSwitch.querySelectorAll('button')) {
-    button.addEventListener('click', () => setShow(button.dataset.show));
-  }
   // The list shows when it's chosen and there's a highlights review to list. The switch between the
   // two sits at the right of the top bar whenever there's a highlights review.
   const viewSwitch = document.getElementById('view-switch');
@@ -488,20 +465,13 @@ export function startApp(appApi) {
     focusPicker.update({ doc: current.doc, tool: current.tool, review: current.review });
     // The breadcrumb may have grown or shrunk with the tool and focus.
     requestAnimationFrame(placeDraftNav);
-    // All | To do, in Review and draft once there's a finished review to work through.
-    const decidable = Boolean(current.doc && !current.preview && current.tool === 'improve' && current.review?.status === 'committed');
-    const hideDone = decidable && storedHideDone(current.doc.id);
-    doneSwitch.hidden = !decidable;
-    for (const button of doneSwitch.querySelectorAll('button')) {
-      button.setAttribute('aria-pressed', String(button.dataset.show === (hideDone ? 'todo' : 'all')));
-    }
     for (const button of viewSwitch.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(button.dataset.view === (list ? 'list' : 'document')));
     }
     if (list) findBar.close();
     document.body.classList.toggle('list-view-open', Boolean(list));
     highlightsList.update(list ? current.review : null);
-    marginReview.update({ view: list ? 'list' : 'document', hideDone });
+    marginReview.update({ view: list ? 'list' : 'document' });
   }
 
   const highlightsList = createHighlightsList({
@@ -515,12 +485,48 @@ export function startApp(appApi) {
 
   document.getElementById('go-home').addEventListener('click', () => api.goHome());
 
+  let chat = null; // the chat panel, made once the review it lists is (see below)
+  let chatFloating = false; // the chat is in a window of its own (see chat-window.js)
+  // Whether the chat was last in a window of its own or docked: it opens again the same way.
+  const CHAT_WINDOW_KEY = 'chat-in-window';
+  const chatPrefersWindow = () => {
+    try {
+      return localStorage.getItem(CHAT_WINDOW_KEY) === '1';
+    } catch {
+      return false;
+    }
+  };
+  const rememberChatWindow = (inWindow) => {
+    try {
+      localStorage.setItem(CHAT_WINDOW_KEY, inWindow ? '1' : '0');
+    } catch {}
+  };
+  let sentChatState = null;
+  // A floating chat shows what this window's review shows: it's sent whenever that changes.
+  const sendChatState = (force = false) => {
+    if (!chatFloating) return;
+    // With the draft it's on, whose chat it shows (a preview is its draft's).
+    const draft = current.doc && atDraft ? `${atDraft.docId}/${atDraft.variationId}/${atDraft.draftId}` : null;
+    const state = JSON.stringify({ ...marginReview.snapshot(), chatDraft: draft });
+    if (!force && state === sentChatState) return;
+    sentChatState = state;
+    api.chatState?.(JSON.parse(state));
+  };
   const marginReview = createMarginReview({
     layer: document.getElementById('margin-layer'),
     pagesEl,
     bar: document.getElementById('review-bar'),
     api,
     onMarks: setMarks,
+    onOpenItem: (id) => (chatFloating || (!chat.isOpen() && chatPrefersWindow()) ? api.chatOpenItem(id) : chat.openItem(id)),
+    onSuggestion: (next) => chat?.setSuggestion(next),
+    // The bar keeps a way to open the chat while it's closed; the chat follows the review.
+    onChange: () => {
+      if (!chat) return;
+      chat.refresh();
+      sendChatState();
+      showChatButton();
+    },
     onCompare: () => setComparing(!comparing),
     // A gutter the user has widened is for the cards to use.
     pagesResized: () => storedPageShare() !== null || document.body.classList.contains('page-resizing'),
@@ -534,6 +540,60 @@ export function startApp(appApi) {
   // Comments can be added to the newest draft, in Review and draft, or to a draft preview (not in
   // the website's demo).
   const canComment = () => Boolean(api.addRequest && current.doc && !findBar.isOpen() && (current.preview || (current.newest && current.tool === 'improve')));
+  // The chat with Claude (see chat-panel.js): docked, it takes a column at the right, as find does,
+  // and the pages fit what's left.
+  chat = createChatPanel({
+    el: document.getElementById('chat-panel'),
+    api,
+    review: marginReview,
+    onDock: (on) => {
+      if (on) findBar.close();
+      if (on !== document.body.classList.contains('chat-docked')) refitPages(() => document.body.classList.toggle('chat-docked', on));
+      marginReview.layout();
+    },
+    // Into a window of its own, on the same conversation or thread.
+    onFloat: (view) => api.chatFloat?.(view),
+    // Resized from its edge: the pages fit what's left.
+    onResize: () => {
+      if (document.body.classList.contains('chat-docked')) refitPages(() => {});
+    },
+  });
+  // The chat's button in the top bar, beside the server's status: opens the chat, docked, or
+  // closes it, docked or in its own window. It's there while a document is open.
+  const chatButton = document.getElementById('chat-button');
+  function showChatButton() {
+    const on = chat.isOpen() || chatFloating;
+    chatButton.hidden = !current.doc;
+    chatButton.setAttribute('aria-pressed', String(on));
+    const name = on ? 'Close the chat' : 'Open the chat';
+    chatButton.title = name;
+    chatButton.setAttribute('aria-label', name);
+  }
+  chatButton.addEventListener('click', () => {
+    if (chatFloating) api.chatClose?.();
+    else if (chat.isOpen()) chat.setOpen(false);
+    else if (chatPrefersWindow() && api.chatFloat) api.chatFloat('main');
+    else chat.setOpen(true);
+  });
+
+  // The chat's own window opened, docked back (on what it showed) or closed.
+  api.onChatMode?.(({ mode, view }) => {
+    chatFloating = mode === 'floating';
+    // Closed, it keeps how it was; floated or docked, that's how it opens next time.
+    if (mode !== 'closed') rememberChatWindow(chatFloating);
+    if (chatFloating) {
+      chat.setOpen(false);
+      sendChatState(true);
+    } else if (mode === 'docked') {
+      chat.openItem(view && view !== 'main' ? view : null);
+    } else {
+      marginReview.focus(null);
+    }
+    marginReview.layout();
+  });
+  // Choosing an item in the floating chat brings its text forward here.
+  api.onChatFocus?.((id) => marginReview.focus(id));
+
   const composer = createCommentComposer({
     wrapEl: document.getElementById('pages-wrap'),
     api,
@@ -608,6 +668,7 @@ export function startApp(appApi) {
     const which = draft.isPreview ? `Draft ${draft.number} preview` : draft.isOriginal ? 'Original' : `Draft ${draft.number} of ${draft.total}`;
     draftLabel.textContent = variation.isOriginal ? which : `${variation.name} · ${which}`;
     draftLabel.title = draft.summary ?? (draft.isOriginal ? `${doc.name}, as imported` : doc.name);
+    draftPicker.update({ doc, variation, draft });
     requestAnimationFrame(placeDraftNav);
   }
   // The document showing, or its variation, has a new name.
@@ -622,8 +683,6 @@ export function startApp(appApi) {
     if (dropping) dropping.opened = true;
     toolSwitcher.update(tool);
     showDraftLabel({ doc, variation, draft });
-    draftPrev.disabled = draft.number === 0;
-    draftNext.disabled = draft.isPreview || draft.number === draft.total;
     requestAnimationFrame(placeDraftNav);
     setComparing(false);
     composer.close();
@@ -636,6 +695,7 @@ export function startApp(appApi) {
     marginReview.update({ document: doc, review, earlier: draft.earlierComments ?? [], tool, preview, filter: null, commentable: newest || Boolean(preview) });
     showView();
     marginReview.reset();
+    chat.documentChanged(doc.id);
     documentEl.scrollTop = 0;
     findBar.draftOpened({ docId: doc.id, draftId: draft.id });
     await showPdf(pdf, { docId: doc.id, draftId: draft.id });
@@ -651,6 +711,8 @@ export function startApp(appApi) {
     clearPages();
     toolSwitcher.close();
     current = { doc: null, review: null, tool: current.tool, preview: null };
+    chat.setOpen(false);
+    chat.documentChanged(null);
     marginReview.update({ document: null, review: null, earlier: [], preview: null, filter: null });
     showView();
     noteWhereAt();

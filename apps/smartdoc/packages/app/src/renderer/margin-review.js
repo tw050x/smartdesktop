@@ -1,35 +1,34 @@
 import { anchorRects, pageContent, pageNumbers, pageText } from './anchors.js';
-import { takeOverNote } from './take-over-note.js';
-import { showCopied } from './copied-tip.js';
+import { kindIcon } from './kind-icons.js';
 import { earlierComments, isDone, notCommentedAgain, onVersion } from '../main/comments.js';
 
 // The review, laid out in the margins either side of the pages. Each item (a finding, a note or a
 // highlight) is a tab beside the line its text starts on: findings about a whole section
 // (structure, design) on the left, everything else on the right, and items about no text at all
-// in a "Whole document" deck at the top of page 1 on the left. Every tab is the same height, with
-// three rows: its kind, its title and its status.
+// in a "Whole document" deck at the top of page 1 on the left. A tab says only what the card is:
+// its kind's icon and name and a short title, or, when the gutters are narrow, the icon alone.
 // Tabs never move off their line: one that would overlap the tab above joins it as another card
-// in that deck, and the deck pages through its cards ("1 of 3"). Undecided cards come first, then
-// notes, then decided ones. Opening a card expands it in place over the margin; nothing moves.
+// in that deck, which shows its top card and how many it holds. Undecided cards come first, then
+// notes, then decided ones. Clicking a card opens its thread in the chat panel (chat-panel.js), where
+// it's read and decided in full; the chat lists every card in the document's order (those about all
+// of it first).
 // Hovering a deck brings its top card's text forward on the page; the page tints every item's
 // text otherwise (see overlays.js). Selecting text on the page fades the decks that aren't about
-// it. A bar under the pages names the tool, says where the review stands and steps through the
-// cards; once every finding is decided, it offers the prompt that asks the AI to apply them
-// instead (the prompts to start a review are in the focus menu, see focus-picker.js). While a highlights review shows as a list (`view`, see highlights-list.js), there's
-// nothing on the page to step through. With `hideDone` (Review and draft), decided findings leave
-// the margins and the page (the bar still counts them). While the AI's preview of the next draft
+// it. A bar under the pages says where the review stands; what to ask the AI next goes to the chat
+// (`onSuggestion`), which replaced the bar's Copy the prompt buttons. While a highlights review
+// shows as a list (`view`, see highlights-list.js), there's nothing on the page. While the AI's preview of the next draft
 // shows (`preview`), its pages aren't what the review is about, so the review steps aside and the
 // bar asks the user to accept or discard it.
 
-const TAB_HEIGHT = 76; // .margin-tab's height
-const PAGER_HEIGHT = 28; // a deck's tab adds a row for its pager (.multi .margin-tab)
+const TAB_HEIGHT = 48; // .margin-tab's height: its kind's icon and name, then a short title
+const ICON_TAB = 36; // in narrow gutters a tab is its kind's icon only, this size square
+const ICON_ONLY_BELOW = 120; // the gutter's width, less its spacing, below which tabs are icons only
 const FOLDED_HEIGHT = 32; // a comment needing no further action, alone: one line (.margin-tab.folded)
-const PEEK = 10; // how far the cards behind a deck's top card show below it
 const GAP = 8; // the least space between decks
 const LIFT = 7; // a tab's top sits this far above its line, so its title lines up with the text
-const CARD_WIDTH = 264;
+const CARD_WIDTH = 220;
 const WIDENED_CARD_WIDTH = 520; // the most a card takes when the user has made the gutters wider
-export const MIN_CARD_WIDTH = 140;
+export const MIN_CARD_WIDTH = ICON_TAB;
 export const CARD_INSET = 20; // the space kept between a card and the window edge
 export const PAGE_SPACE = 10; // the space between a card and the page's edge
 const LINKED = 10; // a deck further than this from its card's line draws a line back to it
@@ -52,8 +51,6 @@ const CATEGORY_COLOURS = ['#2f6fde', '#7c4ddb', '#1f7a45', '#a65a00', '#08778d',
 const IMPORTANCE_LABELS = { high: 'Important', medium: 'Worth knowing', low: 'Minor' };
 const STATUS_LABELS = { accepted: 'Accepted', rejected: 'Rejected', answered: 'Answered', acknowledged: 'Acknowledged' };
 
-const COPY_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-const CLOSE_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 
 export const isHighlights = (review) => review?.type === 'highlights';
 
@@ -61,16 +58,19 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // elements; `bar` is the bar under the pages. `onMarks` is given what to draw on the page:
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
-export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onClearFilter }) {
-  let state = { document: null, review: null, earlier: [], tool: 'improve', view: 'document', hideDone: false, filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
-  let open = null; // the open deck's key (its first item's id)
+// `onOpenItem(id)` opens an item's thread in the chat; `onSuggestion(next)` gives the chat what to
+// ask the AI next ({ what, label, prompt, waiting }), or null; `onChange()` says the review redrew.
+export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onOpenItem, onSuggestion, onChange, onClearFilter }) {
+  let state = { document: null, review: null, earlier: [], tool: 'improve', view: 'document', filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
+  let focused = null; // the id of the item whose thread the chat shows: it stands out on the page
+  let iconOnly = false; // the gutters are too narrow for more than the kinds' icons
+  let suggestion = null; // what to ask the AI next, for the chat (see renderBar)
   let hover = null; // the hovered deck's key
-  let stepped = null; // the deck Previous/Next last opened: it shows as if hovered while it stays open
-  const pages = new Map(); // deck key → the card it shows (an index into its order)
   const editing = new Set(); // ids of decided findings whose decision is being changed
   let decks = [];
   let items = []; // everything in the review
-  let shown = []; // what's on the page: all of it, or (with `hideDone`) only what's still to do
+  let shown = []; // what's on the page: the review's items and earlier comments
+  let order = []; // `shown` in the order to work through it (reviewOrder)
 
   // --- What the review holds ----------------------------------------------------------------
 
@@ -120,23 +120,27 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     return [...findings, ...notes, ...comments];
   }
 
-  // Comments from before the version showing that nobody answered, where their text is still in
+  // Comments from before the version showing that weren't dealt with, where their text is still in
   // it: dashed cards to see, and to comment again on this version. They count for nothing here.
   function earlierItems() {
     if (state.tool !== 'improve' || isHighlights(state.review)) return [];
+    // The chat's own window has no pages to look in: the app's window says where they are.
+    if (state.earlierResolved) return state.earlierResolved.map(earlierItem);
+    // On a preview, the draft's own comments and those it carried from earlier drafts.
     const earlier = state.preview
-      ? earlierComments({ review: state.review, preview: true, draftLabel: () => state.preview.comparesWith })
+      ? [...earlierComments({ review: state.review, preview: true, draftLabel: () => state.preview.comparesWith }), ...notCommentedAgain(state.earlier ?? [], state.review)]
       : state.earlier ?? [];
     return notCommentedAgain(earlier, state.review).flatMap((comment) => {
       const anchors = comment.anchors.map(findAgain);
-      if (anchors.some((a) => !a)) return [];
-      return [{
-        id: `earlier-${comment.id}`, type: 'earlier', earlier: comment, side: 'r', anchors,
-        label: 'Earlier comment', color: EARLIER.color, background: EARLIER.background,
-        title: comment.note, decidable: false, decided: false, done: false, status: `From ${comment.from}`,
-      }];
+      return anchors.some((a) => !a) ? [] : [earlierItem({ ...comment, anchors })];
     });
   }
+
+  const earlierItem = (comment) => ({
+    id: `earlier-${comment.id}`, type: 'earlier', earlier: comment, side: 'r', anchors: comment.anchors,
+    label: 'Earlier comment', color: EARLIER.color, background: EARLIER.background,
+    title: comment.note, decidable: false, decided: false, done: false, status: `From ${comment.from}`,
+  });
 
   // Where an earlier version's quoted text is in the pages drawn so far: on the same page first,
   // then any other (whitespace-insensitive, like the AI's quotes in src/main/anchors.js).
@@ -169,7 +173,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     return { left: first.offsetLeft, right: first.offsetLeft + first.offsetWidth, top: first.offsetTop, width: layer.clientWidth };
   }
 
-  const cardWidth = (geo) => Math.max(MIN_CARD_WIDTH, Math.min(pagesResized() ? WIDENED_CARD_WIDTH : CARD_WIDTH, Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE));
+  const gutter = (geo) => Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE;
+  const cardWidth = (geo) => (iconOnly ? ICON_TAB : Math.min(pagesResized() ? WIDENED_CARD_WIDTH : CARD_WIDTH, gutter(geo)));
 
   // The top of an item's text (its first line), in layer coordinates; null until its page is drawn.
   function lineTop(anchors) {
@@ -199,9 +204,10 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       for (const item of shown.filter((i) => i.deckSide === side && i.y != null).sort((a, b) => a.y - b.y)) {
         if (last && item.y - LIFT < last.top + last.height + GAP) {
           last.ids.push(item.id);
-          last.height = TAB_HEIGHT + PAGER_HEIGHT + PEEK;
+          last.tabHeight = Math.max(last.tabHeight, tabHeight(item));
+          last.height = last.tabHeight;
         } else {
-          last = { key: item.id, side, ids: [item.id], top: item.y - LIFT, height: item.done ? FOLDED_HEIGHT : TAB_HEIGHT };
+          last = { key: item.id, side, ids: [item.id], top: item.y - LIFT, tabHeight: tabHeight(item), height: tabHeight(item) };
           result.push(last);
         }
       }
@@ -216,11 +222,24 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       // While text is selected on the page, a deck about it shows its first card about it.
       const matching = state.filter ? deck.order.findIndex((i) => overlapsFilter(i.anchors)) : -1;
       deck.matches = !state.filter || matching !== -1;
-      deck.page = matching !== -1 ? matching : Math.min(pages.get(deck.key) ?? 0, deck.order.length - 1);
+      deck.page = matching !== -1 ? matching : 0;
       deck.cur = deck.order[deck.page];
       deck.whole = deck.items.some((i) => i.whole);
     }
     return result;
+  }
+
+  const tabHeight = (item) => (iconOnly ? ICON_TAB : item.done ? FOLDED_HEIGHT : TAB_HEIGHT);
+
+  // The order to work through the cards in: down the document, those about all of it first.
+  function reviewOrder() {
+    const first = (i) => [...i.anchors].sort((a, b) => a.page - b.page || a.start - b.start)[0];
+    return [...shown].sort((a, b) => {
+      const fa = first(a);
+      const fb = first(b);
+      if (!fa || !fb) return (fa ? 1 : 0) - (fb ? 1 : 0) || shown.indexOf(a) - shown.indexOf(b);
+      return fa.page - fb.page || fa.start - fb.start || shown.indexOf(a) - shown.indexOf(b);
+    });
   }
 
   const overlapsFilter = (anchors) => anchors.some((a) => state.filter.some((f) => f.page === a.page && a.start < f.end && f.start < a.end));
@@ -231,23 +250,25 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     layer.replaceChildren();
     // On a draft preview the review steps aside, leaving only the comments made on it.
     items = reviewItems(state.review).filter((i) => !state.preview || i.type === 'comment');
-    // Hiding what's done leaves the notes, which have nothing to do.
     // Earlier comments are on the page but not in the review: nothing counts them.
-    shown = [...(state.hideDone ? items.filter((i) => !i.decided) : items), ...earlierItems()];
+    shown = [...items, ...earlierItems()];
     const geo = shown.length ? geometry() : null;
-    decks = geo ? buildDecks(geo) : [];
-    if (open && !decks.some((d) => d.key === open)) open = null;
+    iconOnly = Boolean(geo) && gutter(geo) < ICON_ONLY_BELOW;
+    // Zoomed in so far there's no gutter left, the cards step aside (the chat still lists them).
+    decks = geo && gutter(geo) >= ICON_TAB ? buildDecks(geo) : [];
     if (hover && !decks.some((d) => d.key === hover)) hover = null;
+    order = reviewOrder();
     const width = geo ? cardWidth(geo) : CARD_WIDTH;
     for (const deck of decks) layer.append(...deckElements(deck, geo, width));
     renderBar();
+    onSuggestion?.(suggestion);
     sendMarks();
+    onChange?.();
   }
 
   function deckElements(deck, geo, width) {
     const cur = deck.cur;
     const right = deck.side === 'r';
-    const isOpen = open === deck.key;
     const n = deck.order.length;
     const elements = [];
 
@@ -267,91 +288,60 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       }
     }
 
-    const slot = el('div', `margin-slot margin-${right ? 'r' : 'l'}${n > 1 ? ' multi' : ''}${cur.decided ? ' decided' : ''}${cur.type === 'earlier' ? ' earlier' : ''}${deck.matches ? '' : ' filtered-out'}${isOpen ? ' open' : ''}${hover === deck.key ? ' hovered' : ''}`);
+    const slot = el('div', `margin-slot margin-${right ? 'r' : 'l'}${iconOnly ? ' icon-only' : ''}${n > 1 ? ' multi' : ''}${cur.id === focused ? ' focused' : ''}${cur.decided ? ' decided' : ''}${cur.type === 'earlier' ? ' earlier' : ''}${deck.matches ? '' : ' filtered-out'}${hover === deck.key ? ' hovered' : ''}`);
     slot.dataset.key = deck.key;
     Object.assign(slot.style, { top: `${deck.top}px`, width: `${width}px`, left: `${right ? geo.right + PAGE_SPACE : geo.left - width - PAGE_SPACE}px` });
     slot.style.setProperty('--item-color', cur.color);
     slot.style.setProperty('--item-kind-color', cur.kindColor ?? cur.color);
     slot.style.setProperty('--item-background', cur.background ?? 'var(--bg)');
-    for (let i = Math.min(n - 1, 2); i >= 1; i--) {
-      const peek = el('div', 'margin-peek');
-      peek.style.transform = `translateY(${i * 5}px)`;
-      slot.append(peek);
-    }
-    slot.append(isOpen ? openCard(deck) : tab(deck));
-    if (n > 1) slot.append(pager(deck, n));
+    slot.append(tab(deck));
     slot.addEventListener('mouseenter', () => setHover(deck.key));
     slot.addEventListener('mouseleave', () => setHover(null));
     elements.push(slot);
     return elements;
   }
 
-  // A closed deck: its top card's kind, title and status. Clicking it opens the card. A comment
-  // needing no further action, on its own, folds to one line: its outcome, then the comment.
+  // A deck: its top card's kind and a short title below, with how many cards the deck holds if
+  // more than one (the chat lists them all); in narrow gutters its kind's icon alone, with that
+  // number at its corner. Clicking it opens the top card's thread
+  // in the chat. A comment needing no further action, on its own, folds to one line: its outcome,
+  // then the comment.
   function tab(deck) {
     const cur = deck.cur;
-    const folded = cur.done && deck.order.length === 1;
-    const button = el('button', folded ? 'margin-tab folded' : 'margin-tab');
+    const folded = !iconOnly && cur.done && deck.order.length === 1;
+    const button = el('button', folded ? 'margin-tab folded' : iconOnly ? 'margin-tab icon' : 'margin-tab');
     button.type = 'button';
-    if (folded) {
+    const icon = el('span', 'margin-icon');
+    icon.innerHTML = kindIcon(cur);
+    if (iconOnly) {
+      button.append(icon);
+      if (deck.order.length > 1) button.append(el('span', 'margin-count', String(deck.order.length)));
+      button.title = `${cur.label}: ${cur.title}`;
+    } else if (folded) {
       button.append(el('span', 'margin-outcome', cur.status), el('span', 'margin-title', cur.title));
       button.title = `${cur.status}: ${cur.title}`;
+    } else {
+      const head = el('span', 'margin-tab-head');
+      head.append(el('span', 'margin-kind', cur.whole ? `${cur.label} · whole document` : cur.label));
+      if (cur.decided) head.append(el('span', 'margin-done', '✓'));
+      if (deck.order.length > 1) head.append(el('span', 'margin-stack', String(deck.order.length)));
+      button.append(head, el('span', 'margin-title', cur.title));
+      button.title = deck.order.length > 1 ? `${cur.title} (and ${deck.order.length - 1} more here)` : cur.title;
     }
-    const decidable = deck.items.filter((i) => i.decidable);
-    const allDecided = deck.order.length > 1 && decidable.length > 0 && decidable.every((i) => i.decided);
-    if (!folded) button.append(
-      el('span', 'margin-kind', deck.whole && deck.order.length > 1 ? 'Whole document' : cur.label),
-      el('span', 'margin-title', cur.title),
-      el('span', 'margin-status', allDecided ? `✓ All ${decidable.length} decided` : cur.whole && !cur.highlight?.missing ? `Whole document · ${cur.status}` : cur.status),
-    );
-    if (!folded) button.title = cur.title;
-    const show = () => {
-      openDeck(deck.key, deck.page);
-      showOpenCard(deck.key);
-    };
-    button.addEventListener('click', show);
-    // Reached with the keyboard, a tab opens its card at once (closing any other), so the focus
-    // goes card by card rather than onto the tabs an open card covers.
-    button.addEventListener('focus', () => {
-      if (!refocusing && button.matches(':focus-visible')) show();
-    });
+    button.setAttribute('aria-label', `${cur.label}: ${cur.title}`);
+    button.addEventListener('click', () => onOpenItem(cur.id));
     return button;
   }
 
-  // "1 of 3" with arrows either side, on a row of its own across the bottom of the deck, open or
-  // closed.
-  function pager(deck, n) {
-    const box = el('div', 'margin-pager');
-    const step = (delta) => {
-      pages.set(deck.key, (deck.page + delta + n) % n);
-      render();
-    };
-    const back = el('button', null, '‹');
-    back.type = 'button';
-    back.setAttribute('aria-label', 'Previous card here');
-    back.addEventListener('click', () => step(-1));
-    const next = el('button', null, '›');
-    next.type = 'button';
-    next.setAttribute('aria-label', 'Next card here');
-    next.addEventListener('click', () => step(1));
-    box.append(back, el('span', null, `${deck.page + 1} of ${n}`), next);
-    return box;
-  }
-
-  function openCard(deck) {
-    const cur = deck.cur;
-    const card = el('div', 'margin-card');
+  // The card in full, for its thread in the chat: everything to read and decide.
+  function fullCard(cur) {
+    const card = el('div', `margin-card review-card${cur.decided ? ' decided' : ''}${cur.type === 'earlier' ? ' earlier' : ''}`);
+    card.style.setProperty('--item-color', cur.color);
+    card.style.setProperty('--item-kind-color', cur.kindColor ?? cur.color);
+    card.style.setProperty('--item-background', cur.background ?? 'var(--bg)');
     const head = el('div', 'margin-card-head');
-    head.append(el('span', 'margin-kind', cur.whole ? `${cur.label} · whole document` : cur.label));
-    const close = el('button', 'margin-close');
-    close.type = 'button';
-    close.title = 'Close';
-    close.setAttribute('aria-label', 'Close');
-    close.innerHTML = CLOSE_ICON;
-    close.addEventListener('click', () => closeDeck());
-    head.append(close);
+    head.append(el('span', 'margin-kind', cur.whole ? `${cur.label} · whole document` : cur.label), el('span', 'margin-status', cur.status));
     card.append(head);
-    if (cur.type !== 'comment' && cur.type !== 'earlier') card.append(el('h3', 'margin-card-title', cur.title));
     if (cur.type === 'finding') findingBody(card, cur.item);
     else if (cur.type === 'note') noteBody(card, cur.note);
     else if (cur.type === 'comment') commentBody(card, cur);
@@ -417,22 +407,23 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const flag = el('button', 'secondary-button', cur.done ? 'Open again' : 'No further action required');
     flag.type = 'button';
     flag.addEventListener('click', () => api.setNoFurtherAction(request.id, !cur.done));
+    // Comments are never removed: they're the record of what was asked on each version.
     actions.append(flag);
-    if (state.commentable) {
-      const remove = el('button', 'secondary-button', 'Remove');
-      remove.type = 'button';
-      remove.addEventListener('click', () => api.removeRequest(request.id));
-      actions.append(remove);
-    }
     card.append(actions);
   }
 
-  // A comment from an earlier version, unanswered there, whose text is still here. Commenting again
-  // makes it this version's, anchored where its text is now.
+  // A comment from an earlier version, not dealt with there, whose text is still here, with what the
+  // AI said about it. Commenting again makes it this version's, anchored where its text is now.
   function earlierBody(card, cur) {
     card.append(el('p', 'finding-body', cur.title));
     card.append(el('blockquote', 'finding-quote', quoteOf(cur.anchors)));
-    card.append(el('p', 'finding-reply', `Written on ${cur.earlier.from}, before this version. It isn’t on this one.`));
+    for (const reply of cur.earlier.replies ?? []) {
+      const line = el('p', 'comment-ai-reply');
+      if (reply.outcome) line.append(el('span', 'comment-outcome', reply.outcome));
+      if (reply.text) line.append(document.createTextNode(reply.text));
+      card.append(line);
+    }
+    card.append(el('p', 'finding-reply', `Written on ${cur.earlier.from} and not dealt with there. It isn’t on this version.`));
     if (!state.commentable) return;
     const actions = el('div', 'comment-actions');
     const again = el('button', 'secondary-button', 'Comment again');
@@ -592,6 +583,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   // narrow for it; the actions never do.
   function renderBar() {
     const review = state.review;
+    suggestion = null;
     bar.replaceChildren();
     const text = el('p', 'review-bar-text');
     const end = el('div', 'review-bar-end');
@@ -607,12 +599,17 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     const waitingForAi = review?.status === 'open' && !isHighlights(review) && review.history?.[0]?.who === 'user' && !review.items.length;
     if (waitingForAi && comments && !state.filter) {
       say(`Send ${yourComments} to your AI to review.`);
-      appendPrompt(end, `I’ve added comments in SmartDoc to ${documentName()}. Review the document and respond to each one.`);
+      appendPrompt(end, `I’ve added comments in SmartDoc to ${documentName()}. Review the document and respond to each one.`, 'Answer my comments');
       return;
     }
     if (!review || (waitingForAi && !state.filter)) {
       // The prompts are in the focus menu at the top.
-      say('Choose a focus at the top to start a review.');
+      say('Choose a focus at the top, or ask your AI in the chat, to start a review.');
+      if (state.document && !state.filter) {
+        suggestion = state.tool === 'highlights'
+          ? { what: 'start', label: 'Find the key information', prompt: `Find the key information in ${documentName()} for me. Ask me what I’m looking for first.` }
+          : { what: 'start', label: 'Review this draft', prompt: `Review ${documentName()} and suggest improvements.` };
+      }
       return;
     }
     const decidable = items.filter((i) => i.decidable);
@@ -670,16 +667,6 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       say(decided === decidable.length ? `You’ve decided all ${findings(decided)}.` : `You’ve decided ${decided} of ${findings(decidable.length)}.`);
     }
     if (review.preview) end.append(viewPreviewButton('secondary-button'));
-    if (decks.length && state.view !== 'list') {
-      const nav = el('div', 'review-bar-nav');
-      for (const [label, delta] of [['‹ Previous', -1], ['Next ›', 1]]) {
-        const b = el('button', 'secondary-button', label);
-        b.type = 'button';
-        b.addEventListener('click', () => step(delta));
-        nav.append(b);
-      }
-      end.append(nav);
-    }
   }
 
   function viewPreviewButton(className) {
@@ -706,7 +693,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     else if (state.review?.preview?.outdated) say('You’ve changed your decisions since your AI wrote this preview.');
     else if (setsAside) say(`Accepting this preview sets aside the ${setsAside === 1 ? 'draft' : `${setsAside} drafts`} after this one.`);
     else say(`This is your AI’s draft preview of Draft ${number}.`);
-    if (comments) appendPrompt(end, `I’ve commented on the draft preview of ${documentName()}. Update it to do what my comments ask.`);
+    if (comments) appendPrompt(end, `I’ve commented on the draft preview of ${documentName()}. Update it to do what my comments ask.`, 'Update the preview from my comments');
     for (const [label, className, action] of [
       [state.comparing ? 'Hide the comparison' : `Compare with ${comparesWith}`, 'secondary-button', onCompare],
       ['Back to the review', 'secondary-button', api.closePreview],
@@ -729,106 +716,15 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     return aiIsWaiting(what) ? waiting : send;
   }
 
-  function appendPrompt(parent, prompt) {
-    // An AI waiting with `smartdoc wait` can be told directly, but only when the user says so.
+  // What to ask the AI next goes to the chat, which offers it (and, to an AI waiting with
+  // `smartdoc wait` elsewhere, a way to tell it to go ahead): the bar only says what's happening.
+  function appendPrompt(_parent, prompt, label) {
     const what = prompt ? 'preview' : 'decisions';
-    if (aiIsWaiting(what)) {
-      const confirm = el('button', 'primary-button', what === 'preview' ? 'Confirm comments' : 'Confirm changes');
-      confirm.type = 'button';
-      confirm.title = 'Tells your AI, which is waiting for you, to go ahead';
-      confirm.addEventListener('click', () => api.sendToAi(what));
-      parent.append(copyPromptButton(prompt, 'secondary-button'), confirm);
-      return;
-    }
-    // Once sent the prompt is only a fallback, should that AI have gone. What sending it does to
-    // this window is said on the button, so the bar stays one line.
-    const button = copyPromptButton(prompt);
-    const note = !sentToAi(what) && takeOverNote(api);
-    if (note) button.title = `${note.textContent} ${button.title}`;
-    parent.append(button);
+    suggestion = { what, label: label ?? 'Write the next draft', prompt: prompt ?? defaultPrompt(), waiting: aiIsWaiting(what), sent: Boolean(sentToAi(what)) };
   }
 
   const documentName = () => (state.document ? `“${state.document.name}” (document ${state.document.id})` : 'my document');
-  function copyPromptButton(prompt, className = 'primary-button') {
-    return makeCopyPromptButton(prompt ?? defaultPrompt(), className);
-  }
   const defaultPrompt = () => `I’ve made my decisions in SmartDoc. Apply the review and write the next draft of ${documentName()}.`;
-  function makeCopyPromptButton(prompt, className) {
-    const label = 'Copy the prompt';
-    const button = el('button', `${className} copy-prompt`);
-    button.type = 'button';
-    button.title = prompt;
-    button.innerHTML = COPY_ICON;
-    button.append(document.createTextNode(label));
-    button.addEventListener('click', async () => {
-      await api.copyText(prompt);
-      showCopied(button);
-    });
-    return button;
-  }
-
-  // Steps card by card down the pages (left margin and right together), flipping decks to reach
-  // each one and scrolling its text into view.
-  function step(delta) {
-    const placed = shown.filter((i) => i.y != null).sort((a, b) => a.y - b.y || (a.deckSide === 'l' ? -1 : 1));
-    if (!placed.length) return;
-    const current = decks.find((d) => d.key === open)?.cur;
-    const at = current ? placed.indexOf(current) : -1;
-    const from = at === -1 ? (delta > 0 ? -1 : 0) : at;
-    const target = placed[(from + delta + placed.length) % placed.length];
-    const deck = decks.find((d) => d.ids.includes(target.id));
-    stepped = deck.key;
-    openDeck(deck.key, deck.order.indexOf(target));
-    if (target.anchors.length) onReveal(target.anchors);
-  }
-
-  // --- Interaction ----------------------------------------------------------------------------
-
-  function openDeck(key, page) {
-    open = key;
-    pages.set(key, page);
-    render();
-  }
-
-  // A card opened from its tab scrolls wholly into view (its top first, if it's taller than the
-  // view) and takes the focus in place of the tab, which has gone, so Tab carries on inside it.
-  function showOpenCard(key) {
-    const card = [...layer.querySelectorAll('.margin-slot')].find((s) => s.dataset.key === key)?.querySelector('.margin-card');
-    if (!card) return;
-    const view = card.closest('.document') ?? document.scrollingElement;
-    const tall = card.getBoundingClientRect().height > view.clientHeight;
-    const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
-    card.scrollIntoView({ block: tall ? 'start' : 'nearest', behavior: smooth ? 'smooth' : 'auto' });
-    card.tabIndex = -1;
-    card.focus({ preventScroll: true });
-  }
-
-  // Closing a card puts the focus back on its tab, if the focus was in the card, without opening
-  // it again.
-  let refocusing = false;
-  function closeDeck() {
-    const key = open;
-    const wasIn = layer.contains(document.activeElement);
-    open = null;
-    render();
-    if (!wasIn) return;
-    refocusing = true;
-    [...layer.querySelectorAll('.margin-slot')].find((s) => s.dataset.key === key)?.querySelector('.margin-tab')?.focus({ preventScroll: true });
-    refocusing = false;
-  }
-  // Tabbing out of the review (to the top bar, say) closes the open card. A click elsewhere, which
-  // moves the focus nowhere in particular, leaves it open.
-  layer.addEventListener('focusout', () => {
-    setTimeout(() => {
-      const to = document.activeElement;
-      if (!open || !to || to === document.body || layer.contains(to) || !to.matches(':focus-visible')) return;
-      // Closing redraws the review bar too; the focus goes to the same control in the new one.
-      const controls = () => [...bar.querySelectorAll('button, select, textarea, input')];
-      const at = bar.contains(to) ? controls().indexOf(to) : -1;
-      closeDeck();
-      if (!to.isConnected && at >= 0) controls()[at]?.focus();
-    });
-  });
 
   // Hovering only restyles the decks and the page, so the deck under the pointer stays put.
   function setHover(key) {
@@ -839,28 +735,18 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   }
 
   function sendMarks() {
-    // A deck reached with Previous/Next counts as hovered until it closes or the pointer is on
-    // another deck.
-    const hovered = decks.find((d) => d.key === hover) ?? (stepped === open ? decks.find((d) => d.key === stepped) : null);
-    const opened = decks.find((d) => d.key === open);
-    const focus = hovered ? [hovered.cur.id] : opened ? [opened.cur.id] : [];
+    // The item whose thread the chat shows stands out on the page; otherwise the deck hovered.
+    const reviewed = focused ? shown.find((i) => i.id === focused) : null;
+    const hovered = reviewed ? null : decks.find((d) => d.key === hover)?.cur;
+    const focus = reviewed ? [reviewed.id] : hovered ? [hovered.id] : [];
+    const lit = reviewed ?? hovered;
     onMarks({
       // A comment needing no further action keeps its card but not its colour on the page.
       items: shown.filter((i) => i.anchors.length && !i.done && i.type !== 'earlier').map((i) => ({ id: i.id, anchors: i.anchors, tint: i.tint ?? tint(i.color, 0.14), strong: i.strong ?? tint(i.color, 0.3) })),
       focus,
-      veil: Boolean(hovered) && hovered.cur.type !== 'earlier', // an earlier comment has no mark to bring forward
+      veil: Boolean(lit) && lit.type !== 'earlier' && lit.anchors.length > 0, // an earlier comment has no mark to bring forward
     });
   }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && open && !e.target.closest?.('textarea, input')) closeDeck();
-  });
-  // Clicking the page lifts the dimming Previous/Next left.
-  pagesEl.addEventListener('pointerdown', () => {
-    if (!stepped) return;
-    stepped = null;
-    sendMarks();
-  });
 
   render();
   return {
@@ -875,20 +761,35 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       const geo = geometry();
       return geo && { left: geo.right + PAGE_SPACE, width: cardWidth(geo) };
     },
-    // Opens the deck holding an item, on that item's card, and brings its text into view.
+    // Opens an item's thread in the chat (from the highlights list, say).
     openItem(id) {
-      const deck = decks.find((d) => d.ids.includes(id));
-      if (!deck) return;
-      const item = deck.order.find((i) => i.id === id);
-      openDeck(deck.key, deck.order.indexOf(item));
-      if (item.anchors.length) onReveal(item.anchors);
+      if (shown.some((i) => i.id === id)) onOpenItem(id);
     },
-    // On opening a document or draft: every deck closed and back on its first card.
+    // Everything in the review, in the order to work through it, for the chat's list.
+    items: () => order,
+    // When the review was finished, so the chat's list sits at that point in the conversation.
+    finishedAt: () => state.review?.committedAt ?? null,
+    // What the chat's own window needs to show the same review: the state, with the earlier
+    // comments found in the pages (it has none to look in).
+    snapshot: () => ({ ...state, filter: null, earlierResolved: shown.filter((i) => i.type === 'earlier').map((i) => ({ ...i.earlier, anchors: i.anchors })) }),
+    // An item's card in full, for its thread: what it is, and its decision.
+    cardFor(id) {
+      const item = order.find((i) => i.id === id);
+      return item ? fullCard(item) : null;
+    },
+    // The item whose thread is open stands out on the page, its text brought into view; null for none.
+    focus(id) {
+      if (focused === id) return;
+      focused = id;
+      for (const slot of layer.querySelectorAll('.margin-slot')) slot.classList.toggle('focused', decks.find((d) => d.key === slot.dataset.key)?.cur.id === id);
+      sendMarks();
+      const item = id && shown.find((i) => i.id === id);
+      if (item?.anchors.length) onReveal(item.anchors);
+    },
+    // On opening a document or draft: every deck back on its first card.
     reset() {
-      open = null;
+      focused = null;
       hover = null;
-      stepped = null;
-      pages.clear();
       editing.clear();
       render();
     },

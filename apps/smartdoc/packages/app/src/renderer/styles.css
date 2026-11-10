@@ -5,6 +5,9 @@
   color-scheme: light dark;
   --top-bar-height: 44px;
   --find-column: clamp(300px, 36vw, 416px); /* the find bar's column: the bar, and the space either side of it */
+  /* The chat, docked at the right: as wide as the user dragged it (--chat-chosen, see chat-panel.js),
+     else a share of the window, and never more than half of it. */
+  --chat-width: min(var(--chat-chosen, clamp(320px, 30vw, 440px)), 50vw);
 
   --bg: light-dark(#ffffff, #232326); /* cards and panels */
   --border: light-dark(#e2e2e7, #3a3a3f);
@@ -115,7 +118,7 @@ body:not(.platform-darwin) .top-bar {
 .breadcrumb { flex: 0 1 auto; min-width: 0; }
 .crumb-home { flex: none; -webkit-app-region: no-drag; }
 body:not(.has-document) .breadcrumb { visibility: hidden; }
-/* The draft controls, centred in the top bar. */
+/* The draft picker, in the top bar just after the tool and focus (placed by app-shell.js). */
 .top-bar { position: relative; }
 .draft-nav { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
 /* Pushed along by the breadcrumb (see app-shell.js): no longer centred on its left edge. */
@@ -124,9 +127,6 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .draft-nav.compact .draft-label { display: none; }
 .draft-nav.collapsed { display: none; }
 .draft-nav[hidden] { display: none; }
-.draft-nav .icon-button { font-size: 18px; line-height: 1; }
-/* Same hover square and cursor as the other buttons; only the arrow fades when there's no draft that way. */
-.draft-nav .icon-button:disabled { opacity: 1; cursor: pointer; color: var(--faint); }
 .draft-label { white-space: nowrap; font-weight: 500; color: var(--text); }
 body:not(.has-document) .breadcrumb { visibility: hidden; }
 .tool-card {
@@ -145,6 +145,9 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .platform-darwin:not(.full-screen) .tool-card { left: 84px; }
 .tool-card[hidden] { display: none; }
 /* The focus picker's card: this draft's focuses, earlier drafts' to run again, and a new one. */
+.draft-card { width: 320px; max-height: calc(100vh - var(--top-bar-height) - 24px); overflow: auto; }
+.draft-option { padding: 8px 12px; }
+.draft-about { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .focus-card { width: 360px; max-height: calc(100vh - var(--top-bar-height) - 24px); overflow: auto; }
 .focus-heading { margin: 6px 4px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .focus-empty, .focus-loading { margin: 0 4px; font-size: 12px; color: var(--muted); }
@@ -227,6 +230,8 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .server-pill:hover, .server-pill[aria-expanded="true"] { background: var(--subtle-bg); }
 .server-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .server-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0a100; } /* starting */
+.chat-button { -webkit-app-region: no-drag; }
+.chat-button[aria-pressed="true"] { background: var(--button-hover); color: var(--accent); }
 .server-pill[data-state="running"] .server-dot { background: #1f9d55; }
 .server-pill[data-state="off"] .server-dot { background: #d64545; }
 
@@ -262,24 +267,24 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 }
 .mcp-open .mcp-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
 
-/* A full-height panel on the right, top bar included, laid over the content (which stays where
+/* A full-height panel on the left, top bar included, laid over the content (which stays where
    it is) rather than pushing it aside. Its own top bar lines up with the window's and holds the
-   close button on the left; the window's server pill stays on top of it on the right. Only the
-   content below scrolls. It slides in from past the window's right edge, and hides once it has
+   close button on the right; the window's server pill stays on top of it on the left. Only the
+   content below scrolls. It slides in from past the window's left edge, and hides once it has
    slid back out. */
 .mcp-card {
   position: fixed;
   z-index: 32;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: min(var(--mcp-width, 380px), 100vw);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
-  box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12);
-  transform: translateX(calc(100% + 28px)); /* past the edge, shadow included */
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.06), 8px 0 28px rgba(0, 0, 0, 0.12);
+  transform: translateX(calc(-100% - 28px)); /* past the edge, shadow included */
   visibility: hidden;
   transition: transform 0.2s ease, visibility 0s 0.2s;
   -webkit-app-region: no-drag;
@@ -287,9 +292,9 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .mcp-open .mcp-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
 /* Dragging the handle below the minimum slides the panel out (and lifts the mask) while the
    handle keeps following the pointer; letting go there closes it. */
-.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(100% + 28px)); }
+.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(-100% - 28px)); }
 .mcp-open.mcp-closing .mcp-mask { opacity: 0; }
-.mcp-card-bar { flex: none; display: flex; align-items: center; height: var(--top-bar-height); padding: 0 8px; }
+.mcp-card-bar { flex: none; display: flex; align-items: center; justify-content: flex-end; height: var(--top-bar-height); padding: 0 8px; }
 /* The panel's titles ("MCP server", "Set up an AI app") are underlined, and a title with content
    above it has room above it too, so each section reads as separate. */
 .mcp-card .panel h3 { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
@@ -298,20 +303,20 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .mcp-card > .panel > section > h3:first-child { margin-top: 0; }
 .mcp-card > .panel { flex: 1; overflow: hidden auto; padding-top: 4px; }
 
-/* The panel's drag handle sits just outside its left edge, vertically centred on the window,
+/* The panel's drag handle sits just outside its right edge, vertically centred on the window,
    and slides in and out with it. Same grip as the review's. */
 .mcp-resizer {
   position: fixed;
   z-index: 32;
   top: 50%;
-  right: min(var(--mcp-width, 380px), 100vw);
+  left: min(var(--mcp-width, 380px), 100vw);
   width: 14px;
   height: 128px;
   margin-top: -64px;
   display: grid;
   place-items: center;
   cursor: col-resize;
-  transform: translateX(calc(min(var(--mcp-width, 380px), 100vw) + 28px));
+  transform: translateX(calc(-1 * (min(var(--mcp-width, 380px), 100vw) + 28px)));
   visibility: hidden;
   transition: transform 0.2s ease, visibility 0s 0.2s;
   -webkit-app-region: no-drag;
@@ -328,10 +333,33 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 }
 .mcp-resizer:hover::after, .mcp-resizing .mcp-resizer::after { background: var(--accent); }
 .mcp-resizing, .mcp-resizing * { cursor: col-resize !important; user-select: none !important; }
+.panel-hint.server-intro { margin: 0 0 12px; }
 .server-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 12px; }
 .server-details dt { color: var(--muted); }
 .server-details dd { margin: 0; overflow-wrap: anywhere; }
 .mcp-setup[hidden] { display: none; }
+/* The AIs the chat runs, a row each (see server-status.js). */
+.ai-list { display: grid; gap: 8px; margin-top: 10px; }
+.ai-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.ai-row-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.ai-row-text span { color: var(--muted); font-size: 12px; }
+.ai-row-text .ai-row-how { margin-top: 4px; color: var(--text-2); }
+/* Installing or signing in: the step in words under the name, and the percentage done (or a
+   spinner) in the button's place (see ai-progress.js). */
+.ai-row-text .ai-progress-line { color: var(--text-2); }
+.ai-progress { flex: none; align-self: flex-start; display: flex; align-items: center; justify-content: flex-end; min-width: 36px; min-height: 18px; color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.ai-spinner { flex: none; width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: ai-spin 0.8s linear infinite; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ai-spinner { animation-duration: 2.4s; } }
+.chat-setup-progress { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+.chat-setup-progress .ai-progress-line { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); font-size: 12px; }
+.chat-setup-progress .ai-progress { align-self: center; }
+.ai-row .secondary-button { align-self: flex-start; }
+.ai-ready { flex: none; align-self: flex-start; color: var(--decided-text); font-size: 12px; font-weight: 600; line-height: 1.4; } /* level with the title */
+/* Connecting an AI app by hand, folded away. */
+.manual-setup { margin-top: 20px; }
+.manual-setup > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.manual-setup[open] > summary { margin-bottom: 4px; }
 
 /* The AI app to set up: a full-width button with its chevron at the end, opening a menu of the
    apps below it, as wide as the button. */
@@ -399,6 +427,29 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .code-copy { position: absolute; right: 3px; bottom: 3px; }
 .code-copy:hover { background: var(--button-hover); }
 .setup-steps code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 11px; }
+
+/* Zoom (see app-shell.js): a small bar at the bottom left of the document, over it. */
+.zoom-controls {
+  grid-area: 1 / 1; align-self: end; justify-self: start; z-index: 6; margin: 0 0 12px 12px;
+  display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+body:not(.has-document) .zoom-controls, .comparing .zoom-controls, .list-view-open .zoom-controls { display: none; }
+.zoom-controls .icon-button { width: 28px; height: 28px; }
+.zoom-controls .icon-button:disabled { color: var(--faint); background: transparent; cursor: default; }
+.zoom-level { min-width: 48px; height: 28px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.zoom-level:hover { background: var(--button-hover); }
+/* Zoomed, the pages aren't at the size the edge handles set, so the handles step aside. */
+.zoomed .page-resizer { display: none; }
+
+/* The app's own tooltips (tooltips.js): a small dark card, above everything, never in the way. */
+.tooltip {
+  position: fixed; z-index: 100; max-width: 320px; padding: 4px 8px; border-radius: 6px;
+  background: light-dark(#2b2b30, #f2f2f4); color: light-dark(#f2f2f4, #1c1c1f);
+  font-size: 12px; line-height: 1.35; white-space: pre-line; pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+.tooltip[hidden] { display: none; }
 
 /* --- The PDF view and the bar under it ---------------------------------------------------- */
 .workspace {
@@ -725,7 +776,7 @@ body:not(.has-document) .pages-wrap { display: none; }
 .pages-wrap { position: relative; }
 .pages {
   display: grid;
-  justify-content: center;
+  justify-content: safe center; /* zoomed wider than the view, the pages start at its left and scroll */
   gap: 16px;
   /* Room below the last page for open cards, and the same above the first. */
   padding: calc(var(--card-gap) + 120px) 0;
@@ -852,7 +903,150 @@ button:disabled { opacity: 0.5; cursor: default; }
 .find-docked .scrollbar { margin-right: calc(var(--find-column) + 2px); }
 .find-docked .drop-zone { left: calc(50% - var(--find-column) / 2); }
 .find-docked .margin-layer, .find-docked .marks, .find-docked .comment-offer, .find-docked .comment-composer, .find-docked .comment-draft-mark, .find-docked .page-resizer { display: none; }
-.find-docked .review-bar-nav { visibility: hidden; }
+/* The chat with Claude (see chat-panel.js): docked, a column at the right that the pages make
+   room for, as find's does; floating, a window of its own (chat.html). */
+.chat-docked .document { padding-right: var(--chat-width); }
+.chat-docked #scrollbar { margin-right: calc(var(--chat-width) + 2px); }
+.chat-docked .drop-zone { left: calc(50% - var(--chat-width) / 2); }
+.chat-docked .page-resizer { display: none; } /* centred on the window, they'd sit over the pages */
+#chat-panel[hidden] { display: none; }
+/* Docked, the full height of the window, over the top and bottom bars' right ends: only the
+   server's status shows over it (.server-pill's z-index), under the MCP panel and its mask. */
+.chat-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 29;
+  display: flex; flex-direction: column; box-sizing: border-box; width: var(--chat-width); min-height: 0;
+  border-left: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px;
+}
+/* The bottom bar's sentence and actions stay clear of it. */
+.chat-docked .review-bar { padding-right: calc(var(--chat-width) + 16px); }
+/* Its left edge resizes it, from 300px to half the window; double-clicking goes back to the usual width. */
+.chat-resizer { position: absolute; top: 0; bottom: 0; left: -4px; z-index: 1; width: 8px; cursor: col-resize; -webkit-app-region: no-drag; }
+.chat-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.15s ease; }
+.chat-resizer:hover::after, .chat-resizing .chat-resizer::after { opacity: 1; transition-delay: 0.15s; }
+/* A grip in the middle of the edge says it can be dragged; the whole edge drags. */
+.chat-resizer::before {
+  content: ""; position: absolute; top: 50%; left: 1px; z-index: 1; width: 6px; height: 36px; margin-top: -18px;
+  border-radius: 3px; background: var(--border-strong); box-shadow: 0 0 0 2px var(--bg);
+}
+.chat-resizer:hover::before, .chat-resizing .chat-resizer::before { background: var(--accent); }
+.chat-resizing, .chat-resizing * { cursor: col-resize !important; user-select: none; }
+.chat-panel.windowed .chat-resizer { display: none; }
+/* In its own window (chat.html): the whole window, moved by its header. */
+body.chat-window-body { display: flex; background: var(--bg); }
+.chat-panel.windowed { position: relative; flex: 1; min-width: 0; width: auto; border-left: 0; } /* never wider than the window, whatever is in it */
+.chat-panel.windowed .chat-head { -webkit-app-region: drag; }
+.chat-panel.windowed .chat-head button { -webkit-app-region: no-drag; }
+.chat-head { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 6px 8px 6px 12px; background: var(--bg); user-select: none; }
+/* Docked: the top row is level with the top bar, as tall and as draggable; then the title's row. */
+.chat-panel:not(.windowed) .chat-head { box-sizing: border-box; height: var(--top-bar-height); min-height: 0; padding: 0 8px; -webkit-app-region: drag; }
+.chat-panel:not(.windowed) .chat-head button { -webkit-app-region: no-drag; }
+.chat-head .icon-button[hidden] { display: none; }
+.chat-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.chat-status { flex: 1; min-width: 0; text-align: right; color: var(--muted); font-size: 12px; } /* fills the header, pushing the AI picker to the right */
+.chat-status.working { color: var(--accent); }
+.chat-scroll { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; } /* a thread slides in and out within it */
+/* The header is on the sidebar's background with no line under it: the conversation fades out as
+   it scrolls up under it, as it does under the message box at the bottom. */
+.chat-scroll::before { content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: 20px; background: linear-gradient(to bottom, var(--bg), transparent); pointer-events: none; }
+.chat-leaving { position: absolute; inset: 0; z-index: 2; background: var(--bg); }
+/* Which AI the chat works with: its name, opening a small menu of the AIs and where each stands. */
+.chat-ai { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; -webkit-app-region: no-drag; }
+.chat-ai:hover, .chat-ai[aria-expanded="true"] { background: var(--button-hover); }
+.chat-ai svg { color: var(--muted); }
+.chat-ai-menu { position: absolute; z-index: 30; display: grid; gap: 2px; min-width: 220px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: 0 8px 28px rgb(0 0 0 / 0.2); }
+.chat-ai-menu[hidden] { display: none; }
+.chat-ai-option { display: grid; gap: 1px; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.chat-ai-option:hover { background: var(--hover-tint); }
+.chat-ai-option.chosen .chat-ai-option-name { color: var(--accent); }
+.chat-ai-option-name { font-weight: 600; }
+.chat-ai-option-state { color: var(--muted); font-size: 12px; }
+
+/* The way back from a thread: a rounded square floating at the chat's top left. */
+.chat-back { position: absolute; top: 10px; left: 12px; z-index: 3; width: 32px; height: 32px; border-radius: 8px; background: var(--bg); box-shadow: 0 1px 3px rgb(0 0 0 / 0.2), 0 0 0 1px var(--border); }
+.chat-back[hidden] { display: none; }
+/* A thread's title, its first entry, beside the way back (level with it while at the top). */
+/* Its first line is level with the back button's middle (button 10px to 42px down, so its middle is
+   26px; the title starts at 10px, and 6px plus half its 20px line is 26px): a longer title wraps
+   onto lines below, never moving the first one up. */
+.chat-thread-title { box-sizing: border-box; min-height: 32px; padding: 6px 0 0 42px; margin-top: -2px; font-size: 15px; font-weight: 600; line-height: 1.35; user-select: text; }
+.chat-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 12px 12px calc(var(--chat-foot, 52px) + 4px); display: flex; flex-direction: column; gap: 10px; }
+.chat-scrollbar { position: absolute; top: 0; right: 0; bottom: var(--chat-foot, 52px); margin: 6px 2px; } /* the app's scrollbar (scrollbar.js), over the conversation's right edge */
+.chat-body > * { flex: none; } /* each its full height: the conversation scrolls, nothing in it is squeezed */
+.chat-empty { color: var(--muted); font-size: 12.5px; line-height: 1.45; text-align: left; }
+.chat-setup { display: grid; gap: 8px; padding: 12px; border-radius: 10px; background: var(--subtle-bg); }
+.chat-setup-text { line-height: 1.45; }
+.chat-setup-note { color: var(--muted); font-size: 12px; }
+/* Every item of the review, as rows that open their threads. */
+.chat-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+/* Its header row folds and unfolds it (folded at first): a chevron, what it is, how many are left. */
+.chat-list-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.chat-list-head:hover { background: var(--button-hover); }
+.chat-list.open .chat-list-head { border-bottom: 1px solid var(--border); }
+.chat-list-chevron { flex: none; color: var(--muted); transition: transform 0.15s ease; }
+.chat-list.open .chat-list-chevron { transform: rotate(90deg); }
+.chat-list-title { flex: 1; font-weight: 600; }
+.chat-list-count { color: var(--muted); font-size: 12px; }
+.chat-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.chat-list-head + .chat-row { border-top: 0; }
+.chat-row:hover { background: var(--hover-tint); }
+.chat-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.chat-row-icon { display: grid; flex: none; color: var(--item-color); }
+.chat-row-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chat-row-state { flex: none; color: var(--muted); font-size: 11.5px; }
+.chat-row.decided .chat-row-title { color: var(--muted); }
+.chat-row.decided .chat-row-state { color: var(--decided-text); }
+.chat-row.earlier .chat-row-icon { color: var(--muted); }
+/* The conversation: the user's messages on the right, Claude's on the left, its steps as quiet lines. */
+.chat-message { max-width: 92%; line-height: 1.45; user-select: text; }
+.chat-message.user { align-self: flex-end; padding: 7px 10px; border-radius: 12px 12px 4px 12px; background: var(--accent); color: #fff; }
+.chat-message.assistant { align-self: flex-start; }
+.chat-message.step { align-self: flex-start; color: var(--muted); font-size: 12px; }
+.chat-message.step::before { content: "•"; margin-right: 6px; }
+/* What the window opened, noted in the conversation: a quiet line across it. */
+.chat-message.event { align-self: stretch; display: flex; align-items: center; gap: 8px; max-width: none; color: var(--muted); font-size: 11.5px; }
+.chat-message.event::before, .chat-message.event::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.chat-message.error { align-self: stretch; padding: 7px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del-text); }
+.chat-paragraph + .chat-paragraph { margin-top: 8px; }
+.chat-paragraph { white-space: pre-wrap; }
+.chat-list-block { margin: 0; padding-left: 20px; }
+.chat-list-block li + li { margin-top: 2px; }
+.chat-paragraph + .chat-list-block, .chat-list-block + .chat-paragraph { margin-top: 8px; }
+.chat-message code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 12px; }
+.chat-working { color: var(--accent); font-size: 12px; }
+.chat-working::after { content: "…"; animation: chat-dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
+@keyframes chat-dots { from { width: 0; } to { width: 1.2em; } }
+/* An item's card in its thread: the card in full, as wide as the chat. */
+.chat-body .margin-card { flex: none; border-left: 4px solid var(--item-color); box-shadow: none; border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); user-select: text; }
+/* The message box floats over the conversation's bottom, on the sidebar's background, which
+   starts as a fade above it so the conversation fades out as it scrolls behind it. No bar, no line. */
+.chat-foot {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; display: grid; gap: 8px; box-sizing: border-box;
+  padding: 24px 12px 8px; background: linear-gradient(to bottom, transparent, var(--bg) 24px); pointer-events: none;
+}
+.chat-foot > * { pointer-events: auto; }
+.chat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-chips:empty { display: none; }
+.chat-chip { padding: 5px 10px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--bg); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.chat-chip:hover { background: var(--button-hover); }
+.chat-chip.primary { border-color: var(--accent); color: var(--accent); }
+/* The message box: what's written wraps and the box grows with it (up to a third of the window,
+   then scrolls), the send button inside it, held at its bottom right corner. */
+.chat-compose { position: relative; display: flex; }
+.chat-compose textarea {
+  flex: 1; min-width: 0; box-sizing: border-box; min-height: 36px; max-height: 30vh; padding: 7px 40px 7px 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
+  font: inherit; line-height: 1.45; field-sizing: content; resize: none; overflow-wrap: anywhere;
+}
+.chat-compose textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.chat-send {
+  /* A rounded square tucked into the box's corner: its corners follow the box's, 4px in. */
+  position: absolute; right: 4px; bottom: 4px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 7px; background: var(--accent); color: #fff; cursor: pointer;
+}
+.chat-send:disabled { background: var(--border-strong); color: var(--bg); cursor: default; }
+.chat-send:not(:disabled):hover { filter: brightness(1.1); }
+.chat-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chat-send.stop { background: var(--del-text); }
 /* Multiplied onto the page so the text still shows through, on a layer of their own. */
 .find-marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; mix-blend-mode: multiply; }
 .find-mark { position: absolute; border-radius: 2px; background: #ffe35c; }
@@ -871,21 +1065,20 @@ button:disabled { opacity: 0.5; cursor: default; }
 .margin-slot.hovered { z-index: 5; }
 .margin-slot.open { z-index: 6; }
 .margin-slot.filtered-out { opacity: 0.35; }
-.margin-tab, .margin-card, .margin-peek { box-sizing: border-box; background: var(--item-background); }
-.margin-tab, .margin-card, .margin-peek { border-radius: 8px; }
-.margin-r .margin-tab, .margin-r .margin-card, .margin-r .margin-peek { border-left: 4px solid var(--item-color); }
-.margin-l .margin-tab, .margin-l .margin-card, .margin-l .margin-peek { border-right: 4px solid var(--item-color); }
-.margin-peek { position: absolute; inset: 0; z-index: 0; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.05); }
-/* A closed tab: three rows, every tab the same height (TAB_HEIGHT in margin-review.js), plus a
-   row for the pager on a deck's (PAGER_HEIGHT). */
+.margin-tab, .margin-card { box-sizing: border-box; background: var(--item-background); }
+.margin-tab, .margin-card { border-radius: 8px; }
+.margin-r .margin-tab, .margin-r .margin-card { border-left: 4px solid var(--item-color); }
+.margin-l .margin-tab, .margin-l .margin-card { border-right: 4px solid var(--item-color); }
+/* A tab: its kind's name on the top line, a short title below (TAB_HEIGHT in
+   margin-review.js). */
 .margin-tab {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-rows: 18px 22px 20px;
-  align-items: center;
+  grid-template-rows: 18px 20px;
+  align-content: start;
   width: 100%;
-  height: 76px;
+  height: 48px;
   margin: 0;
   padding: 8px 12px;
   border-top: 0;
@@ -901,7 +1094,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 .margin-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .margin-kind { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: light-dark(var(--item-kind-color), color-mix(in srgb, var(--item-kind-color) 62%, white)); }
 .margin-title, .margin-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.margin-title { font-size: 13px; font-weight: 600; }
+.margin-tab-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.margin-stack { flex: none; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--item-color); color: #fff; font-size: 10.5px; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.margin-tab-head .margin-kind { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.margin-done { flex: none; color: var(--decided-text); font-size: 11px; font-weight: 700; }
+/* In narrow gutters a card is its kind's icon alone, with how many cards the deck holds at its corner. */
+.margin-icon { display: grid; flex: none; color: light-dark(var(--item-kind-color), color-mix(in srgb, var(--item-kind-color) 62%, white)); }
+.margin-tab.icon { display: grid; grid-template-columns: none; grid-template-rows: none; place-content: center; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 8px; }
+.margin-r .margin-tab.icon, .margin-l .margin-tab.icon { border-left-width: 0; border-right-width: 0; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--item-color) 45%, transparent), 0 1px 2px rgba(0, 0, 0, 0.08); }
+.margin-count { position: absolute; top: -5px; right: -5px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--item-color); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.margin-slot.focused .margin-tab { outline: 2px solid var(--item-color); outline-offset: 1px; }.margin-title { font-size: 13px; font-weight: 600; }
 .margin-status { font-size: 11.5px; color: var(--muted); }
 .decided .margin-tab { background: var(--subtle-bg); }
 .decided .margin-title { color: var(--muted); }
@@ -918,29 +1120,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .earlier .margin-kind { color: var(--muted); }
 .earlier .margin-title, .earlier .finding-body { color: var(--muted); }
 .margin-outcome { flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--decided-text); }
-/* A deck's pager is a row of its own across the bottom of the tab or open card, which leave room
-   for it: ‹ at the start, "1 of 3" in the middle, › at the end. No divider above it. */
-.margin-pager {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 28px;
-  padding: 0 4px;
-  font-size: 11.5px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.margin-r .margin-pager { left: 4px; } /* clear of the coloured edge */
-.margin-l .margin-pager { right: 4px; }
-.multi .margin-tab { height: 104px; padding-bottom: 36px; }
-.multi .margin-card { padding-bottom: 36px; }
-.margin-pager button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; font-size: 15px; line-height: 1; color: var(--text-2); cursor: pointer; }
-.margin-pager button:hover { background: var(--button-hover); }
 /* An open card: the same width as its tab, growing downwards over the margin. */
 .margin-card:focus { outline: none; }
 .margin-card { scroll-margin: 16px; } /* room around it when it's scrolled into view */
@@ -1043,7 +1222,6 @@ button:disabled { opacity: 0.5; cursor: default; }
   font-size: 13px;
 }
 .review-bar-text { flex: 1; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.review-bar-nav { display: flex; gap: 8px; }
 .review-bar-end { display: flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
 .review-bar-end:empty { display: none; }
 .copy-prompt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; } /* at the bar's right end */
@@ -1211,3 +1389,5 @@ body:has(.document.dragging) .compare { visibility: hidden; }
   100% { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .copied-tip { animation: none; } }
+
+.server-off #server-retry { margin-top: 8px; }

@@ -2,6 +2,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { app } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildServer } from './mcp-tools.js';
@@ -31,6 +32,8 @@ export async function startMcpServer(ai, userData) {
   const http = createServer(async (req, res) => {
     const deny = (code, message) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify({ error: message }));
     if (req.headers.origin) return deny(403, 'Browser requests are not allowed.');
+    // Says what this server is, so another copy of the app that finds the port taken can tell the user.
+    if (req.url === '/whoami') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ app: 'SmartDoc', development: !app.isPackaged, version: app.getVersion() }));
     if (req.headers.authorization !== `Bearer ${token}`) return deny(401, 'Missing or wrong token.');
     if (!req.url?.startsWith('/mcp')) return deny(404, 'Not found.');
     if (req.method !== 'POST') return deny(405, 'Only POST is supported.');
@@ -77,4 +80,22 @@ export async function startMcpServer(ai, userData) {
     http.listen(MCP_PORT, '127.0.0.1', resolve);
   });
   return { url: `http://127.0.0.1:${MCP_PORT}/mcp`, token, close: () => http.close() };
+}
+
+// What's listening on the port, when the server finds it taken: another SmartDoc (which says so at
+// /whoami), else the name of the program holding it (from lsof), else nothing known.
+export async function portHolder(port = MCP_PORT) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/whoami`, { signal: AbortSignal.timeout(1500) });
+    const who = await res.json();
+    if (who?.app === 'SmartDoc') return { kind: 'smartdoc', development: Boolean(who.development) };
+  } catch {}
+  const name = await new Promise((resolve) => {
+    execFile('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fc'], { timeout: 2000 }, (error, stdout) => {
+      resolve(error ? null : stdout.split('\n').find((line) => line.startsWith('c'))?.slice(1) || null);
+    });
+  });
+  // Copies of SmartDoc from before /whoami still show as SmartDoc (or Electron, in development).
+  if (name === 'SmartDoc' || name === 'Electron') return { kind: 'smartdoc', development: name === 'Electron' };
+  return name ? { kind: 'other', name } : { kind: 'unknown' };
 }

@@ -1,16 +1,15 @@
-// The MCP server's status in the top bar: a pill showing only whether it's starting (amber), on
-// (green) or off (red), taking turns with which AI works in this window, if one does. Clicking it
-// dulls
-// the window with a white mask (leaving the pill clear) and slides in a full-height panel on the
-// right with the server's details and, for each AI app, how to connect it; for Claude Desktop,
-// a button that adds SmartDoc for the user. Connect an AI in the menu opens it too. The panel's
-// drag handle resizes it, and closes it when dragged below the minimum width.
+// The MCP server's status, first in the top bar after the traffic lights: a pill showing only
+// whether it's starting (amber), on (green) or off (red). Clicking it dulls the window with a mask
+// (leaving the pill clear) and slides in a full-height panel from the left with the AIs the chat
+// runs (installing and signing in), the server's details and, folded away, how to connect another
+// AI app by hand. Connect an AI in the menu opens it too. The panel's drag handle, at its right
+// edge, resizes it, and closes it when dragged below the minimum width.
 
 import { arrowKeysIn } from './menu-keys.js';
+import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgress } from './ai-progress.js';
 
 const PANEL_MIN = 300;
 const PANEL_MAX_SHARE = 0.66;
-const PILL_SWAP_MS = 4000;
 const panelMax = () => Math.max(PANEL_MIN, window.innerWidth * PANEL_MAX_SHARE);
 
 const copyIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9,18q-0.82,0-1.41-0.59T7,16V4Q7,3.17 7.59,2.59T9,2h9q0.82,0 1.41,0.59T20,4V16q0,0.82-0.59,1.41T18,18H9Zm0-2h9V4H9V16ZM5,22q-0.83,0-1.41-0.59T3,20V6H5V20H16v2H5Zm4-6V4V16Z"/></svg>';
@@ -20,6 +19,21 @@ const copiedIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" 
 const LABELS = { starting: 'Starting…', running: 'Server Ready', off: 'Not running' };
 const TITLES = { starting: 'MCP server: starting', running: 'MCP server: ready for your AI', off: 'MCP server: not running' };
 const STATES = { starting: 'Starting…', running: 'Running', off: 'Not running' };
+
+// Why the server isn't running, for the user: what's using its port, if that's it, and what to do.
+function offReason(status) {
+  if (status.reason === 'port-in-use') {
+    const { holder, port } = status;
+    if (holder?.kind === 'smartdoc') {
+      const which = holder.development ? 'A development copy of SmartDoc' : 'Another copy of SmartDoc';
+      return `${which} is already open and running the server your AI connects to, so this one can’t run its own. Your AI works with that copy. Quit it and this one takes over by itself within a few seconds.`;
+    }
+    const who = holder?.kind === 'other' ? `Another app, ${holder.name},` : 'Another app on this Mac';
+    return `${who} is using port ${port}, which SmartDoc’s server needs, so your AI can’t connect. Quit that app and SmartDoc starts its server by itself within a few seconds.`;
+  }
+  if (status.reason === 'error') return `The server couldn’t start: ${status.message}`;
+  return 'The server couldn’t start.';
+}
 
 // Where Claude Desktop stands (see connect.js), and the button for it, if any.
 const CLAUDE_DESKTOP = {
@@ -38,22 +52,27 @@ export function createServerStatus({ api }) {
   const stateEl = document.getElementById('server-state');
   const urlEl = document.getElementById('server-url');
   const off = document.getElementById('server-off');
+  const offText = document.getElementById('server-off-text');
+  const retry = document.getElementById('server-retry');
   const aiLabel = document.getElementById('server-pill-ai');
   const release = document.getElementById('ai-release');
   const releaseText = document.getElementById('ai-release-text');
   let status = { state: 'starting' };
   let aiName = null;
-  let swapping = null;
 
   function render() {
     pill.dataset.state = status.state;
     stateEl.textContent = STATES[status.state];
     label.textContent = LABELS[status.state];
-    const title = aiName ? `${TITLES[status.state]}. ${aiName} works in this window.` : TITLES[status.state];
+    const base = status.state === 'off' && status.reason === 'port-in-use'
+      ? (status.holder?.kind === 'smartdoc' ? 'MCP server: another copy of SmartDoc is running it' : 'MCP server: its port is in use by another app')
+      : TITLES[status.state];
+    const title = aiName ? `${base}. ${aiName} works in this window.` : base;
     pill.title = title;
     pill.setAttribute('aria-label', title);
     urlEl.textContent = status.url ?? '—';
     off.hidden = status.state !== 'off';
+    if (status.state === 'off') offText.textContent = offReason(status);
   }
 
   async function showSetups() {
@@ -82,8 +101,88 @@ export function createServerStatus({ api }) {
     }
   });
 
+  // The AIs the chat runs, each a row: its name, where it stands, and the one thing to do next.
+  const aiList = document.getElementById('ai-list');
+  trackAiProgress(api);
+  let aiBusy = null; // the id of the AI being installed or signed in to
+  const failed = {}; // provider id → why its install or sign-in didn't work, shown once
+  async function showAis(statuses) {
+    if (!aiList || !api.agentStatus) return;
+    if (!statuses) {
+      try {
+        statuses = await api.agentStatus();
+      } catch {
+        statuses = {};
+      }
+    }
+    aiList.replaceChildren();
+    for (const s of Object.values(statuses)) {
+      const row = document.createElement('div');
+      row.className = 'ai-row';
+      const text = document.createElement('div');
+      text.className = 'ai-row-text';
+      const name = document.createElement('strong');
+      // Named by the tool itself (Claude Code, Codex), with where it stands below.
+      name.textContent = s.tool;
+      let state = document.createElement('span');
+      const ready = s.installed && s.loggedIn;
+      state.textContent = ready ? `Signed in${s.account ? ` with your ${s.account}` : ''}` : s.installed ? 'Not signed in' : 'Not installed';
+      // While it's being installed or signed in to, where that's got to, in words.
+      if (failed[s.id] && aiBusy !== s.id) {
+        state.textContent = failed[s.id];
+        delete failed[s.id];
+      }
+      if (aiBusy === s.id) state = progressLine(s.id, s.installed ? 'Waiting for you to sign in in your browser…' : `Getting ready to install ${s.tool}…`);
+      text.append(name, state);
+      // Not ready: what the button does, in a line.
+      const maker = s.id === 'codex' ? 'OpenAI' : 'Anthropic';
+      const how = !s.installed
+        ? (s.installers?.length ? `Install sets up ${s.tool} with ${maker}’s own installer, then you sign in.` : `${s.tool} can’t be installed from here on this Mac: Get it opens ${maker}’s page about it.`)
+        : !s.loggedIn ? `Sign in opens ${s.name}’s sign-in page in your browser. Sign in there, then come back.` : null;
+      if (how) text.append(Object.assign(document.createElement('span'), { className: 'ai-row-how', textContent: how }));
+      row.append(text);
+      if (ready) {
+        const mark = document.createElement('span');
+        mark.className = 'ai-ready';
+        mark.textContent = 'Ready';
+        row.append(mark);
+      } else {
+        const act = (label, run) => {
+          // While it runs, the percentage done (or a spinner) takes the button's place.
+          if (aiBusy === s.id) return progressMark(s.id);
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'secondary-button';
+          button.textContent = label;
+          button.disabled = Boolean(aiBusy);
+          button.addEventListener('click', async () => {
+            aiBusy = s.id;
+            showAis(statuses);
+            let next = null;
+            try {
+              next = await run();
+            } catch (error) {
+              failed[s.id] = failureText(error);
+            }
+            aiBusy = null;
+            clearAiProgress(s.id);
+            showAis(next ?? undefined);
+          });
+          return button;
+        };
+        if (!s.installed && s.installers?.length) row.append(act('Install', () => api.agentInstall(s.id)));
+        else if (!s.installed) row.append(act('Get it', () => api.agentInstallHelp(s.id).then(() => null)));
+        else row.append(act('Sign in', () => api.agentSignIn(s.id)));
+      }
+      aiList.append(row);
+    }
+  }
+
   function setOpen(open) {
-    if (open) refreshClaudeDesktop();
+    if (open) {
+      refreshClaudeDesktop();
+      showAis();
+    }
     const wasIn = card.contains(document.activeElement);
     document.body.classList.toggle('mcp-open', open);
     card.inert = !open;
@@ -119,7 +218,7 @@ export function createServerStatus({ api }) {
     let closing = false;
     let width = startWidth;
     const onMove = (m) => {
-      const raw = startWidth + startX - m.clientX;
+      const raw = startWidth + m.clientX - startX; // its edge is on the right now
       closing = raw < PANEL_MIN;
       document.body.classList.toggle('mcp-closing', closing);
       width = Math.min(panelMax(), Math.max(0, raw));
@@ -217,28 +316,35 @@ export function createServerStatus({ api }) {
     status = next;
     render();
   });
+  // Asked for at once too: a status sent before this window was listening (a reload, say) would
+  // otherwise leave it saying Starting… for good.
+  api.mcpStatus?.().then((next) => {
+    status = next;
+    render();
+  });
+  retry.addEventListener('click', async () => {
+    retry.disabled = true;
+    try {
+      status = await api.retryMcp();
+      render();
+    } finally {
+      retry.disabled = false;
+    }
+  });
   api.onShowConnect(() => setOpen(true));
   document.getElementById('ai-release-button').addEventListener('click', () => api.releaseAiControl());
   render();
   showSetups();
 
   return {
-    // The AI working in this window, or null. Both labels take up the pill's room all the time, so
-    // it stays one width as they swap.
+    // The AI working in this window, or null: said in the server panel (with a way to release the
+    // window). The pill itself only ever shows the server's status; it no longer takes turns with
+    // "Controlled by …", which the user found unneeded now the AI works in the chat.
     setAiControl(name) {
       aiName = name;
-      clearInterval(swapping);
-      delete pill.dataset.showing;
-      aiLabel.hidden = !name;
-      aiLabel.textContent = name ? `Controlled by ${name}` : '';
+      aiLabel.hidden = true;
       release.hidden = !name;
       releaseText.textContent = name ? `${name} works in this window.` : '';
-      if (name) {
-        pill.dataset.showing = 'ai';
-        swapping = setInterval(() => {
-          pill.dataset.showing = pill.dataset.showing === 'ai' ? 'server' : 'ai';
-        }, PILL_SWAP_MS);
-      }
       render();
     },
   };

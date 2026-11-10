@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user, in one of two kinds of review, and the app shows the current review beside the document. The app has a tool for each kind: "Review and draft" (improve) and "Review and highlight" (highlights). Only the active tool's review shows, and get_review returns it; start_review switches to its kind's tool, and switch_tool switches without starting one (for example to show the user an earlier review of the other kind). A draft can have several highlights reviews, one per goal, called focuses (e.g. "Recruiter skim", "The career gap"): list_focuses shows them, with earlier drafts' goals not yet run on this draft, and switch_focus shows one. A new draft starts with none. An improvement review can have a focus too: a goal, and a short name for it (title); the user may send one from the app ("…suggest improvements, focusing on: …"). Without one it's a general review. A document can have variations, one per purpose (such as a CV tailored to a job): "Original" is its own line of drafts, and each variation has its own drafts from the draft it started at. Reviews and drafts belong to the variation showing (get_document_info names it, with its purpose, which every review in it should serve); list_variations, switch_variation and create_variation manage them.
 Open: get_document_info and get_document read the document open in the app. If none is open, or the user means a different one (the user may name it with its document id), open it with open_document: by document_id from list_documents (documents the user has opened before), by path (a PDF on the user's computer, which the user confirms in the app), or with neither so the user picks the file in the app. When open_document reports waiting_for_user, tell the user straight away to switch to the SmartDoc app and answer there, then call get_document_info, which waits for them.
-Read: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything. The document opens on the draft last worked on, which may not be the newest: get_document_info then says notNewest. Reading it is fine, but before starting a review or changing anything, unless the user has asked for that draft, tell them and ask which they want; switch_draft moves to another.
+Read: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything. The document opens on the draft last worked on, which may not be the newest: get_document_info then says notNewest. Reading it is fine, and so is a highlights review, but an older draft can't be improved (no improvement review, findings or apply_review): the drafts after it follow on from it. Tell the user, and ask whether they want the newest draft (switch_draft) or to fork this one, into a new variation (create_variation) or a new document (create_document_from_draft); fork it only once they agree.
 Settle the goal first: read the document, get_review and get_history, then decide with the user what the review is for before calling start_review. Either they want the document improved (type "improve"), or they want to understand it: the key information in it for their purpose (type "highlights"). If it isn't clear which, or what they're after, ask. Pass the agreed goal to start_review in their terms.
 Windows: each AI session has a SmartDoc window of its own, opened by its first tool call, and every call goes to it; opening another document reuses it. If the user's prompt names a window, call use_window with it first, so that window becomes yours instead. Another AI may be working on the same document in its own window: reading is always fine, but a change it has claimed (the same variation in an improvement review, the same goal in a highlights review) is refused, so tell the user. If the user moves your window to another document, your next change is refused: open_document brings it back.
 An improvement review, in rounds:
@@ -109,6 +109,15 @@ export function buildServer(call, { version, waitCommand }) {
     draft: z.number().int().min(0).optional().describe('Its draft to start from: the number, 0 for the original (default: its current draft)'),
   }, (a) => workspace.createVariation(a));
 
+  tool('create_document_from_draft', 'Forks the open document: makes a new document from one of its drafts (by default the one showing), with a line of drafts of its own starting there, and opens it in this window. The document it came from is left as it is. Only use it when the user agrees, such as to work on an older draft, which can\'t be improved where it is.', {
+    variation: z.string().optional().describe('The variation the draft is in, by id (default: the one showing)'),
+    draft: z.number().int().min(0).optional().describe('The draft to start from: its number, 0 for the original (default: the draft showing)'),
+  }, async (a) => {
+    const made = await workspace.documentFromDraftForAi(a);
+    await documents.open({ document_id: made.id });
+    return { created: made.name, document_id: made.id, from: made.from, opened: true };
+  });
+
   tool('get_document_info','The open document\'s size and shape, to plan how to read it: page count; word, character, line and (estimated) paragraph counts; estimated tokens and whether it can be read whole; the PDF\'s own details (title, author, dates); its outline (bookmarks) with page numbers; and the same counts for each page, with its first line. If the user is still answering an open_document request, this waits for them first.', {}, async () => {
     await documents.settle();
     return workspace.getDocumentInfo();
@@ -183,6 +192,15 @@ export function buildServer(call, { version, waitCommand }) {
     quotes: z.array(quote).optional().describe('The text it\'s in'),
   }, (h) => workspace.addHighlight(h));
 
+  tool('revise_finding', 'Improves one finding of the current review, when the user has talked it over with you: its title, why it matters (body), its suggestion (proposal), its options or its question. Only what you pass changes. A finding the user had decided goes back to undecided for them to decide again, so only revise when it helps them.', {
+    id: z.string().describe('The finding\'s id'),
+    title: z.string().min(1).optional(),
+    body: z.string().optional(),
+    proposal: z.object({ before: z.string().optional(), after: z.string().optional(), description: z.string().optional() }).optional(),
+    options: z.array(z.object({ label: z.string(), text: z.string() })).min(2).optional(),
+    question: z.string().optional(),
+  }, (f) => workspace.reviseFinding(f));
+
   tool('remove_item', 'Removes a finding or a highlight, by its id, from the open review.', { id: z.string() }, ({ id }) => workspace.removeItem(id).then(() => ({ removed: id })));
 
   tool('commit_review', 'Finishes the review: nothing more can be added. For an improvement review the user can now make their decisions in the app; for a highlights review, the summary should answer their goal.', {
@@ -191,7 +209,7 @@ export function buildServer(call, { version, waitCommand }) {
 
   tool('get_draft_preview', 'The draft preview waiting for the user: its complete HTML, its summary, and the user\'s comments on it (quoting its text, which get_document doesn\'t show). Comments belong to the preview they were written on: those on an earlier one aren\'t included. Change that HTML and call apply_review to do what they asked.', {}, () => workspace.getDraftPreview());
 
-  tool('apply_review', 'Applies the committed review: supply the complete updated document as self-contained HTML (inline CSS, no scripts or external resources). Keep the current draft\'s look, and lay the content out in reading order without absolute positioning, so the PDF\'s text reads in the right order. It becomes a draft preview of the next draft, replacing any earlier draft preview: not a draft until the user accepts it in the app, so tell them to look at it there. If the current draft isn\'t the newest, accepting it sets later drafts aside.', {
+  tool('apply_review', 'Applies the committed review: supply the complete updated document as self-contained HTML (inline CSS, no scripts or external resources). Keep the current draft\'s look, and lay the content out in reading order without absolute positioning, so the PDF\'s text reads in the right order. It becomes a draft preview of the next draft, replacing any earlier draft preview: not a draft until the user accepts it in the app, so tell them to look at it there.', {
     html: z.string().min(1),
     summary: z.string().optional().describe('What changed, shown with the draft preview and the draft'),
     applied_item_ids: z.array(z.string()).optional().describe('The findings this draft carries out'),
