@@ -168,8 +168,6 @@ export const PROVIDERS = {
 // Claude Code: "No conversation found").
 export const sessionGone = (text) => /no rollout found|no conversation found|session[^\n]*(not found|does not exist|doesn.t exist)/i.test(text);
 
-// The chat a window's draft has: one for each draft of each variation of each document.
-export const chatIdOf = (doc) => (doc ? `${doc.id}/${doc.variationId}/${doc.currentDraftId}` : null);
 
 // The files in a folder and the folders in it, `depth` levels down, with their sizes, looking only
 // in folders changed since `since`.
@@ -376,10 +374,10 @@ export function createAgent({ userData, mcp, onEvent, trial = null }) {
     return status();
   }
 
-  // --- Conversations, kept for each draft --------------------------------------------------------
-  // Each draft has its own chat (`chatId`, from `chatIdOf`): going back to a draft shows what was
-  // said on it, and a new draft starts a new chat, with a new session for the AI. A draft preview
-  // belongs to the chat of the draft it was made from, until it's accepted. Each conversation has
+  // --- Conversations, kept for each window --------------------------------------------------------
+  // Each window has one chat (`chatId`, `window/<id>`; see chatOfWindow in main.js), whatever it
+  // shows: the conversation carries on as it moves between documents, drafts and home, with a line
+  // of context for each move (the user's choice: it was a chat for each draft). Each conversation has
   // the AI's session for each AI it has talked to (`sessions`), so switching AI starts that AI
   // afresh rather than losing the other's.
 

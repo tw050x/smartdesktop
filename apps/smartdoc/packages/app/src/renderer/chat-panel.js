@@ -593,8 +593,8 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     shortcutsChanged: () => draw(),
     // Sends the AI a request (see `ask`).
     ask: (text) => ask(text),
-    // The window shows another draft (or schematic, or home): each has its own chat, so it shows
-    // that one's.
+    // The window shows something else (another draft, schematic, or home): the chat is the
+    // window's, so it's drawn again, with the line saying where the window went.
     documentChanged() {
       drawnKey = null;
       if (open) load();

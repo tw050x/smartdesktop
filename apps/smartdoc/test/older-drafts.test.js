@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { olderDraftRefusal } from '../packages/app/src/main/older-drafts.js';
-import { chatIdOf } from '../packages/app/src/main/agent.js';
 
 const line = ['original', 'd1', 'd2'];
 const on = (draft) => ({ line, currentDraftId: draft, variationName: 'Original' });
@@ -24,12 +23,4 @@ test('an older draft can be read and highlighted, but no AI can improve it', () 
   assert.equal(olderDraftRefusal(on('d1'), 'highlights', 'commit_review'), null);
   assert.equal(olderDraftRefusal(on('d1'), 'improve', 'get_document'), null);
   assert.equal(olderDraftRefusal(on('d1'), 'improve', 'reply_to_comment'), null);
-});
-
-test('each draft of each variation has a chat of its own', () => {
-  const doc = { id: 'doc', variationId: 'original', currentDraftId: 'd1' };
-  assert.equal(chatIdOf(doc), 'doc/original/d1');
-  assert.notEqual(chatIdOf({ ...doc, currentDraftId: 'd2' }), chatIdOf(doc));
-  assert.notEqual(chatIdOf({ ...doc, variationId: 'v-acme' }), chatIdOf(doc));
-  assert.equal(chatIdOf(null), null);
 });

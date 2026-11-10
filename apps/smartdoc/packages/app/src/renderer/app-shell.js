@@ -566,11 +566,11 @@ export function startApp(appApi) {
     },
   });
   // The chat's button in the top bar, beside the server's status: opens the chat, docked, or
-  // closes it, docked or in its own window. It's there while a document is open.
+  // closes it, docked or in its own window. It's always there: the chat is the window's, home too.
   const chatButton = document.getElementById('chat-button');
   function showChatButton() {
     const on = chat.isOpen() || chatFloating;
-    chatButton.hidden = !current.doc;
+    chatButton.hidden = false;
     chatButton.setAttribute('aria-pressed', String(on));
     const name = on ? 'Close the chat' : 'Open the chat';
     chatButton.title = name;
@@ -715,10 +715,7 @@ export function startApp(appApi) {
     clearPages();
     toolSwitcher.close();
     current = { doc: null, review: null, tool: current.tool, preview: null };
-    // The chat is a document's: it closes with it, docked or in its own window (where, left open,
-    // it had nothing to send to and the chat button to close it had gone).
-    chat.setOpen(false);
-    if (chatFloating) api.chatClose?.();
+    // The chat is the window's, so it stays, docked or in its own window, and carries on at home.
     chat.documentChanged(null);
     marginReview.update({ document: null, review: null, earlier: [], preview: null, filter: null });
     showView();

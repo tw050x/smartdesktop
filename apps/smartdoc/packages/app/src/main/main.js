@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
-import { PROVIDERS, chatIdOf, createAgent } from './agent.js';
+import { PROVIDERS, createAgent } from './agent.js';
 import { anchorOf, firstPlace, placeFrom } from './chat-anchor.js';
 import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -214,6 +214,28 @@ const broadcast = (channel, value) => {
 const recentForWindow = async () => shared.recent;
 const MENU_RECENT = 10; // File › Open Recent; the home screen lists them all
 
+// The window's chat is one conversation, whatever it shows (the user's choice: it was a chat for each
+// draft): what it moves to (a document, another draft or variation, a preview, home) goes into it as
+// a line of context, so the AI knows, and the conversation reads in the order things happened.
+const chatOfWindow = (ctx) => (ctx ? `window/${ctx.id}` : null);
+const draftWords = (view) => (view.draft.isPreview ? `the preview of draft ${view.draft.number + 1}` : view.draft.isOriginal ? 'the original' : `draft ${view.draft.number}`);
+function whatShows(view) {
+  if (!view) return { key: 'home', text: 'Went home', detail: 'The window shows SmartDoc\'s home: the user\'s documents.' };
+  const variation = view.variation.isOriginal ? '' : `, the variation “${view.variation.name}”`;
+  return {
+    key: `${view.document.id}/${view.variation.id}/${view.draft.id}`,
+    text: `Opened “${view.document.name}”${variation}, ${draftWords(view)}`,
+    detail: `The window shows the document “${view.document.name}” (document_id ${view.document.id})${variation}, ${draftWords(view)} of ${view.draft.total + 1}.`,
+  };
+}
+function noteWhatShows(ctx, view) {
+  const shows = whatShows(view);
+  ctx.chatShows = shows;
+  // The first thing a window shows isn't news; after that, each move is.
+  if (ctx.chatShowsKey !== undefined && ctx.chatShowsKey !== shows.key) agent.note(chatOfWindow(ctx), { text: shows.text, detail: shows.detail });
+  ctx.chatShowsKey = shows.key;
+}
+
 async function sendDraft() {
   // Only the newest of this window's sends goes out. Opening a draft and then its preview straight
   // away starts two, and the draft's PDF can take longer to read than the preview's, so without this
@@ -222,6 +244,7 @@ async function sendDraft() {
   const ticket = (ctx.draftTicket = (ctx.draftTicket ?? 0) + 1);
   const view = await workspace.draftView();
   if (ctx.draftTicket !== ticket) return;
+  noteWhatShows(ctx, view);
   // The draft's review comes with it, so the window never shows a draft with another draft's review.
   send(view ? 'draft-opened' : 'document-closed', view && { ...view, review: workspace.review, tool: workspace.tool });
   // Back on the home screen, its cards show where each document now stands.
@@ -784,7 +807,7 @@ function closeChatWindow(ctx, dock) {
   ctx.chat.win.close();
 }
 
-const CHAT_SYSTEM = 'You are working inside the SmartDoc app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, beside their document, and the SmartDoc tools act on the window they are looking at: never call use_window, and only open another document if they ask. Follow the SmartDoc server\'s instructions for reviews. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain, and don\'t repeat what the app already shows (the findings and decisions are on screen). A message may start with [What I\'ve done in the app since my last message, for context: …]: what the user did and looked at in the app since they last wrote, so you know what they mean by \"this\"; use it, and don\'t repeat it back. When it helps, end your reply with up to three short questions the user might want to ask you next, in their words, each on its own line as <suggest>question</suggest>: the app shows them as buttons, not as text.';
+const CHAT_SYSTEM = 'You are working inside the SmartDoc app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, in one SmartDoc window, and the SmartDoc tools act on that window: never call use_window. The conversation carries on as the window moves between documents, drafts and home; lines of context say where it went, and what the window shows now is said at the end of these instructions. Only open another document if they ask. Follow the SmartDoc server\'s instructions for reviews. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain, and don\'t repeat what the app already shows (the findings and decisions are on screen). A message may start with [What I\'ve done in the app since my last message, for context: …]: what the user did and looked at in the app since they last wrote, so you know what they mean by \"this\"; use it, and don\'t repeat it back. When it helps, end your reply with up to three short questions the user might want to ask you next, in their words, each on its own line as <suggest>question</suggest>: the app shows them as buttons, not as text.';
 
 function chatThreadPrompt(item, text) {
   const finding = { id: item.id, kind: item.kind, title: item.title, body: item.body, quote: item.anchors?.map((a) => a.text).join(' … '), proposal: item.proposal, options: item.options, question: item.question, decision: item.decision };
@@ -795,10 +818,8 @@ async function chatSend(providerId, conversation, text, { model = null } = {}) {
   const provider = PROVIDERS[providerId] ?? PROVIDERS.claude;
   const client = `smartdoc-${provider.id}`;
   const ctx = current();
-  const doc = ctx?.workspace.document;
-  if (!doc) throw new Error('Open a document first.');
   if (!mcp) throw new Error(`SmartDoc’s server isn’t running, so ${provider.name} can’t work in this window.`);
-  const chatId = chatIdOf(doc); // the draft's chat
+  const chatId = chatOfWindow(ctx); // the window's chat
   const sessionId = `chat-${ctx.id}`;
   const session = sessions.touch(sessionId, client);
   if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
@@ -809,7 +830,7 @@ async function chatSend(providerId, conversation, text, { model = null } = {}) {
     setSessionWindow(session, ctx);
   }
   let prompt = text;
-  let systemPrompt = CHAT_SYSTEM;
+  let systemPrompt = `${CHAT_SYSTEM} ${ctx.chatShows?.detail ?? whatShows(null).detail}`;
   if (conversation !== 'main') {
     const item = ctx.workspace.review?.items?.find((i) => i.id === conversation) ?? ctx.workspace.review?.highlights?.find((h) => h.id === conversation);
     if (!item) throw new Error('That finding isn’t in the review showing.');
@@ -1174,14 +1195,14 @@ const agentProgress = (progress) => {
 };
 handle('agent-sign-in', (id) => agent.signIn(id, agentProgress));
 handle('agent-install', (id) => agent.install(id, agentProgress));
-// The chat of the draft the window shows: each draft has its own.
+// The window's chat: one conversation, whatever it shows.
 handle('agent-chats', async () => {
-  const chatId = chatIdOf(current()?.workspace.document);
+  const chatId = chatOfWindow(current());
   return chatId ? { chatId, ...(await agent.load(chatId)), running: agent.runningIn(chatId) } : null;
 });
 handle('agent-send', (provider, conversation, text, options) => chatSend(provider, conversation, text, options));
-handle('agent-stop', (conversation) => agent.stop(chatIdOf(current().workspace.document), conversation));
-handle('agent-new-session', (provider, conversation) => agent.newSession(chatIdOf(current().workspace.document), conversation, provider));
+handle('agent-stop', (conversation) => agent.stop(chatOfWindow(current()), conversation));
+handle('agent-new-session', (provider, conversation) => agent.newSession(chatOfWindow(current()), conversation, provider));
 handle('chat-float', (view) => openChatWindow(current(), view));
 handle('chat-dock', (view) => {
   const ctx = current();
@@ -1202,8 +1223,8 @@ handle('chat-ready', () => {
 });
 handle('chat-focus', (id) => current().win.webContents.send('chat-focus', id));
 // A line of context for the chat (what the user did or looked at), for the AI with their next
-// message: in the chat of the draft the window shows (see note in agent.js).
-handle('chat-note', (note) => agent.note(chatIdOf(current()?.workspace.document), note));
+// message: in the window's chat (see note in agent.js).
+handle('chat-note', (note) => agent.note(chatOfWindow(current()), note));
 handle('chat-open-item', (id) => openChatWindow(current(), id ?? 'main'));
 handle('agent-install-help', (id) => shell.openExternal((PROVIDERS[id] ?? PROVIDERS.claude).installHelp));
 handle('step-draft', (delta) => workspace.stepDraft(delta));
