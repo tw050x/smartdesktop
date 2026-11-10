@@ -623,7 +623,8 @@ export function createDirector({ api }) {
       const convo = (conversations[b.convo] ??= []);
       const role = { prompt: 'user', say: 'assistant', tool: 'step' }[b.log];
       const text = b.log === 'say' && partial ? b.text.slice(0, Math.round(b.text.length * u)) : b.text;
-      if (text) convo.push(message(b.convo, convo.length, role, text));
+      // A reply still being written out: the chat shows no Working while it is.
+      if (text) convo.push({ ...message(b.convo, convo.length, role, text), ...(b.log === 'say' && partial && u < 1 && { streaming: true }) });
       running = b.last && !(partial && u < 1) ? null : b.convo;
     }
     const chatNow = JSON.stringify([conversations, running]);

@@ -52,7 +52,7 @@ export function createChatPanel({ el, api, review, windowed = false, onDock, onF
   const back = iconButton(BACK, 'Back to the conversation', () => showThread(null));
   back.classList.add('chat-back');
   const title = div('chat-title', 'Chat');
-  const status = div('chat-status');
+  const status = div('chat-status'); // a space, keeping the AI picker at the right
   const dock = windowed
     ? iconButton(DOCK_ICON, 'Dock the chat at the side', () => onDock(view))
     : iconButton(FLOAT_ICON, 'Float the chat in a window of its own', () => onFloat(view));
@@ -168,9 +168,20 @@ export function createChatPanel({ el, api, review, windowed = false, onDock, onF
   const conversation = () => (view === 'main' ? 'main' : view);
   const messagesOf = (key) => (key === 'main' ? chats?.main.messages : chats?.threads[key]?.messages) ?? [];
   const isRunning = (key = conversation()) => Boolean(chats?.running?.includes(key));
-  // Working where nothing shows it: the AI is busy and its reply isn't what's coming in (it's taking
-  // steps, or hasn't said anything yet). While its reply is the latest thing, the reply shows it.
-  const working = (key = conversation()) => isRunning(key) && messagesOf(key).at(-1)?.role !== 'assistant';
+  // Working, at the end of the conversation, whenever the AI is busy, except while its reply is
+  // coming in (the user's choice: the reply shows it). A reply arrives whole, and the AI often
+  // finishes a moment after, so it's hidden for a few seconds after one arrives; still busy after
+  // that, it's at work on something more (the user missed it while ChatGPT went on thinking after
+  // saying something), and it shows again. A reply still being written out (`streaming`, the
+  // website's demo) hides it throughout.
+  const REPLY_SETTLES = 3000;
+  const replyArriving = (key = conversation()) => {
+    const last = messagesOf(key).at(-1);
+    if (last?.role !== 'assistant') return false;
+    return Boolean(last.streaming) || Date.now() - Date.parse(last.at ?? 0) < REPLY_SETTLES;
+  };
+  const working = (key = conversation()) => isRunning(key) && !replyArriving(key);
+  let settleTimer = null;
   const setup = () => statuses?.[provider] ?? null;
   const ready = () => Boolean(setup()?.installed && setup()?.loggedIn);
   const aiName = () => setup()?.name ?? (provider === 'codex' ? 'ChatGPT' : 'Claude');
@@ -299,7 +310,7 @@ export function createChatPanel({ el, api, review, windowed = false, onDock, onF
     const item = view !== 'main' ? items.find((i) => i.id === view) : null;
     if (view !== 'main' && !item) view = 'main'; // its item has gone (a new review, To do)
     // Redrawn only when something it shows changed, so typing in the card's boxes isn't lost.
-    const key = JSON.stringify([view, provider, setup(), busy, isRunning(), messagesOf(conversation()).length, messagesOf(conversation()).at(-1)?.id, messagesOf(conversation()).at(-1)?.text?.length,
+    const key = JSON.stringify([view, provider, setup(), busy, isRunning(), working(), messagesOf(conversation()).length, messagesOf(conversation()).at(-1)?.id, messagesOf(conversation()).at(-1)?.text?.length,
       view === 'main' ? items.map((i) => [i.id, i.title, i.decided]) : [item.status, item.title, item.decided, item.item?.decision, item.item?.revisedAt, item.request?.replies?.length]]);
     if (!force && key === drawnKey) return;
     // The conversation is read from its end: it opens at the bottom and stays there as things
@@ -311,8 +322,13 @@ export function createChatPanel({ el, api, review, windowed = false, onDock, onF
     drawnKey = key;
 
     back.hidden = view === 'main';
-    status.textContent = working() ? 'Working…' : '';
-    status.classList.toggle('working', working());
+    // (The header no longer says it's working: the user found the conversation's line enough.)
+    // Once a reply has settled, if the AI's still busy, the line comes back.
+    clearTimeout(settleTimer);
+    if (isRunning() && replyArriving() && !messagesOf(conversation()).at(-1)?.streaming) {
+      const since = Date.now() - Date.parse(messagesOf(conversation()).at(-1).at);
+      settleTimer = setTimeout(() => draw(), Math.max(0, REPLY_SETTLES - since) + 50);
+    }
     body.replaceChildren();
 
     // The conversation opens with a line saying when it started, drawn as the notes of what the

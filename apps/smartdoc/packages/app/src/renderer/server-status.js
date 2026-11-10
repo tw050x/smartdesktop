@@ -1,5 +1,7 @@
-// The MCP server's status, first in the top bar after the traffic lights: a pill showing only
-// whether it's starting (amber), on (green) or off (red). Clicking it dulls the window with a mask
+// The app's status, first in the top bar after the traffic lights: a pill saying whether SmartDoc
+// is ready to work with an AI: Ready (green) once its server is running and at least one AI is
+// installed and signed in, Set up your AI (amber) while none is, Starting… (amber) and Not running
+// (red) for the server. The user wanted one status for the app, not the server's alone. Clicking it dulls the window with a mask
 // (leaving the pill clear) and slides in a full-height panel from the left with the AIs the chat
 // runs (installing and signing in), the server's details and, folded away, how to connect another
 // AI app by hand. Connect an AI in the menu opens it too. The panel's drag handle, at its right
@@ -16,8 +18,8 @@ const copyIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentC
 const copiedIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
 
 // The pill's short label, and its tooltip saying what it's about.
-const LABELS = { starting: 'Starting…', running: 'Server Ready', off: 'Not running' };
-const TITLES = { starting: 'MCP server: starting', running: 'MCP server: ready for your AI', off: 'MCP server: not running' };
+const LABELS = { starting: 'Starting…', running: 'Ready', setup: 'Set up your AI', off: 'Not running' };
+const TITLES = { starting: 'SmartDoc is starting', setup: 'SmartDoc’s server is running, but no AI is set up for the chat yet', off: 'SmartDoc’s server isn’t running' };
 const STATES = { starting: 'Starting…', running: 'Running', off: 'Not running' };
 
 // Why the server isn't running, for the user: what's using its port, if that's it, and what to do.
@@ -59,14 +61,24 @@ export function createServerStatus({ api }) {
   const releaseText = document.getElementById('ai-release-text');
   let status = { state: 'starting' };
   let aiName = null;
+  let ais = null; // the AIs the chat runs, once known: { claude: { installed, loggedIn, … }, … }
+
+  // The app's state: the server's, and once it's running, whether an AI is ready for the chat.
+  const appState = () => {
+    if (status.state !== 'running') return status.state;
+    if (!ais) return 'starting';
+    return Object.values(ais).some((a) => a.installed && a.loggedIn) ? 'running' : 'setup';
+  };
 
   function render() {
-    pill.dataset.state = status.state;
+    const state = appState();
+    pill.dataset.state = state;
     stateEl.textContent = STATES[status.state];
-    label.textContent = LABELS[status.state];
+    label.textContent = LABELS[state];
+    const ready = Object.values(ais ?? {}).filter((a) => a.installed && a.loggedIn).map((a) => a.name);
     const base = status.state === 'off' && status.reason === 'port-in-use'
-      ? (status.holder?.kind === 'smartdoc' ? 'MCP server: another copy of SmartDoc is running it' : 'MCP server: its port is in use by another app')
-      : TITLES[status.state];
+      ? (status.holder?.kind === 'smartdoc' ? 'Another copy of SmartDoc is running the server' : 'SmartDoc’s server port is in use by another app')
+      : state === 'running' ? `SmartDoc is ready: ${ready.join(' and ')} ${ready.length > 1 ? 'are' : 'is'} set up for the chat` : TITLES[state];
     const title = aiName ? `${base}. ${aiName} works in this window.` : base;
     pill.title = title;
     pill.setAttribute('aria-label', title);
@@ -104,7 +116,7 @@ export function createServerStatus({ api }) {
   // The AIs the chat runs, each a row: its name, where it stands, and the one thing to do next.
   const aiList = document.getElementById('ai-list');
   trackAiProgress(api);
-  let aiBusy = null; // the id of the AI being installed or signed in to
+  const aiBusy = new Set(); // the AIs being installed or signed in to: each its own, at once
   const failed = {}; // provider id → why its install or sign-in didn't work, shown once
   async function showAis(statuses) {
     if (!aiList || !api.agentStatus) return;
@@ -115,6 +127,8 @@ export function createServerStatus({ api }) {
         statuses = {};
       }
     }
+    ais = statuses;
+    render();
     aiList.replaceChildren();
     for (const s of Object.values(statuses)) {
       const row = document.createElement('div');
@@ -128,11 +142,11 @@ export function createServerStatus({ api }) {
       const ready = s.installed && s.loggedIn;
       state.textContent = ready ? `Signed in${s.account ? ` with your ${s.account}` : ''}` : s.installed ? 'Not signed in' : 'Not installed';
       // While it's being installed or signed in to, where that's got to, in words.
-      if (failed[s.id] && aiBusy !== s.id) {
+      if (failed[s.id] && !aiBusy.has(s.id)) {
         state.textContent = failed[s.id];
         delete failed[s.id];
       }
-      if (aiBusy === s.id) state = progressLine(s.id, s.installed ? 'Waiting for you to sign in in your browser…' : `Getting ready to install ${s.tool}…`);
+      if (aiBusy.has(s.id)) state = progressLine(s.id, s.installed ? 'Waiting for you to sign in in your browser…' : `Getting ready to install ${s.tool}…`);
       text.append(name, state);
       // Not ready: what the button does, in a line.
       const maker = s.id === 'codex' ? 'OpenAI' : 'Anthropic';
@@ -149,14 +163,13 @@ export function createServerStatus({ api }) {
       } else {
         const act = (label, run) => {
           // While it runs, the percentage done (or a spinner) takes the button's place.
-          if (aiBusy === s.id) return progressMark(s.id);
+          if (aiBusy.has(s.id)) return progressMark(s.id);
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'secondary-button';
           button.textContent = label;
-          button.disabled = Boolean(aiBusy);
           button.addEventListener('click', async () => {
-            aiBusy = s.id;
+            aiBusy.add(s.id);
             showAis(statuses);
             let next = null;
             try {
@@ -164,7 +177,7 @@ export function createServerStatus({ api }) {
             } catch (error) {
               failed[s.id] = failureText(error);
             }
-            aiBusy = null;
+            aiBusy.delete(s.id);
             clearAiProgress(s.id);
             showAis(next ?? undefined);
           });
@@ -332,6 +345,19 @@ export function createServerStatus({ api }) {
     }
   });
   api.onShowConnect(() => setOpen(true));
+  // Whether an AI is ready, for the pill: at the start, and on coming back to the window (from
+  // signing in in the browser, say), unless one is being set up here (which says when it's done).
+  const checkAis = async () => {
+    if (aiBusy.size || !api.agentStatus) return;
+    try {
+      ais = await api.agentStatus();
+    } catch {
+      ais = {};
+    }
+    render();
+  };
+  checkAis();
+  addEventListener('focus', checkAis);
   document.getElementById('ai-release-button').addEventListener('click', () => api.releaseAiControl());
   render();
   showSetups();

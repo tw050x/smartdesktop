@@ -942,8 +942,7 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .chat-panel:not(.windowed) .chat-head button { -webkit-app-region: no-drag; }
 .chat-head .icon-button[hidden] { display: none; }
 .chat-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
-.chat-status { flex: 1; min-width: 0; text-align: right; color: var(--muted); font-size: 12px; } /* fills the header, pushing the AI picker to the right */
-.chat-status.working { color: var(--accent); }
+.chat-status { flex: 1; min-width: 0; } /* an empty space filling the header, pushing the AI picker to the right */
 .chat-scroll { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; } /* a thread slides in and out within it */
 /* The header is on the sidebar's background with no line under it: the conversation fades out as
    it scrolls up under it, as it does under the message box at the bottom. */
