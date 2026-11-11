@@ -120,13 +120,22 @@ ws.addEventListener('message', (m) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 await send('Runtime.enable');
+await send('Page.enable');
+// The next page loaded, its frames and all (navigating answers before it has).
+const loaded = () => new Promise((resolve) => ws.addEventListener('message', function on(m) {
+  if (JSON.parse(m.data).method !== 'Page.loadEventFired') return;
+  ws.removeEventListener('message', on);
+  resolve();
+}));
 await send('Emulation.setDeviceMetricsOverride', { width: 2400, height: 1100, deviceScaleFactor: 1, mobile: false });
 await send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
 for (const scheme of ['dark', 'light']) {
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] });
   for (const scene of scenes) {
     // A fresh demo for each scene, so nothing's left from the one before.
+    const load = loaded();
     await send('Page.navigate', { url: `${origin}/__shots.html` });
+    await load;
     await run(`(async () => {
       const app = document.querySelector('#app iframe');
       const chat = document.querySelector('#chat iframe');
