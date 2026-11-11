@@ -78,28 +78,27 @@
 /* The agent's side: a window of its own floating over the app's, as another app on the desktop
    would, over the app window's left side (placed by story.js) so the cards appearing in its right
    margin stay in view. The demo tells the page what the agent is doing: the user's prompt, the
-   agent's replies (typed out) and its SmartDoc tool calls, a spinner while one's under way and a
-   tick once done. Its height is fixed: what's new comes in at the bottom and the oldest scrolls
+   agent's replies (typed out) and each step it takes, drawn as the app's chat draws them. Its height is fixed: what's new comes in at the bottom and the oldest scrolls
    off the top. It shows while it has something to say. Generic, standing for whichever agent the
    visitor uses. */
-.agent { position: absolute; bottom: 32px; left: 32px; z-index: 2; display: flex; flex-direction: column; width: 360px; height: min(440px, calc(100% - 64px)); border-radius: 12px; overflow: hidden; background: #1d1d1f; color: #e8e8ed; font-size: 13px; line-height: 1.45; text-align: left; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 24px 60px rgba(0, 0, 0, 0.35); opacity: 0; transform: translateY(16px) scale(0.98); transition: opacity 0.35s, transform 0.35s; pointer-events: none; }
+.agent { position: absolute; bottom: 32px; left: 32px; z-index: 2; display: flex; flex-direction: column; width: 400px; height: 560px; transform-origin: bottom left; border-radius: 10px; overflow: hidden; background: #1c1c1e; color: #f2f2f4; font-size: 13px; line-height: 1.45; text-align: left; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 18px 48px rgba(0, 0, 0, 0.22); opacity: 0; transform: translateY(16px) scale(0.98); transition: opacity 0.35s, transform 0.35s; pointer-events: none; }
 .agent.shown { opacity: 1; transform: none; }
-.agent-bar { position: relative; flex: none; margin: 0; padding: 8px 12px; background: #2c2c2e; border-bottom: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px; font-weight: 600; color: #a1a1a6; text-align: center; }
-.agent-lights { position: absolute; left: 12px; top: 50%; display: flex; gap: 6px; transform: translateY(-50%); }
+/* Its header as the app's chat has one: on the window's own background, the name at the side. */
+.agent-bar { position: relative; flex: none; margin: 0; padding: 10px 12px 4px 72px; font-size: 12px; font-weight: 600; color: #8e8e93; }
+.agent-lights { position: absolute; left: 12px; top: 50%; display: flex; gap: 6px; transform: translateY(-30%); }
 .agent-lights i { width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; }
 .agent-lights i:nth-child(2) { background: #febc2e; }
 .agent-lights i:nth-child(3) { background: #28c840; }
-/* Newest at the bottom; what doesn't fit goes off the top, fading out as it goes. */
-.agent-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; padding: 12px 14px; overflow: hidden; mask-image: linear-gradient(to bottom, transparent 0, #000 40px); }
-.agent-body > * { flex: none; margin: 0; animation: agent-in 0.3s ease-out; }
-.agent-prompt { align-self: flex-end; max-width: 85%; margin-bottom: 4px; padding: 8px 11px; border-radius: 12px 12px 4px 12px; background: #2f6fde; color: #fff; }
-.agent-say { color: #f2f2f4; }
-.agent-tool { display: flex; align-items: baseline; gap: 7px; min-width: 0; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #8e8e93; }
-.agent-tool::before { content: ""; flex: none; align-self: center; width: 10px; height: 10px; border: 2px solid #5a5a5e; border-top-color: #e8e8ed; border-radius: 50%; animation: agent-spin 0.8s linear infinite; }
-.agent-tool.done::before { border: 0; border-radius: 0; animation: none; background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5 6.5 12 13 4.5' fill='none' stroke='%2334c759' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
-.agent-tool b { flex: none; font-weight: 600; color: #c7c7cc; }
-.agent-tool span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-@keyframes agent-spin { to { transform: rotate(360deg); } }
+/* Newest at the bottom; what doesn't fit goes off the top, fading out as it goes. Its lines as the
+   app's chat draws them: the prompt in a bubble, each step a muted line, replies plain. */
+.agent-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; padding: 12px; overflow: hidden; mask-image: linear-gradient(to bottom, transparent 0, #000 40px); }
+.agent-body > * { flex: none; margin: 0; max-width: 92%; animation: agent-in 0.3s ease-out; }
+.agent-prompt { align-self: flex-end; padding: 7px 10px; border-radius: 12px 12px 4px 12px; background: #0a84ff; color: #fff; }
+.agent-say { align-self: flex-start; }
+.agent-tool { align-self: flex-start; min-width: 0; font-size: 12px; color: #8e8e93; }
+.agent-tool::before { content: "•"; margin-right: 6px; }
+.agent-tool b { font-weight: 400; }
+.agent-tool span:not(:empty)::before { content: ": "; }
 @keyframes agent-in { from { opacity: 0; transform: translateY(4px); } }
 /* The chat's window: the app's own chat (the demo's demo-chat.html), frameless, floating by the app
    window's right edge as it does in the app, placed and scaled with it (placeChat in story.js), and

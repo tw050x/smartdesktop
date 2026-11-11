@@ -82,6 +82,20 @@ const FOCUS_HINTS = {
 const CHAT_DRAG = 260;
 // Where a narrow screen centres a scene of the AI at work: the chat.
 const CHAT_X = CHAT_PLACE.x + CHAT_PLACE.width / 2;
+// Where a scene puts the chat's window instead (its chatAt), so the site's shots vary: beside the
+// app window on either side, apart from it, larger or smaller than it (scale), in the app window's
+// pixels. Only on a wide screen (setShots).
+const SHOTS = {
+  ask: { x: 1330, y: 40, scale: 1.1 }, // apart, on the right, larger
+  review: { x: 1310, y: 330, scale: 0.7 }, // small and apart, clear of the cards the review adds
+  redraft: { x: 890, y: 16, scale: 1.08 }, // larger than the app, clear of the bar's Accept
+  highlight: { x: -460, y: 70, scale: 1 }, // apart, on the left
+  variation: { x: -170, y: 190, scale: 0.95 }, // over the left edge
+  'f-structure': { x: 1020, y: 280, scale: 0.8 },
+  'f-todo': { x: -450, y: 60, scale: 1 },
+  'f-drafts': { x: 1320, y: 20, scale: 1.15 },
+  'f-gaps': { x: 1320, y: 100, scale: 0.9 },
+};
 
 export function createDirector({ api }) {
   const cursor = makeCursor();
@@ -162,14 +176,17 @@ export function createDirector({ api }) {
     const y = Math.min(...rs.map((r) => r.top ?? r.y));
     return { x, y, width: Math.max(...rs.map((r) => r.right ?? r.x + r.width)) - x, height: Math.max(...rs.map((r) => r.bottom ?? r.y + r.height)) - y };
   };
-  const place = () => {
-    const at = chat?.place ?? CHAT_PLACE;
-    return { ...at, x: at.x + moved.x, y: at.y + moved.y };
+  // Where the chat's window is, in the app window's pixels (scale: its size to the app window's).
+  let shots = true;
+  const place = (name = current) => {
+    const at = (shots && SHOTS[name]) || chat?.place || CHAT_PLACE;
+    const scale = at.scale ?? 1;
+    return { x: at.x + moved.x, y: at.y + moved.y, width: CHAT_PLACE.width * scale, height: CHAT_PLACE.height * scale, scale };
   };
   function moveChat(to) {
     if (to.x === moved.x && to.y === moved.y) return;
     moved = to;
-    movedListeners.forEach((listener) => listener(place()));
+    movedListeners.forEach((listener) => listener({ ...place(), scene: current }));
   }
   // The app window with the chat's window by it, and as far as a scene drags it aside (CHAT_DRAG).
   const withChat = () => union(WINDOW, place());
@@ -494,8 +511,8 @@ export function createDirector({ api }) {
   // at its place): a little in from its left, below its middle.
   const pointAt = (el) => {
     const r = el.getBoundingClientRect();
-    const off = el.ownerDocument === document ? { x: 0, y: 0 } : place();
-    return { x: off.x + r.left + Math.min(r.width * 0.5, 60), y: off.y + r.top + r.height * 0.6 };
+    const off = el.ownerDocument === document ? { x: 0, y: 0, scale: 1 } : place();
+    return { x: off.x + (r.left + Math.min(r.width * 0.5, 60)) * off.scale, y: off.y + (r.top + r.height * 0.6) * off.scale };
   };
   const ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
   const overChat = (point) => {
@@ -638,7 +655,10 @@ export function createDirector({ api }) {
     }
     if (point) {
       cursor.style.transform = `translate(${point.x}px, ${point.y}px)`;
-      if (chat?.cursor) chat.cursor.style.transform = `translate(${point.x - place().x}px, ${point.y - place().y}px)`;
+      if (chat?.cursor) {
+        const p = place();
+        chat.cursor.style.transform = `translate(${(point.x - p.x) / p.scale}px, ${(point.y - p.y) / p.scale}px)`;
+      }
     }
     const pressed = Boolean((beat?.press && u > 0 && u < 1) || (beat?.drag && u < 1));
     cursor.classList.toggle('pressed', pressed);
@@ -1238,7 +1258,19 @@ export function createDirector({ api }) {
     },
     // Where each scene's about before it's built (see FOCUS_HINTS): the whole window, unless it's
     // known to be somewhere else.
-    focusHints: () => Object.fromEntries(Object.entries(SCENES).map(([name, scene]) => [name, { ...(FOCUS_HINTS[name] ?? scene.focus()), narrowX: scene.narrowX }])),
+    focusHints: () => Object.fromEntries(Object.entries(SCENES).map(([name, scene]) => {
+      const was = current;
+      current = name; // its chat's place, for its focus
+      try {
+        return [name, { ...(FOCUS_HINTS[name] ?? scene.focus()), narrowX: scene.narrowX, chatAt: place(name) }];
+      } finally {
+        current = was;
+      }
+    })),
+    // Whether scenes put the chat's window in places of their own (SHOTS): a wide screen's.
+    setShots(on) {
+      shots = on;
+    },
     // How long each scene's moment is, in milliseconds, for the site to give it room to scroll.
     lengths: () => Object.fromEntries(Object.entries(SCENES).map(([name, scene]) => [name, lengthOf(scene.beats())])),
     // The site dragging the CV in from beside the window as its page scrolls (the upload scene
@@ -1297,7 +1329,7 @@ export function createDirector({ api }) {
         const beats = scene.beats();
         // Where the cursor first goes, if it's drawn already: a narrow screen starts there.
         const first = beats.find((beat) => beat.move)?.find();
-        const focus = { ...scene.focus(), narrowX: scene.narrowX ?? (first ? pointAt(first).x : undefined), chat: api.chatShown };
+        const focus = { ...scene.focus(), narrowX: scene.narrowX ?? (first ? pointAt(first).x : undefined), chat: api.chatShown, chatAt: place() };
         moment = { id, name: SCENES[name] ? name : 'intro-improve', beats, total: lengthOf(beats), done: 0, found: new Map(), chat: null };
         return focus;
       });

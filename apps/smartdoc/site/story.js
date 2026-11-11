@@ -34,7 +34,15 @@ let secondShowing = false;
 const twoWindows = (step) => Boolean(step.dataset.windows);
 // The chat's window: placed with the app's, at the demo's chatPlace, while the demo says it shows.
 const chatCamera = stage.querySelector('.camera.chat');
-const CHAT = { x: 1000, y: 70, width: 400, height: 660 }; // the demo's chatPlace (where it's dragged to), until it says
+const CHAT = { x: 1000, y: 70, width: 400, height: 660, scale: 1 }; // the demo's chatPlace, until it says
+// Where each scene has the chat's window (in the app window's pixels, with its scale): a wide
+// screen's scenes vary it, beside the app window on either side, apart, larger or smaller. Each
+// step's comes from its focus, or from the demo as it's dragged; the chat travels between them
+// with the camera.
+const chatPlaces = new Map(); // scene → its place as dragged
+function chatAt(step) {
+  return chatPlaces.get(step.dataset.scene) ?? focusOf(step).chatAt ?? CHAT;
+}
 let chatShown = false;
 const steps = [...document.querySelectorAll('.step')];
 const captions = [...stage.querySelectorAll('.caption')];
@@ -132,7 +140,7 @@ function framing(step) {
     : side === 'below' ? room.y + room.height - (focus.y + focus.height) * k
     : room.y + (room.height - focus.height * k) / 2 - focus.y * k;
   if (side === 'left') {
-    const against = room.x; // the window's left edge on the column's
+    const against = room.x - Math.min(0, focus.x) * k; // the window's left edge (or the chat's, left of it) on the column's
     x = against + (focus.x + focus.width) * k <= room.x + room.width ? against : Math.max(x, room.x);
   } else if (side === 'right') {
     // Its right edge on the column's (or the chat's window's, past it).
@@ -244,6 +252,7 @@ async function build(step) {
   const focus = await demo.show(step.dataset.scene);
   if (n !== builds) return;
   if (focus) focuses.set(step.dataset.scene, focus);
+  chatPlaces.delete(step.dataset.scene); // not dragged yet
   pans.delete(step); // narrow: the pan starts where the scene now says, not easing from the guess
   built = step;
   render();
@@ -315,8 +324,11 @@ function render() {
   placeSecond(a, b, fa, fb, u, t, within, { x, y, k });
   stage.classList.toggle('on-hero', a.dataset.side === 'below' && t < 0.2);
   if (!wide.matches) for (const step of steps) if (captionOf(step)) captionOf(step).style.setProperty('--narrow-top', `${narrowLayout(step).captionTop}px`);
-  placeAgent(x, { top: y + clipTop * k, bottom: y + (WINDOW.height - clipBottom) * k });
-  placeChat(x, y, k, clipTop, clipBottom);
+  placeAgent(x, { top: y + clipTop * k, bottom: y + (WINDOW.height - clipBottom) * k }, k);
+  const ca = chatAt(a);
+  const cb = chatAt(b);
+  const at = { x: lerp(ca.x, cb.x, u), y: lerp(ca.y, cb.y, u), scale: lerp(ca.scale ?? 1, cb.scale ?? 1, u) };
+  placeChat(x, y, k, clipTop, clipBottom, { ...at, height: CHAT.height * at.scale });
   placeFile(from, to, t, within, { x, y: lerp(fa.y, fb.y, u), k: lerp(fa.k, fb.k, u) });
 
   // The captions: the last fading out over the first fifth, moving up; the next fading in over the
@@ -366,6 +378,19 @@ const schedule = () => {
 };
 addEventListener('scroll', schedule, { passive: true });
 addEventListener('resize', schedule);
+// Wide and narrow place the chat's window differently (a narrow screen keeps it by the app
+// window's edge), so crossing between them builds the scene again.
+wide.addEventListener('change', () => {
+  if (!demo?.setShots) return;
+  demo.setShots(wide.matches);
+  focuses.clear();
+  chatPlaces.clear();
+  shown.clear();
+  for (const [name, focus] of Object.entries(demo.focusHints())) focuses.set(name, focus);
+  built = null;
+  wanted = null;
+  render();
+});
 new ResizeObserver(schedule).observe(stage);
 
 // --- The first scene's file --------------------------------------------------------------------
@@ -445,9 +470,11 @@ function showAgent({ entries }) {
 // its right margin), a little in from the window's visible edge.
 // Narrow, it's docked over the lower part of what shows of the window (shown: its top and bottom
 // on screen), across its width.
-function placeAgent(x, shown) {
+// Wide, it's drawn at the app window's scale, as the chat's window is, so its text is the app's size.
+function placeAgent(x, shown, k) {
   if (!agentWindow) return;
   agentWindow.style.left = wide.matches ? `${Math.max(x, 0) + 32}px` : '';
+  agentWindow.style.scale = wide.matches ? String(k) : '';
   agentWindow.style.top = wide.matches ? '' : `${shown.top + (shown.bottom - shown.top) * 0.4}px`;
   agentWindow.style.height = wide.matches ? '' : `${(shown.bottom - shown.top) * 0.6 - EDGE}px`;
 }
@@ -456,12 +483,13 @@ function placeAgent(x, shown) {
 
 // Placed as the app's window is, at its place beside it (in the app window's pixels, scaled the
 // same), and cut off where the app's window is (narrow), showing while the demo says.
-function placeChat(x, y, k, clipTop, clipBottom) {
+function placeChat(x, y, k, clipTop, clipBottom, at) {
   if (!chatCamera) return;
-  chatCamera.style.transform = `translate(${x + CHAT.x * k}px, ${y + CHAT.y * k}px) scale(${k})`;
-  const top = Math.max(0, clipTop - CHAT.y);
-  const bottom = Math.max(0, CHAT.y + CHAT.height - (WINDOW.height - clipBottom));
-  const out = -80 / k;
+  chatCamera.style.transform = `translate(${x + at.x * k}px, ${y + at.y * k}px) scale(${k * at.scale})`;
+  // Cut off only where the app window is (narrow): wide, it can reach past the app window's edges.
+  const top = clipTop ? Math.max(0, clipTop - at.y) / at.scale : 0;
+  const bottom = clipBottom ? Math.max(0, at.y + at.height - (WINDOW.height - clipBottom)) / at.scale : 0;
+  const out = -80 / (k * at.scale);
   chatCamera.style.clipPath = top || bottom ? `inset(${top || out}px ${out}px ${bottom || out}px ${out}px)` : '';
   chatCamera.classList.toggle('shown', chatShown);
 }
@@ -532,13 +560,14 @@ frame.addEventListener('load', async () => {
     });
     // Dragged out of the way (in a scene that shows it can be), it goes with the drag.
     loaded.onChatMoved?.((at) => {
-      Object.assign(CHAT, at);
+      if (at.scene) chatPlaces.set(at.scene, at);
       schedule();
     });
     chatFrame.classList.add('loaded');
   }
   demo = loaded;
   demo.setInstant(still.matches);
+  demo.setShots?.(wide.matches);
   demo.onAgent?.(showAgent);
   demo.onCursor((at) => {
     cursorAt = at;
