@@ -38,12 +38,12 @@ export function createDemoApi() {
   const reviews = { improve: review(IMPROVE, 0), highlights: review(HIGHLIGHTS, 1) };
   // When each review was finished, once it is: where its card goes in the chat (setCommitTimes).
   const committedAt = {};
-  // The chat: whether its window shows, each draft's conversations (draft id → { main, threads,
-  // running }), the AIs, what the app window last sent it, and an install or sign-in under way.
-  const chat = { shown: false, drafts: {}, ais: structuredClone(AIS), state: null, pending: null };
-  const draftShowing = () => DRAFTS[state.draft].id; // a preview's chat is its draft's
-  const chatId = (draftId = draftShowing()) => `${DOCUMENT.id}/original/${draftId}`;
-  const chatOf = (draftId = draftShowing()) => (chat.drafts[draftId] ??= { main: { messages: [], sessions: {} }, threads: {}, running: [] });
+  // The chat: whether its window shows, the window's conversations ({ main, threads, running }: one
+  // chat for the window, whatever it shows, as in the app), the AIs, what the app window last sent
+  // it, and an install or sign-in under way.
+  const chat = { shown: false, window: null, ais: structuredClone(AIS), state: null, pending: null };
+  const chatId = () => 'window/demo';
+  const chatOf = () => (chat.window ??= { main: { messages: [], sessions: {} }, threads: {}, running: [] });
 
   // Back to the start: no document added, nothing shown, no reviews.
   function reset() {
@@ -244,31 +244,27 @@ export function createDemoApi() {
     },
     get chatShown() { return chat.shown; },
     onChatShown: on('chat-shown'),
-    // What's in the draft's chat: { main: [messages], [item id]: [messages] }, and the
+    // What's in the window's chat: { main: [messages], [item id]: [messages] }, and the
     // conversations the AI is working in. Only what's changed is sent to the chat.
-    setChat(conversations, running = [], draftId = draftShowing()) {
-      const store = chatOf(draftId);
+    setChat(conversations, running = []) {
+      const store = chatOf();
       for (const [key, messages] of Object.entries(conversations)) {
         const convo = key === 'main' ? store.main : (store.threads[key] ??= { messages: [], sessions: {} });
         if (JSON.stringify(convo.messages) === JSON.stringify(messages)) continue;
         convo.messages = messages;
-        emit('agent-event', { chatId: chatId(draftId), conversation: key, type: 'messages', messages });
+        emit('agent-event', { chatId: chatId(), conversation: key, type: 'messages', messages });
       }
       for (const key of new Set([...store.running, ...running])) {
         const now = running.includes(key);
-        if (now !== store.running.includes(key)) emit('agent-event', { chatId: chatId(draftId), conversation: key, type: 'running', running: now });
+        if (now !== store.running.includes(key)) emit('agent-event', { chatId: chatId(), conversation: key, type: 'running', running: now });
       }
       store.running = [...running];
     },
-    // Forgets every draft's chat (a scene starts from what it sets).
+    // Forgets the chat (a scene starts from what it sets).
     clearChats() {
-      for (const [draftId, store] of Object.entries(chat.drafts)) {
-        for (const key of store.running) emit('agent-event', { chatId: chatId(draftId), conversation: key, type: 'running', running: false });
-      }
-      chat.drafts = {};
+      for (const key of chat.window?.running ?? []) emit('agent-event', { chatId: chatId(), conversation: key, type: 'running', running: false });
+      chat.window = null;
     },
-    // The draft whose chat shows (a preview's is its draft's).
-    get chatDraft() { return draftShowing(); },
     // Which AIs are installed and signed in: { codex: { installed: false } }, the rest as AIS has.
     setAis(changes = {}) {
       api.finishSetup(); // one left under way ends

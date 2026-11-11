@@ -28,6 +28,7 @@
 
 import { describeStep } from '../../main/describe-step.js';
 import { makeCursor } from './hover.js';
+import { DOCUMENT, VARIATION } from './scenario.js';
 
 const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
 // Where the chat's window floats, in the app window's pixels: over its right side, and a little
@@ -52,6 +53,15 @@ const DECISIONS = [
 const IMPROVE_ASK = 'Review my CV and make it stand out to a hiring manager';
 const HIGHLIGHTS_ASK = 'What would a recruiter take in at a glance?';
 const REDRAFT_ASK = 'Write the next draft';
+// The lines the app posts to the chat as the window moves (`whatShows` in main.js).
+const OPENED_PREVIEW = `Opened “${DOCUMENT.name}”, the preview of draft 1`;
+const OPENED_DRAFT_1 = `Opened “${DOCUMENT.name}”, draft 1`;
+const OPENED_ORIGINAL = `Opened “${DOCUMENT.name}”, the original`;
+const OPENED_VARIATION = `Opened “${DOCUMENT.name}”, the variation “${VARIATION.name}”, the preview of draft 2`;
+const REDRAFT_SAYS = [
+  'You chose the first rewrite, accepted the wording and the move, and told me conversion rose 12%. Writing the next draft now.',
+  'Have a look at the draft preview. The profile leads with your platform work, Skills come first, and the checkout line has its result. Accept it and it becomes Draft 1.',
+];
 const VARIATION_ASK = 'Make a version for the product lead role at Acme: leading a team of 6 on the design system';
 const TALK_ASK = 'Keep my wording, but make it clear I built it';
 // Where the cursor comes from at the start of a moment: a little below and right of where it's
@@ -259,11 +269,11 @@ export function createDirector({ api }) {
 
   // A message in the chat, as agent.js keeps them: n numbers it, so it's the same each time.
   const message = (convo, n, role, text) => ({ id: `demo-${convo}-${n}`, at: new Date(start + n * 20 * 1000).toISOString(), by: 'claude', role, text });
-  // A conversation that's already happened, from its turns: [role, text] each.
-  const said = (convo, turns) => turns.map(([role, text], n) => message(convo, n, role, text));
+  // A conversation that's already happened, from its turns: [role, text] each ('context' for a line
+  // of context the app posted).
+  const said = (convo, turns) => turns.map(([role, text], n) => (role === 'context' ? { ...message(convo, n, 'event', text), kind: 'context' } : message(convo, n, role, text)));
 
   let chatWanted = false; // whether the scene being built opens the chat
-  let chatDraft = null; // the draft whose chat the scene is in (accepting a preview moves on from it)
   function hideChat() {
     if (api.chatShown) api.showChat(false);
   }
@@ -271,19 +281,17 @@ export function createDirector({ api }) {
   function forgetChat() {
     chatWanted = false;
     chatBase = {};
-    chatDraft = null;
     api.clearChats();
     builds++;
     setCommitTimes();
   }
 
   // The chat's window open on a conversation ('main' or an item's id), with what's been said so
-  // far in this draft's chat (`base`), waiting for it to show it.
+  // far in the window's chat (`base`), waiting for it to show it.
   async function openChat(view, base, id) {
     chatWanted = true;
     chatBase = base;
-    chatDraft = api.chatDraft;
-    api.setChat(base, [], chatDraft);
+    api.setChat(base, []);
     api.showChat(true, view);
     if (!chat) return;
     await waitFor(() => inChat('.chat-panel:not([hidden]) .chat-body'), id);
@@ -300,7 +308,20 @@ export function createDirector({ api }) {
     ['step', 'Finishing the review'],
     ['assistant', 'Done: four suggestions, each beside the text it’s about. The profile is the big one. It could be anyone’s, so I’ve offered two rewrites. I’ve also asked what came of the checkout work, since a result would make that line much stronger.'],
   ];
+  // The window's one chat goes on as the draft does: the next draft written and accepted, then the
+  // highlights asked for on it.
+  const REDRAFTED = [
+    ...REVIEWED,
+    ['user', REDRAFT_ASK],
+    ['step', describeStep('get_review', {})],
+    ['assistant', REDRAFT_SAYS[0]],
+    ['step', describeStep('apply_review', {})],
+    ['context', OPENED_PREVIEW],
+    ['assistant', REDRAFT_SAYS[1]],
+    ['context', OPENED_DRAFT_1],
+  ];
   const HIGHLIGHTED = [
+    ...REDRAFTED,
     ['user', HIGHLIGHTS_ASK],
     ['step', 'Reading the document'],
     ['step', 'Starting a review'],
@@ -341,14 +362,18 @@ export function createDirector({ api }) {
   // A file dragged over the window, as the app sees it: the drop indicator takes the page's place.
   // Then dropped, as the app sees it too: the document is added and opens (openDroppedFile, in
   // demo-api.js), the indicator showing until its first page is drawn.
+  // A file being dragged, as the window sees one (it only takes a drag that carries files).
+  function fileDrag() {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File([], DOC.name, { type: 'application/pdf' }));
+    return dataTransfer;
+  }
   function dragOver() {
-    document.getElementById('document').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true }));
+    document.getElementById('document').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: fileDrag() }));
   }
   async function drop() {
     const doc = document.getElementById('document');
-    const dataTransfer = new DataTransfer();
-    dataTransfer.items.add(new File([], DOC.name, { type: 'application/pdf' }));
-    doc.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+    doc.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: fileDrag() }));
     await waitFor(() => !doc.classList.contains('dragging'), live);
   }
   // Where the site has the CV, as its page scrolls (the upload scene only): 'away' beside the
@@ -363,25 +388,30 @@ export function createDirector({ api }) {
     dragging = true;
     (async () => {
       let done;
-      do {
-        done = dragWanted;
-        if (current !== 'upload') break;
-        const doc = document.getElementById('document');
-        if (done === 'dropped') {
-          if (api.state.screen !== 'document') await drop();
-          continue;
-        }
-        if (api.state.added || api.state.screen !== 'home') {
-          api.state.added = false;
-          api.showHome();
-        }
-        if (done === 'over') {
-          if (!doc.classList.contains('dragging')) dragOver();
-        } else {
-          doc.classList.remove('dragging');
-        }
-      } while (done !== dragWanted);
-      dragging = false;
+      try {
+        do {
+          done = dragWanted;
+          if (current !== 'upload') break;
+          const doc = document.getElementById('document');
+          if (done === 'dropped') {
+            if (api.state.screen !== 'document') await drop();
+            continue;
+          }
+          if (api.state.added || api.state.screen !== 'home') {
+            api.state.added = false;
+            api.showHome();
+          }
+          if (done === 'over') {
+            if (!doc.classList.contains('dragging')) dragOver();
+          } else {
+            doc.classList.remove('dragging');
+          }
+        } while (done !== dragWanted);
+      } catch (error) {
+        if (error !== CANCELLED) throw error; // left for another scene while dropping
+      } finally {
+        dragging = false;
+      }
     })();
   }
 
@@ -432,7 +462,9 @@ export function createDirector({ api }) {
       wait(200),
       ...send(),
       { ms: 300, log: 'prompt', text, convo, work, hide: true },
-      ...steps.map((step) => (step.say
+      ...steps.map((step) => (step.note
+        ? { ms: 250, log: 'note', text: step.note, convo, work }
+        : step.say
         ? { ms: 500 + step.say.length * 14, log: 'say', text: step.say, convo, work }
         : { ms: step.wait ?? 700, log: 'tool', text: describeStep(step.tool, step.input ?? {}), convo, work, act: step.act, undo: step.act ? step.undo : undefined })),
     ];
@@ -641,7 +673,7 @@ export function createDirector({ api }) {
     const chatNow = JSON.stringify([conversations, running]);
     if (chatNow !== m.chat) {
       m.chat = chatNow;
-      api.setChat(conversations, running ? [running] : [], chatDraft ?? undefined);
+      api.setChat(conversations, running ? [running] : []);
     }
   }
 
@@ -826,7 +858,7 @@ export function createDirector({ api }) {
       },
     },
     // Everything decided: asked for in the chat, the AI writes a preview of Draft 1, which opens by
-    // itself; accepting it makes it the draft, and the new draft's chat starts afresh.
+    // itself; accepting it makes it the draft, and the chat goes on, saying so.
     redraft: {
       narrowX: CHAT_X,
       async build(id) {
@@ -838,12 +870,14 @@ export function createDirector({ api }) {
         wait(400),
         ...ask(REDRAFT_ASK, [
           { tool: 'get_review', wait: 600 },
-          { say: 'You chose the first rewrite, accepted the wording and the move, and told me conversion rose 12%. Writing the next draft now.' },
+          { say: REDRAFT_SAYS[0] },
           { tool: 'apply_review', wait: 2000, act: () => api.showPreview(1), undo: () => api.showDraft(0) },
-          { say: 'Have a look at the draft preview. The profile leads with your platform work, Skills come first, and the checkout line has its result. Accept it and it becomes Draft 1.' },
+          { note: OPENED_PREVIEW },
+          { say: REDRAFT_SAYS[1] },
         ]),
         wait(400),
         ...click(() => button('.review-bar', 'Accept as Draft 1')),
+        note(OPENED_DRAFT_1),
         wait(1200),
       ],
     },
@@ -853,7 +887,7 @@ export function createDirector({ api }) {
       narrowX: CHAT_X,
       async build(id) {
         await onDocument(1, 'improve', { decided: 4, reviews: { improve: ALL_FINDINGS } }, id);
-        await openChat('main', {}, id);
+        await openChat('main', { main: said('main', REDRAFTED) }, id);
       },
       focus: withChat,
       beats: () => [
@@ -891,6 +925,7 @@ export function createDirector({ api }) {
           { say: 'The job leads with the design system and a team of six, so I’ll bring those to the top.' },
           { tool: 'get_document' },
           { tool: 'apply_review', wait: 1600 },
+          { note: OPENED_VARIATION },
           { say: 'Made “Acme product lead” from Draft 1, with a draft preview of its Draft 2 for the job, for you to accept. Your original CV and its drafts are as they were.' },
         ]),
         wait(600),
@@ -898,6 +933,7 @@ export function createDirector({ api }) {
           await onHome({ made: 1, variation: true, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
           await selectVariation('Acme', id);
         }),
+        note('Went home'),
         wait(900),
       ],
     },
@@ -1033,11 +1069,10 @@ export function createDirector({ api }) {
         wait(1200),
       ],
     },
-    // Every draft kept, each with its own chat: picked from the list in the top bar.
+    // Every draft kept, picked from the list in the top bar, the window's chat going on.
     'f-drafts': {
       async build(id) {
         await onDocument(1, 'highlights', { decided: 4, reviews: { improve: ALL_FINDINGS, highlights: ALL_HIGHLIGHTS } }, id);
-        api.setChat({ main: said('main', [...REVIEWED, ['user', REDRAFT_ASK], ['step', 'Writing the next draft'], ['assistant', 'Have a look at the draft preview. Accept it and it becomes Draft 1.']]) }, [], 'original');
         await openChat('main', { main: said('main', HIGHLIGHTED) }, id);
       },
       focus: withChat,
@@ -1046,6 +1081,7 @@ export function createDirector({ api }) {
         ...click(() => document.getElementById('draft-button')),
         wait(700),
         ...click(() => [...document.querySelectorAll('#draft-card .draft-option')].find((o) => o.textContent.includes('Original'))),
+        note(OPENED_ORIGINAL),
         wait(1600),
       ],
     },
