@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 // Builds the website demo (src/renderer/demo.html: the app's interface with a stand-in API and a
-// script) into the site, where its pages show it. The app's own store runs in it, over files held in
+// script, and demo-chat.html, its chat window) into the site, where its pages show it. The app's own store runs in it, over files held in
 // memory: the Node modules it uses are swapped for the demo's (src/renderer/demo/node).
 const shim = (name) => fileURLToPath(new URL(`src/renderer/demo/node/${name}.js`, import.meta.url));
 export default defineConfig({
@@ -19,6 +19,6 @@ export default defineConfig({
   build: {
     outDir: '../../../../site/demo',
     emptyOutDir: true,
-    rollupOptions: { input: { demo: 'src/renderer/demo.html' } },
+    rollupOptions: { input: { demo: 'src/renderer/demo.html', chat: 'src/renderer/demo-chat.html' } },
   },
 });

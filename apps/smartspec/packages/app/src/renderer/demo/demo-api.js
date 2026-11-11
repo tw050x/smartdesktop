@@ -5,6 +5,10 @@
 // window to it and saying which AI works there, is done by the director (director.js) through the
 // demo's own methods, below the API's.
 //
+// The chat is the app's own (chat-panel.js), in the app's window and in a window of its own
+// (demo-chat.html), as SmartDoc's demo has it: what's in it, and whether the AI's at work, are set by
+// the director (setChat); nothing sent from it goes anywhere.
+//
 // The story's states are built once, each on the one before, and kept as snapshots of the files,
 // so the director can go to any of them at once, in any order (goTo):
 //   base       Larder's domains and its other schematics, accepted
@@ -45,6 +49,11 @@ export function createDemoApi() {
   const ids = { domains: {}, schemas: {} };
   const saved = new Map(); // state → its files
   let state = null;
+  // The chat: whether its window shows, the window's one chat ({ main, threads, running }), and
+  // what the app's window last sent it.
+  const chat = { shown: false, window: null, state: null };
+  const chatId = () => 'window/1';
+  const chatOf = () => (chat.window ??= { main: { messages: [], sessions: {} }, threads: {}, running: [] });
 
   async function propose(key, { domain, schemaKey, uses, ...change }, extra = {}) {
     const made = await store.propose({
@@ -98,7 +107,7 @@ export function createDemoApi() {
     emit('schemas-changed');
   }
 
-  return {
+  const api = {
     // --- The app's API -----------------------------------------------------------------------
     platform: 'darwin',
     windowId: '1',
@@ -162,6 +171,38 @@ export function createDemoApi() {
     onFullScreenChange: on('full-screen'),
     onLayoutsReset: on('layouts-reset'),
 
+    // --- The chat (the app's window and the chat's) ---
+    agentChats: async () => ({ chatId: chatId(), ...structuredClone(chatOf()) }),
+    agentSend: async () => true, // what's sent, and the AI's answer, are the director's
+    agentStop: async () => {},
+    agentNewSession: async () => {},
+    agentInstall: async () => structuredClone(DEMO_AIS),
+    agentSignIn: async () => structuredClone(DEMO_AIS),
+    agentInstallHelp: async () => {},
+    onAgentEvent: on('agent-event'),
+    onAgentProgress: on('agent-progress'),
+    onChatMode: on('chat-mode'),
+    chatFloat: async () => api.showChat(true),
+    chatDock: async () => api.showChat(false),
+    chatClose: async () => api.showChat(false),
+    // What the app's window shows, for the chat's window (kept for when it starts).
+    chatState(next) {
+      chat.state = next;
+      emit('chat-state', next);
+    },
+    onChatState(callback) {
+      on('chat-state')(callback);
+      if (chat.state) callback(chat.state);
+    },
+    chatReady: async () => {},
+    chatAction: (id) => emit('chat-action', id),
+    onChatAction: on('chat-action'),
+    chatAsk: (text) => emit('chat-ask', text),
+    onChatAsk: on('chat-ask'),
+    // The lines the app posts as the window moves or the user does something are the director's.
+    chatNote: async () => {},
+    chatShows: async () => {},
+
     // --- The demo's own ----------------------------------------------------------------------
     store,
     ids,
@@ -174,5 +215,39 @@ export function createDemoApi() {
     showSchema: (key) => emit('show-schema', { schemaId: ids.schemas[key], name: '' }),
     setAiControl: (name) => emit('ai-control', name),
     newSchema: () => emit('new-schema'),
+    // The chat's window: shown or not.
+    showChat(on) {
+      if (on === chat.shown) return;
+      chat.shown = on;
+      emit('chat-mode', { mode: on ? 'floating' : 'closed' });
+      emit('chat-shown', on);
+    },
+    get chatShown() {
+      return chat.shown;
+    },
+    onChatShown: on('chat-shown'),
+    // What's in the window's chat ({ main: [messages] }), and the conversations the AI is at work
+    // in. Only what's changed is sent to the chat.
+    setChat(conversations, running = []) {
+      const store = chatOf();
+      for (const [key, messages] of Object.entries(conversations)) {
+        const convo = key === 'main' ? store.main : (store.threads[key] ??= { messages: [], sessions: {} });
+        if (JSON.stringify(convo.messages) === JSON.stringify(messages)) continue;
+        convo.messages = messages;
+        emit('agent-event', { chatId: chatId(), conversation: key, type: 'messages', messages });
+      }
+      for (const key of new Set([...store.running, ...running])) {
+        const now = running.includes(key);
+        if (now !== store.running.includes(key)) emit('agent-event', { chatId: chatId(), conversation: key, type: 'running', running: now });
+      }
+      store.running = [...running];
+    },
+    // Forgets the chat (a scene starts from what it sets).
+    clearChats() {
+      for (const key of chat.window?.running ?? []) emit('agent-event', { chatId: chatId(), conversation: key, type: 'running', running: false });
+      chat.window = null;
+      emit('agent-event', { chatId: chatId(), conversation: 'main', type: 'messages', messages: [] });
+    },
   };
+  return api;
 }

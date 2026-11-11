@@ -3,8 +3,10 @@
 // have got to, through the stand-in API's goTo, then what's showing: home, a schematic on the board
 // or the overview), so scenes can be reached in any order, scrolling up or down. Its moment is then
 // a timeline of beats: a drawn cursor moving to and clicking the real interface, typing into it,
-// and the agent's part (its messages and tool calls, for the site's agent window, and what they do
-// through the stand-in API). The site puts the moment wherever its page has scrolled to (seek),
+// and the AI's part: in the app's own chat, in a window of its own (demo-chat.html, attached with
+// attachChat) floating by the app's window, as SmartDoc's demo has it, the cursor going from one
+// window to the other (each draws its own); or, for another agent picking up the plan, its messages
+// and tool calls for the site's agent window. What the AI does goes through the stand-in API. The site puts the moment wherever its page has scrolled to (seek),
 // forwards or back, so the cursor and the typing follow the scrolling; on its own, the demo plays
 // each moment through in time (start).
 //
@@ -17,9 +19,26 @@
 // show(name) resolves with the part of the window the scene is about (its focus, in the window's
 // own pixels), for the site to bring into view, or null if another scene was asked for meanwhile.
 
+import { describeStep } from '../../main/describe-step.js';
+import { makeCursor } from './hover.js';
 import { CHECKOUT_GOAL, COMMENT } from './scenario.js';
 
 const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
+// Where the chat's window floats by the app's, in the app window's pixels: over its right edge, a
+// little past it, as the user might put it in the app.
+export const CHAT_PLACE = { x: 1000, y: 70, width: 400, height: 660 };
+// Where a narrow screen centres a scene of the AI at work in the chat.
+const CHAT_X = CHAT_PLACE.x + CHAT_PLACE.width / 2;
+// Where a scene puts the chat's window instead, so the site's shots vary: apart from the app window
+// on either side, over its edge, larger or smaller than it (scale), in the app window's pixels.
+// Only on a wide screen (setShots).
+const SHOTS = {
+  ask: { x: 1330, y: 60, scale: 1.05 }, // apart, on the right
+  propose: { x: -450, y: 60, scale: 1 }, // apart, on the left, home's columns clear
+  comment: { x: 1310, y: 330, scale: 0.7 }, // small and apart, the board clear
+  revise: { x: 920, y: 56, scale: 1 }, // over the app's right edge, its side cards, under the top bar
+  accept: { x: -330, y: 140, scale: 0.75 }, // small and apart, on the left
+};
 const CANCELLED = new Error('The scene changed.');
 // Where the cursor comes from at the start of a moment: a little below and right of where it's
 // first going, in the window's pixels.
@@ -29,13 +48,8 @@ const AGENT_X = 640;
 const LONG_PRESS = 560; // ms: a little over the app's half second
 
 export function createDirector({ api }) {
-  const cursor = document.createElement('div');
-  cursor.className = 'demo-cursor';
   // In the top layer, so it's drawn above everything, open dialogs included (see raise).
-  cursor.popover = 'manual';
-  cursor.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 2.5v17.2l4.6-4.4 2.9 6.6 2.7-1.2-2.9-6.5h6.4Z" fill="#1d1d1f" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
-  document.body.append(cursor);
-  cursor.showPopover();
+  const cursor = makeCursor();
   // A dialog opened since goes above it; shown again, it's back on top.
   const raise = () => {
     if (!document.querySelector('dialog[open]')) return;
@@ -47,7 +61,14 @@ export function createDirector({ api }) {
   let instant = false; // moments played through at once: for visitors who'd rather not have motion
   let building = Promise.resolve();
   let moment = null; // the built scene's moment (see show)
+  let current = null; // the scene asked for most recently
   const agentListeners = [];
+  // The chat's window, once attached: its page, where it floats, and its cursor.
+  let chat = null; // { win, doc, place, cursor }
+  let shots = true; // whether scenes place it (SHOTS)
+  let chatWanted = false; // whether the scene being built opens it
+  let chatBase = {}; // what's in the chat before the scene's moment: { main: [messages] }
+  const start = Date.now() - 6 * 60 * 1000; // the chat's messages are from a few minutes ago on
   const cursorListeners = [];
   let cursorWas = 'null';
 
@@ -71,11 +92,7 @@ export function createDirector({ api }) {
     }
   }
 
-  function showCursor(on) {
-    cursor.classList.toggle('shown', on);
-  }
-
-  // What the cursor is over shows as hovered (.demo-hover, see demo.js).
+  // What the cursor is over shows as hovered (.demo-hover, see hover.js), in whichever window it's in.
   let hoverShown = [];
   let hoverTarget = null;
   function hover(element) {
@@ -83,7 +100,7 @@ export function createDirector({ api }) {
     hoverTarget = element;
     for (const el of hoverShown) el.classList.remove('demo-hover');
     hoverShown = [];
-    for (let el = element; el && el !== document.body; el = el.parentElement) {
+    for (let el = element; el && el !== el.ownerDocument.body; el = el.parentElement) {
       el.classList.add('demo-hover');
       hoverShown.push(el);
     }
@@ -93,10 +110,21 @@ export function createDirector({ api }) {
   const union = (...rects) => {
     const rs = rects.filter(Boolean);
     if (!rs.length) return WINDOW;
-    const x = Math.min(...rs.map((r) => r.left));
-    const y = Math.min(...rs.map((r) => r.top));
-    return { x, y, width: Math.max(...rs.map((r) => r.right)) - x, height: Math.max(...rs.map((r) => r.bottom)) - y };
+    const x = Math.min(...rs.map((r) => r.left ?? r.x));
+    const y = Math.min(...rs.map((r) => r.top ?? r.y));
+    return { x, y, width: Math.max(...rs.map((r) => r.right ?? r.x + r.width)) - x, height: Math.max(...rs.map((r) => r.bottom ?? r.y + r.height)) - y };
   };
+  // Where the chat's window is, in the app window's pixels (scale: its size to the app window's).
+  const place = (name = current) => {
+    const at = (shots && SHOTS[name]) || chat?.place || CHAT_PLACE;
+    const scale = at.scale ?? 1;
+    return { x: at.x, y: at.y, width: CHAT_PLACE.width * scale, height: CHAT_PLACE.height * scale, scale };
+  };
+  // The app window with the chat's window by it.
+  const withChat = () => union(WINDOW, place());
+  const inChat = (selector) => chat?.doc.querySelector(selector) ?? null;
+  const chatInput = () => inChat('.chat-compose textarea');
+  const chatSend = () => inChat('.chat-send');
   const pad = (r, by = 24) => r && { left: r.left - by, top: r.top - by, right: r.right + by, bottom: r.bottom + by };
   // The board's or the overview's item, by its id.
   const item = (id) => document.querySelector(`:is(.board > .board-item, .overview-world > .overview-item)[data-item="${id}"]`);
@@ -105,6 +133,36 @@ export function createDirector({ api }) {
   const marker = () => document.querySelector('.comment-marker:not(.away)');
 
   // --- Building a scene's state ----------------------------------------------------------
+
+  // --- The chat ---
+  // A message in the chat, as agent.js keeps them: n numbers it, so it's the same each time.
+  const message = (n, role, text) => ({ id: `demo-main-${n}`, at: new Date(start + n * 20 * 1000).toISOString(), by: 'claude', role, text });
+  // A conversation that's already happened, from its turns: [role, text] each ('context' for a line
+  // of context the app posted).
+  const said = (turns) => turns.map(([role, text], n) => (role === 'context' ? { ...message(n, 'event', text), kind: 'context' } : message(n, role, text)));
+  // Each scene's chat starts from nothing but what it sets.
+  function forgetChat() {
+    chatWanted = false;
+    chatBase = {};
+    api.clearChats();
+    const box = chatInput(); // nothing left typed from a scene before
+    if (box) setText(box, '');
+  }
+  // The chat's window open, with what's been said so far (`turns`), waiting for it to show it.
+  async function openChat(turns, id) {
+    chatWanted = true;
+    chatBase = { main: said(turns) };
+    api.setChat(chatBase, []);
+    api.showChat(true);
+    if (!chat) return;
+    await waitFor(() => inChat('.chat-panel:not([hidden]) .chat-body'), id);
+    if (turns.length) await waitFor(() => inChat('.chat-body .chat-message:not(.chat-start)'), id);
+    await frame();
+  }
+
+  function hideChat() {
+    if (api.chatShown) api.showChat(false);
+  }
 
   function closeAll() {
     hover(null);
@@ -187,23 +245,57 @@ export function createDirector({ api }) {
   // A long press on what `find` finds, the cursor pressed while it's held, opening a comment box.
   const hold = (find) => [move(find), wait(150), { ms: 700, find, press: true, act: (el) => longPress(el) }];
 
-  // The agent at work: the prompt pasted to it, then each step in turn: { say } for something it
-  // says (typed out), or { tool, detail, act, undo, done, wait } for a SmartSpec tool call, under
-  // way for `wait`, then showing `done` once its `act` is done.
+  // The user writing to the AI in the chat: typed into its message box and sent. The AI is at work
+  // from then on.
+  const send = () => [move(chatSend), wait(120), { ms: 330, find: chatSend, press: true, act: (el) => { el.click(); setText(chatInput(), ''); } }];
+  const askInChat = (text) => [
+    ...typeInto(chatInput, text),
+    wait(200),
+    ...send(),
+    { ms: 300, chat: 'prompt', text, hide: true },
+  ];
+  // The AI at work in the chat: each step in turn, { say } for something it says (typed out),
+  // { tool, input, act, undo, wait } for a SmartSpec tool it calls, a step in the chat while it's
+  // under way, its `act` done at its end, or { note } for a line of context the app posts. The chat
+  // shows it working until it's said its last.
+  const aiWork = (steps) => {
+    const beats = [
+      { ms: 0, chat: 'working', hide: true },
+      ...steps.map((step) => (step.note
+        ? { ms: 250, chat: 'note', text: step.note }
+        : step.say
+        ? { ms: 500 + step.say.length * 14, chat: 'say', text: step.say }
+        : { ms: step.wait ?? 700, chat: 'tool', text: describeStep(step.tool, step.input ?? {}), act: step.act, undo: step.act ? step.undo : undefined })),
+    ];
+    beats.at(-1).last = true;
+    return beats;
+  };
+  // A line of context the app posts to the chat as the user does something.
+  const note = (text) => ({ ms: 250, chat: 'note', text });
+
+  // Another agent at work (in an AI app of the user's, for the site's agent window): the prompt pasted to it, then each step in turn: { say } for something it
+  // says (typed out), or { tool, detail, act, undo, wait } for a SmartSpec tool call, a step as the
+  // app's chat words it (describeStep), its `act` done once it's finished.
   const agentWork = (prompt, steps) => [
     { ms: 0, log: 'clear', hide: true },
     { ms: 800, log: 'prompt', text: prompt },
     ...steps.map((step) => (step.say
       ? { ms: 500 + step.say.length * 14, log: 'say', text: step.say }
-      : { ms: step.wait ?? 700, log: 'tool', name: step.tool, detail: step.detail ?? '', done: step.done ?? step.detail ?? '', act: step.act, undo: step.act ? step.undo : undefined })),
+      : { ms: step.wait ?? 700, log: 'tool', name: describeStep(step.tool, { item_id: step.detail, name: step.detail }), detail: '', done: '', act: step.act, undo: step.act ? step.undo : undefined })),
   ];
 
   // --- Seeking -------------------------------------------------------------------------------
 
-  // Where the cursor points at an element: a little in from its left, below its middle.
+  // Where the cursor points at an element, in the app window's pixels (the chat's window floating
+  // at its place): a little in from its left, below its middle.
   const pointAt = (el) => {
     const r = el.getBoundingClientRect();
-    return { x: r.left + Math.min(r.width * 0.5, 60), y: r.top + r.height * 0.6 };
+    const off = el.ownerDocument === document ? { x: 0, y: 0, scale: 1 } : place();
+    return { x: off.x + (r.left + Math.min(r.width * 0.5, 60)) * off.scale, y: off.y + (r.top + r.height * 0.6) * off.scale };
+  };
+  const overChat = (point) => {
+    const p = place();
+    return Boolean(chat && api.chatShown && point && point.x >= p.x && point.x <= p.x + p.width && point.y >= p.y && point.y <= p.y + p.height);
   };
   const ease = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
 
@@ -303,8 +395,11 @@ export function createDirector({ api }) {
 
   async function rebuild(m) {
     closeAll();
+    forgetChat();
+    m.chat = null;
     agent({ type: 'log', entries: [] });
     await SCENES[m.name].build(m.id);
+    if (!chatWanted) hideChat();
     await frame();
     m.found.clear();
     m.done = 0;
@@ -353,21 +448,59 @@ export function createDirector({ api }) {
       last = null;
     }
     raise();
-    showCursor(shown && !instant);
+    // Each window draws its own cursor: the chat's while the cursor's over it, as it's in front.
+    const visible = shown && !instant;
+    const inChatWindow = visible && overChat(point);
+    cursor.classList.toggle('shown', visible && !inChatWindow);
+    chat?.cursor?.classList.toggle('shown', inChatWindow);
     // Where it is, for the site to keep in view on a narrow screen.
-    const where = JSON.stringify(shown && !instant ? point : null);
+    const where = JSON.stringify(visible ? point : null);
     if (where !== cursorWas) {
       cursorWas = where;
       cursorListeners.forEach((listener) => listener(JSON.parse(where)));
     }
-    if (point) cursor.style.transform = `translate(${point.x}px, ${point.y}px)`;
-    cursor.classList.toggle('pressed', Boolean((beat?.press || beat?.drag) && u > 0 && u < 1));
+    if (point) {
+      cursor.style.transform = `translate(${point.x}px, ${point.y}px)`;
+      if (chat?.cursor) {
+        const p = place();
+        chat.cursor.style.transform = `translate(${(point.x - p.x) / p.scale}px, ${(point.y - p.y) / p.scale}px)`;
+      }
+    }
+    const pressed = Boolean((beat?.press || beat?.drag) && u > 0 && u < 1);
+    cursor.classList.toggle('pressed', pressed);
+    chat?.cursor?.classList.toggle('pressed', pressed);
     hover(shown ? last : null);
 
     // Typing: as much of the text as the point's reached.
     if (beat?.typed !== undefined) setText(m.found.get(beat).el, beat.typed.slice(0, Math.round(beat.typed.length * u)));
 
-    // The agent's part so far.
+    // What's in the chat so far, and whether the AI's at work there.
+    if (chatWanted) {
+      const convo = structuredClone(chatBase.main ?? []);
+      let running = false;
+      for (let i = 0; i <= k && i < beats.length; i++) {
+        const b = beats[i];
+        if (!b.chat) continue;
+        const partial = i === k;
+        if (partial && !(u > 0) && b.ms) continue;
+        if (b.chat === 'working') running = true;
+        else if (b.chat === 'note') convo.push({ ...message(convo.length, 'event', b.text), kind: 'context' });
+        else {
+          const role = { prompt: 'user', say: 'assistant', tool: 'step' }[b.chat];
+          const text = b.chat === 'say' && partial ? b.text.slice(0, Math.round(b.text.length * u)) : b.text;
+          // A reply still being written out: the chat shows no Working while it is.
+          if (text) convo.push({ ...message(convo.length, role, text), ...(b.chat === 'say' && partial && u < 1 && { streaming: true }) });
+          running = b.chat === 'prompt' || !(b.last && !(partial && u < 1));
+        }
+      }
+      const chatNow = JSON.stringify([convo, running]);
+      if (chatNow !== m.chat) {
+        m.chat = chatNow;
+        api.setChat({ main: convo }, running ? ['main'] : []);
+      }
+    }
+
+    // Another agent's part so far.
     let entries = [];
     for (let i = 0; i <= k && i < beats.length; i++) {
       const b = beats[i];
@@ -410,20 +543,44 @@ export function createDirector({ api }) {
   // --- The scenes ------------------------------------------------------------------------
   // build: the scene's state; focus: what it's about; beats: its moment.
 
-  const checkoutPrompt = `Design a new schematic in SmartSpec for: ${CHECKOUT_GOAL}`;
-  const proposeSteps = [
-    { say: 'I’ll see what’s already designed, so Checkout can build on it.' },
-    { tool: 'list_schematics', done: '4 schematics in 3 domains' },
-    { tool: 'get_schematic', detail: 'Service auth', done: 'Service auth: its contract' },
-    { say: 'Payments needs a token, so I’ll embed Service auth rather than describe it again.' },
-    {
-      tool: 'propose_schematic', detail: 'Checkout', wait: 1400, done: 'Checkout: 4 items, waiting for you',
-      act: async () => {
-        await api.goTo('proposed');
-        api.showSchema('checkout');
-      },
-    },
-    { say: 'Checkout is waiting for you in SmartSpec: an overview, the journey, its business rules and the order’s fields. Press and hold anything to comment on it.' },
+  // What the user asks for in the chat, and what the AI does about it.
+  const CHECKOUT_ASK = `Design a new schematic for ${CHECKOUT_GOAL}`;
+  const REVISE_ASK = 'Answer my comments';
+  const PROPOSE_SAYS = [
+    'I’ll see what’s already designed, so Checkout can build on it.',
+    'Payments needs a token, so I’ll embed Service auth rather than describe it again.',
+    'Checkout is waiting for you: an overview, the journey, its business rules and the order’s fields. Press and hold anything to comment on it.',
+  ];
+  const REVISE_SAYS = [
+    'Good question: Payments is ours, and it calls a card provider. I’ll show that.',
+    'I’ve added the card provider to the overview and answered your comment. Nothing more needed on it.',
+  ];
+  // The lines the app posts to the chat as the window moves and the user comments (`onShown` and
+  // `onNote` in schemas.js).
+  const REVIEWING_NEW = 'Reviewing the new schematic “Checkout”';
+  const COMMENTED = 'Commented on “Payments”';
+  const OPENED_DRAFT_1 = 'Opened “Checkout”, draft 1 of 1';
+  // The window's one chat, as each scene finds it.
+  const ASKED = [['user', CHECKOUT_ASK]];
+  const PROPOSED = [
+    ...ASKED,
+    ['assistant', PROPOSE_SAYS[0]],
+    ['step', describeStep('list_schematics')],
+    ['step', describeStep('get_schematic')],
+    ['assistant', PROPOSE_SAYS[1]],
+    ['step', describeStep('propose_schematic', { name: 'Checkout' })],
+    ['context', REVIEWING_NEW],
+    ['assistant', PROPOSE_SAYS[2]],
+  ];
+  const COMMENTED_ON = [...PROPOSED, ['context', COMMENTED]];
+  const REVISED = [
+    ...COMMENTED_ON,
+    ['user', REVISE_ASK],
+    ['step', describeStep('get_comments')],
+    ['assistant', REVISE_SAYS[0]],
+    ['step', describeStep('propose_schematic', { name: 'Checkout' })],
+    ['step', describeStep('reply_to_comment')],
+    ['assistant', REVISE_SAYS[1]],
   ];
 
   const SCENES = {
@@ -442,34 +599,50 @@ export function createDirector({ api }) {
 
     // --- The home page: a schematic, from asking for it to handing it on ---
 
-    // File › New Schematic: what to design, typed in, and the prompt copied for the agent.
+    // The chat opened from the top bar, and a new schematic asked for in it.
     ask: {
+      narrowX: CHAT_X,
       build: (id) => onHome('base', id),
-      focus: () => WINDOW,
+      focus: withChat,
       beats: () => [
         wait(500),
-        act(() => api.newSchema(), () => document.querySelector('.prompt-dialog')?.close()),
-        wait(500),
-        ...typeInto(() => document.getElementById('new-schema-goal'), CHECKOUT_GOAL),
-        wait(300),
-        ...click(() => document.getElementById('new-schema-copy')),
-        wait(700),
-        act(closeAll),
+        ...click(() => document.getElementById('chat-button')),
+        wait(600),
+        ...askInChat(CHECKOUT_ASK),
+        wait(600),
       ],
     },
-    // The agent reads what's there and proposes Checkout, which opens by itself.
+    // The AI reads what's there and proposes Checkout, which opens by itself.
     propose: {
-      narrowX: AGENT_X,
-      build: (id) => onHome('base', id),
-      focus: () => WINDOW,
-      beats: () => agentWork(checkoutPrompt, proposeSteps),
+      narrowX: CHAT_X,
+      async build(id) {
+        await onHome('base', id);
+        await openChat(ASKED, id);
+      },
+      focus: withChat,
+      beats: () => aiWork([
+        { say: PROPOSE_SAYS[0] },
+        { tool: 'list_schematics' },
+        { tool: 'get_schematic', wait: 600 },
+        { say: PROPOSE_SAYS[1] },
+        {
+          tool: 'propose_schematic', input: { name: 'Checkout' }, wait: 1400,
+          act: async () => {
+            await api.goTo('proposed');
+            api.showSchema('checkout');
+          },
+        },
+        { note: REVIEWING_NEW },
+        { say: PROPOSE_SAYS[2] },
+      ]),
     },
     // A long press on the Payments node, and a comment on it.
     comment: {
       async build(id) {
         await onCheckout('proposed', 'focus', id);
+        await openChat(PROPOSED, id);
       },
-      focus: () => WINDOW,
+      focus: withChat,
       beats: () => [
         wait(500),
         ...hold(() => part('overview', COMMENT.part)),
@@ -477,36 +650,48 @@ export function createDirector({ api }) {
         ...typeInto(() => document.querySelector('.comment-thread .comment-input'), COMMENT.text),
         wait(300),
         ...click(() => button('.comment-thread', 'Comment')),
+        note(COMMENTED),
         wait(900),
       ],
     },
-    // The agent reads the comment, revises the proposal and answers it.
+    // Asked in the chat, the AI reads the comment, revises the proposal and answers it.
     revise: {
-      narrowX: AGENT_X,
-      build: (id) => onCheckout('commented', 'focus', id),
-      focus: () => WINDOW,
-      beats: () => agentWork('I’ve commented on Checkout in SmartSpec. Read my comments and revise it.', [
-        { tool: 'get_comments', detail: 'Checkout', done: '1 comment, on Payments' },
-        { say: 'Good question: Payments is ours, and it calls a card provider. I’ll show that.' },
-        {
-          tool: 'propose_schematic', detail: 'Checkout', wait: 1200, done: 'Revised: the overview shows the card provider',
-          act: () => api.goTo('revised'),
-          undo: () => api.goTo('commented'),
-        },
-        { tool: 'reply_to_comment', detail: 'Actioned' },
-        { say: 'I’ve added the card provider to the overview and answered your comment. Nothing more needed on it.' },
-      ]),
+      narrowX: CHAT_X,
+      async build(id) {
+        await onCheckout('commented', 'focus', id);
+        await openChat(COMMENTED_ON, id);
+      },
+      focus: withChat,
+      beats: () => [
+        wait(400),
+        ...askInChat(REVISE_ASK),
+        ...aiWork([
+          { tool: 'get_comments' },
+          { say: REVISE_SAYS[0] },
+          {
+            tool: 'propose_schematic', input: { name: 'Checkout' }, wait: 1200,
+            act: () => api.goTo('revised'),
+            undo: () => api.goTo('commented'),
+          },
+          { tool: 'reply_to_comment' },
+          { say: REVISE_SAYS[1] },
+        ]),
+      ],
     },
     // The answer read, then the proposal accepted: Checkout's first draft.
     accept: {
-      build: (id) => onCheckout('revised', 'focus', id),
-      focus: () => WINDOW,
+      async build(id) {
+        await onCheckout('revised', 'focus', id);
+        await openChat(REVISED, id);
+      },
+      focus: withChat,
       beats: () => [
         wait(500),
         ...click(marker),
         wait(1600),
         act(closeAll),
         ...click(() => document.querySelector('[data-action="proposal-accept"]')),
+        note(OPENED_DRAFT_1),
         wait(1000),
       ],
     },
@@ -603,9 +788,32 @@ export function createDirector({ api }) {
     setInstant(on) {
       instant = on;
     },
-    // Where each scene's about before it's built: the whole window, unless it's known to be
-    // somewhere else.
-    focusHints: () => Object.fromEntries(Object.entries(SCENES).map(([name, scene]) => [name, { ...WINDOW, narrowX: scene.narrowX }])),
+    // Where the chat's window floats by the app's, in the app window's pixels (CHAT_PLACE).
+    chatPlace: CHAT_PLACE,
+    // The chat's window (demo-chat.html, loaded beside this one): started with this demo's API, and
+    // driven from here. `at` is where it floats, if not at CHAT_PLACE.
+    async attachChat(win, at = CHAT_PLACE) {
+      while (!win.startChat) await new Promise((resolve) => setTimeout(resolve, 30));
+      if (!chat) win.startChat(api);
+      chat = { win, doc: win.document, place: at, cursor: win.demoCursor };
+    },
+    // Hears whether the chat's window shows, for the site to show it.
+    onChatShown: (listener) => api.onChatShown(listener),
+    onChatMoved() {}, // (nothing drags it here)
+    // Whether scenes put the chat's window in places of their own (SHOTS): a wide screen's.
+    setShots(on) {
+      shots = on;
+    },
+    // Where each scene's about before it's built (its focus as it'd be now), and where its chat is.
+    focusHints: () => Object.fromEntries(Object.entries(SCENES).map(([name, scene]) => {
+      const was = current;
+      current = name;
+      try {
+        return [name, { ...scene.focus(), narrowX: scene.narrowX, chatAt: place(name) }];
+      } finally {
+        current = was;
+      }
+    })),
     // How long each scene's moment is, in milliseconds, for the site to give it room to scroll.
     lengths: () => Object.fromEntries(Object.entries(SCENES).map(([name, scene]) => [name, lengthOf(scene.beats())])),
     dragTo() {}, // (SmartDoc's site drags a file in; nothing here does)
@@ -642,16 +850,20 @@ export function createDirector({ api }) {
     // Builds the scene, its moment at its start.
     show(name) {
       const id = ++live;
+      current = name;
       moment = null;
       playing++;
       const scene = SCENES[name] ?? SCENES['intro-focus'];
       agent({ type: 'log', entries: [] });
       const result = Promise.all([building, seeking]).then(async () => {
         if (id !== live) return null;
-        showCursor(false);
+        cursor.classList.remove('shown');
+        chat?.cursor?.classList.remove('shown');
         hover(null);
         try {
+          forgetChat();
           await scene.build(id);
+          if (!chatWanted) hideChat();
           await frame();
         } catch (error) {
           if (error !== CANCELLED) console.warn(error);
@@ -661,8 +873,8 @@ export function createDirector({ api }) {
         const beats = scene.beats();
         // Where the cursor first goes, if it's drawn already: a narrow screen starts there.
         const first = beats.find((beat) => beat.move)?.find();
-        const focus = { ...scene.focus(), narrowX: scene.narrowX ?? (first ? pointAt(first).x : undefined) };
-        moment = { id, name: SCENES[name] ? name : 'intro-focus', beats, total: lengthOf(beats), done: 0, found: new Map(), log: '[]' };
+        const focus = { ...scene.focus(), narrowX: scene.narrowX ?? (first ? pointAt(first).x : undefined), chat: api.chatShown, chatAt: place() };
+        moment = { id, name: SCENES[name] ? name : 'intro-focus', beats, total: lengthOf(beats), done: 0, found: new Map(), log: '[]', chat: null };
         return focus;
       });
       building = result.catch(() => {});
