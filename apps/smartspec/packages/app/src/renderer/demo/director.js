@@ -24,6 +24,9 @@ import { makeCursor } from './hover.js';
 import { CHECKOUT_GOAL, COMMENT } from './scenario.js';
 
 const WINDOW = { x: 0, y: 0, width: 1280, height: 800 };
+// The least of the window a scene's region takes in, so a click on one button still shows what's
+// round it.
+const REGION = { width: 760, height: 480 };
 // Where the chat's window floats by the app's, in the app window's pixels: over its right edge, a
 // little past it, as the user might put it in the app.
 export const CHAT_PLACE = { x: 1000, y: 70, width: 400, height: 660 };
@@ -114,6 +117,32 @@ export function createDirector({ api }) {
     const y = Math.min(...rs.map((r) => r.top ?? r.y));
     return { x, y, width: Math.max(...rs.map((r) => r.right ?? r.x + r.width)) - x, height: Math.max(...rs.map((r) => r.bottom ?? r.y + r.height)) - y };
   };
+  // An element's box in the app window's pixels (the chat's window floating at its place).
+  const boxOf = (el) => {
+    const r = el.getBoundingClientRect();
+    const off = el.ownerDocument === document ? { x: 0, y: 0, scale: 1 } : place();
+    return { x: off.x + r.left * off.scale, y: off.y + r.top * off.scale, width: r.width * off.scale, height: r.height * off.scale };
+  };
+  // The part of a box in the app's window (or anywhere, for the chat's), or null if none is.
+  const inView = (box, inWindow) => {
+    if (!inWindow) return box;
+    const x = Math.max(0, box.x);
+    const y = Math.max(0, box.y);
+    const width = Math.min(WINDOW.width, box.x + box.width) - x;
+    const height = Math.min(WINDOW.height, box.y + box.height) - y;
+    return width > 0 && height > 0 ? { x, y, width, height } : null;
+  };
+  const grow = (box, by) => ({ x: box.x - by, y: box.y - by, width: box.width + 2 * by, height: box.height + 2 * by });
+  const centreOf = (box) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  // A scene's region made at least REGION in size, round its middle, inside the windows.
+  const atLeast = (box) => {
+    const all = union(WINDOW, api.chatShown ? place() : null, box);
+    const width = Math.min(all.width, Math.max(box.width, REGION.width));
+    const height = Math.min(all.height, Math.max(box.height, REGION.height));
+    const x = Math.min(all.x + all.width - width, Math.max(all.x, box.x + box.width / 2 - width / 2));
+    const y = Math.min(all.y + all.height - height, Math.max(all.y, box.y + box.height / 2 - height / 2));
+    return { x, y, width, height };
+  };
   // Where the chat's window is, in the app window's pixels (scale: its size to the app window's).
   const place = (name = current) => {
     const at = (shots && SHOTS[name]) || chat?.place || CHAT_PLACE;
@@ -122,6 +151,12 @@ export function createDirector({ api }) {
   };
   // The app window with the chat's window by it.
   const withChat = () => union(WINDOW, place());
+  // Halfway between the chat's window and a point in the app's: where a scene of the AI at work is
+  // anchored, so a cropped framing keeps both what it says and what it does in view.
+  const besideChat = (x, y = 400) => {
+    const p = place();
+    return { x: (p.x + p.width / 2 + x) / 2, y: (p.y + p.height / 2 + y) / 2 };
+  };
   const inChat = (selector) => chat?.doc.querySelector(selector) ?? null;
   const chatInput = () => inChat('.chat-compose textarea');
   const chatSend = () => inChat('.chat-send');
@@ -600,10 +635,12 @@ export function createDirector({ api }) {
     // --- The home page: a schematic, from asking for it to handing it on ---
 
     // The chat opened from the top bar, and a new schematic asked for in it.
+    // The chat opened from the top bar, and a new schematic asked for in it.
     ask: {
       narrowX: CHAT_X,
       build: (id) => onHome('base', id),
       focus: withChat,
+      reach: () => place(), // the chat, opened in the moment
       beats: () => [
         wait(500),
         ...click(() => document.getElementById('chat-button')),
@@ -620,6 +657,8 @@ export function createDirector({ api }) {
         await openChat(ASKED, id);
       },
       focus: withChat,
+      region: () => ({ x: 0, y: 0, width: 760, height: 520 }), // home, where the proposal opens
+      anchor: () => besideChat(400), // and the chat
       beats: () => aiWork([
         { say: PROPOSE_SAYS[0] },
         { tool: 'list_schematics' },
@@ -873,7 +912,38 @@ export function createDirector({ api }) {
         const beats = scene.beats();
         // Where the cursor first goes, if it's drawn already: a narrow screen starts there.
         const first = beats.find((beat) => beat.move)?.find();
-        const focus = { ...scene.focus(), narrowX: scene.narrowX ?? (first ? pointAt(first).x : undefined), chat: api.chatShown, chatAt: place() };
+        // What the moment's about, for the site to keep in view (in the window's pixels): where its
+        // cursor goes (what's there once it's built), the chat's window if it shows, and the part of
+        // the window the scene says it's about, if it's a part; at least REGION in size. And its
+        // anchor, the middle of where the cursor stays longest (the card or the field it works in),
+        // for the site to centre on when it has to crop.
+        const found = [];
+        let last = null;
+        for (const beat of beats) {
+          if (beat.move) {
+            let el = null;
+            try {
+              el = beat.find();
+            } catch {}
+            // (Only what's in view: a card scrolled out of the window isn't where the moment is.)
+            const box = el && inView(boxOf(el), el.ownerDocument === document);
+            last = box ? { box, dwell: 0 } : null;
+            if (last) found.push(last);
+          } else if (last) last.dwell += beat.ms;
+        }
+        const about = scene.focus();
+        const parts = found.map((one) => grow(one.box, 30));
+        if (api.chatShown) parts.push(place());
+        if (about.width < WINDOW.width * 0.9) parts.push(about);
+        if (scene.region) parts.push(scene.region()); // where the AI's work shows, without the cursor
+        const region = parts.length ? atLeast(union(...parts)) : WINDOW;
+        // Its main part: what the scene says (`main`), or where the cursor stays longest. The site
+        // keeps it whole when it can't show all of the region.
+        const longest = found.reduce((best, one) => (!best || one.dwell > best.dwell ? one : best), null);
+        const main = scene.main?.() ?? (longest ? grow(longest.box, 20) : null);
+        const anchor = scene.anchor?.() ?? centreOf(main ?? region);
+        // (And where else its windows go in the moment, such as the chat dragged aside: `reach`.)
+        const focus = { x: region.x, y: region.y, width: region.width, height: region.height, chat: api.chatShown, chatAt: place(), anchor, main, reach: scene.reach?.() };
         moment = { id, name: SCENES[name] ? name : 'intro-focus', beats, total: lengthOf(beats), done: 0, found: new Map(), log: '[]', chat: null };
         return focus;
       });
