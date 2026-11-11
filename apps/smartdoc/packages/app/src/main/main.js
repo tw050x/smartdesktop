@@ -1297,6 +1297,8 @@ app.on('open-file', (event, filePath) => {
 });
 
 app.whenReady().then(async () => {
+  // The app is in beta, and its About panel says so (as Settings does).
+  app.setAboutPanelOptions({ credits: 'SmartDoc is in beta, so it may change significantly from one version to the next.' });
   const first = createWindow();
   await first.workspace.loadRecent();
   context.run(first, updateMenu);

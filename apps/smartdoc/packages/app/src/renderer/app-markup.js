@@ -262,9 +262,9 @@ export const APP_MARKUP = `
     <!-- The app's version and its updates, which download by themselves (see settings.js). -->
     <section class="setting">
       <h3 class="setting-title">Updates</h3>
-      <p class="setting-line"><span id="update-version"></span> · <span id="update-state"></span></p>
+      <p class="setting-line"><span id="update-version"></span> <span class="beta-tag">Beta</span> · <span id="update-state"></span></p>
       <button class="secondary-button" id="update-action" type="button">Check for Updates</button>
-      <p class="setting-note">New versions download by themselves and install when SmartDoc quits.</p>
+      <p class="setting-note">SmartDoc is in beta, so it may change significantly from one version to the next. New versions download by themselves and install when SmartDoc quits.</p>
     </section>
   </div>
 </dialog>

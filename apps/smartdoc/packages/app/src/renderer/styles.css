@@ -841,6 +841,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .setting-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
 .setting-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .setting-line { margin: 0 0 10px; color: var(--text-2); font-size: 13px; }
+/* The app is in beta (and says so in its About panel too). */
+.beta-tag { padding: 1px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; }
 /* The update notice: centred at the bottom of the window, above everything but dialogs. */
 .update-toast[hidden] { display: none; }
 .update-toast {
