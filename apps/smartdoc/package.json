@@ -14,7 +14,8 @@
     "start": "npm start -w @smartdoc/app",
     "dist": "npm run dist -w @smartdoc/app",
     "demo": "npm run demo -w @smartdoc/app",
-    "site": "npm run demo && node scripts/serve-site.mjs",
+    "shots": "node scripts/shots.mjs",
+    "site": "npm run demo && npm run shots && node scripts/serve-site.mjs",
     "test": "node --test",
     "icons": "node scripts/make-icons.mjs",
     "server-snapshot": "node scripts/server-snapshot.mjs"

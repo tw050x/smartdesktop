@@ -97,76 +97,255 @@ function position() {
 // kept for coming back to it.
 const focuses = new Map();
 function focusOf(step) {
-  if (step.dataset.scene === 'settle') return WINDOW;
+  // The hero (a step that plays by itself) and the last step show the whole window, whatever the
+  // scene's about, so the hero never zooms in once its scene is built.
+  if (step.dataset.scene === 'settle' || plays(step)) return WINDOW;
   return focuses.get(step.dataset.scene) ?? WINDOW;
 }
 
-// The camera's framing for a step: its focus fitted into the room its caption leaves, beside it on
-// wide screens. A whole window is never enlarged; a detail can be, a little. The window never
-// reaches into the caption's column: what doesn't fit goes off the other edge of the screen. Where
-// the focus allows, the window's edge meets the column's, so the gap between caption and window
-// is the same in every scene. Narrow screens have a framing of their own (narrowFraming).
+// The camera's framing for a step: the scene's focus (what its moment is about, in the window's
+// pixels: where the cursor works, what appears, the chat's window if it's used) in the room its
+// caption leaves, at least large enough to read (READABLE), and no larger than MOST. It's fixed for
+// the whole step: the camera moves only between steps (the user's choice: following the cursor, it
+// slid back and forth within a step).
+// No window's edge is ever squeezed against the screen's (or the header's) (the user's choice: a
+// window just the height of the view, or a chat's foot at the screen's foot, looked squashed):
+// each edge of the app's window and the chat's is either well inside, with MARGIN round it, or
+// well past it, by CUT at least, so it's plainly cut off. A window too tall for the view runs off
+// the top or the foot, whichever's away from the focus, with room on the other side.
+// Wide, the windows are never cut off beside the caption (the user found a cut through the middle
+// of the window wrong): they stop at its column (or band), and what doesn't fit runs off the
+// screen's other edges, or up under the page's header. So each step's caption goes on whichever
+// side shows the whole focus with no edge squeezed (its own side first, then left, right, across
+// the foot, across the top; across the foot rather than the top when the window has to be cropped
+// up and down, as it then goes under the header), or failing that its main part whole. Narrow, the
+// caption and the window are one above the other (narrowLayout), the window cut off at its room's
+// top and foot, and what doesn't fit across runs off the screen's sides, round the scene's anchor
+// (where its cursor stays longest).
 const COLUMN = 440; // the caption's column, at the screen's edge (story.css places the captions in it)
+const READABLE = { wide: 0.8, narrow: 0.5 }; // the smallest the window is drawn, wide and narrow
+const MOST = 1.3; // the largest a part of the window is drawn
+const MARGIN = { wide: 32, narrow: 12 }; // the least room between a window's edge and the screen's
+const CUT = { wide: 64, narrow: 32 }; // the least a window's edge is past the screen's, when cut off
+const OFF = 100000; // an edge that isn't cut
+const NO_CLIP = { left: -OFF, top: -OFF, right: OFF, bottom: OFF };
 function framing(step) {
-  if (!wide.matches) return narrowFraming(step);
-  const focus = shownFocus(step);
   const W = stage.clientWidth;
   const H = stage.clientHeight;
-  const side = step.dataset.side;
   const gap = 28;
-  if (step.dataset.windows) {
+  if (step.dataset.windows && wide.matches) {
     // Under its caption, the two windows the same size, centred with a gap between them.
     const y = gap + (captionOf(step)?.offsetHeight ?? 0) + gap;
     const between = 20;
     const k = Math.min((W - 80 - between) / 2 / WINDOW.width, (H - y - gap) / WINDOW.height);
     const x = (W - WINDOW.width * k * 2 - between) / 2;
-    return { x, y, k, second: { x: x + WINDOW.width * k + between, y, k } };
+    return { x, y, k, clip: NO_CLIP, second: { x: x + WINDOW.width * k + between, y, k } };
   }
-  // A caption across the top (data-side "top") leaves the full width under it, for a focus that's
-  // wide and short, which can then be enlarged more.
-  const top = side === 'top' ? gap + (captionOf(step)?.offsetHeight ?? 0) + gap : 0;
-  // A caption below (data-side "below") leaves the room above it, the window against it.
-  const below = side === 'below' ? gap + (captionOf(step)?.offsetHeight ?? 0) + gap : 0;
+  const focus = shownFocus(step);
+  if (wide.matches) {
+    const side = sideOf(step);
+    return placeFor(step, side, focus, W, H, sides.get(step)?.k);
+  }
+  const { room } = narrowLayout(step);
+  const box = { x: EDGE, y: room.top, width: W - 2 * EDGE, height: room.bottom - room.top };
+  const k = scaleFor(focus, box, READABLE.narrow);
+  const anchor = anchorOf(focus);
+  const content = contentOf(step);
+  const fit = { margin: MARGIN.narrow, over: CUT.narrow };
+  const x = along({ ...fit, roomStart: box.x, roomSize: box.width, viewStart: 0, viewEnd: W, content: [content.x, content.x + content.width], focus: [focus.x, focus.x + focus.width], anchor: anchor.x, edges: edgesOf(step, 'x') }, k);
+  const y = along({ ...fit, roomStart: box.y, roomSize: box.height, viewStart: room.top, viewEnd: room.bottom, content: [content.y, content.y + content.height], focus: [focus.y, focus.y + focus.height], anchor: anchor.y, edges: edgesOf(step, 'y') }, k);
+  return { x: x.v, y: y.v, k, clip: { ...NO_CLIP, top: room.top, bottom: room.bottom } };
+}
+const anchorOf = (focus) => focus.anchor ?? { x: focus.x + focus.width / 2, y: focus.y + focus.height / 2 };
+// How large the focus is drawn: fitted to its room, but no smaller than `least`, nor larger than
+// MOST (a whole window, no larger than it is).
+function scaleFor(focus, room, least) {
+  const most = focus.width >= WINDOW.width ? 1 : MOST;
+  return Math.min(most, Math.max(least, Math.min(room.width / focus.width, room.height / focus.height)));
+}
+// What there is to show: the app's window, the chat's beside it while it shows (where the scene
+// puts it: a drag never moves the framing), the focus, and wherever else the scene's windows go
+// in its moment (its reach, such as the chat dragged aside), so a caption is never over them.
+function contentOf(step) {
+  const focus = focusOf(step);
+  const parts = [WINDOW, focus, focus.reach, chatBoxOf(focus)].filter(Boolean);
+  const x = Math.min(...parts.map((p) => p.x));
+  const y = Math.min(...parts.map((p) => p.y));
+  return { x, y, width: Math.max(...parts.map((p) => p.x + p.width)) - x, height: Math.max(...parts.map((p) => p.y + p.height)) - y };
+}
+// The chat's window, where the scene puts it (in the app window's pixels), while it shows.
+function chatBoxOf(focus) {
+  if (!focus.chat || !chatCamera || !focus.chatAt) return null;
+  const s = focus.chatAt.scale ?? 1;
+  return { x: focus.chatAt.x, y: focus.chatAt.y, width: CHAT.width * s, height: CHAT.height * s };
+}
+// Each window's edges along one axis (in the app window's pixels): the app's, the chat's, and the
+// chat's where it's dragged to.
+function edgesOf(step, axis) {
+  const focus = focusOf(step);
+  const [at, size] = axis === 'x' ? ['x', 'width'] : ['y', 'height'];
+  return [WINDOW, chatBoxOf(focus), focus.reach].filter(Boolean).flatMap((box) => [box[at], box[at] + box[size]]);
+}
+// Where the window goes along one axis (v: its edge's place on the stage), at scale k, in the room
+// (roomStart, roomSize), able to run out as far as the view (viewStart, viewEnd: the screen's
+// edges, the header's, or the caption's). Against the caption (`closed`: 'start' or 'end'), its
+// edge (or the chat's) is at the room's, or a little further off. Otherwise all of it is in the
+// middle, with room round it, if it fits; if not, the anchor is. Either way the focus is kept in
+// view, and then it's moved as little as it takes to leave no window's edge squeezed against the
+// view's (`squeezed` says how many still are).
+function along(a, k) {
+  const { roomStart, roomSize, viewStart, viewEnd, closed, margin, over } = a;
+  const [cs, ce] = a.content;
+  const [fs, fe] = a.focus;
+  let lo;
+  let hi;
+  let preferred;
+  if (closed === 'start') {
+    lo = roomStart - cs * k;
+    hi = lo + 160;
+    preferred = lo;
+  } else if (closed === 'end') {
+    hi = roomStart + roomSize - ce * k;
+    lo = hi - 160;
+    preferred = hi;
+  } else {
+    const size = (ce - cs) * k;
+    preferred = size <= viewEnd - viewStart - 2 * margin
+      ? (viewStart + viewEnd - size) / 2 - cs * k
+      : (viewStart + viewEnd) / 2 - Math.min(fe, Math.max(fs, a.anchor)) * k;
+    lo = viewEnd - margin - fe * k; // the focus in view, with room round it
+    hi = viewStart + margin - fs * k;
+    if (lo > hi) {
+      lo = viewEnd - fe * k; // or just in view
+      hi = viewStart - fs * k;
+    }
+    if (lo > hi) lo = hi = preferred;
+  }
+  preferred = Math.min(hi, Math.max(lo, preferred));
+  // (The caption's side is spaced already, by its column or band.)
+  const vs = closed === 'start' ? -OFF : viewStart;
+  const ve = closed === 'end' ? OFF : viewEnd;
+  const squeezedAt = (v) => a.edges.filter((e) => {
+    const p = v + e * k;
+    return (p > vs - over && p < vs + margin) || (p > ve - margin && p < ve + over);
+  }).length;
+  let best = preferred;
+  let bestCost = squeezedAt(preferred) * OFF;
+  const by = Math.max(1, (hi - lo) / 300);
+  for (let v = lo; v <= hi + 0.01; v += by) {
+    const cost = squeezedAt(v) * OFF + Math.abs(v - preferred);
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = v;
+    }
+  }
+  return { v: best, squeezed: squeezedAt(best) };
+}
+// The framing with the caption on `side` (wide), at scale `scale` (or fitted to the room), how much
+// of the focus it shows (seen, 0 to 1), and how many window edges are squeezed against the view's.
+function placeFor(step, side, focus, W, H, scale) {
+  const gap = MARGIN.wide;
+  const band = ['top', 'bottom', 'below'].includes(side) ? captionHeight(step, side) + 2 * gap : 0;
   const room = side === 'left' ? { x: COLUMN, y: gap, width: W - COLUMN - gap, height: H - 2 * gap }
     : side === 'right' ? { x: gap, y: gap, width: W - COLUMN - gap, height: H - 2 * gap }
-    : side === 'top' ? { x: 40, y: top, width: W - 80, height: H - top - gap }
-    : side === 'below' ? { x: 40, y: gap, width: W - 80, height: H - below - gap }
+    : side === 'top' ? { x: 40, y: band, width: W - 80, height: H - band - gap }
+    : side === 'bottom' || side === 'below' ? { x: 40, y: gap, width: W - 80, height: H - band - gap }
     : { x: 40, y: gap, width: W - 80, height: H - 2 * gap };
-  const whole = focus.width >= WINDOW.width;
-  const k = Math.min(room.width / focus.width, room.height / focus.height, whole ? 1 : side === 'top' ? 1.8 : 1.4);
-  let x = room.x + (room.width - focus.width * k) / 2 - focus.x * k;
-  // Centred in its room, or, under a top caption, at the room's top.
-  let y = side === 'top' ? room.y - focus.y * k
-    : side === 'below' ? room.y + room.height - (focus.y + focus.height) * k
-    : room.y + (room.height - focus.height * k) / 2 - focus.y * k;
-  if (side === 'left') {
-    const against = room.x - Math.min(0, focus.x) * k; // the window's left edge (or the chat's, left of it) on the column's
-    x = against + (focus.x + focus.width) * k <= room.x + room.width ? against : Math.max(x, room.x);
-  } else if (side === 'right') {
-    // Its right edge on the column's (or the chat's window's, past it).
-    const against = room.x + room.width - Math.max(WINDOW.width, focus.x + focus.width) * k;
-    x = against + focus.x * k >= room.x ? against : Math.min(x, against);
+  const view = {
+    left: side === 'left' ? room.x : 0,
+    right: side === 'right' ? room.x + room.width : W,
+    top: side === 'top' ? room.y : 0,
+    bottom: side === 'bottom' || side === 'below' ? room.y + room.height : H,
+  };
+  // The hero (a step that plays by itself) shows the whole window: it's seen before the stage is
+  // pinned under the header, so nothing it crops would go under the header.
+  const k = scale ?? scaleFor(focus, room, plays(step) ? 0 : READABLE.wide);
+  // (It's fitted to its room, with room round it: there's no edge to keep from squeezing.)
+  const whole = plays(step);
+  const anchor = anchorOf(focus);
+  const content = contentOf(step);
+  const fit = { margin: MARGIN.wide, over: CUT.wide };
+  const x = along({ ...fit, roomStart: room.x, roomSize: room.width, viewStart: view.left, viewEnd: view.right, closed: side === 'left' ? 'start' : side === 'right' ? 'end' : null, content: [content.x, content.x + content.width], focus: [focus.x, focus.x + focus.width], anchor: anchor.x, edges: whole ? [] : edgesOf(step, 'x') }, k);
+  const y = along({ ...fit, roomStart: room.y, roomSize: room.height, viewStart: view.top, viewEnd: view.bottom, closed: side === 'top' ? 'start' : side === 'bottom' || side === 'below' ? 'end' : null, content: [content.y, content.y + content.height], focus: [focus.y, focus.y + focus.height], anchor: anchor.y, edges: whole ? [] : edgesOf(step, 'y') }, k);
+  const shownX = Math.max(0, Math.min(view.right, x.v + (focus.x + focus.width) * k) - Math.max(view.left, x.v + focus.x * k));
+  const shownY = Math.max(0, Math.min(view.bottom, y.v + (focus.y + focus.height) * k) - Math.max(view.top, y.v + focus.y * k));
+  let seen = (shownX * shownY) / (focus.width * k * focus.height * k);
+  // Across the top, a window cut off at the foot is the wrong way round: across the foot, it'd go
+  // under the header instead.
+  if (side === 'top' && y.v + (content.y + content.height) * k > H + 1) seen *= 0.99;
+  // Whether the focus's main part (the card or field the moment's about) shows whole.
+  const main = focus.main;
+  const mainWhole = !main || (x.v + main.x * k >= view.left - 1 && x.v + (main.x + main.width) * k <= view.right + 1 && y.v + main.y * k >= view.top - 1 && y.v + (main.y + main.height) * k <= view.bottom + 1);
+  const squeezed = x.squeezed + y.squeezed;
+  // A squeezed edge counts for more than a little of the focus, but less than its main part whole;
+  // a little under READABLE is allowed, but only to make room.
+  return { x: x.v, y: y.v, k, clip: NO_CLIP, side, seen, squeezed, score: seen + (mainWhole ? 1 : 0) - 0.6 * squeezed - (k < READABLE.wide - 0.001 ? 0.3 : 0) };
+}
+// The best framing with the caption on `side`: at the size that fits the focus to the room, or
+// a little smaller (down to nine tenths of READABLE, so a window just too tall for the view fits it
+// with room round it), or larger (so it plainly runs off it), rather than squeezed into it.
+function bestFor(step, side, focus, W, H) {
+  const fitted = placeFor(step, side, focus, W, H);
+  if (plays(step) || (fitted.seen >= 0.999 && !fitted.squeezed)) return fitted;
+  let best = fitted;
+  const least = READABLE.wide * 0.9;
+  for (const k of [READABLE.wide, READABLE.wide * 0.95, least, fitted.k * 0.95, fitted.k * 0.9, fitted.k * 1.12, fitted.k * 1.25, fitted.k * 1.4]) {
+    if (k < least - 0.001 || k > MOST) continue;
+    const tried = placeFor(step, side, focus, W, H, k);
+    if (tried.score > best.score + 0.001) best = tried;
   }
-  return { x, y, k };
+  return best;
+}
+// The side a step's caption is on: wide, the first that shows the whole of its focus with no edge
+// squeezed, or failing that the best (its main part whole, most of the rest, fewest edges
+// squeezed), worked out once for each screen size and focus, and the caption moved there; narrow,
+// its own.
+const sides = new Map(); // step → { key, side, k }
+function sideOf(step) {
+  const own = step.dataset.side;
+  if (!wide.matches || !captionOf(step) || ['below', 'none'].includes(own) || step.dataset.windows) return own;
+  const W = stage.clientWidth;
+  const H = stage.clientHeight;
+  const focus = focusOf(step);
+  const key = `${W}x${H}:${[focus.x, focus.y, focus.width, focus.height].map(Math.round)}:${focus.chat ? JSON.stringify(focus.chatAt ?? null) : ''}`;
+  const known = sides.get(step);
+  if (known?.key === key) return known.side;
+  let best = null;
+  for (const side of [...new Set([own, 'left', 'right', 'bottom', 'top'])]) {
+    const tried = bestFor(step, side, focus, W, H);
+    if (!best || tried.score > best.score + 0.001) best = tried;
+    if (tried.seen >= 0.999 && !tried.squeezed) break;
+  }
+  sides.set(step, { key, side: best.side, k: best.k });
+  captionOf(step).dataset.side = best.side;
+  return best.side;
+}
+// How tall a step's caption is on `side` (its width differs from side to side).
+function captionHeight(step, side) {
+  const caption = captionOf(step);
+  if (!caption) return 0;
+  const was = caption.dataset.side;
+  caption.dataset.side = side;
+  const height = caption.offsetHeight;
+  caption.dataset.side = was;
+  return height;
+}
+// What of a window placed at (x, y), k, its own size w × h, is cut off by `clip` (in the stage's
+// pixels), as a clip-path: its edges inside the clip are cut, the rest left with room for the shadow.
+function insetOf(x, y, k, w, h, clip) {
+  const out = -80 / k;
+  const top = clip.top > y ? (clip.top - y) / k : out;
+  const left = clip.left > x ? (clip.left - x) / k : out;
+  const right = clip.right < x + w * k ? (x + w * k - clip.right) / k : out;
+  const bottom = clip.bottom < y + h * k ? (y + h * k - clip.bottom) / k : out;
+  return top === out && left === out && right === out && bottom === out ? '' : `inset(${top}px ${right}px ${bottom}px ${left}px)`;
 }
 
 // Narrow: the caption and the window one above the other, the window over it on one step and
-// under it (down by the progress dots) on the next. On a phone, shown whole, the window would be
-// too small to read, so it's larger, with only part of its width on screen, and how much larger
-// depends on the scene: a whole window filling its room (or WHOLE, at the least), a detail (a menu,
-// a card, a column) up to its full size. A tablet shows a whole window whole.
-// What doesn't fit in the window's room is cut off at the room's edges (clip). The camera pans
-// across it: to the cursor while it's working, otherwise to the middle of what the scene's about
-// (or, for the AI at work, where the demo says, narrowX). The pan eases there frame by frame,
-// as the focus does.
+// under it (down by the progress dots) on the next.
 const EDGE = 12; // the space around the window
 const GAP = 20; // between the caption and the window
 const DOTS = 36; // the progress dots' row, at the foot
-const WHOLE = 0.5; // a whole window's size, at the least
-const SPARE = 1.25; // how much wider than the screen a focus can be, the rest panned to
-let cursorAt = null; // where the demo's cursor is, in the window's pixels, while it's shown
-const cursorWas = new Map(); // step → where its cursor was last, kept while it's hidden
-const pans = new Map(); // step → { x } the camera centres on, on its way to where it should
 // Which way round each captioned step goes: the window 'over' its caption, or 'under' it.
 // (A caption below always goes under its window, without counting in the alternation.)
 const order = new Map(steps.filter((step) => !plays(step)).map((step, i) => [step, i % 2 ? 'under' : 'over']));
@@ -179,47 +358,6 @@ function narrowLayout(step) {
   return way === 'over'
     ? { room: { top: EDGE, bottom: H - DOTS - caption - 2 * GAP }, captionTop: H - DOTS - caption - GAP }
     : { room: { top: 2 * GAP + caption, bottom: H - DOTS }, captionTop: GAP };
-}
-function narrowFraming(step) {
-  const W = stage.clientWidth;
-  const focus = focusOf(step);
-  const { room } = narrowLayout(step);
-  const fit = (W - 2 * EDGE) / WINDOW.width; // the whole window's width on screen
-  const detail = ((W - 2 * EDGE) / focus.width) * SPARE;
-  // A phone: at least filling its room from top to bottom, and a detail larger still. A tablet,
-  // wide enough to read the whole window (fit ≥ WHOLE): the whole window, fitted to the screen and
-  // its room, and a detail larger.
-  const k = fit >= WHOLE
-    ? Math.min(1, Math.max(Math.min(fit, (room.bottom - room.top) / WINDOW.height), focus.width < WINDOW.width ? detail : 0))
-    : Math.min(1, Math.max(WHOLE, (room.bottom - room.top) / WINDOW.height, detail));
-  // Across: panned to the cursor, staying where it was while it's hidden (the AI at work, or
-  // another scene being built), or before it's shown to where it'll first go (narrowX), or to the
-  // middle of the focus; never past the window's edges.
-  if (step === built && cursorAt) cursorWas.set(step, cursorAt);
-  let target = cursorWas.get(step)?.x ?? focus.narrowX ?? focus.x + focus.width / 2;
-  const half = (W - 2 * EDGE) / k / 2;
-  const across = focus.chat ? Math.max(WINDOW.width, CHAT.x + CHAT.width) : WINDOW.width; // the chat's window too
-  target = half * 2 >= across ? across / 2 : Math.min(across - half, Math.max(half, target));
-  let pan = pans.get(step);
-  if (!pan || still.matches) pans.set(step, (pan = { x: target }));
-  else if (pan.frame !== lastFrame) {
-    pan.frame = lastFrame;
-    const d = target - pan.x;
-    if (Math.abs(d) < 0.5) pan.x = target;
-    else {
-      pan.x += d * (1 - Math.exp(-frameStep / 320));
-      easing = true;
-    }
-  }
-  // Up and down: a window that fits its room against the caption's far side (at the top, or down
-  // by the dots); one that doesn't, from its top (the top bar showing), moved up only as far as a
-  // focus lower down needs, and cut off at the room's edges.
-  const height = WINDOW.height * k;
-  let y;
-  if (height <= room.bottom - room.top) y = order.get(step) === 'under' ? room.bottom - height : room.top;
-  else y = Math.max(room.bottom - height, Math.min(room.top, room.bottom - (focus.y + focus.height) * k));
-  const clip = { top: Math.max(0, (room.top - y) / k), bottom: Math.max(0, (y + height - room.bottom) / k) };
-  return { x: W / 2 - pan.x * k, y, k, clip };
 }
 
 // --- Building scenes -------------------------------------------------------------------------
@@ -246,14 +384,12 @@ async function build(step) {
   const n = ++builds;
   scene = step;
   built = null;
-  cursorAt = null;
   started = null;
   document.dispatchEvent(new CustomEvent('story:scene', { detail: step }));
   const focus = await demo.show(step.dataset.scene);
   if (n !== builds) return;
   if (focus) focuses.set(step.dataset.scene, focus);
   chatPlaces.delete(step.dataset.scene); // not dragged yet
-  pans.delete(step); // narrow: the pan starts where the scene now says, not easing from the guess
   built = step;
   render();
 }
@@ -277,6 +413,7 @@ function shownFocus(step) {
   }
   if (now.frame === lastFrame) return now; // once a frame
   now.frame = lastFrame;
+  Object.assign(now, { anchor: target.anchor, main: target.main, reach: target.reach, chat: target.chat, chatAt: target.chatAt });
   const k = 1 - Math.exp(-frameStep / 160);
   for (const key of ['x', 'y', 'width', 'height']) {
     const d = target[key] - now[key];
@@ -310,11 +447,16 @@ function render() {
   const k = lerp(fa.k, fb.k, u);
   const y = lerp(fa.y, fb.y, u);
   camera.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
-  // Narrow: what's cut off at the window's room, and each caption in its place.
-  const clipTop = lerp(fa.clip?.top ?? 0, fb.clip?.top ?? 0, u);
-  const clipBottom = lerp(fa.clip?.bottom ?? 0, fb.clip?.bottom ?? 0, u);
-  const out = -80 / k; // an edge that isn't cut: past the window, so its shadow still shows
-  camera.style.clipPath = clipTop || clipBottom ? `inset(${clipTop || out}px ${out}px ${clipBottom || out}px ${out}px)` : '';
+  // What's cut off at the room's edge on the caption's side, moving with the camera between steps.
+  const W = stage.clientWidth;
+  const H = stage.clientHeight;
+  const edge = (key, none) => lerp(Math.max(-W, Math.min(2 * W, fa.clip[key] ?? none)), Math.max(-W, Math.min(2 * W, fb.clip[key] ?? none)), u);
+  const clip = { left: edge('left', -OFF), top: edge('top', -OFF), right: edge('right', OFF), bottom: edge('bottom', OFF) };
+  if (clip.top <= -W + 1) clip.top = -OFF;
+  if (clip.left <= -W + 1) clip.left = -OFF;
+  if (clip.right >= 2 * W - 1) clip.right = OFF;
+  if (clip.bottom >= 2 * W - 1) clip.bottom = OFF;
+  camera.style.clipPath = insetOf(x, y, k, WINDOW.width, WINDOW.height, clip);
   // The hero's second window, framed as the first, showing while the hero is (until the gap after
   // it's under way, as its caption fades).
   if (altCamera) {
@@ -324,11 +466,11 @@ function render() {
   placeSecond(a, b, fa, fb, u, t, within, { x, y, k });
   stage.classList.toggle('on-hero', a.dataset.side === 'below' && t < 0.2);
   if (!wide.matches) for (const step of steps) if (captionOf(step)) captionOf(step).style.setProperty('--narrow-top', `${narrowLayout(step).captionTop}px`);
-  placeAgent(x, { top: y + clipTop * k, bottom: y + (WINDOW.height - clipBottom) * k }, k);
+  placeAgent(x, { top: Math.max(y, clip.top), bottom: Math.min(y + WINDOW.height * k, clip.bottom) }, k, clip);
   const ca = chatAt(a);
   const cb = chatAt(b);
   const at = { x: lerp(ca.x, cb.x, u), y: lerp(ca.y, cb.y, u), scale: lerp(ca.scale ?? 1, cb.scale ?? 1, u) };
-  placeChat(x, y, k, clipTop, clipBottom, { ...at, height: CHAT.height * at.scale });
+  placeChat(x, y, k, clip, at);
   placeFile(from, to, t, within, { x, y: lerp(fa.y, fb.y, u), k: lerp(fa.k, fb.k, u) });
 
   // The captions: the last fading out over the first fifth, moving up; the next fading in over the
@@ -377,10 +519,13 @@ const schedule = () => {
   rendering = true;
 };
 addEventListener('scroll', schedule, { passive: true });
+
 addEventListener('resize', schedule);
 // Wide and narrow place the chat's window differently (a narrow screen keeps it by the app
 // window's edge), so crossing between them builds the scene again.
 wide.addEventListener('change', () => {
+  sides.clear();
+  for (const step of steps) if (captionOf(step) && !['below', 'none'].includes(step.dataset.side)) captionOf(step).dataset.side = step.dataset.side;
   if (!demo?.setShots) return;
   demo.setShots(wide.matches);
   focuses.clear();
@@ -471,9 +616,9 @@ function showAgent({ entries }) {
 // Narrow, it's docked over the lower part of what shows of the window (shown: its top and bottom
 // on screen), across its width.
 // Wide, it's drawn at the app window's scale, as the chat's window is, so its text is the app's size.
-function placeAgent(x, shown, k) {
+function placeAgent(x, shown, k, clip) {
   if (!agentWindow) return;
-  agentWindow.style.left = wide.matches ? `${Math.max(x, 0) + 32}px` : '';
+  agentWindow.style.left = wide.matches ? `${Math.max(x, clip.left === -OFF ? 0 : clip.left) + 32}px` : '';
   agentWindow.style.scale = wide.matches ? String(k) : '';
   agentWindow.style.top = wide.matches ? '' : `${shown.top + (shown.bottom - shown.top) * 0.4}px`;
   agentWindow.style.height = wide.matches ? '' : `${(shown.bottom - shown.top) * 0.6 - EDGE}px`;
@@ -481,16 +626,15 @@ function placeAgent(x, shown, k) {
 
 // --- The chat's window (SmartDoc's) -----------------------------------------------------------
 
-// Placed as the app's window is, at its place beside it (in the app window's pixels, scaled the
-// same), and cut off where the app's window is (narrow), showing while the demo says.
-function placeChat(x, y, k, clipTop, clipBottom, at) {
+// Placed as the app's window is, at its place beside it (in the app window's pixels, scaled with
+// it), cut off where the app's window is (clip), showing while the demo says.
+function placeChat(x, y, k, clip, at) {
   if (!chatCamera) return;
-  chatCamera.style.transform = `translate(${x + at.x * k}px, ${y + at.y * k}px) scale(${k * at.scale})`;
-  // Cut off only where the app window is (narrow): wide, it can reach past the app window's edges.
-  const top = clipTop ? Math.max(0, clipTop - at.y) / at.scale : 0;
-  const bottom = clipBottom ? Math.max(0, at.y + at.height - (WINDOW.height - clipBottom)) / at.scale : 0;
-  const out = -80 / (k * at.scale);
-  chatCamera.style.clipPath = top || bottom ? `inset(${top || out}px ${out}px ${bottom || out}px ${out}px)` : '';
+  const cx = x + at.x * k;
+  const cy = y + at.y * k;
+  const ck = k * at.scale;
+  chatCamera.style.transform = `translate(${cx}px, ${cy}px) scale(${ck})`;
+  chatCamera.style.clipPath = insetOf(cx, cy, ck, CHAT.width, CHAT.height, clip);
   chatCamera.classList.toggle('shown', chatShown);
 }
 
@@ -514,7 +658,8 @@ function track(from, to, t, within) {
   const step = steps[t >= 0.5 ? to : from];
   const current = chapters.indexOf(step);
   const fill = t === 0 ? clamp(within) : t >= 0.5 ? 0 : 1;
-  const side = current === -1 ? null : step.dataset.side === 'top' ? 'left' : step.dataset.side; // a top caption's dots on the left
+  const placed = current === -1 ? null : sideOf(step);
+  const side = placed === 'top' || placed === 'bottom' ? 'left' : placed; // a caption across the top or foot has its dots on the left
   const own = step.dataset.side === 'below';
   ownProgress.classList.toggle('shown', own);
   if (own) ownDot.style.setProperty('--fill', fill.toFixed(3));
@@ -569,10 +714,6 @@ frame.addEventListener('load', async () => {
   demo.setInstant(still.matches);
   demo.setShots?.(wide.matches);
   demo.onAgent?.(showAgent);
-  demo.onCursor((at) => {
-    cursorAt = at;
-    if (!wide.matches) schedule();
-  });
   sizeSteps(demo.lengths());
   // Where each scene's about before it's first built, so the camera heads the right way.
   for (const [name, focus] of Object.entries(demo.focusHints())) if (!focuses.has(name)) focuses.set(name, focus);
@@ -654,6 +795,51 @@ altCamera?.querySelector('iframe').addEventListener('load', async (e) => {
   altFrame.classList.add('loaded');
   if (stage.dataset.hero !== 'improve') altDemo.start();
 });
+
+// --- Phones and upright tablets: the story as stills -------------------------------------------
+
+// Below 900px wide the story isn't played: the pinned window, framed for a narrow screen, cropped
+// too much (the user's choice). Instead each step is a block of the page, its caption over a still
+// of its scene, made from the demo (scripts/shots.mjs, site/shots/<scene>-dark.webp and -light.webp,
+// as the visitor's system is), showing the part of the window the step's about. The live demo
+// isn't loaded there at all: its frames load only on a wide screen.
+const flat = Object.assign(document.createElement('div'), { className: 'story-flat' });
+let lastScene = null;
+for (const step of steps) {
+  const name = step.dataset.scene;
+  if (name === 'settle' || name === lastScene) continue;
+  lastScene = name;
+  const block = Object.assign(document.createElement('section'), { className: 'flat-step' });
+  const caption = captionOf(step);
+  if (caption) {
+    const copy = caption.cloneNode(true);
+    copy.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+    copy.removeAttribute('style');
+    block.append(copy);
+  }
+  const alt = caption?.querySelector('h2')?.textContent ?? '';
+  block.append(stillOf(name, alt));
+  if (step.dataset.windows && secondCamera) block.append(stillOf(secondCamera.dataset.scene, alt));
+  flat.append(block);
+}
+stage.closest('.story').after(flat);
+function stillOf(scene, alt) {
+  const picture = document.createElement('picture');
+  const dark = Object.assign(document.createElement('source'), { srcset: `shots/${scene}-dark.webp`, media: '(prefers-color-scheme: dark)' });
+  const img = Object.assign(document.createElement('img'), { src: `shots/${scene}-light.webp`, alt, loading: 'lazy', decoding: 'async' });
+  picture.append(dark, img);
+  return picture;
+}
+function loadDemos() {
+  if (!wide.matches || location.protocol === 'file:') return;
+  for (const f of [frame, chatCamera?.querySelector('iframe'), altCamera?.querySelector('iframe')]) {
+    if (!f?.dataset.src) continue;
+    f.src = f.dataset.src;
+    delete f.dataset.src;
+  }
+}
+loadDemos();
+wide.addEventListener('change', loadDemos);
 
 window.story = {
   get scene() { return scene; },

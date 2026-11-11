@@ -30,7 +30,7 @@
 .step[data-side="below"] { min-height: calc(var(--stage-height) * 1.5); } /* the hero, its tools under it: held a while, to try them */
 .step:last-child { min-height: calc(var(--stage-height) * 0.4); } /* "settle": back to the whole window before the page moves on */
 .step[data-scene="upload"] { min-height: calc(var(--stage-height) * 1.2); } /* room to drag the file in */
-.gap { height: calc(var(--stage-height) * 0.6); } /* where one scene changes to the next */
+.gap { height: calc(var(--stage-height) * 1.4); } /* where one scene changes to the next: long, so the window moves slowly (the user found it fast) */
 /* The captions stay still on the stage, on the page's background: each fades in for its scene, on
    its side, and out for the next, as the page scrolls through the gaps (--show and --shift, set by
    story.js). The camera keeps the window clear of them. */
@@ -46,6 +46,9 @@
 .hero-caption .lede { margin-bottom: 0; }
 /* Across the top, over a window using the full width under it (story.js frames it). */
 .caption[data-side="top"] { top: 28px; left: 50%; width: min(640px, calc(100% - 80px)); text-align: center; transform: translate(-50%, var(--shift, 32px)); }
+/* Across the foot, under a window that runs up under the page's header: where story.js moves a
+   caption when the window has to be cropped up and down. */
+.caption[data-side="bottom"] { top: auto; bottom: 28px; left: 50%; width: min(640px, calc(100% - 80px)); text-align: center; transform: translate(-50%, var(--shift, 32px)); }
 .agent { text-align: left; }
 .caption h2 { margin-bottom: 12px; font-size: clamp(26px, 3vw, 38px); text-wrap: balance; }
 /* No short word alone on a line: headings wrap into even lines, paragraphs avoid a last line of
@@ -109,7 +112,7 @@
 /* Narrow: the window and the caption one above the other, either way round (story.js places
    them), and the progress dots in a row, centred at the foot, the current one long. */
 @media (max-width: 899px) {
-  .caption, .caption[data-side="right"], .caption[data-side="left"], .caption[data-side="top"], .caption[data-side="below"] { top: var(--narrow-top, 50%); bottom: auto; left: 16px; right: 16px; width: auto; text-align: left; transform: translateY(var(--shift, 32px)); }
+  .caption, .caption[data-side="right"], .caption[data-side="left"], .caption[data-side="top"], .caption[data-side="bottom"], .caption[data-side="below"] { top: var(--narrow-top, 50%); bottom: auto; left: 16px; right: 16px; width: auto; text-align: left; transform: translateY(var(--shift, 32px)); }
   .caption[data-side="below"] { text-align: center; }
   .progress[data-side] { top: auto; bottom: 16px; left: 50%; right: auto; flex-direction: row; transform: translate(-50%, 12px); }
   .progress.shown { transform: translateX(-50%); }
@@ -124,4 +127,16 @@
 @media (prefers-reduced-motion: reduce) {
   .camera, .caption, .progress, .dot { transition: none; }
   .agent, .agent-body > *, .agent-tool::before { animation: none; transition: none; }
+}
+
+/* Phones and upright tablets: the story isn't played (story.js), but each step is a block of the
+   page, its caption over a still of its scene (site/shots, made from the demo by scripts/shots.mjs). */
+.story-flat { display: none; }
+@media (max-width: 899px) {
+  .story { display: none; }
+  .story-flat { display: grid; gap: 56px; padding: 24px 16px 48px; }
+  .flat-step { display: grid; gap: 18px; }
+  .flat-step .caption { position: static; inset: auto; width: auto; transform: none; opacity: 1; visibility: visible; text-align: left; }
+  .flat-step picture, .flat-step img { display: block; width: 100%; height: auto; }
+  .flat-step .hero-tools { display: none; }
 }
