@@ -828,6 +828,8 @@ handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 // --- App lifecycle -----------------------------------------------------------------------
 
 app.whenReady().then(async () => {
+  // The app is in beta, and its About panel says so (as Settings does).
+  app.setAboutPanelOptions({ credits: 'SmartSpec is in beta, so it may change significantly from one version to the next.' });
   const first = createWindow();
   await startMcp();
   updates.start();

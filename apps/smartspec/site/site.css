@@ -122,6 +122,9 @@ h1 .brown { color: var(--brown); }
   .hero-tool[aria-pressed="true"]::before { animation: none; transform: none; } /* no swapping by itself */
 }
 .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+/* The apps are in beta: a tag in the hero's eyebrow, and a line under its downloads. */
+.eyebrow .beta { margin-left: -6px; padding: 1px 8px; border-radius: 99px; background: var(--blue-soft); color: var(--blue); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.beta-note { margin: 14px auto 0; font-size: 13px; color: var(--muted); }
 .hint { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
 
 /* Sections. */
