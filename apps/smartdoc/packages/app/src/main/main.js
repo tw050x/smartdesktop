@@ -880,6 +880,10 @@ function bindWindow(session, windowId, { turn = false, strict = false } = {}) {
   } else if (turn) session.docId = ctx.workspace.document?.id ?? null;
 }
 
+// The calls about the user's documents as a whole (their list and folders), which need no document
+// open, so no tab of the session's own (see call). A variation is of the open document.
+const worksWithoutTab = (name, args) => ['list_documents', 'list_folders', 'create_folder', 'move_document'].includes(name) || (name === 'rename' && args?.kind !== 'variation');
+
 // Whether a call says what it acts on, whatever the window shows. A variation is of the open document.
 const namesItsTarget = (name, args) => ['delete_document', 'create_folder', 'move_document'].includes(name) || (name === 'rename' && args?.kind !== 'variation');
 
@@ -910,6 +914,13 @@ const aiForServer = {
     if (name === 'use_window') {
       const documents = { useWindow: (windowId) => takeOverWindow(session, windowId) };
       return run(null, documents);
+    }
+    // A call about the user's documents as a whole, not one open document, doesn't open the
+    // session's tab: a chat's AI that only listed them left a tab waiting for a document that never
+    // came, which looked frozen. It's answered from Home's window instead.
+    if (!session.ctx && worksWithoutTab(name, args)) {
+      const home = lastFocused?.host?.tabs[0] ?? [...hosts][0]?.tabs[0];
+      if (home) return context.run(home, () => run(home.workspace, documentsForAi));
     }
     const ctx = await windowForSession(session, startedApp);
     return context.run(ctx, async () => {
