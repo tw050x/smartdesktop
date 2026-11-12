@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartDesktop</title>
+  <meta name="description" content="One chat with your own AI, across SmartDoc and SmartSpec. SmartDesktop runs your Claude or ChatGPT, signed in with your own account, with both apps' tools.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M5.6 3.7h16.1a2.3 2.3 0 0 1 2.3 2.3v8.4a2.3 2.3 0 0 1-2.3 2.3H9.6l-3.3 2.7.5-2.7H5.6a2.3 2.3 0 0 1-2.3-2.3V6a2.3 2.3 0 0 1 2.3-2.3Z' fill='%23fff' stroke='%23c7c7cf' stroke-width='1.2'/%3E%3Cpath d='M12.4 17.9h13.8a2.3 2.3 0 0 1 2.3 2.3v5.6a2.3 2.3 0 0 1-2.3 2.3h-.5l.5 2.7-3.3-2.7H12.4a2.3 2.3 0 0 1-2.3-2.3v-5.6a2.3 2.3 0 0 1 2.3-2.3Z' fill='%23fff' stroke='%23c7c7cf' stroke-width='1.2'/%3E%3Crect x='6.5' y='7.8' width='11.7' height='2.3' rx='1.15' fill='%23b45309'/%3E%3Crect x='6.5' y='11.7' width='8.4' height='2.3' rx='1.15' fill='%23c7c7cf'/%3E%3Crect x='13.2' y='21.8' width='12.3' height='2.3' rx='1.15' fill='%232f6fde'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="site.css">
+  <style>
+    /* This page's own: the still of the chat window under the hero, and the points beside it. */
+    .still { margin: 8px auto 0; max-width: 1000px; padding: 0 16px; }
+    .still img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--window-border); box-shadow: var(--shadow); }
+    .still figcaption { margin: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
+    /* Four points: two by two, not three and one left over. */
+    #what .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+    .brand .bubble { fill: var(--card); stroke: var(--line); }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path class="bubble" d="M5.6 3.7h16.1a2.3 2.3 0 0 1 2.3 2.3v8.4a2.3 2.3 0 0 1-2.3 2.3H9.6l-3.3 2.7.5-2.7H5.6a2.3 2.3 0 0 1-2.3-2.3V6a2.3 2.3 0 0 1 2.3-2.3Z" stroke-width="1.2"/><path class="bubble" d="M12.4 17.9h13.8a2.3 2.3 0 0 1 2.3 2.3v5.6a2.3 2.3 0 0 1-2.3 2.3h-.5l.5 2.7-3.3-2.7H12.4a2.3 2.3 0 0 1-2.3-2.3v-5.6a2.3 2.3 0 0 1 2.3-2.3Z" stroke-width="1.2"/><rect x="6.5" y="7.8" width="11.7" height="2.3" rx="1.15" fill="var(--brown)"/><rect x="6.5" y="11.7" width="8.4" height="2.3" rx="1.15" fill="var(--line)"/><rect x="13.2" y="21.8" width="12.3" height="2.3" rx="1.15" fill="var(--blue)"/></svg>
+        SmartDesktop
+      </a>
+      <nav aria-label="Sections">
+        <a href="#what">What it does</a>
+        <a class="keep" href="#install">Install</a>
+        <a class="keep" href="https://github.com/tw050x/smartdesktop">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow"><span class="beta">Beta</span>Works with Claude and ChatGPT</p>
+        <h1>One <span class="blue">chat</span> with your own <span class="brown">AI</span>, across your apps.</h1>
+        <p class="lede">SmartDesktop is the chat for <a href="https://smartdoc.tw050x.net">SmartDoc</a> and <a href="https://smartspec.tw050x.net">SmartSpec</a>. It runs your own Claude or ChatGPT, signed in with your own account, and gives it both apps’ tools, so one conversation can work in either.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+        <p class="beta-note">SmartDesktop is in beta, so it may change significantly from one version to the next.</p>
+      </div>
+    </div>
+
+    <figure class="still">
+      <picture>
+        <source srcset="shots/chat-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="shots/chat-light.webp" width="1120" height="700" alt="SmartDesktop’s chat window with two columns of chats in tabs: on the left, Claude plans a checkout in SmartSpec from a brief open in SmartDoc and answers the user’s comments; on the right, it reviews a CV in SmartDoc.">
+      </picture>
+      <figcaption>Chats in tabs, side by side if you like, each a conversation of its own.</figcaption>
+    </figure>
+
+    <section id="what">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">What it does</p>
+          <h2>Your AI, working where you are.</h2>
+          <p>Ask in the chat, and your AI works in SmartDoc and SmartSpec while you watch. You decide what it proposes, in the apps.</p>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <h3>One conversation, both apps</h3>
+            <p>Read a brief in SmartDoc and plan the system it describes in SmartSpec, in the same chat. Your AI knows what each app has open.</p>
+          </article>
+          <article class="card">
+            <h3>A chat for each piece of work</h3>
+            <p>Start as many chats as you like, in tabs. Drag one beside another to work on both. Your AI names each after what it’s about.</p>
+          </article>
+          <article class="card">
+            <h3>Each chat has its own tabs</h3>
+            <p>A chat’s AI works in tabs of its own in the apps, so two chats never get in each other’s way. A tab’s chat button brings its chat back.</p>
+          </article>
+          <article class="card">
+            <h3>Your own AI and account</h3>
+            <p>Claude (Claude Code) or ChatGPT (Codex), set up for you with each maker’s own installer. SmartDesktop never sees your sign-in.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="install">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Install</p>
+          <h2>Install it, then choose your AI.</h2>
+          <p>Three steps, and nothing to type in Terminal.</p>
+        </div>
+        <ol class="install-steps grid">
+          <li class="card">
+            <span class="install-number" aria-hidden="true">1</span>
+            <h3>Download SmartDesktop</h3>
+            <p>Open the download and drag SmartDesktop into your <strong>Applications</strong> folder. It lives in the menu bar, with no Dock icon.</p>
+            <div class="actions">
+              <a class="button" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-arm64.dmg">Apple silicon</a>
+              <a class="button secondary" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-x64.dmg">Intel Mac</a>
+            </div>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">2</span>
+            <h3>Set up your AI</h3>
+            <p>The first time SmartDesktop opens, choose Claude or ChatGPT. It installs your AI with its maker’s own installer and opens their sign-in page.</p>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">3</span>
+            <h3>Open the chat</h3>
+            <p>In <a href="https://smartdoc.tw050x.net">SmartDoc</a> or <a href="https://smartspec.tw050x.net">SmartSpec</a>, choose <strong>Window › Show the Chat</strong> (⇧⌘C), or <strong>Open Chat</strong> on a tab. They start SmartDesktop if it isn’t running.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <div class="closing">
+      <div class="wrap">
+        <h2>Free, and open source.</h2>
+        <p>No account, no trial, no paid plan: SmartDesktop is released under the MIT licence. In beta, and still changing significantly.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path class="bubble" d="M5.6 3.7h16.1a2.3 2.3 0 0 1 2.3 2.3v8.4a2.3 2.3 0 0 1-2.3 2.3H9.6l-3.3 2.7.5-2.7H5.6a2.3 2.3 0 0 1-2.3-2.3V6a2.3 2.3 0 0 1 2.3-2.3Z" stroke-width="1.2"/><path class="bubble" d="M12.4 17.9h13.8a2.3 2.3 0 0 1 2.3 2.3v5.6a2.3 2.3 0 0 1-2.3 2.3h-.5l.5 2.7-3.3-2.7H12.4a2.3 2.3 0 0 1-2.3-2.3v-5.6a2.3 2.3 0 0 1 2.3-2.3Z" stroke-width="1.2"/><rect x="6.5" y="7.8" width="11.7" height="2.3" rx="1.15" fill="var(--brown)"/><rect x="6.5" y="11.7" width="8.4" height="2.3" rx="1.15" fill="var(--line)"/><rect x="13.2" y="21.8" width="12.3" height="2.3" rx="1.15" fill="var(--blue)"/></svg>
+        SmartDesktop
+      </a>
+      <span>The chat for SmartDoc and SmartSpec.</span>
+      <a class="end" href="https://github.com/tw050x/smartdesktop">Source on GitHub</a>
+    </div>
+  </footer>
+</body>
+</html>
