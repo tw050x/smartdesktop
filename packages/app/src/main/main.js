@@ -24,6 +24,9 @@ const resource = (name) => path.join(dirname, '../../resources', name);
 if (!app.isPackaged) {
   app.setPath('userData', process.env.SMARTDESKTOP_USER_DATA ? path.resolve(process.env.SMARTDESKTOP_USER_DATA) : path.join(app.getPath('appData'), 'SmartDesktop Dev'));
 }
+// The chat window's name, as Mission Control and the Window menu show it: a development build's says
+// so, as the apps' windows do ("SmartDoc Development").
+const CHAT_TITLE = app.isPackaged ? 'SmartDesktop' : 'SmartDesktop Development';
 const HUB_PORT = app.isPackaged ? 47830 : Number(process.env.SMARTDESKTOP_PORT) || 47831;
 const NAME = app.isPackaged ? 'SmartDesktop' : 'SmartDesktop Development';
 
@@ -334,11 +337,12 @@ function makeChat() {
     minimizable: false,
     maximizable: false,
     show: false,
-    title: 'Chat',
+    title: CHAT_TITLE,
     backgroundColor: background(),
     fullscreenable: false,
     webPreferences: { preload: path.join(dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  chat.on('page-title-updated', (event) => event.preventDefault()); // keeps CHAT_TITLE, not chat.html's
   chatReady = false;
   // Only on the Space it shows on, not every one (the user's choice). It's an ordinary window, not a
   // panel, as a panel is on every Space whatever it's told; so clicking into it makes SmartDesktop
