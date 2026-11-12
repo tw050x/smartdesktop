@@ -184,8 +184,9 @@ h2 { margin: 0 0 10px; font-size: clamp(26px, 3.6vw, 36px); line-height: 1.15; l
 .install-number { display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 14px; border-radius: 50%; background: var(--blue-soft); color: var(--blue); font-size: 15px; font-weight: 700; }
 .install-steps .actions { justify-content: flex-start; margin-top: 18px; }
 .install-other { margin-top: 64px; }
-.install-other > h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.01em; }
-.install-other > p { max-width: 640px; margin: 0 0 18px; color: var(--muted); }
+/* Each way to work with an AI (SmartDesktop, or an agent of your own) under a heading of its own. */
+.install-way > h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.01em; }
+.install-way > p { max-width: 640px; margin: 0 0 18px; color: var(--muted); }
 .command { position: relative; margin: 6px 0 0; }
 .command pre {
   margin: 0;
