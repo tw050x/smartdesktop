@@ -1,27 +1,20 @@
 // The window's markup, shared by the app (index.html) and the website's demo (demo.html), which
 // both put it in an empty body before starting the interface (see app-shell.js).
 export const APP_MARKUP = `
-<header class="top-bar">
-  <!-- The server's status, first in the bar, just after the traffic lights: it opens the server
-       panel, which slides in from the left (see server-status.js). -->
-  <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
+<!-- The window's top bar (tab-strip.js): in the app it's the window's own page, above this one
+     (tabs.html); only the website's demo draws it here. -->
+<header class="top-bar tab-strip" id="tab-strip" hidden></header>
+<!-- The document's toolbar, across the top of the content: its tool and, in the highlight tool, its
+     focus (see tool-switcher.js and focus-picker.js), its draft (draft-picker.js) and the view.
+     Shown with a document open. -->
+<header class="top-bar toolbar">
+  <!-- The app's status, which the window's top bar shows: kept here, hidden, as the status panel
+       (server-status.js) keeps it up to date. -->
+  <button class="server-pill" id="server-pill" hidden type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
     <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span id="server-pill-label">MCP server</span><span id="server-pill-ai" hidden></span></span>
   </button>
-  <!-- Back and forward through where this window has been (see history-nav.js). -->
-  <div class="history-nav" id="history-nav" role="group" aria-label="History">
-    <button class="icon-button" id="history-back" type="button" aria-label="Back" title="Back" disabled>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
-    </button>
-    <button class="icon-button" id="history-forward" type="button" aria-label="Forward" title="Forward" disabled>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-    </button>
-  </div>
-  <!-- Where you are: home, the open document's tool and, in the highlight tool, its focus (see
-       app-shell.js, tool-switcher.js and focus-picker.js). -->
-  <nav class="top-bar-start breadcrumb" aria-label="Location">
-    <button class="icon-button crumb-home" id="go-home" type="button" aria-label="Home" title="Home">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>
-    </button>
+  <!-- The open document's tool and, in the highlight tool, its focus. -->
+  <nav class="top-bar-start breadcrumb" aria-label="Document">
     <button class="tool-button" id="tool-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="tool-card">
       <span id="tool-label"></span>
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
@@ -45,16 +38,12 @@ export const APP_MARKUP = `
       <button type="button" data-view="document">Document</button>
       <button type="button" data-view="list">List</button>
     </div>
-    <!-- The chat with Claude, docked or in its own window (see chat-panel.js). -->
-    <button class="icon-button chat-button" id="chat-button" type="button" aria-label="Open the chat" title="Open the chat" aria-pressed="false" hidden>
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/><circle cx="8.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
-    </button>
   </div>
 </header>
 
-<!-- The tools to switch between, opened from the top bar's tool button (see tool-switcher.js). -->
+<!-- The tools to switch between, opened from the toolbar's tool button (see tool-switcher.js). -->
 <div class="tool-card" id="tool-card" role="menu" aria-label="Tools" hidden></div>
-<!-- The drafts to choose from, opened from the draft's name in the top bar (see draft-picker.js). -->
+<!-- The drafts to choose from, opened from the draft's name in the toolbar (see draft-picker.js). -->
 <div class="tool-card draft-card" id="draft-card" role="menu" aria-label="Drafts" hidden></div>
 <!-- The highlight tool's focuses, opened from the breadcrumb's focus (see focus-picker.js). -->
 <div class="tool-card focus-card" id="focus-card" role="dialog" aria-label="Focuses" hidden></div>
@@ -67,6 +56,8 @@ export const APP_MARKUP = `
       <p>Drop the PDF to open it in SmartDoc</p>
     </div>
     <!-- The home screen, with no document open: documents › variations › drafts (see home.js). -->
+    <!-- A document's tab before its document opens (an AI's, say): it never shows home. -->
+    <div class="tab-waiting" id="tab-waiting"><p>Opening a document…</p></div>
     <div class="empty-state" id="empty-state">
       <div class="home">
         <section class="home-column" aria-labelledby="home-documents-title">
@@ -130,8 +121,6 @@ export const APP_MARKUP = `
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg>
     </button>
   </div>
-  <!-- The chat with Claude: docked at the right or floating anywhere in the window (see chat-panel.js). -->
-  <aside id="chat-panel" hidden></aside>
   <footer class="review-bar" id="review-bar" aria-label="Review"></footer>
 </main>
 
@@ -148,12 +137,17 @@ export const APP_MARKUP = `
       <p id="ai-release-text"></p>
       <button type="button" class="secondary-button" id="ai-release-button">Release this window</button>
     </div>
-    <!-- The AIs the chat runs: where each stands, and installing or signing in, a click each (see
-         server-status.js and main/agent.js). -->
+    <!-- The chat: SmartDesktop, which runs the AI chat for SmartDoc and SmartSpec and sets up the AI
+         (see server-status.js and main/desktop.js). -->
     <section class="ai-setup">
-      <h3>AI</h3>
-      <p class="panel-hint">The AI you work with in the chat runs on this Mac, signed in with your own account on its maker’s site. SmartDoc never sees your sign-in.</p>
-      <div class="ai-list" id="ai-list"></div>
+      <h3>Chat</h3>
+      <p class="panel-hint">The AI chat is SmartDesktop’s, an app of its own that runs your own AI for SmartDoc and SmartSpec, in one conversation, in a window floating over theirs. You set up the AI there, from its icon in the menu bar.</p>
+      <div class="ai-list">
+        <div class="ai-row">
+          <div class="ai-row-text"><strong>SmartDesktop</strong><span id="desktop-state"></span></div>
+          <button type="button" class="secondary-button" id="desktop-action" hidden></button>
+        </div>
+      </div>
     </section>
     <h3 id="mcp-card-title">MCP server</h3>
     <p class="panel-hint server-intro">How the AI reads your documents and makes its changes in SmartDoc: a server built into the app that only this Mac can reach. It’s also how you can connect another AI app yourself.</p>

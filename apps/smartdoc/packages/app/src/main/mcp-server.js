@@ -37,7 +37,8 @@ export async function startMcpServer(ai, userData) {
     if (req.headers.authorization !== `Bearer ${token}`) return deny(401, 'Missing or wrong token.');
     if (!req.url?.startsWith('/mcp')) return deny(404, 'Not found.');
     if (req.method !== 'POST') return deny(405, 'Only POST is supported.');
-    const caller = { session: req.headers['x-smartdoc-session'], client: req.headers['x-smartdoc-client'], startedApp: req.headers['x-smartdoc-started-app'] === '1' };
+    // SmartDesktop's chat also names the window its AI works in, and says when each of its messages starts.
+    const caller = { session: req.headers['x-smartdoc-session'], client: req.headers['x-smartdoc-client'], startedApp: req.headers['x-smartdoc-started-app'] === '1', window: req.headers['x-smartdoc-window'] || null, turn: req.headers['x-smartdoc-turn'] === '1' };
     // From the launcher, about the session itself.
     if (req.url.startsWith('/mcp/alive') || req.url.startsWith('/mcp/end')) {
       req.resume();

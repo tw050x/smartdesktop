@@ -11,7 +11,7 @@ export default defineConfig({
       input: {
         main: 'src/renderer/index.html',
         'confirm-replace': 'src/renderer/confirm-replace.html',
-        chat: 'src/renderer/chat.html',
+        tabs: 'src/renderer/tabs.html',
       },
     },
   },

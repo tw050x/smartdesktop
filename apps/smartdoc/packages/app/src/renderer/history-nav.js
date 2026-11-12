@@ -1,5 +1,6 @@
-// Back and forward in the top bar: where this window has been, as a browser keeps it (as in
-// SmartSpec). Each stop is home, or a document's variation, draft and tool, with the focus in the
+// Back and forward in the top bar: where this tab has been, as a browser keeps it (as in
+// SmartSpec). The buttons are in the window's top bar (tab-strip.js), which asks the tab showing to
+// go back or forward (`travel`), and is told when they can (`onState`). Each stop is home, or a document's variation, draft and tool, with the focus in the
 // highlight tool and whether the draft preview was open. Going somewhere new drops what was ahead.
 //
 // The window tells it what's showing with observe() each time something changes. Changes come in
@@ -10,7 +11,7 @@ const HISTORY_LIMIT = 200;
 const SETTLE_MS = 200;
 const ARRIVE_MS = 3000; // the most a stop can take to open before what's showing is taken instead
 
-export function createHistoryNav({ back, forward, api, canTravel = true }) {
+export function createHistoryNav({ api, canTravel = true, onState = () => {} }) {
   let visited = [];
   let visiting = -1;
   let showing = null; // the latest state observed
@@ -18,9 +19,12 @@ export function createHistoryNav({ back, forward, api, canTravel = true }) {
   let arriving = null; // { key, timer }: the stop being opened
 
   const keyOf = (state) => JSON.stringify(state);
+  let shown = null;
   const show = () => {
-    back.disabled = !canTravel || visiting <= 0;
-    forward.disabled = !canTravel || visiting >= visited.length - 1;
+    const state = { back: canTravel && visiting > 0, forward: canTravel && visiting < visited.length - 1 };
+    if (JSON.stringify(state) === shown) return;
+    shown = JSON.stringify(state);
+    onState(state);
   };
 
   function take() {
@@ -71,8 +75,6 @@ export function createHistoryNav({ back, forward, api, canTravel = true }) {
     }
   }
 
-  back.addEventListener('click', () => travel(-1));
-  forward.addEventListener('click', () => travel(1));
   show();
-  return { observe };
+  return { observe, travel };
 }

@@ -15,6 +15,7 @@
 // right-click an item to add one, typing a name or choosing one of its scope, and right-click a label
 // for its color. Labels show on everything below the item they're on (see main/labels.js).
 
+import { iconSvg } from '../main/icons.js';
 import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
@@ -685,7 +686,12 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     const item = el('li', 'home-item');
     if (cut?.kind === 'document' && cut.id === d.id) item.classList.add('home-cut');
     const row = rowButton(d.id === selected.doc, () => choose(d.id));
-    row.append(el('span', 'home-title', d.name), el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
+    // Its icon (main/icons.js) before its name, as on its tab.
+    const title = el('span', 'home-title');
+    const icon = el('span', 'home-doc-icon');
+    icon.innerHTML = iconSvg(d.icon ?? 'file-text', 15);
+    title.append(icon, document.createTextNode(d.name));
+    row.append(title, el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
     const labelled = labelsRow([d.id]);
     if (labelled) row.append(labelled);
     row.title = d.name;
@@ -697,9 +703,14 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
         { id: 'rename', label: 'Rename' },
         { id: 'cut', label: 'Cut' },
         { id: 'label', label: 'Add Label…' },
+        { id: 'icon', label: 'Change Icon…' },
         { separator: true },
         { id: 'delete', label: 'Delete Document…' },
       ], {
+        icon: () => {
+          const r = row.getBoundingClientRect();
+          api.chooseIcon?.({ docId: d.id, current: d.icon, name: d.name, at: { left: r.left + 24, top: r.bottom + 4 } });
+        },
         rename: () => startNaming({ docId: d.id }),
         cut: () => cutItem({ kind: 'document', id: d.id }),
         label: () => startLabelling([d.id]),

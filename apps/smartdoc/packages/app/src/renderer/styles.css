@@ -55,7 +55,9 @@ html, body {
 
 body {
   display: grid;
-  grid-template-rows: var(--top-bar-height) 1fr;
+  /* The window's top bar (only the website's demo draws it here: see tab-strip.js), the document's
+     toolbar, and what's open. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   /* One column, never wider than the window, whatever a row's content would like. */
   grid-template-columns: minmax(0, 1fr);
   background: var(--document-bg);
@@ -79,7 +81,66 @@ body {
   --button-hover: light-dark(#cdcdd3, #2c2c31);
   --button-active: light-dark(#c2c2c8, #36363c);
 }
-.platform-darwin:not(.full-screen) .top-bar { padding-left: 84px; }
+.platform-darwin:not(.full-screen) .tab-strip { padding-left: 84px; }
+/* The window's top bar (tab-strip.js): back and forward, the tabs, and the app's status at its end.
+   In the app it's the window's own page (tabs.html); the website's demo draws it in its page. */
+.tab-strip { grid-row: 1; height: var(--top-bar-height); }
+.tab-strip[hidden] { display: none; }
+.tab-strip-body { display: block; background: var(--top-bar-bg); }
+.tab-strip-body .tab-strip { height: var(--top-bar-height); }
+.tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 4px; overflow: hidden; }
+/* A tab: Home's icon, or a document's name and a close button, shown while it's pointed at or
+   showing. The tab showing stands out on the bar, as the page below it does. */
+.tab {
+  flex: 0 1 200px; min-width: 40px; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 4px 0 10px;
+  border-radius: 8px; color: var(--text-2); cursor: default; -webkit-app-region: no-drag;
+}
+.tab.tab-home { flex: none; min-width: 0; width: 34px; padding: 0; justify-content: center; }
+/* Each tab has a background of its own, so it doesn't get lost in the bar (the user's choice): a
+   shade darker than the bar, darker again while pointed at; the tab showing has the page's. */
+.tab { background: var(--button-hover); }
+.tab:hover { background: var(--button-active); }
+.tab[aria-selected="true"] { background: var(--document-bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.tab-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+/* The tab showing, and a tab pointed at: a blue pill under it, centred on the line between the top
+   bar and the page below (in place of a tooltip: the user's choice). The top bar draws it at its foot; in the app, the tab's
+   page draws the half below the line (.below), as the top bar's page ends there. */
+.tab-hover-pill { position: absolute; z-index: 45; top: calc(var(--top-bar-height) - 2px); height: 4px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-hover-pill[hidden] { display: none; }
+.tab-hover-pill.below { position: fixed; top: -2px; }
+.tab-strip { position: relative; }
+/* Its document's or schematic's icon, before its name. As tabs narrow, the name gives way and the
+   icon stays (the user's choice): too narrow for a name, a tab is its icon, its close button
+   showing only while it's pointed at. */
+.tab { container-type: inline-size; }
+.tab-icon { flex: none; display: grid; place-items: center; color: var(--text-2); }
+.tab[aria-selected="true"] .tab-icon { color: var(--accent); }
+@container (max-width: 72px) {
+  .tab-title, .tab-ai-mark, .tab-chat-button { display: none; }
+  .tab-icon { flex: 1; }
+  .tab:not(:hover) .tab-close { display: none; }
+}
+/* A chat in SmartDesktop owning the tab: a muted speech bubble beside the close button (the sparkle
+   takes its place while the chat's AI works). */
+/* The chat owning the tab: a button bringing it forward in SmartDesktop (the sparkle while its AI works). */
+.tab-chat-button { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-chat-button:hover { background: var(--button-active); color: var(--accent); }
+.tab-chat-button.working { color: var(--accent); }
+/* An AI working in the tab: a sparkle in the accent colour, beside the close button. */
+.tab-ai-mark { flex: none; display: grid; place-items: center; width: 18px; height: 20px; color: var(--accent); }
+/* Always there (the user's choice: it showed only while the tab was pointed at or showing). */
+.tab-close { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-close:hover { background: var(--button-active); color: var(--text); }
+/* The document's toolbar, across the top of what's open, on its background: its tool, focus, draft
+   and view. Not in Home, nor in a tab waiting for its document. */
+.toolbar { grid-row: 2; height: var(--top-bar-height); padding: 0 12px; background: var(--document-bg); -webkit-app-region: no-drag; }
+body:not(.has-document) .toolbar { display: none; }
+.toolbar .server-pill { display: none; } /* kept for the status panel: the window's top bar shows it */
+.workspace { grid-row: 3; }
+/* A document's tab with no document yet (an AI's, opening one): it never shows home. */
+.tab-waiting { display: none; }
+.document-tab:not(.has-document) .tab-waiting { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+.document-tab .empty-state { display: none; }
 body:not(.platform-darwin) .top-bar {
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
 }
@@ -132,7 +193,8 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .tool-card {
   position: fixed;
   z-index: 40;
-  top: calc(var(--top-bar-height) - 4px);
+  /* Under the toolbar (and, in the website's demo, the window's top bar above it). */
+  top: calc(var(--chrome-top, 0px) + var(--top-bar-height) - 4px);
   left: 8px;
   display: grid;
   gap: 6px;
@@ -142,7 +204,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   background: var(--bg);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.16);
 }
-.platform-darwin:not(.full-screen) .tool-card { left: 84px; }
+
 .tool-card[hidden] { display: none; }
 /* The focus picker's card: this draft's focuses, earlier drafts' to run again, and a new one. */
 .draft-card { width: 320px; max-height: calc(100vh - var(--top-bar-height) - 24px); overflow: auto; }
@@ -267,24 +329,23 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 }
 .mcp-open .mcp-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
 
-/* A full-height panel on the left, top bar included, laid over the content (which stays where
-   it is) rather than pushing it aside. Its own top bar lines up with the window's and holds the
-   close button on the right; the window's server pill stays on top of it on the left. Only the
-   content below scrolls. It slides in from past the window's left edge, and hides once it has
-   slid back out. */
+/* A full-height panel on the right, under the window's top bar (whose status pill, at its right,
+   opens it), laid over the content (which stays where it is) rather than pushing it aside. Its own
+   bar holds the close button on the right. Only the content below scrolls. It slides in from past
+   the window's right edge, and hides once it has slid back out. */
 .mcp-card {
   position: fixed;
   z-index: 32;
   top: 0;
-  left: 0;
+  right: 0;
   bottom: 0;
   width: min(var(--mcp-width, 380px), 100vw);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
-  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.06), 8px 0 28px rgba(0, 0, 0, 0.12);
-  transform: translateX(calc(-100% - 28px)); /* past the edge, shadow included */
+  box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12);
+  transform: translateX(calc(100% + 28px)); /* past the edge, shadow included */
   visibility: hidden;
   transition: transform 0.2s ease, visibility 0s 0.2s;
   -webkit-app-region: no-drag;
@@ -292,7 +353,7 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .mcp-open .mcp-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
 /* Dragging the handle below the minimum slides the panel out (and lifts the mask) while the
    handle keeps following the pointer; letting go there closes it. */
-.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(-100% - 28px)); }
+.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(100% + 28px)); }
 .mcp-open.mcp-closing .mcp-mask { opacity: 0; }
 .mcp-card-bar { flex: none; display: flex; align-items: center; justify-content: flex-end; height: var(--top-bar-height); padding: 0 8px; }
 /* The panel's titles ("MCP server", "Set up an AI app") are underlined, and a title with content
@@ -309,14 +370,14 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
   position: fixed;
   z-index: 32;
   top: 50%;
-  left: min(var(--mcp-width, 380px), 100vw);
+  right: min(var(--mcp-width, 380px), 100vw);
   width: 14px;
   height: 128px;
   margin-top: -64px;
   display: grid;
   place-items: center;
   cursor: col-resize;
-  transform: translateX(calc(-1 * (min(var(--mcp-width, 380px), 100vw) + 28px)));
+  transform: translateX(calc(min(var(--mcp-width, 380px), 100vw) + 28px));
   visibility: hidden;
   transition: transform 0.2s ease, visibility 0s 0.2s;
   -webkit-app-region: no-drag;
@@ -450,6 +511,17 @@ body:not(.has-document) .zoom-controls, .comparing .zoom-controls, .list-view-op
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
 }
 .tooltip[hidden] { display: none; }
+/* Choosing a document's icon (icon-picker.js): a card of every icon. */
+.icon-picker { left: 0; width: 344px; }
+.icon-picker-title { padding: 4px 6px 2px; color: var(--muted); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.icon-picker-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.icon-picker-option { display: grid; place-items: center; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; }
+.icon-picker-option:hover { background: var(--button-hover); color: var(--text); }
+.icon-picker-option.chosen { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+/* A document's icon on home, before its name. */
+.home-doc-icon { display: inline-grid; vertical-align: -3px; margin-right: 6px; color: var(--muted); }
+/* The window's top bar's tooltips: blue (the user's choice), hanging over the content below it. */
+.tooltip.strip-tip { background: var(--accent); color: #fff; }
 
 /* --- The PDF view and the bar under it ---------------------------------------------------- */
 .workspace {

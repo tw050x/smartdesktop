@@ -12,6 +12,36 @@ contextBridge.exposeInMainWorld('smartdoc', {
   platform: process.platform,
   // This window's id, which a copied prompt names so the AI can take it over.
   windowId: process.argv.find((arg) => arg.startsWith('--smartdoc-window='))?.split('=')[1],
+  // Which kind of tab this is: 'home' (the pinned first tab, the only one showing home) or
+  // 'document'; none for the top bar's own page (see main.js).
+  tabKind: process.argv.find((arg) => arg.startsWith('--smartdoc-tab='))?.split('=')[1] ?? null,
+  // The top bar (tab-strip.js): the window's tabs, back and forward, and the app's status
+  // (`onTabs`), choosing and closing a tab, stepping back or forward in the active tab, and opening
+  // the status panel there. A tab says when back and forward change (`historyState`), and hears
+  // the top bar's (`onHistoryStep`) and its status pill (`onToggleStatus`).
+  onTabs: on('tabs'),
+  tabsState: () => call('tabs-state'),
+  tabActivate: (id) => call('tab-activate', id),
+  tabClose: (id) => call('tab-close', id),
+  // A tab's right-click menu (`box`: its place in the top bar), and a document's icon: the user's
+  // choice (`setIcon`), from the card the tab showing draws (`onIconPicker`).
+  tabMenu: (id, box) => call('tab-menu', id, box),
+  // A tab's chat button: that chat, brought forward in SmartDesktop.
+  tabChat: (id) => call('tab-chat', id),
+  setIcon: (docId, icon) => call('set-icon', docId, icon),
+  onIconPicker: on('icon-picker'),
+  historyStep: (delta) => call('history-step', delta),
+  historyState: (state) => call('history-state', state),
+  onHistoryStep: on('history-step'),
+  showStatus: () => call('show-status'),
+  // A tooltip of the top bar's ({ text, box }, or null to put it away), drawn by the tab showing.
+  stripTip: (tip) => call('strip-tip', tip),
+  onStripTip: on('strip-tip'),
+  // The pills under the tab showing and the tab pointed at in the top bar ({ active, hover }, each
+  // { left, width } or null), drawn by the tab showing too, as their lower halves are over its page.
+  tabLines: (lines) => call('tab-lines', lines),
+  onTabLines: on('tab-lines'),
+  onToggleStatus: on('toggle-status'),
   onAiControl: on('ai-control'),
   releaseAiControl: () => call('ai-control-release'),
   // Dropped files are imported by path, as a new document.
@@ -91,32 +121,21 @@ contextBridge.exposeInMainWorld('smartdoc', {
   onTool: on('tool'),
   onMcpStatus: on('mcp-status'),
   mcpStatus: () => call('mcp-status'),
-  // The chat panel: Claude Code, run by the app (see agent.js).
-  agentStatus: () => call('agent-status'),
-  agentSignIn: (id) => call('agent-sign-in', id),
-  agentInstall: (id) => call('agent-install', id),
-  agentChats: () => call('agent-chats'),
-  // (`chatId` is the chat panel's, which SmartDoc's main process works out itself; `options` the model.)
-  agentSend: (provider, conversation, text, _chatId, options) => call('agent-send', provider, conversation, text, options),
-  agentStop: (conversation) => call('agent-stop', conversation),
-  agentNewSession: (provider, conversation) => call('agent-new-session', provider, conversation),
-  agentInstallHelp: (id) => call('agent-install-help', id),
-  onAgentEvent: on('agent-event'),
-  onAgentProgress: on('agent-progress'),
-  // The chat floating in a window of its own (see chat-window.js in main and renderer).
-  chatFloat: (view) => call('chat-float', view),
-  chatDock: (view) => call('chat-dock', view),
-  chatClose: () => call('chat-close'),
-  chatState: (state) => call('chat-state', state),
-  chatReady: () => call('chat-ready'),
-  // A line of context for the chat, for the AI with the user's next message (see note in agent.js).
+  // The chat, in SmartDesktop (see main/desktop.js): the window's chat button (`chatToggle`, and
+  // `onChatOpen` as it opens and closes), opening it with an item (`chatOpen`, only if SmartDesktop
+  // is running), what to offer there (`chatShortcuts`: { hint, shortcuts }) and the actions it asks
+  // of this window (`onChatAction`), lines of context (`chatNote`), and requests for the AI
+  // (`chatAsk`); and where SmartDesktop stands ('connected', 'starting', 'off' or 'missing').
+  chatToggle: () => call('chat-toggle'),
+  chatOpen: () => call('chat-open'),
+  onChatOpen: on('chat-open'),
+  chatShortcuts: (state) => call('chat-shortcuts', state),
+  onChatAction: on('chat-action'),
   chatNote: (note) => call('chat-note', note),
-  chatFocus: (id) => call('chat-focus', id),
-  chatOpenItem: (id) => call('chat-open-item', id),
-  onChatMode: on('chat-mode'),
-  onChatState: on('chat-state'),
-  onChatOpenItem: on('chat-open-item'),
-  onChatFocus: on('chat-focus'),
+  chatAsk: (text) => call('chat-ask', text),
+  desktopStatus: () => call('desktop-status'),
+  onDesktopStatus: on('desktop-status'),
+  getDesktop: () => call('get-desktop'),
   retryMcp: () => call('mcp-retry'),
   onShowConnect: on('show-connect'),
   onUpdates: on('updates'),

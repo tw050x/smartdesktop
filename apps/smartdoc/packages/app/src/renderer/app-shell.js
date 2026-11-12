@@ -8,9 +8,10 @@ import { createCompareView } from './compare.js';
 import { createFindBar } from './find-bar.js';
 import { createFocusPicker } from './focus-picker.js';
 import { createHistoryNav } from './history-nav.js';
+import { createTabStrip } from './tab-strip.js';
+import { createIconPicker } from './icon-picker.js';
 import { createHighlightsList } from './highlights-list.js';
 import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
-import { createChatPanel } from './chat-panel.js';
 import { createDraftPicker } from './draft-picker.js';
 import { installTooltips } from './tooltips.js';
 import { customScrollbar } from './scrollbar.js';
@@ -34,9 +35,35 @@ export function startApp(appApi) {
     ? { ...appApi, copyText: (text) => appApi.copyText(promptNamingWindow(text, appApi.windowId)) }
     : appApi;
   document.body.innerHTML = APP_MARKUP;
-  installTooltips();
+  const tooltips = installTooltips();
+  // The window's top bar's tooltips, drawn here, over this page (see tooltips.js).
+  api.onStripTip?.((tip) => (tip ? tooltips.showAt(tip.text, tip.box, { plain: tip.plain }) : tooltips.hide()));
+  // Choosing a document's icon, from its tab's right-click menu (or its home row's: see home.js).
+  const iconPicker = createIconPicker({ api });
+  api.onIconPicker?.((request) => iconPicker.open(request));
+  // (Home's rows open it too: see home.js.)
+  api.chooseIcon = (request) => iconPicker.open(request);
+  // The lower halves of the pills under the tab showing and the tab pointed at in the window's top
+  // bar (see tab-strip.js).
+  const tabLines = ['active', 'hover'].map(() => Object.assign(document.createElement('div'), { className: 'tab-hover-pill below', hidden: true }));
+  document.body.append(...tabLines);
+  api.onTabLines?.((lines) => {
+    [lines?.active, lines?.hover].forEach((box, i) => {
+      tabLines[i].hidden = !box;
+      if (box) Object.assign(tabLines[i].style, { left: `${box.left}px`, width: `${box.width}px` });
+    });
+  });
   const { platform, openDroppedFile, onFullScreenChange } = api;
   document.body.classList.add(`platform-${platform}`);
+  // Which tab this is: Home (the only one showing home) or a document's (see main.js). The website's
+  // demo is neither: it's a whole window, and draws the window's top bar itself (tab-strip.js).
+  if (api.tabKind) document.body.classList.add(`${api.tabKind}-tab`);
+  else {
+    const stripEl = document.getElementById('tab-strip');
+    stripEl.hidden = false;
+    const strip = createTabStrip({ el: stripEl, api });
+    api.onTabs?.((state) => strip.render(state));
+  }
   onFullScreenChange((isFullScreen) => {
     document.body.classList.toggle('full-screen', isFullScreen);
   });
@@ -58,19 +85,21 @@ export function startApp(appApi) {
     card: document.getElementById('focus-card'),
     api,
   });
-  // Back and forward through where the window has been. The website's demo can't open somewhere
-  // again, so its arrows stay off.
+  // Back and forward through where the tab has been, from the window's top bar (tab-strip.js),
+  // which is told when they can be used. The website's demo can't open somewhere again, so its
+  // arrows stay off.
   const historyNav = createHistoryNav({
-    back: document.getElementById('history-back'),
-    forward: document.getElementById('history-forward'),
     api,
     canTravel: !api.isDemo,
+    onState: (state) => api.historyState?.(state),
   });
+  api.onHistoryStep?.((delta) => historyNav.travel(delta));
   // The draft showing, and with it the stop it makes (see history-nav.js). A preview is a stop on
   // the draft it was written from.
   let atDraft = null; // { docId, variationId, draftId } of the draft last opened, not a preview
   function noteWhereAt() {
-    if (!current.doc) return historyNav.observe({ home: true });
+    // (A document's tab never shows home: with no document, it's waiting for one.)
+    if (!current.doc) return api.tabKind === 'document' ? undefined : historyNav.observe({ home: true });
     if (!atDraft || atDraft.docId !== current.doc.id) return;
     const focus = current.tool === 'highlights' && current.review?.type === 'highlights' ? current.review.id : null;
     historyNav.observe({ ...atDraft, tool: current.tool, focus, preview: Boolean(current.preview) });
@@ -222,12 +251,12 @@ export function startApp(appApi) {
   }, { passive: false });
   showZoom();
 
-  // Beside the find bar's column, or the chat docked at the side, the pages keep their share of
-  // what's left (so the cards keep their gutters), and stay clear of it.
+  // Beside the find bar's column, the pages keep their share of what's left (so the cards keep their
+  // gutters), and stay clear of it.
   const FIND_GUTTER = 24;
   function fitPage(pageEl) {
     const { classList } = document.body;
-    const docked = classList.contains('find-docked') || classList.contains('chat-docked');
+    const docked = classList.contains('find-docked');
     const room = documentEl.clientWidth - (docked ? parseFloat(getComputedStyle(documentEl).paddingRight) : 0);
     const besideFind = classList.contains('find-docked') ? room - 2 * FIND_GUTTER : Infinity;
     // Zoomed, the fitted size times the zoom: in, a page can grow past the size it was drawn at.
@@ -361,7 +390,6 @@ export function startApp(appApi) {
     reveal: (match) => revealAnchors([match], documentEl),
     beforeOpen: () => {
       setComparing(false);
-      chat.setOpen(false);
       if (document.body.classList.contains('list-view-open')) setView('document');
     },
     // Open, it has a column of its own beside the pages, so it never covers them, and the review's
@@ -483,57 +511,45 @@ export function startApp(appApi) {
     },
   });
 
-  document.getElementById('go-home').addEventListener('click', () => api.goHome());
 
-  let chat = null; // the chat panel, made once the review it lists is (see below)
-  let chatFloating = false; // the chat is in a window of its own (see chat-window.js)
-  // Whether the chat was last in a window of its own or docked: it opens again the same way.
-  const CHAT_WINDOW_KEY = 'chat-in-window';
-  const chatPrefersWindow = () => {
-    try {
-      return localStorage.getItem(CHAT_WINDOW_KEY) === '1';
-    } catch {
-      return false;
+  // The chat is SmartDesktop's (see main/desktop.js), floating over the apps' windows. This window
+  // tells it what to offer while it's about this window: the review's next step to ask the AI for
+  // (or the go-ahead an AI in another app waits for), as a shortcut, and what to say while the chat
+  // is empty; and lines of context about what the user looks at and decides here.
+  let suggestion = null; // what to ask the AI next (see renderBar in margin-review.js)
+  let sentShortcuts = null;
+  function sendShortcuts() {
+    const shortcuts = [];
+    if (suggestion && !suggestion.sent && suggestion.what !== 'start') {
+      shortcuts.push(suggestion.waiting
+        ? { id: `confirm-${suggestion.what}`, label: suggestion.what === 'preview' ? 'Confirm comments to your AI' : 'Confirm changes to your AI', kind: 'primary' }
+        : { id: `ask-${suggestion.what}`, label: suggestion.label, text: suggestion.prompt });
     }
-  };
-  const rememberChatWindow = (inWindow) => {
-    try {
-      localStorage.setItem(CHAT_WINDOW_KEY, inWindow ? '1' : '0');
-    } catch {}
-  };
-  let sentChatState = null;
-  // A floating chat shows what this window's review shows: it's sent whenever that changes.
-  const sendChatState = (force = false) => {
-    if (!chatFloating) return;
-    // With the draft it's on, whose chat it shows (a preview is its draft's).
-    const draft = current.doc && atDraft ? `${atDraft.docId}/${atDraft.variationId}/${atDraft.draftId}` : null;
-    const state = JSON.stringify({ ...marginReview.snapshot(), chatDraft: draft });
-    if (!force && state === sentChatState) return;
-    sentChatState = state;
-    api.chatState?.(JSON.parse(state));
-  };
+    const hint = current.doc ? 'Ask about this document, or ask for a review. Each step shows here as it’s done.' : 'Ask your AI to find a document and open it, or to review one.';
+    const next = JSON.stringify({ hint, shortcuts });
+    if (next === sentShortcuts) return;
+    sentShortcuts = next;
+    api.chatShortcuts?.(JSON.parse(next));
+  }
+  // A shortcut that's an action here: the go-ahead to the AI waiting in another app.
+  api.onChatAction?.((id) => {
+    if (id.startsWith('confirm-')) api.sendToAi(id.slice('confirm-'.length));
+  });
   const marginReview = createMarginReview({
     layer: document.getElementById('margin-layer'),
     pagesEl,
     bar: document.getElementById('review-bar'),
     api,
     onMarks: setMarks,
-    // Opening an item beside the pages opens the chat too (the way it opened last), where the user
-    // can ask about it; what they looked at and decided goes to the chat as context.
-    onOpenItem: () => {
-      if (chatFloating || chat.isOpen()) return;
-      if (chatPrefersWindow() && api.chatFloat) api.chatFloat('main');
-      else chat.setOpen(true);
-    },
+    // Opening an item beside the pages opens the chat too (if SmartDesktop is running), where the
+    // user can ask about it; what they looked at and decided goes to the chat as context.
+    onOpenItem: () => api.chatOpen?.(),
     onNote: (note) => api.chatNote?.(note),
-    onSuggestion: (next) => chat?.setSuggestion(next),
-    // The bar keeps a way to open the chat while it's closed; the chat follows the review.
-    onChange: () => {
-      if (!chat) return;
-      chat.refresh();
-      sendChatState();
-      showChatButton();
+    onSuggestion: (next) => {
+      suggestion = next;
+      sendShortcuts();
     },
+    onChange: () => sendShortcuts(),
     onCompare: () => setComparing(!comparing),
     // A gutter the user has widened is for the cards to use.
     pagesResized: () => storedPageShare() !== null || document.body.classList.contains('page-resizing'),
@@ -547,56 +563,6 @@ export function startApp(appApi) {
   // Comments can be added to the newest draft, in Review and draft, or to a draft preview (not in
   // the website's demo).
   const canComment = () => Boolean(api.addRequest && current.doc && !findBar.isOpen() && (current.preview || (current.newest && current.tool === 'improve')));
-  // The chat with Claude (see chat-panel.js): docked, it takes a column at the right, as find does,
-  // and the pages fit what's left.
-  chat = createChatPanel({
-    el: document.getElementById('chat-panel'),
-    api,
-    review: marginReview,
-    onDock: (on) => {
-      if (on) findBar.close();
-      if (on !== document.body.classList.contains('chat-docked')) refitPages(() => document.body.classList.toggle('chat-docked', on));
-      marginReview.layout();
-    },
-    // Into a window of its own, with the same item open in its tray.
-    onFloat: (view) => api.chatFloat?.(view),
-    // Resized from its edge: the pages fit what's left.
-    onResize: () => {
-      if (document.body.classList.contains('chat-docked')) refitPages(() => {});
-    },
-  });
-  // The chat's button in the top bar, beside the server's status: opens the chat, docked, or
-  // closes it, docked or in its own window. It's always there: the chat is the window's, home too.
-  const chatButton = document.getElementById('chat-button');
-  function showChatButton() {
-    const on = chat.isOpen() || chatFloating;
-    chatButton.hidden = false;
-    chatButton.setAttribute('aria-pressed', String(on));
-    const name = on ? 'Close the chat' : 'Open the chat';
-    chatButton.title = name;
-    chatButton.setAttribute('aria-label', name);
-  }
-  chatButton.addEventListener('click', () => {
-    if (chatFloating) api.chatClose?.();
-    else if (chat.isOpen()) chat.setOpen(false);
-    else if (chatPrefersWindow() && api.chatFloat) api.chatFloat('main');
-    else chat.setOpen(true);
-  });
-
-  // The chat's own window opened, docked back (on what it showed) or closed.
-  api.onChatMode?.(({ mode, view }) => {
-    chatFloating = mode === 'floating';
-    // Closed, it keeps how it was; floated or docked, that's how it opens next time.
-    if (mode !== 'closed') rememberChatWindow(chatFloating);
-    if (chatFloating) {
-      chat.setOpen(false);
-      sendChatState(true);
-    } else if (mode === 'docked') {
-      chat.openItem(view && view !== 'main' ? view : null);
-    }
-    // (A card open beside the pages stays open whatever the chat does: it's the window's, not the chat's.)
-    marginReview.layout();
-  });
 
   const composer = createCommentComposer({
     wrapEl: document.getElementById('pages-wrap'),
@@ -699,7 +665,7 @@ export function startApp(appApi) {
     marginReview.update({ document: doc, review, earlier: draft.earlierComments ?? [], tool, preview, filter: null, commentable: newest || Boolean(preview) });
     showView();
     marginReview.reset();
-    chat.documentChanged(doc.id);
+    sendShortcuts();
     documentEl.scrollTop = 0;
     findBar.draftOpened({ docId: doc.id, draftId: draft.id });
     await showPdf(pdf, { docId: doc.id, draftId: draft.id });
@@ -715,8 +681,7 @@ export function startApp(appApi) {
     clearPages();
     toolSwitcher.close();
     current = { doc: null, review: null, tool: current.tool, preview: null };
-    // The chat is the window's, so it stays, docked or in its own window, and carries on at home.
-    chat.documentChanged(null);
+    sendShortcuts();
     marginReview.update({ document: null, review: null, earlier: [], preview: null, filter: null });
     showView();
     noteWhereAt();
