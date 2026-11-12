@@ -6,6 +6,7 @@ import { createIconPicker } from './icon-picker.js';
 import { createSchemas } from './schemas.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
+import { createUpdateToast } from './update-toast.js';
 import './selection.js';
 
 // The window's interface, given the API it works through (window.smartspec, from the preload
@@ -42,6 +43,7 @@ export function startApp(api) {
   const serverStatus = createServerStatus({ api });
   api.onAiControl((name) => serverStatus.setAiControl(name));
   createSettings({ dialog: document.getElementById('settings-dialog'), api });
+  createUpdateToast({ api, name: 'SmartSpec' });
   const chat = startChat(api);
   createSchemas({ el: document.getElementById('content'), bottomBar: document.getElementById('review-bar'), crumbs: document.getElementById('breadcrumb'), draftNav: document.getElementById('draft-nav'), modeCard: document.getElementById('mode-card'), focusMenu: document.getElementById('focus-menu'), viewSwitch: document.getElementById('view-switch'), api, onShown: chat.shown, onCards: chat.cards, onAsk: chat.ask, onNote: chat.note, onChooseIcon: (request) => iconPicker.open(request) });
   watchArrowKeys();

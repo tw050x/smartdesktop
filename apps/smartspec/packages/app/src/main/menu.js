@@ -56,6 +56,8 @@ export function buildMenu({ hasWindow, inHome = false, actions }) {
     role: 'appMenu',
     submenu: [
       { role: 'about' },
+      // Its answer shows in the update toast (update-toast.js).
+      { label: 'Check for Updates…', click: actions.checkForUpdates },
       { type: 'separator' },
       { label: 'Settings…', accelerator: 'CmdOrCtrl+,', enabled: hasWindow, click: actions.showSettings },
       { type: 'separator' },

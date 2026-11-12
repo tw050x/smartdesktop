@@ -405,6 +405,11 @@ function updateMenu() {
       },
       showConnectAi,
       showSettings: () => lastFocused?.contents.send('show-settings'),
+      // Its answer shows in the update toast, in a window (one is opened if none is).
+      checkForUpdates: async () => {
+        if (!lastFocused) await createWindow().ready;
+        updates.check({ byUser: true });
+      },
     },
   }));
 }
@@ -866,7 +871,6 @@ handle('copy-mcp-setup', async (_ctx, target) => clipboard.writeText(await mcpSe
 handle('claude-desktop-status', () => claudeDesktopStatus());
 handle('add-to-claude-desktop', (ctx) => confirmAddToClaudeDesktop(ctx));
 handle('get-updates', () => updates.status);
-handle('check-updates', () => updates.check());
 handle('install-update', () => updates.install());
 // The chat, in SmartDesktop (see desktop.js): the window's chat button, where the window is (the line
 // for the chat when that changes, and what the AI is told), the shortcuts and the hint it offers,
