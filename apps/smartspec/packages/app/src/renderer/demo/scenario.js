@@ -4,6 +4,9 @@
 // revised and accepted. The rest are already there, in their domains, for it to embed and for home
 // to list.
 
+// What the AI names the demo's chat after its first reply (SmartDesktop's chat tab, see chat-window.js).
+export const CHAT_TITLE = 'Plan the web checkout';
+
 export const DOMAINS = { platform: 'Platform', orders: 'Orders', customers: 'Customers' };
 
 export const SERVICE_AUTH = {

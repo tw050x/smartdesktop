@@ -211,7 +211,8 @@ export function createDirector({ api }) {
     await api.goTo(state);
     api.setAiControl(null);
     closeAll();
-    if (!document.querySelector('.browser-column')) (await waitFor(() => document.getElementById('crumb-home'), id)).click();
+    // Home: the Home tab in the window's top bar (see tab-strip.js).
+    if (!document.querySelector('.browser-column')) (await waitFor(() => document.querySelector('.tab-strip .tab-home'), id)).click();
     await waitFor(() => document.querySelector('.groups-column .browser-row'), id);
     await frame();
   }
@@ -634,8 +635,8 @@ export function createDirector({ api }) {
 
     // --- The home page: a schematic, from asking for it to handing it on ---
 
-    // The chat opened from the top bar, and a new schematic asked for in it.
-    // The chat opened from the top bar, and a new schematic asked for in it.
+    // The chat opened (from the Window menu, or SmartDesktop's icon in the menu bar: the window has no
+    // button for it), and a new schematic asked for in it.
     ask: {
       narrowX: CHAT_X,
       build: (id) => onHome('base', id),
@@ -643,7 +644,7 @@ export function createDirector({ api }) {
       reach: () => place(), // the chat, opened in the moment
       beats: () => [
         wait(500),
-        ...click(() => document.getElementById('chat-button')),
+        act(() => api.showChat(true), () => api.showChat(false)),
         wait(600),
         ...askInChat(CHECKOUT_ASK),
         wait(600),
@@ -805,7 +806,7 @@ export function createDirector({ api }) {
         api.setAiControl('Claude Code');
       },
       focus: () => WINDOW,
-      beats: () => [wait(600), ...click(() => document.getElementById('server-pill')), wait(1600)],
+      beats: () => [wait(600), ...click(() => document.querySelector('.tab-strip .server-pill')), wait(1600)],
     },
     'f-home': {
       build: (id) => onHome('accepted', id),

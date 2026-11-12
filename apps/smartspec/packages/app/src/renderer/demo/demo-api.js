@@ -20,7 +20,8 @@
 import { EventEmitter } from 'node:events';
 import { restore, snapshot } from 'node:fs/promises';
 import { createStore } from '../../main/store.js';
-import { CHECKOUT, CHECKOUT_GOAL, CHECKOUT_TITLE, COMMENT, DOMAINS, NOTIFICATIONS, PAYMENTS, REPLY, REVISION, SERVICE_AUTH, STOCK } from './scenario.js';
+import { guessIcon } from '../../main/icons.js';
+import { CHAT_TITLE, CHECKOUT, CHECKOUT_GOAL, CHECKOUT_TITLE, COMMENT, DOMAINS, NOTIFICATIONS, PAYMENTS, REPLY, REVISION, SERVICE_AUTH, STOCK } from './scenario.js';
 
 // What the app's MCP panel shows for an installed app.
 const DEMO_LAUNCHER = {
@@ -52,6 +53,21 @@ export function createDemoApi() {
   // The chat: whether its window shows, the window's one chat ({ main, threads, running }), and
   // what the app's window last sent it.
   const chat = { shown: false, window: null, state: null };
+  // The window's top bar (see onTabs).
+  let shownTab = { where: 'home', name: null };
+  let tabbed = false;
+  const tabs = () => ({
+    tabs: [
+      { id: 'home', home: true, title: 'Home', active: shownTab.where === 'home' },
+      ...(tabbed ? [{ id: 'schematic', title: shownTab.name ?? 'Schematic', icon: guessIcon(shownTab.name, 'layers'), active: shownTab.where !== 'home', chat: { title: chatTitle() } }] : []),
+    ],
+    back: false,
+    forward: false,
+    status: { state: 'running', label: 'Ready', title: 'SmartSpec is ready to work with your AI' },
+  });
+  // The chat owns the document's tab (SmartDesktop's chat button on it): named after the AI's first
+  // reply, as the chat's own tab is.
+  const chatTitle = () => (chat.window?.main.messages.some((m) => m.role === 'assistant' && m.text?.trim()) ? CHAT_TITLE : 'New chat');
   const chatId = () => 'window/1';
   const chatOf = () => (chat.window ??= { main: { messages: [], sessions: {} }, threads: {}, running: [] });
 
@@ -113,7 +129,8 @@ export function createDemoApi() {
     windowId: '1',
     onAiControl: on('ai-control'),
     releaseAiControl: async () => emit('ai-control', null),
-    listSchemas: () => store.list(),
+    // Each with its icon, guessed from its name (or else its summary), as the app's are until one is chosen.
+    listSchemas: async () => (await store.list()).map((one) => ({ ...one, icon: guessIcon(one.name, null) ?? guessIcon(one.summary, 'layers') })),
     listFocuses: (id, options) => store.listFocuses(id, options),
     copyText: async () => {},
     listDrafts: (id) => store.listDrafts(id),
@@ -197,11 +214,49 @@ export function createDemoApi() {
     chatReady: async () => {},
     chatAction: (id) => emit('chat-action', id),
     onChatAction: on('chat-action'),
-    chatAsk: (text) => emit('chat-ask', text),
+    chatAsk: async (text) => {
+      if (!chat.shown) api.showChat(true);
+      emit('chat-ask', text);
+    },
+    // The app window's side of the chat, as the app's is with SmartDesktop (see main/desktop.js):
+    // its chat button, what it offers there, and where SmartDesktop stands (always there).
+    chatToggle: async () => {
+      api.showChat(!chat.shown);
+      return { chatOpen: chat.shown };
+    },
+    onChatOpen: on('chat-shown'),
+    chatShortcuts: async (next) => api.chatState(next),
+    desktopStatus: async () => 'connected',
+    onDesktopStatus: () => {},
+    getDesktop: async () => {},
     onChatAsk: on('chat-ask'),
     // The lines the app posts as the window moves or the user does something are the director's.
     chatNote: async () => {},
-    chatShows: async () => {},
+    // Where the window is, as the app's says it (see schemas.js): the window's top bar follows it.
+    chatShows: async (where, _line, name) => {
+      shownTab = { where, name: name ?? shownTab.name };
+      if (where !== 'home') tabbed = true;
+      emit('tabs', tabs());
+    },
+    // The window's top bar, drawn in the demo's page (see tab-strip.js): Home, and the schematic's
+    // tab once one has been opened, the one showing as the window is; back and forward off, as the
+    // demo's director drives it; and the app ready. Home on it goes home; its pill opens the panel.
+    onTabs(callback) {
+      on('tabs')(callback);
+      callback(tabs());
+    },
+    tabActivate: async (id) => {
+      if (id === 'home') emit('go-home');
+    },
+    onGoHome: on('go-home'),
+    tabClose: async () => {},
+    // A tab's menu, and choosing an icon: nothing to keep in the demo.
+    tabMenu: async () => {},
+    setIcon: async () => {},
+    historyStep: async () => {},
+    historyState: async () => {},
+    showStatus: async () => emit('toggle-status'),
+    onToggleStatus: on('toggle-status'),
 
     // --- The demo's own ----------------------------------------------------------------------
     store,
@@ -247,6 +302,17 @@ export function createDemoApi() {
       for (const key of chat.window?.running ?? []) emit('agent-event', { chatId: chatId(), conversation: key, type: 'running', running: false });
       chat.window = null;
       emit('agent-event', { chatId: chatId(), conversation: 'main', type: 'messages', messages: [] });
+      api.showSetup(false);
+    },
+    // SmartDesktop's setup window, shown in the chat's window's place (see chat-window.js).
+    showSetup(on) {
+      if (Boolean(chat.setup) === on) return;
+      chat.setup = on;
+      emit('chat-setup', on);
+    },
+    onChatSetup(callback) {
+      on('chat-setup')(callback);
+      if (chat.setup) callback(true);
     },
   };
   return api;
