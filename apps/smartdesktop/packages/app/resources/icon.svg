@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- A conversation, as the chat holds one: two bubbles, the AI's and the user's, as SmartDoc's and
+       SmartSpec's icons have cards (their icon shape, cards, shadows and three colours), each bubble
+       a white card with its tail towards its speaker. The AI's, above at the left, holds two lines
+       (brown and grey); the user's, below at the right, one blue line, as their messages are blue in
+       the chat. The source of icon.icns and icon.png (see scripts/make-icons.mjs). -->
+  <defs>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/></filter>
+    <filter id="paper" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/></filter>
+    <linearGradient id="light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f7f9"/><stop offset="1" stop-color="#dcdce3"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)" filter="url(#lift)"/>
+  <!-- The AI's bubble, its tail at its bottom left. -->
+  <path d="M248 196 H664 Q724 196 724 256 V472 Q724 532 664 532 H352 L268 600 L280 532 H248 Q188 532 188 472 V256 Q188 196 248 196 Z" fill="#fff" filter="url(#paper)"/>
+  <rect x="268" y="300" width="300" height="60" rx="30" fill="#b45309"/>
+  <rect x="268" y="400" width="216" height="60" rx="30" fill="#c7c7cf"/>
+  <!-- The user's, below at the right, its tail at its bottom right. -->
+  <path d="M420 560 H776 Q836 560 836 620 V764 Q836 824 776 824 H764 L776 892 L692 824 H420 Q360 824 360 764 V620 Q360 560 420 560 Z" fill="#fff" filter="url(#paper)"/>
+  <rect x="440" y="662" width="316" height="60" rx="30" fill="#2f6fde"/>
+</svg>
