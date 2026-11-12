@@ -11,7 +11,7 @@
       "listChanged": true
     }
   },
-  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. It also ends when the user sends you their comments on the proposal to deal with before they accept (outcome comments): read them with get_comments (proposal: true), answer each with reply_to_comment, propose again if they need changes, then wait again. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics belong to domains: a domain is a set of schematics owned by one team or one department, such as \"Auth\". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many are open, and get_comments reads them, each on the whole schematic (schematic: true), an item, a part of it, a point in it or words they quoted. Answer each one with reply_to_comment: say what you changed or why you didn't, and give its outcome, how you dealt with it in a word or two of your own (\"Actioned\", \"Noted\", \"Answered\", \"Not changed\"). Some comments only need reading. When nothing more is needed, set no_further_action: the comment then folds away and get_comments leaves it out. The user can set or clear that too, so one that comes back open needs another look. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. One with point is about that place in the item: read the item to see what's there. One on the whole schematic is about all of it, or anything not in one item. Comments on a proposal stay with it as you revise it.",
+  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use is pinned to a draft and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. It also ends when the user sends you their comments on the proposal to deal with before they accept (outcome comments): read them with get_comments (proposal: true), answer each with reply_to_comment, propose again if they need changes, then wait again. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics belong to domains: a domain is a set of schematics owned by one team or one department, such as \"Auth\". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.\nEach schematic has an icon, shown on its tab and on the user's home screen so they can tell it apart at a glance: one with no icon of its own (get_schematic's icon is null) gets one from you, with propose_schematic's icon for a new one or set_icon for the one the window shows.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many are open, and get_comments reads them, each on the whole schematic (schematic: true), an item, a part of it, a point in it or words they quoted. Answer each one with reply_to_comment: say what you changed or why you didn't, and give its outcome, how you dealt with it in a word or two of your own (\"Actioned\", \"Noted\", \"Answered\", \"Not changed\"). Some comments only need reading. When nothing more is needed, set no_further_action: the comment then folds away and get_comments leaves it out. The user can set or clear that too, so one that comes back open needs another look. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. One with point is about that place in the item: read the item to see what's there. One on the whole schematic is about all of it, or anything not in one item. Comments on a proposal stay with it as you revise it.",
   "tools": [
     {
       "name": "use_window",
@@ -40,7 +40,7 @@
     },
     {
       "name": "list_schematics",
-      "description": "Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the domain it's in (null for No domain), and any proposal waiting for the user.",
+      "description": "Every schematic, most recently changed first: its id, name, summary, icon (null if it has none of its own), number of accepted drafts, status, the domain it's in (null for No domain), and any proposal waiting for the user.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -264,6 +264,89 @@
         "required": [
           "domain_id",
           "folder_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "set_icon",
+      "description": "Gives the schematic the window shows an icon, shown on its tab and on the user's home screen, so they can tell it apart at a glance (a tab too narrow for its name shows only its icon). Call it once, when the schematic has no icon of its own yet (get_schematic and list_schematics give its icon, null when it has none): choose the one that best fits what it is. The user's own choice is never replaced.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "icon": {
+            "type": "string",
+            "enum": [
+              "file-text",
+              "contact",
+              "briefcase",
+              "graduation-cap",
+              "scale",
+              "receipt",
+              "landmark",
+              "presentation",
+              "book-open",
+              "newspaper",
+              "mail",
+              "clipboard-list",
+              "notebook-pen",
+              "server",
+              "database",
+              "cloud",
+              "network",
+              "workflow",
+              "blocks",
+              "layers",
+              "shield",
+              "key-round",
+              "lock",
+              "user",
+              "users",
+              "credit-card",
+              "shopping-cart",
+              "store",
+              "package",
+              "truck",
+              "bell",
+              "message-square",
+              "globe",
+              "smartphone",
+              "monitor",
+              "search",
+              "chart-line",
+              "calendar",
+              "clock",
+              "map-pin",
+              "settings",
+              "plug",
+              "git-branch",
+              "terminal",
+              "cpu",
+              "mail-check",
+              "building-2",
+              "heart-pulse",
+              "wallet",
+              "ticket",
+              "rocket",
+              "sparkles",
+              "flag",
+              "star",
+              "zap",
+              "file"
+            ],
+            "description": "One of: file-text (Document), contact (CV), briefcase (Work), graduation-cap (Education), scale (Legal), receipt (Invoice), landmark (Finance), presentation (Presentation), book-open (Book), newspaper (Article), mail (Letter), clipboard-list (Plan), notebook-pen (Notes), server (Service), database (Data), cloud (Cloud), network (Network), workflow (Process), blocks (Module), layers (Platform), shield (Security), key-round (Auth), lock (Privacy), user (Person), users (Team), credit-card (Payments), shopping-cart (Checkout), store (Store), package (Inventory), truck (Delivery), bell (Notifications), message-square (Messaging), globe (Web), smartphone (Mobile), monitor (Desktop), search (Search), chart-line (Analytics), calendar (Schedule), clock (Time), map-pin (Location), settings (Settings), plug (Integration), git-branch (Code), terminal (Tool), cpu (Compute), mail-check (Email), building-2 (Business), heart-pulse (Health), wallet (Wallet), ticket (Ticket), rocket (Launch), sparkles (Idea), flag (Goal), star (Favourite), zap (Events), file (File)"
+          }
+        },
+        "required": [
+          "icon"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
@@ -1173,6 +1256,68 @@
             "type": "string",
             "minLength": 1,
             "description": "What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as \"Proposed change:\""
+          },
+          "icon": {
+            "description": "For a new schematic: its icon, shown on its tab and on home (see set_icon for the list)",
+            "type": "string",
+            "enum": [
+              "file-text",
+              "contact",
+              "briefcase",
+              "graduation-cap",
+              "scale",
+              "receipt",
+              "landmark",
+              "presentation",
+              "book-open",
+              "newspaper",
+              "mail",
+              "clipboard-list",
+              "notebook-pen",
+              "server",
+              "database",
+              "cloud",
+              "network",
+              "workflow",
+              "blocks",
+              "layers",
+              "shield",
+              "key-round",
+              "lock",
+              "user",
+              "users",
+              "credit-card",
+              "shopping-cart",
+              "store",
+              "package",
+              "truck",
+              "bell",
+              "message-square",
+              "globe",
+              "smartphone",
+              "monitor",
+              "search",
+              "chart-line",
+              "calendar",
+              "clock",
+              "map-pin",
+              "settings",
+              "plug",
+              "git-branch",
+              "terminal",
+              "cpu",
+              "mail-check",
+              "building-2",
+              "heart-pulse",
+              "wallet",
+              "ticket",
+              "rocket",
+              "sparkles",
+              "flag",
+              "star",
+              "zap",
+              "file"
+            ]
           },
           "reasons": {
             "description": "Why each item changes, keyed by its id (\"contract\" for the contract): one short sentence for each item you add, change or remove, shown on that item while the user reviews. Kept when you propose again; send one again to replace it.",

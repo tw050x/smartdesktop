@@ -12,6 +12,41 @@ contextBridge.exposeInMainWorld('smartspec', {
   platform: process.platform,
   // This window's id, which a copied prompt names so the AI can take it over.
   windowId: process.argv.find((arg) => arg.startsWith('--smartspec-window='))?.split('=')[1],
+  // Which kind of tab this is: 'home' (the pinned first tab, the only one showing home) or
+  // 'document' (a schematic's); none for the top bar's own page (see main.js).
+  tabKind: process.argv.find((arg) => arg.startsWith('--smartspec-tab='))?.split('=')[1] ?? null,
+  // The top bar (tab-strip.js): the window's tabs, back and forward, and the app's status
+  // (`onTabs`), choosing and closing a tab (the tab asking, without an id), stepping back or forward
+  // in the active tab, and opening the status panel there. A tab says when back and forward change
+  // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
+  // (`onToggleStatus`). Home opens a schematic in a tab of its own (`openInTab`: { path, layout }),
+  // which hears it (`onOpenLevel`); going home shows the Home tab.
+  onTabs: on('tabs'),
+  tabsState: () => call('tabs-state'),
+  tabActivate: (id) => call('tab-activate', id),
+  tabClose: (id) => call('tab-close', id),
+  // A tab's right-click menu (`box`: its place in the top bar), and a schematic's icon: the user's
+  // choice (`setIcon`), from the card the tab showing draws (`onIconPicker`).
+  tabMenu: (id, box) => call('tab-menu', id, box),
+  // A tab's chat button: that chat, brought forward in SmartDesktop.
+  tabChat: (id) => call('tab-chat', id),
+  setIcon: (schemaId, icon) => call('set-icon', schemaId, icon),
+  onIconPicker: on('icon-picker'),
+  historyStep: (delta) => call('history-step', delta),
+  historyState: (state) => call('history-state', state),
+  onHistoryStep: on('history-step'),
+  showStatus: () => call('show-status'),
+  // A tooltip of the top bar's ({ text, box }, or null to put it away), drawn by the tab showing.
+  stripTip: (tip) => call('strip-tip', tip),
+  onStripTip: on('strip-tip'),
+  // The pills under the tab showing and the tab pointed at in the top bar ({ active, hover }, each
+  // { left, width } or null), drawn by the tab showing too, as their lower halves are over its page.
+  tabLines: (lines) => call('tab-lines', lines),
+  onTabLines: on('tab-lines'),
+  onToggleStatus: on('toggle-status'),
+  openInTab: (request) => call('open-in-tab', request),
+  onOpenLevel: on('open-level'),
+  goHome: () => call('go-home'),
   onAiControl: on('ai-control'),
   releaseAiControl: () => call('ai-control-release'),
   // The schemas (see store.js): what there is, and the user's answer to a proposal.
@@ -74,33 +109,20 @@ contextBridge.exposeInMainWorld('smartspec', {
   // The SmartSpec menu's Settings….
   onShowSettings: on('show-settings'),
   onFullScreenChange: on('full-screen'),
-  // The chat with the user's own AI, run by the app (see agent.js). Each draft of a schematic has
-  // its own chat, and home one of its own: the window says which (chatId).
-  agentStatus: () => call('agent-status'),
-  agentSignIn: (id) => call('agent-sign-in', id),
-  agentInstall: (id) => call('agent-install', id),
-  agentChats: (chatId) => call('agent-chats', chatId),
-  agentSend: (provider, conversation, text, chatId, options) => call('agent-send', provider, conversation, text, chatId, options),
-  agentStop: (conversation, chatId) => call('agent-stop', conversation, chatId),
-  agentNewSession: (provider, conversation, chatId) => call('agent-new-session', provider, conversation, chatId),
-  agentInstallHelp: (id) => call('agent-install-help', id),
-  onAgentEvent: on('agent-event'),
-  onAgentProgress: on('agent-progress'),
-  // The chat floating in a window of its own (see chat-window.js), and what the app's window shows.
-  chatFloat: (view) => call('chat-float', view),
-  chatDock: (view) => call('chat-dock', view),
-  chatClose: () => call('chat-close'),
-  chatState: (state) => call('chat-state', state),
-  chatReady: () => call('chat-ready'),
-  // A line of context for the chat, for the AI with the user's next message (see note in agent.js).
-  chatNote: (chatId, note) => call('chat-note', chatId, note),
-  // Where the window is ('home', or a schematic's draft or proposal), with the chat's line for it.
-  chatShows: (where, line) => call('chat-shows', where, line),
-  // A button over the floating chat's message box, done by the app's window (see app-shell.js).
-  chatAction: (id) => call('chat-action', id),
+  // The chat, in SmartDesktop (see main/desktop.js): the window's chat button (`chatToggle`, and
+  // `onChatOpen` as it opens and closes), where the window is ('home', or a schematic's draft or
+  // proposal, with the chat's line for it and the schematic's name), what to offer there
+  // (`chatShortcuts`: { hint, shortcuts }) and the actions it asks of this window (`onChatAction`),
+  // lines of context (`chatNote`), and requests for the AI (`chatAsk`); and where SmartDesktop
+  // stands ('connected', 'starting', 'off' or 'missing').
+  chatToggle: () => call('chat-toggle'),
+  onChatOpen: on('chat-open'),
+  chatShows: (where, line, name) => call('chat-shows', where, line, name),
+  chatShortcuts: (state) => call('chat-shortcuts', state),
   onChatAction: on('chat-action'),
+  chatNote: (note) => call('chat-note', note),
   chatAsk: (text) => call('chat-ask', text),
-  onChatAsk: on('chat-ask'),
-  onChatMode: on('chat-mode'),
-  onChatState: on('chat-state'),
+  desktopStatus: () => call('desktop-status'),
+  onDesktopStatus: on('desktop-status'),
+  getDesktop: () => call('get-desktop'),
 });

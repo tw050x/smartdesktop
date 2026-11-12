@@ -3,12 +3,18 @@
 // small card saying what it is, after a moment's hover, below it (above, near the window's bottom).
 // Once one has shown, moving straight to another shows it at once, as macOS does. The title is
 // moved to `data-tip` as the pointer arrives, so the browser's own tooltip never shows too.
+//
+// The window's top bar (tab-strip.js) is a page of its own, and the tab's page below it would cover
+// a tooltip drawn there, so the top bar passes its tooltips (`present`) to the tab showing, which
+// draws them just under it, over its content (`showAt`). The top bar's tooltips are blue (the
+// user's choice), wherever they're drawn, but for a tab's chat button's: it sits over the blue
+// pill pointing at its tab shows, so it's the ordinary dark card (`plain`, the user's choice).
 
 const DELAY = 450;
 const WARM = 400; // how long after one closes the next opens at once
 const GAP = 6;
 
-export function installTooltips(root = document) {
+export function installTooltips(root = document, { present = null } = {}) {
   const tip = document.createElement('div');
   tip.className = 'tooltip';
   tip.setAttribute('role', 'tooltip');
@@ -21,6 +27,8 @@ export function installTooltips(root = document) {
   // The element with something to say under the pointer, and what it says.
   function tipOf(node) {
     for (let el = node instanceof Element ? node : node?.parentElement; el && el !== document.body; el = el.parentElement) {
+      // Somewhere that shows something else on hover instead (the top bar's tabs: tab-strip.js).
+      if (el.hasAttribute('data-no-tip')) return null;
       if (el.hasAttribute('title')) {
         const text = el.getAttribute('title');
         el.removeAttribute('title');
@@ -37,20 +45,32 @@ export function installTooltips(root = document) {
     return null;
   }
 
-  function show() {
-    if (!target?.el.isConnected) return hide();
-    tip.textContent = target.text;
+  // Shows `text` beside `box` (a rect in this page), below it unless there's no room.
+  function showAt(text, box, { strip = false } = {}) {
+    tip.textContent = text;
+    tip.classList.toggle('strip-tip', strip);
     tip.hidden = false;
-    const box = target.el.getBoundingClientRect();
     const { width, height } = tip.getBoundingClientRect();
     const below = box.bottom + GAP + height <= innerHeight - 4;
     tip.style.top = `${below ? box.bottom + GAP : box.top - GAP - height}px`;
     tip.style.left = `${Math.max(4, Math.min(innerWidth - width - 4, box.left + box.width / 2 - width / 2))}px`;
   }
 
+  let shown = false;
+  function show() {
+    if (!target?.el.isConnected) return hide();
+    const box = target.el.getBoundingClientRect();
+    shown = true;
+    const plain = Boolean(target.el.closest('.tab-chat-button'));
+    if (present) return present({ text: target.text, plain, box: { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width } });
+    showAt(target.text, box, { strip: !plain && Boolean(target.el.closest('.tab-strip')) });
+  }
+
   function hide() {
     clearTimeout(timer);
-    if (!tip.hidden) closedAt = Date.now();
+    if (shown) closedAt = Date.now();
+    if (shown && present) present(null);
+    shown = false;
     tip.hidden = true;
     target = null;
   }
@@ -60,11 +80,11 @@ export function installTooltips(root = document) {
     if (next?.el === target?.el) {
       if (next && next.text !== target.text) {
         target = next;
-        if (!tip.hidden) show();
+        if (shown) show();
       }
       return;
     }
-    const warm = !tip.hidden || Date.now() - closedAt < WARM;
+    const warm = shown || Date.now() - closedAt < WARM;
     hide();
     if (!next) return;
     target = next;
@@ -78,4 +98,11 @@ export function installTooltips(root = document) {
   for (const type of ['pointerdown', 'keydown', 'wheel']) root.addEventListener(type, hide, { capture: true, passive: true });
   addEventListener('blur', hide);
   addEventListener('scroll', hide, true);
+  // The top bar's, drawn here (see above); `hide` puts away whichever shows.
+  return {
+    showAt: (text, box, { plain = false } = {}) => showAt(text, box, { strip: !plain }),
+    hide: () => {
+      tip.hidden = true;
+    },
+  };
 }

@@ -1,10 +1,11 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, WebContentsView } from 'electron';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PROVIDERS, createAgent } from './agent.js';
-import { anchorOf, firstPlace, placeFrom } from './chat-anchor.js';
+import { createDesktop } from './desktop.js';
+import { guessIcon, isIcon } from './icons.js';
+import { createItemIcons } from './item-icons.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -45,7 +46,7 @@ app.on('second-instance', () => {
 // told from the installed app when both are open. The page's own title doesn't replace it.
 const WINDOW_TITLE = app.isPackaged ? 'SmartSpec' : 'SmartSpec Development';
 
-const windows = new Map(); // webContents id → { id, win, ready, session, untouched }
+const windows = new Map(); // a tab's webContents id → its tab: { id, host, home, view, contents, win, ready, session, untouched, where, name }
 let lastFocused = null;
 let mcp = null; // { url, token } once the MCP server is listening
 let mcpStarting = true;
@@ -60,7 +61,7 @@ const waits = createWaits({ store, onChange: () => broadcast('ai-waiting', waits
 
 // For every window: what's the same in all of them.
 const broadcast = (channel, value) => {
-  for (const { win } of windows.values()) win.webContents.send(channel, value);
+  for (const { contents } of windows.values()) contents.send(channel, value);
 };
 
 // --- Appearance ----------------------------------------------------------------------------
@@ -92,30 +93,48 @@ const windowColours = () => (nativeTheme.shouldUseDarkColors
   : { background: '#ebebef', bar: '#dcdce1', symbols: '#3c3c43' });
 nativeTheme.on('updated', () => {
   const colours = windowColours();
-  for (const { win } of windows.values()) {
-    win.setBackgroundColor(colours.background);
-    if (process.platform !== 'darwin') win.setTitleBarOverlay({ color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT });
+  for (const host of hosts) {
+    host.win.setBackgroundColor(colours.bar);
+    for (const tab of host.tabs) tab.view.setBackgroundColor(colours.background);
+    if (process.platform !== 'darwin') host.win.setTitleBarOverlay({ color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT });
   }
 });
 
-// --- Windows -------------------------------------------------------------------------------
+// --- Windows and their tabs ------------------------------------------------------------------
+// A window holds tabs (the user's choice: working in tabs rather than in many windows, though more
+// windows are still allowed), as SmartDoc's do. The first is Home, pinned: it can't be closed, and
+// only it shows home. Each other tab shows one schematic, and never home: opening a schematic from
+// Home (or an AI's proposal there) opens it in a tab, the one already showing it if there is one.
+// Each tab is what a window was: its own history and AI session (`ctx`, with the tab's id, which a
+// copied prompt names so an AI can take it over). The window says where each tab is as it moves
+// (`chat-shows`: `where`, and the schematic's `name`).
+//
+// The window's own page is the top bar across it (tabs.html: the traffic lights, back and forward,
+// the tabs and the app's status, see tab-strip.js); each tab's page (index.html) is a view below it,
+// only the active one showing. The window is frameless: macOS keeps its traffic lights, placed in
+// the top bar; Windows and Linux get the system window controls drawn over it.
+const hosts = new Set(); // { win, tabs: [home, …], active }
+const strips = new Map(); // the top bar's webContents id → its window
+const tabBounds = (host) => {
+  const { width, height } = host.win.getContentBounds();
+  return { x: 0, y: TOP_BAR_HEIGHT, width, height: Math.max(0, height - TOP_BAR_HEIGHT) };
+};
+const layoutTabs = (host) => {
+  for (const tab of host.tabs) tab.view.setBounds(tabBounds(host));
+};
 
-// Frameless window: the interface draws its own top bar. macOS keeps its traffic lights,
-// placed in the top bar; Windows and Linux get the system window controls drawn over it.
 function createWindow({ focus = true } = {}) {
   const colours = windowColours();
   const frame = process.platform === 'darwin'
     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
     : { titleBarStyle: 'hidden', titleBarOverlay: { color: colours.bar, symbolColor: colours.symbols, height: TOP_BAR_HEIGHT } };
-
-  const id = `w-${randomUUID().slice(0, 4)}`;
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 760,
     minHeight: 480,
     title: WINDOW_TITLE,
-    backgroundColor: colours.background,
+    backgroundColor: colours.bar,
     show: focus,
     ...frame,
     webPreferences: {
@@ -123,52 +142,221 @@ function createWindow({ focus = true } = {}) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      additionalArguments: [`--smartspec-window=${id}`],
     },
   });
-  const ctx = { id, win, ready: null, session: null, untouched: true };
-  const contentsId = win.webContents.id;
-  windows.set(contentsId, ctx);
-  // An AI's window opens without taking focus, so the menu stays with the one the user is in.
-  if (focus || !lastFocused) lastFocused = ctx;
-  updateMenu();
+  // The window's name, not the page's (see WINDOW_TITLE).
+  win.on('page-title-updated', (event) => event.preventDefault());
+  const host = { win, tabs: [], active: null };
+  hosts.add(host);
+  strips.set(win.webContents.id, host);
+  win.webContents.on('did-finish-load', () => sendTabs(host));
+  win.loadFile(path.join(dirname, '../../build/renderer/tabs.html'));
+  win.on('resize', () => layoutTabs(host));
+  // The window has the focus: its active tab does, for the menu, the AI chat (SmartDesktop shows the
+  // chat while a window of the apps has the focus) and the keyboard.
   win.on('focus', () => {
+    const ctx = host.active;
+    if (!ctx) return;
     lastFocused = ctx;
+    ctx.contents.focus();
+    desktop.focus(ctx.id, win.getBounds());
+    updateMenu();
   });
+  const away = () => host.active && desktop.blur(host.active.id);
+  win.on('blur', away);
+  win.on('minimize', away);
+  win.on('hide', away);
   // In full screen macOS moves the traffic lights out of the top bar, so the interface can reclaim
   // the space reserved for them.
-  win.on('page-title-updated', (event) => event.preventDefault());
-  win.on('enter-full-screen', () => win.webContents.send('full-screen', true));
-  win.on('leave-full-screen', () => win.webContents.send('full-screen', false));
+  const fullScreen = (on) => {
+    win.webContents.send('full-screen', on);
+    for (const tab of host.tabs) tab.contents.send('full-screen', on);
+  };
+  win.on('enter-full-screen', () => fullScreen(true));
+  win.on('leave-full-screen', () => fullScreen(false));
+  win.on('closed', () => {
+    hosts.delete(host);
+    for (const tab of [...host.tabs]) disposeTab(tab);
+    host.tabs = [];
+    if (lastFocused?.host === host) lastFocused = [...windows.values()].at(-1) ?? null;
+    updateMenu();
+  });
+  const home = createTab(host, { home: true, focus });
+  activateTab(home);
+  return home;
+}
+
+function createTab(host, { home = false } = {}) {
+  const id = `w-${randomUUID().slice(0, 4)}`;
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: path.join(dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      additionalArguments: [`--smartspec-window=${id}`, `--smartspec-tab=${home ? 'home' : 'document'}`],
+    },
+  });
+  view.setBackgroundColor(windowColours().background);
+  const contents = view.webContents;
+  const ctx = { id, host, home, view, contents, get win() { return host.win; }, ready: null, session: null, untouched: true, where: null, name: null, hadSchema: false, history: { back: false, forward: false } };
+  windows.set(contents.id, ctx);
+  if (home) host.tabs.unshift(ctx);
+  else host.tabs.push(ctx);
+  // SmartDesktop is told which tab is Home: what happens there goes to no chat.
+  if (home) desktop.window(id, { home: true, title: 'Home' });
+  view.setVisible(false);
+  host.win.contentView.addChildView(view);
+  view.setBounds(tabBounds(host));
   // A schema's content is written by an AI, and its links must never replace the interface: they
   // open in the browser, if they're web links at all.
   const openLink = (url) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
   };
-  win.webContents.on('will-navigate', (event, url) => {
+  contents.on('will-navigate', (event, url) => {
     event.preventDefault();
     openLink(url);
   });
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  contents.setWindowOpenHandler(({ url }) => {
     openLink(url);
     return { action: 'deny' };
   });
-  followChat(ctx);
-  ctx.ready = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
+  ctx.ready = new Promise((resolve) => contents.once('did-finish-load', resolve));
+  ctx.ready.then(() => host.active === ctx && ctx.contents.send('tab-lines', host.lines ?? null));
   ctx.ready.then(() => {
-    win.webContents.send('mcp-status', mcpStatus());
-    if (ctx.session) win.webContents.send('ai-control', clientLabel(ctx.session.client));
+    contents.send('mcp-status', mcpStatus());
+    if (ctx.session) contents.send('ai-control', clientLabel(ctx.session.client));
   });
-  win.loadFile(path.join(dirname, '../../build/renderer/index.html'));
-
-  win.on('closed', () => {
-    windows.delete(contentsId);
-    if (lastFocused === ctx) lastFocused = [...windows.values()].at(-1) ?? null;
-    // The AI gets a new window, the next time it needs one.
-    if (ctx.session) ctx.session.ctx = null;
-    updateMenu();
-  });
+  contents.loadFile(path.join(dirname, '../../build/renderer/index.html'));
+  updateMenu();
+  sendTabs(host);
   return ctx;
+}
+
+// Shows a tab, the others hidden behind it.
+function activateTab(ctx) {
+  const { host } = ctx;
+  const before = host.active;
+  host.active = ctx;
+  for (const tab of host.tabs) {
+    tab.view.setVisible(tab === ctx);
+    // The lower halves of the top bar's pills are drawn by the tab showing (see tab-lines).
+    tab.contents.send('tab-lines', tab === ctx ? host.lines ?? null : null);
+  }
+  if (host.win.isFocused()) {
+    if (before && before !== ctx) desktop.blur(before.id);
+    desktop.focus(ctx.id, host.win.getBounds());
+    ctx.contents.focus();
+  }
+  if (host.win.isFocused() || !lastFocused || lastFocused.host === host) lastFocused = ctx;
+  updateMenu();
+  sendTabs(host);
+}
+
+// Closes a tab: a schematic's (Home only closes with its window). The tab beside it shows instead.
+function closeTab(ctx) {
+  const { host } = ctx;
+  if (ctx.home) return host.win.close();
+  const at = host.tabs.indexOf(ctx);
+  if (at < 0) return;
+  host.tabs.splice(at, 1);
+  if (host.active === ctx) activateTab(host.tabs[at] ?? host.tabs[at - 1] ?? host.tabs[0]);
+  disposeTab(ctx);
+  host.win.contentView.removeChildView(ctx.view);
+  ctx.contents.close();
+  sendTabs(host);
+}
+
+function disposeTab(ctx) {
+  if (!windows.has(ctx.contents.id)) return;
+  windows.delete(ctx.contents.id);
+  if (lastFocused === ctx) lastFocused = ctx.host.active !== ctx ? ctx.host.active : [...windows.values()].at(-1) ?? null;
+  // The AI gets a new tab, the next time it needs one.
+  if (ctx.session) ctx.session.ctx = null;
+  desktop.closed(ctx.id);
+  updateMenu();
+}
+
+// The tab showing a schematic (in the window of `host`) that no chat owns, if one does.
+const tabShowing = (host, schemaId) => host.tabs.find((t) => !t.home && !t.chat && t.where?.split('/')[0] === schemaId);
+
+// A schematic opened from Home goes to its own tab (the one already showing it, if one is), with
+// what to open there (`request`: the message for that tab, 'open-level' with the levels to show, or
+// 'show-schema' with an AI's proposal); an AI working in Home goes with it.
+async function openInTab(home, schemaId, channel, request) {
+  // A chat's AI gets a tab of its own, even with the schematic open in another (the same schematic
+  // can be open in several tabs, each a different chat's); the user, the tab showing it that no
+  // chat owns, if there is one.
+  const reuse = !fromDesktop(home.session) && tabShowing(home.host, schemaId);
+  const tab = reuse || createTab(home.host);
+  await tab.ready;
+  tab.contents.send(channel, request);
+  const { session } = home;
+  if (session && session.ctx === home) {
+    releaseWindow(session);
+    if (!tab.session) setSessionWindow(session, tab);
+  }
+  activateTab(tab);
+  return tab;
+}
+
+// The top bar's state for each window: its tabs (Home first; each schematic's by its name, with the
+// AI working in it), back and forward for the active tab, and the app's status.
+// Each schematic's icon, set by the user or the AI (see item-icons.js), on its tab and on home: its
+// own, or the guess from its name, or failing that its summary (the name counts first: a word in the
+// summary shouldn't outweigh it).
+const itemIcons = createItemIcons(app.getPath('userData'), {
+  onChange: () => {
+    sendAllTabs();
+    broadcast('schemas-changed');
+  },
+});
+const schemaOf = (ctx) => (ctx.where && ctx.where !== 'home' ? ctx.where.split('/')[0] : null);
+const iconOfSchema = (id, name, summary) => {
+  const own = itemIcons.get(id)?.icon;
+  return isIcon(own) ? own : guessIcon(name, null) ?? guessIcon(summary, 'layers');
+};
+const tabIcon = (ctx) => (schemaOf(ctx) ? iconOfSchema(schemaOf(ctx), ctx.name, ctx.summary) : 'layers');
+const withIcons = (list) => list.map((one) => ({ ...one, icon: iconOfSchema(one.id, one.name, one.summary) }));
+
+function tabTitle(ctx) {
+  if (ctx.home) return 'Home';
+  if (ctx.name) return ctx.name;
+  return ctx.session ? `${clientLabel(ctx.session.client)} is opening a schematic…` : 'Opening…';
+}
+function sendTabs(host) {
+  if (!host || host.win.isDestroyed()) return;
+  const state = {
+    tabs: host.tabs.map((t) => ({ id: t.id, home: t.home, title: tabTitle(t), icon: t.home ? null : tabIcon(t), active: t === host.active, ai: t.session ? clientLabel(t.session.client) : null, chat: t.chat ?? null })),
+    back: Boolean(host.active?.history.back),
+    forward: Boolean(host.active?.history.forward),
+    status: appStatus(),
+  };
+  host.win.webContents.send('tabs', state);
+}
+const sendAllTabs = () => {
+  for (const host of hosts) sendTabs(host);
+};
+// The app's status, for the pill at the end of the top bar (see server-status.js for the panel it
+// opens): the server's, and once it's running, whether SmartDesktop, which runs the chat, is there.
+function appStatus() {
+  const server = mcpStatus();
+  const state = server.state !== 'running' ? server.state : desktop.status === 'missing' ? 'setup' : 'running';
+  const label = { starting: 'Starting…', running: 'Ready', setup: 'Get SmartDesktop', off: 'Not running' }[state];
+  const title = server.state === 'off' && server.reason === 'port-in-use'
+    ? (server.holder?.kind === 'smartspec' ? 'Another copy of SmartSpec is running the server' : 'SmartSpec’s server port is in use by another app')
+    : { starting: 'SmartSpec is starting', running: 'SmartSpec is ready to work with your AI', setup: 'SmartSpec’s server is running, but SmartDesktop, which runs the AI chat, isn’t installed', off: 'SmartSpec’s server isn’t running' }[state];
+  return { state, label, title };
+}
+// Home, of the window a tab is in.
+const homeOf = (ctx) => ctx?.host?.tabs[0] ?? null;
+
+// The next or previous tab in the window (the menu's Show Next Tab and Show Previous Tab).
+function stepTab(delta) {
+  const host = lastFocused?.host;
+  if (!host) return;
+  const at = host.tabs.indexOf(host.active);
+  activateTab(host.tabs[(at + delta + host.tabs.length) % host.tabs.length]);
 }
 
 const mcpStatus = () => (mcp ? { state: 'running', url: mcp.url } : mcpStarting ? { state: 'starting' } : { state: 'off', ...mcpProblem });
@@ -181,6 +369,7 @@ async function startMcp() {
   try {
     mcp = await startMcpServer(aiForServer, app.getPath('userData'));
     mcpProblem = null;
+    desktop.connect();
     setInterval(sweepSessions, SWEEP_MS).unref();
   } catch (error) {
     mcp = null;
@@ -194,6 +383,7 @@ async function startMcp() {
   if (changed) {
     lastMcpStatus = JSON.stringify(mcpStatus());
     broadcast('mcp-status', mcpStatus());
+    sendAllTabs();
   }
   return mcpStatus();
 }
@@ -201,16 +391,20 @@ async function startMcp() {
 function updateMenu() {
   Menu.setApplicationMenu(buildMenu({
     hasWindow: windows.size > 0,
+    inHome: Boolean(lastFocused?.home),
     actions: {
       newWindow: () => createWindow(),
-      close: () => lastFocused?.win.close(),
+      // A schematic's tab, or the window from Home (its pinned tab can't close).
+      close: () => lastFocused && closeTab(lastFocused),
+      nextTab: (delta) => stepTab(delta),
+      showChat: () => lastFocused && desktop.chat(lastFocused.id, true),
       newSchema: async () => {
         const ctx = lastFocused ?? createWindow();
         await ctx.ready;
-        ctx.win.webContents.send('new-schema');
+        ctx.contents.send('new-schema');
       },
       showConnectAi,
-      showSettings: () => lastFocused?.win.webContents.send('show-settings'),
+      showSettings: () => lastFocused?.contents.send('show-settings'),
     },
   }));
 }
@@ -222,11 +416,31 @@ function updateMenu() {
 
 const sessions = createSessions();
 
+// A chat's AI in SmartDesktop (its session `smartdesktop-<chat id>`, its client `smartdesktop-<AI>`).
+const fromDesktop = (session) => Boolean(session?.client?.startsWith('smartdesktop-'));
+
 function setSessionWindow(session, ctx) {
   session.ctx = ctx;
   ctx.session = session;
   ctx.untouched = false;
-  ctx.ready.then(() => ctx.win.webContents.send('ai-control', clientLabel(session.client)));
+  ctx.ready.then(() => ctx.contents.send('ai-control', clientLabel(session.client)));
+  // A chat's AI taking a tab makes it that chat's (SmartDesktop says so back: `owners`).
+  if (fromDesktop(session) && !ctx.home) desktop.sessionTab(ctx.id, session.id);
+  sendTabs(ctx.host);
+}
+
+// SmartDesktop's chat works in the window the user was last in, which it names: the session takes that
+// window over, unless another AI is working in it.
+function bindWindow(session, windowId, { strict = false } = {}) {
+  const ctx = [...windows.values()].find((c) => c.id === windowId);
+  if (!ctx) return;
+  if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
+    if (strict) throw new Error(`${clientLabel(ctx.session.client)} is working in this SmartSpec window. Tell the user: they can release it from the status pill's panel.`);
+    return;
+  }
+  if (session.ctx === ctx) return;
+  if (session.ctx) releaseWindow(session);
+  setSessionWindow(session, ctx);
 }
 
 // Gives a window back to the user, whichever way the session stopped.
@@ -236,14 +450,22 @@ function releaseWindow(session) {
   session.ctx = null;
   if (ctx) {
     ctx.session = null;
-    ctx.win.webContents.send('ai-control', null);
+    ctx.contents.send('ai-control', null);
+    sendTabs(ctx.host);
+    // An AI's tab it left with nothing in it isn't worth keeping.
+    if (!ctx.home && !ctx.hadSchema) closeTab(ctx);
   }
 }
 
+// An AI session's first call opens a tab of its own, in the window last used (or a new window), behind
+// the one showing unless the AI started SmartSpec. It shows nothing until the AI proposes something.
 async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
-  const launch = startedApp && [...windows.values()].find((c) => c.untouched && !c.session);
-  const ctx = launch || createWindow({ focus: false });
+  const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && !h.tabs[0].session);
+  const host = launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
+  const ctx = createTab(host);
+  // A chat's AI gets a tab of its own, shown: the user is working with it.
+  if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
   if (!ctx.win.isVisible()) ctx.win.showInactive();
@@ -261,7 +483,7 @@ function takeOverWindow(session, windowId) {
   const old = session.ctx;
   if (old && old !== ctx) {
     releaseWindow(session);
-    old.win.close(); // a window the session opened for itself isn't worth leaving behind
+    if (!old.home && !old.where) closeTab(old); // a tab the session opened for itself, with nothing in it, isn't worth leaving behind
   }
   setSessionWindow(session, ctx);
   return { window: windowId };
@@ -271,8 +493,19 @@ const schemaClaim = (schemaId) => `schema:${schemaId}`;
 
 // The schemas as an AI session may use them. Its proposals show in its own window.
 const schemasFor = (session, ctx) => ({
-  list: () => store.list(),
-  getSchema: (id, options) => store.getSchema(id, options),
+  list: async () => (await store.list()).map((one) => ({ ...one, icon: itemIcons.get(one.id)?.icon ?? null })),
+  getSchema: async (id, options) => {
+    const shown = await store.getSchema(id, options);
+    return shown && { ...shown, icon: itemIcons.get(id)?.icon ?? null };
+  },
+  // Setting the icon of the schematic the window shows (set_icon): the user's choice is kept over
+  // the AI's.
+  setIcon(icon) {
+    const id = schemaOf(ctx);
+    if (!id) throw new Error('This window shows no schematic. Open one, or propose one, first; then give it an icon.');
+    const { icon: shown, kept } = itemIcons.set(id, icon, 'ai');
+    return kept ? { icon: shown, note: 'The user chose this schematic\'s icon, so it stays.' } : { icon: shown };
+  },
   getItem: (id, itemId, options) => store.getItem(id, itemId, options),
   getProposal: (id, options) => store.getProposal(id, options),
   listComments: (id, options) => store.listComments(id, options),
@@ -290,9 +523,15 @@ const schemasFor = (session, ctx) => ({
       const holder = sessions.claim(session, schemaClaim(proposal.schemaId));
       if (holder) throw new Error(`${clientLabel(holder.client)} is already proposing a change to this schematic, so this one wasn't made. You can still read it. Tell the user: they can answer its proposal, or release its window from the status pill's panel.`);
     }
-    const made = await store.propose(proposal);
+    // A new schematic's icon (propose_schematic's icon) isn't part of it: it's kept apart, as the AI's.
+    const { icon, ...rest } = proposal;
+    const made = await store.propose(rest);
     sessions.claim(session, schemaClaim(made.schema));
-    ctx.win.webContents.send('show-schema', { schemaId: made.schema, name: proposal.name ?? '' });
+    if (icon && !itemIcons.get(made.schema)) itemIcons.set(made.schema, icon, 'ai');
+    // In the AI's tab; or, from Home (SmartDesktop's chat, the user being there), in a tab of its own.
+    const request = { schemaId: made.schema, name: proposal.name ?? '' };
+    if (ctx.home) await openInTab(ctx, made.schema, 'show-schema', request);
+    else ctx.contents.send('show-schema', request);
     if (!ctx.win.isVisible()) ctx.win.showInactive();
     return {
       ...made,
@@ -304,7 +543,14 @@ const schemasFor = (session, ctx) => ({
 });
 
 const aiForServer = {
-  alive: ({ session, client }) => sessions.touch(session, client),
+  // SmartDesktop's chat says which window its AI works in (the one the user was last in) as each of
+  // its messages starts, and keeps the session alive while the AI thinks.
+  alive: ({ session, client, window, turn }) => {
+    const touched = sessions.touch(session, client);
+    // Only as a message starts (`turn`), or with no window yet: within a message the AI stays where
+    // it went (into a tab of its own, say), though the window it was sent from is still named.
+    if (window && (turn || !touched.ctx)) bindWindow(touched, window, { turn });
+  },
   wait({ what, proposal } = {}) {
     if (what !== 'proposal') throw new WaitRefused(`Can't wait for "${what}".`, 400);
     return waits.forProposal(proposal);
@@ -315,8 +561,9 @@ const aiForServer = {
     releaseWindow(ended);
     sessions.end(session);
   },
-  async call({ session: id, client, startedApp }, name, _args, run) {
+  async call({ session: id, client, startedApp, window }, name, _args, run) {
     const session = sessions.touch(id, client);
+    if (window && !session.ctx) bindWindow(session, window, { strict: true });
     // Taking a window over is the one call that mustn't open one of its own.
     if (name === 'use_window') return run({ useWindow: (windowId) => takeOverWindow(session, windowId) });
     const ctx = await windowForSession(session, startedApp);
@@ -348,7 +595,7 @@ const { setups, claudeDesktopStatus, addToClaudeDesktop, waitCommand } = createC
 async function showConnectAi() {
   const ctx = lastFocused ?? createWindow();
   await ctx.ready;
-  ctx.win.webContents.send('show-connect');
+  ctx.contents.send('show-connect');
 }
 
 async function confirmAddToClaudeDesktop(ctx) {
@@ -389,168 +636,39 @@ async function offerMoveToApplications(ctx) {
 
 const updates = createUpdates({ report: (status) => broadcast('updates', status) });
 
-// --- The chat: the user's own AI, run by the app (see agent.js) ------------------------------
-// The AI works in the window the chat is in, as an AI session of its own bound to that window,
-// with SmartSpec's tools only, through the app's own MCP server.
+// --- The chat, in SmartDesktop (see desktop.js) -----------------------------------------------
+// The AI chat is SmartDesktop's, an app of its own, for SmartDoc and SmartSpec both: one chat
+// window floating over the apps' windows, and one conversation across them (the user's choice: it
+// was a chat for each window, docked or floating, in each app). SmartSpec tells it about each
+// window (what it shows, when it has the focus, lines of context, the shortcuts to offer), and its
+// AI uses SmartSpec's tools through the MCP server, on the window the user was last in (see
+// aiForServer).
 
-const agent = createAgent({
-  userData: app.getPath('userData'),
-  mcp: (headers) => ({ url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}`, ...headers } }),
-  // To try the AIs' setup in a development build without touching the user's own (see agent.js).
-  trial: app.isPackaged ? null : { home: process.env.SMARTSPEC_AI_HOME || null, hide: process.env.SMARTSPEC_AI_HIDE || '' },
-  // To the window the AI was asked from, or, for a change to a chat not from a window (a new
-  // session, a moved chat), to every window: each shows only its own chat.
-  onEvent: (event) => {
-    const to = event.windowId ? [...windows.values()].filter((c) => c.id === event.windowId) : [...windows.values()];
-    for (const ctx of to) {
-      ctx.win.webContents.send('agent-event', event);
-      ctx.chat?.win.webContents.send('agent-event', event);
+const desktop = createDesktop({
+  appData: app.getPath('appData'),
+  packaged: app.isPackaged,
+  version: app.getVersion(),
+  mcp: () => mcp,
+  onEvent(event) {
+    // A shortcut in the chat that's an action here (the go-ahead to an AI waiting in another app).
+    if (event.type === 'action') [...windows.values()].find((c) => c.id === event.windowId)?.contents.send('chat-action', event.id);
+    // The chat opened or closed: each window's chat button says so.
+    if (event.type === 'chat-open') broadcast('chat-open', event.open);
+    // Which chat owns which tab (each tab at most one chat's): marked on the tab.
+    if (event.type === 'owners') {
+      for (const ctx of windows.values()) {
+        const owner = event.tabs?.[ctx.id];
+        ctx.chat = owner ? { id: owner.chat, title: owner.title ?? 'New chat' } : null;
+      }
+      sendAllTabs();
     }
   },
+  onStatus: (status) => {
+    broadcast('desktop-status', status);
+    sendAllTabs();
+  },
 });
-// Installing and signing in say how they're getting on, to every window (the panel and the chat
-// both show it).
-const agentProgress = (progress) => {
-  for (const ctx of windows.values()) {
-    ctx.win.webContents.send('agent-progress', progress);
-    ctx.chat?.win.webContents.send('agent-progress', progress);
-  }
-};
 
-// Floating, the chat is a window of its own, kept on top of the app window it belongs to and moved
-// independently of it (see followChat). The user can put it anywhere, inside the window or out of
-// it, and it opens again where it was beside that window (see chat-anchor.js). It does everything as that window: its requests run as that
-// window's (chatOwners), and that window's interface sends it what it shows (chat-state).
-const chatOwners = new Map(); // the chat window's webContents id → the ctx of the window it belongs to
-
-function openChatWindow(ctx) {
-  if (ctx.chat) return ctx.chat.win.show();
-  const parent = ctx.win.getBounds();
-  const size = ctx.chatSize ?? { width: 400, height: firstPlace(parent).height };
-  const bounds = ctx.chatAnchor ? placeFrom(parent, ctx.chatAnchor, size) : firstPlace(parent);
-  const win = new BrowserWindow({
-    ...bounds,
-    minWidth: 320,
-    minHeight: 300,
-    frame: false,
-    show: false,
-    title: 'Chat',
-    backgroundColor: windowColours().background,
-    fullscreenable: false,
-    webPreferences: {
-      preload: path.join(dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      additionalArguments: [`--smartspec-window=${ctx.id}`],
-    },
-  });
-  ctx.chat = { win, docking: false };
-  const contentsId = win.webContents.id;
-  chatOwners.set(contentsId, ctx);
-  const remember = () => {
-    if (win.isDestroyed() || ctx.win.isDestroyed()) return;
-    const b = win.getBounds();
-    ctx.chatAnchor = anchorOf(ctx.win.getBounds(), b);
-    ctx.chatSize = { width: b.width, height: b.height };
-  };
-  // Where it is relative to the app window, to open there again.
-  win.on('move', remember);
-  win.on('resize', remember);
-  // Clicked away from, it hides unless its app window has the focus (see keepChatWithFocus).
-  win.on('blur', () => setTimeout(() => keepChatWithFocus(ctx)));
-  // Above the app window (see keepChatWithFocus).
-  win.setAlwaysOnTop(true, 'floating');
-  // Out of the way when the user shows all windows (Mission Control, App Exposé): a floating window
-  // would otherwise stay on top of them (the user found it in the way).
-  win.setHiddenInMissionControl?.(true);
-  win.once('ready-to-show', () => win.show());
-  win.on('closed', () => {
-    chatOwners.delete(contentsId);
-    const { docking } = ctx.chat ?? {};
-    ctx.chat = null;
-    if (!ctx.win.isDestroyed()) ctx.win.webContents.send('chat-mode', { mode: docking ? 'docked' : 'closed' });
-  });
-  win.loadFile(path.join(dirname, '../../build/renderer/chat.html'));
-  ctx.win.webContents.send('chat-mode', { mode: 'floating' });
-}
-
-// The chat floats in a window of its own, which the user moves independently of the app window (the
-// user's choice: as a child window it moved with it), above it at the floating windows' level
-// (however often the app window is clicked: going back over it when that came forward wasn't
-// enough). It shows only while its app window or the chat itself has the focus, and hides as soon as
-// the focus goes anywhere else, another app or another window of this one (the user's choice: left
-// showing, macOS showed it in Mission Control even above the ordinary windows and marked to be left
-// out, and it got in the way). It hides while the app window is minimised and closes with it, and in
-// full screen, where a window of its own can't follow, the chat docks.
-// Coming back to the app, the chat waits for the windows to settle (Mission Control's animation as
-// they go back into place, which nothing reports the end of), then fades in (the user's choice).
-const SETTLE_MS = 450;
-const FADE_MS = 160;
-let activatedAt = 0;
-app.on('did-become-active', () => { activatedAt = Date.now(); });
-function keepChatWithFocus(ctx) {
-  const win = ctx.chat?.win;
-  if (!win || win.isDestroyed() || ctx.win.isDestroyed()) return;
-  const focused = BrowserWindow.getFocusedWindow();
-  if (focused !== ctx.win && focused !== win) {
-    clearTimeout(ctx.chat.showing);
-    clearInterval(win.fading);
-    win.hide();
-    win.setOpacity(1);
-    return;
-  }
-  if (win.isVisible() || !ctx.win.isVisible() || ctx.win.isMinimized()) return;
-  const wait = activatedAt + SETTLE_MS - Date.now();
-  if (wait > 0) {
-    clearTimeout(ctx.chat.showing);
-    ctx.chat.showing = setTimeout(() => keepChatWithFocus(ctx), wait);
-    return;
-  }
-  fadeIn(win);
-}
-function fadeIn(win) {
-  const start = Date.now();
-  clearInterval(win.fading);
-  win.setOpacity(0);
-  win.showInactive();
-  const step = setInterval(() => {
-    if (win.isDestroyed()) return clearInterval(step);
-    const t = Math.min(1, (Date.now() - start) / FADE_MS);
-    win.setOpacity(1 - (1 - t) ** 3);
-    if (t === 1) clearInterval(step);
-  }, 16);
-  win.fading = step;
-}
-function followChat(ctx) {
-  // The window loaded again (a reload) while its chat floats: it's told, so it sends the chat what
-  // it shows.
-  ctx.win.webContents.on('did-finish-load', () => {
-    if (ctx.chat) ctx.win.webContents.send('chat-mode', { mode: 'floating' });
-  });
-  const chatWin = () => (ctx.chat && !ctx.chat.win.isDestroyed() ? ctx.chat.win : null);
-  // The focus moves in steps, one window losing it before the next has it, so where it went is
-  // looked at once it's there.
-  const settle = () => setTimeout(() => keepChatWithFocus(ctx));
-  ctx.win.on('focus', settle);
-  ctx.win.on('blur', settle);
-  ctx.win.on('minimize', () => chatWin()?.hide());
-  ctx.win.on('hide', () => chatWin()?.hide());
-  ctx.win.on('closed', () => chatWin()?.destroy());
-  ctx.win.on('enter-full-screen', () => closeChatWindow(ctx, true));
-}
-
-function closeChatWindow(ctx, dock) {
-  if (!ctx.chat) return;
-  ctx.chat.docking = dock;
-  ctx.chat.win.close();
-}
-
-const CHAT_SYSTEM = 'You are working inside the SmartSpec app on the user\'s Mac. The user is chatting with you in the app\'s chat panel, beside the window they are working in, and the SmartSpec tools act on that window: never call use_window. Follow the SmartSpec server\'s instructions. When the user wants a schematic made or changed, propose it with propose_schematic: only they can accept or discard it, in the app, so tell them to look at it there. Never run a wait command: the user tells you what they decided when they next write. The app shows each tool you use as a step, so don\'t describe your tool calls; keep replies short and plain. A message may start with [What I\'ve done in the app since my last message, for context: …]: what the user did and looked at in the app since they last wrote, so you know what they mean by \"this\"; use it, and don\'t repeat it back. When it helps, end your reply with up to three short questions the user might want to ask you next, in their words, each on its own line as <suggest>question</suggest>: the app shows them as buttons, not as text.';
-
-// The window's chat is one conversation, whatever it shows (the user's choice: it was a chat for each
-// draft, and one for home): where the window goes is a line of context in it (see chat-shows).
-const chatOfWindow = (ctx) => (ctx ? `window/${ctx.id}` : null);
 
 // What the window shows, for the AI: home, or a schematic (by name and id), and whether it's a
 // new one still waiting to be accepted. `chatId` is where, as the window says: 'home', or
@@ -565,38 +683,12 @@ async function chatWhere(chatId = 'home') {
     : `The window shows the schematic ${name} (schematic_id ${schemaId}). “This schematic” means this one.`;
 }
 
-async function chatSend(ctx, providerId, conversation, text, { model = null } = {}) {
-  const provider = PROVIDERS[providerId] ?? PROVIDERS.claude;
-  const client = `smartspec-${provider.id}`;
-  const chatId = chatOfWindow(ctx);
-  if (!mcp) throw new Error(`SmartSpec’s server isn’t running, so ${provider.name} can’t work in this window.`);
-  const sessionId = `chat-${ctx.id}`;
-  const session = sessions.touch(sessionId, client);
-  if (ctx.session && ctx.session !== session && sessions.alive(ctx.session)) {
-    throw new Error(`${clientLabel(ctx.session.client)} is working in this window. Release it from the panel first.`);
-  }
-  if (session.ctx !== ctx) {
-    if (session.ctx) releaseWindow(session);
-    setSessionWindow(session, ctx);
-  }
-  const systemPrompt = `${CHAT_SYSTEM} ${await chatWhere(ctx.chatShows)}`;
-  // Calls keep the session alive; between them, while the AI thinks, this does.
-  const keepAlive = setInterval(() => sessions.touch(sessionId, client), 10 * 1000);
-  agent.send({ provider: provider.id, windowId: ctx.id, chatId, conversation, text, systemPrompt, model, sessionHeaders: { 'x-smartspec-session': sessionId, 'x-smartspec-client': client } })
-    .catch((error) => {
-      ctx.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
-      ctx.chat?.win.webContents.send('agent-event', { windowId: ctx.id, chatId, conversation, type: 'error', error: error.message });
-    })
-    .finally(() => clearInterval(keepAlive));
-  return true;
-}
-
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself: each handler gets that window first.
 const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
   try {
-    return { ok: true, value: await fn(windows.get(event.sender.id) ?? chatOwners.get(event.sender.id) ?? lastFocused, ...args) };
+    return { ok: true, value: await fn(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, ...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
@@ -720,7 +812,7 @@ async function deleteGroup(ctx, id) {
   return true;
 }
 
-handle('list-schemas', () => store.list());
+handle('list-schemas', async () => withIcons(await store.list()));
 handle('get-layout', (_ctx, schemaId) => layouts.get(schemaId));
 handle('save-layout', (_ctx, schemaId, layout) => layouts.save(schemaId, layout));
 handle('list-groups', () => store.listGroups());
@@ -773,55 +865,114 @@ handle('add-to-claude-desktop', (ctx) => confirmAddToClaudeDesktop(ctx));
 handle('get-updates', () => updates.status);
 handle('check-updates', () => updates.check());
 handle('install-update', () => updates.install());
-// The chat (see chatSend above and agent.js).
-handle('agent-status', () => agent.status());
-handle('agent-sign-in', (_ctx, id) => agent.signIn(id, agentProgress));
-handle('agent-install', (_ctx, id) => agent.install(id, agentProgress));
-handle('agent-install-help', (_ctx, id) => shell.openExternal((PROVIDERS[id] ?? PROVIDERS.claude).installHelp));
-// The window's chat (the chat ids the window sends are for its own use: the chat is the window's).
-handle('agent-chats', async (ctx) => {
-  const chatId = chatOfWindow(ctx);
-  return chatId ? { chatId, ...(await agent.load(chatId)), running: agent.runningIn(chatId) } : null;
+// The chat, in SmartDesktop (see desktop.js): the window's chat button, where the window is (the line
+// for the chat when that changes, and what the AI is told), the shortcuts and the hint it offers,
+// lines of context, and requests for the AI.
+handle('chat-toggle', (ctx) => desktop.chat(ctx.id, 'toggle'));
+handle('chat-shows', async (ctx, where, line, name = null) => {
+  // Where the tab is, for its name in the top bar (and to find the tab showing a schematic).
+  ctx.where = where;
+  ctx.name = where === 'home' ? null : name;
+  if (!ctx.home && where !== 'home') ctx.hadSchema = true;
+  sendTabs(ctx.host);
+  // Its summary, for the icon guessed while it has none of its own (see icons.js).
+  const id = schemaOf(ctx);
+  if (id) {
+    const shown = (await store.getSchema(id).catch(() => null)) ?? (await store.getProposal(id).catch(() => null));
+    if (ctx.where === where && shown?.summary !== ctx.summary) {
+      ctx.summary = shown?.summary ?? null;
+      sendTabs(ctx.host);
+    }
+  }
+  const detail = await chatWhere(where);
+  return desktop.window(ctx.id, { shows: { key: where, text: line, detail }, title: where === 'home' ? 'Home' : name, home: Boolean(ctx.home) });
 });
-handle('agent-send', (ctx, provider, conversation, text, _chatId, options) => chatSend(ctx, provider, conversation, text, options));
-handle('agent-stop', (ctx, conversation) => agent.stop(chatOfWindow(ctx), conversation));
-handle('agent-new-session', (ctx, provider, conversation) => agent.newSession(chatOfWindow(ctx), conversation, provider));
-// Where the window is (see chatWhere), and the line for its chat when that changes; the first
-// thing a window shows isn't news.
-handle('chat-shows', (ctx, where, line) => {
-  const before = ctx.chatShows;
-  ctx.chatShows = where;
-  if (before !== undefined && before !== where && line) return agent.note(chatOfWindow(ctx), line);
+handle('chat-shortcuts', (ctx, { hint = null, shortcuts = [] } = {}) => desktop.window(ctx.id, { hint, shortcuts }));
+handle('chat-note', (ctx, note) => desktop.note(ctx.id, note));
+handle('chat-ask', (ctx, text) => desktop.ask(ctx.id, text));
+handle('desktop-status', () => desktop.status);
+// The top bar (tab-strip.js): its state, choosing and closing tabs, back and forward (done by the
+// active tab, whose history it is, which says when they change), and the status pill, which opens
+// the panel in the active tab.
+handle('tabs-state', (ctx) => {
+  if (ctx?.host) setTimeout(() => sendTabs(ctx.host));
   return null;
 });
-handle('chat-float', (ctx) => openChatWindow(ctx));
-handle('chat-dock', (ctx) => closeChatWindow(ctx, true));
-handle('chat-close', (ctx) => closeChatWindow(ctx, false));
-// What the app window shows, passed on to its chat window (kept for when it opens).
-handle('chat-state', (ctx, state) => {
-  ctx.chatState = state;
-  ctx.chat?.win.webContents.send('chat-state', state);
+handle('tab-activate', (ctx, id) => {
+  const tab = ctx?.host.tabs.find((t) => t.id === id);
+  if (tab) activateTab(tab);
 });
-handle('chat-action', (ctx, id) => ctx.win.webContents.send('chat-action', id));
-// A line of context for the chat (what the user did or looked at), for the AI with their next
-// message: in the window's chat (see note in agent.js).
-handle('chat-note', (ctx, _chatId, note) => agent.note(chatOfWindow(ctx), note));
-// The app window asks its floating chat to send the AI a request (see app-shell.js).
-// A chat window still starting is sent it once it's ready (chat-ready).
-handle('chat-ask', (ctx, text) => {
-  if (ctx.chat?.ready) ctx.chat.win.webContents.send('chat-ask', text);
-  else if (ctx.chat) ctx.chat.asked = text;
+// A tab by its id, or the tab asking (its schematic gone, say).
+handle('tab-close', (ctx, id = null) => {
+  const tab = id ? ctx?.host.tabs.find((t) => t.id === id) : ctx;
+  if (tab) closeTab(tab);
 });
-handle('chat-ready', (ctx) => {
-  setTimeout(() => {
-    if (!ctx.chat) return;
-    if (ctx.chatState) ctx.chat.win.webContents.send('chat-state', ctx.chatState);
-    ctx.chat.ready = true;
-    if (ctx.chat.asked) ctx.chat.win.webContents.send('chat-ask', ctx.chat.asked);
-    ctx.chat.asked = null;
-  });
-  return { view: 'main' };
+handle('history-step', (ctx, delta) => ctx?.contents.send('history-step', delta));
+// A tab's right-click menu: choosing its icon (in a card the tab showing draws, under the tab: `box`
+// is the tab's place in the top bar), and closing it.
+handle('tab-menu', (ctx, id, box) => {
+  const host = ctx?.host;
+  const tab = host?.tabs.find((t) => t.id === id);
+  if (!tab) return;
+  const schemaId = schemaOf(tab);
+  Menu.buildFromTemplate([
+    // The chat that owns it, if one does; and Open Chat (only with SmartDesktop installed: the user's
+    // choice), as its chat button: this tab's chat, or a new one for it (from Home, the chat last
+    // used), brought forward ready to type in.
+    ...(tab.chat ? [{ label: `Chat: ${tab.chat.title}`, enabled: false }] : []),
+    ...(desktop.installed() ? [{ label: 'Open Chat', click: () => openChatFor(tab) }, { type: 'separator' }] : tab.chat ? [{ type: 'separator' }] : []),
+    { label: 'Change Icon…', enabled: Boolean(schemaId), click: () => host.active.contents.send('icon-picker', { docId: schemaId, current: tabIcon(tab), name: tab.name, at: { left: box.left, top: 6 } }) },
+    ...(tab.home ? [] : [{ type: 'separator' }, { label: 'Close Tab', click: () => closeTab(tab) }]),
+  ]).popup({ window: host.win });
 });
+// A tab's chat button: shows that tab, and its chat in SmartDesktop, brought forward ready to type in.
+function openChatFor(tab) {
+  activateTab(tab);
+  return desktop.chat(tab.id, true);
+}
+handle('tab-chat', (_ctx, id) => {
+  const tab = [...windows.values()].find((t) => t.id === id);
+  if (tab) return openChatFor(tab);
+});
+// The user's choice of a schematic's icon, which the AI never replaces.
+handle('set-icon', (_ctx, schemaId, icon) => itemIcons.set(schemaId, icon, 'user'));
+handle('history-state', (ctx, state) => {
+  ctx.history = { back: Boolean(state?.back), forward: Boolean(state?.forward) };
+  if (ctx.host.active === ctx) sendTabs(ctx.host);
+});
+handle('show-status', (ctx) => ctx?.contents.send('toggle-status'));
+// The pills under the tab showing and the tab pointed at in the top bar: their lower halves are over
+// the tab showing's page, which draws them there (see tab-strip.js).
+handle('tab-lines', (ctx, lines) => {
+  const host = ctx?.host;
+  if (!host) return;
+  host.lines = lines;
+  for (const tab of host.tabs) tab.contents.send('tab-lines', tab === host.active ? lines : null);
+});
+// A tooltip of the top bar's, drawn by the tab showing (the top bar's page is behind it there), its
+// box moved into the tab's page, which starts below the top bar.
+handle('strip-tip', (ctx, tip) => {
+  const host = ctx?.host;
+  if (!host) return;
+  for (const tab of host.tabs) {
+    if (tab === host.active && tip) tab.contents.send('strip-tip', { text: tip.text, plain: Boolean(tip.plain), box: { ...tip.box, top: tip.box.top - TOP_BAR_HEIGHT, bottom: tip.box.bottom - TOP_BAR_HEIGHT } });
+    else tab.contents.send('strip-tip', null);
+  }
+});
+// Home is a tab of its own: going home shows it.
+handle('go-home', (ctx) => {
+  const home = homeOf(ctx);
+  if (home && home !== ctx) activateTab(home);
+});
+// A schematic opened in Home, in a tab of its own (see openInTab): `request` is { path, layout }.
+handle('open-in-tab', (ctx, request) => {
+  const schemaId = request?.path?.[0]?.schemaId;
+  if (!schemaId) return null;
+  openInTab(homeOf(ctx), schemaId, 'open-level', request);
+  return null;
+});
+// Opens SmartDesktop's page, to download it.
+handle('get-desktop', () => shell.openExternal('https://github.com/tw050x/smartdesktop/releases/latest'));
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 

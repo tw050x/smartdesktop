@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { ICONS } from './icons.js';
 
 // The app's MCP server: its instructions and tools. Kept apart from the HTTP server (mcp-server.js)
 // and Electron, so the tests can build it too: the launcher keeps a copy of what it lists
@@ -15,6 +16,7 @@ Read only what you need: get_schematic lists a schematic's items and links witho
 A focus is what the user wants this work to be for: their prompt may say "focusing on" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.
 Only the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. It also ends when the user sends you their comments on the proposal to deal with before they accept (outcome comments): read them with get_comments (proposal: true), answer each with reply_to_comment, propose again if they need changes, then wait again. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.
 Schematics belong to domains: a domain is a set of schematics owned by one team or one department, such as "Auth". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.
+Each schematic has an icon, shown on its tab and on the user's home screen so they can tell it apart at a glance: one with no icon of its own (get_schematic's icon is null) gets one from you, with propose_schematic's icon for a new one or set_icon for the one the window shows.
 The user comments on what you propose, and on drafts: get_schematic and get_proposal say how many are open, and get_comments reads them, each on the whole schematic (schematic: true), an item, a part of it, a point in it or words they quoted. Answer each one with reply_to_comment: say what you changed or why you didn't, and give its outcome, how you dealt with it in a word or two of your own ("Actioned", "Noted", "Answered", "Not changed"). Some comments only need reading. When nothing more is needed, set no_further_action: the comment then folds away and get_comments leaves it out. The user can set or clear that too, so one that comes back open needs another look. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. One with point is about that place in the item: read the item to see what's there. One on the whole schematic is about all of it, or anything not in one item. Comments on a proposal stay with it as you revise it.`;
 
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
@@ -95,7 +97,7 @@ export function buildServer(call, { version }) {
   }, ({ window_id }, schemas) => schemas.useWindow(window_id));
 
   // A domain is a group in the store: everything the AI sees says domain.
-  tool('list_schematics', 'Every schematic, most recently changed first: its id, name, summary, number of accepted drafts, status, the domain it\'s in (null for No domain), and any proposal waiting for the user.', {}, async (_args, schemas) => (await schemas.list()).map(({ group, ...one }) => ({ ...one, domain: group })));
+  tool('list_schematics', 'Every schematic, most recently changed first: its id, name, summary, icon (null if it has none of its own), number of accepted drafts, status, the domain it\'s in (null for No domain), and any proposal waiting for the user.', {}, async (_args, schemas) => (await schemas.list()).map(({ group, ...one }) => ({ ...one, domain: group })));
 
   tool('list_domains', 'The domains schematics belong to, by name: each with its id, name, how many schematics are in it and the folder it\'s in (null for the top level, with the folder\'s path), and how many schematics are in No domain.', {}, async (_args, schemas) => {
     const { groups, ungrouped } = await schemas.listGroups();
@@ -136,6 +138,10 @@ export function buildServer(call, { version }) {
     domain_id: z.string().describe('From list_domains'),
     folder_id: z.string().nullable().describe('The folder, from list_folders, or null for the top level'),
   }, ({ domain_id, folder_id }, schemas) => schemas.moveGroup(domain_id, folder_id));
+
+  tool('set_icon', `Gives the schematic the window shows an icon, shown on its tab and on the user's home screen, so they can tell it apart at a glance (a tab too narrow for its name shows only its icon). Call it once, when the schematic has no icon of its own yet (get_schematic and list_schematics give its icon, null when it has none): choose the one that best fits what it is. The user's own choice is never replaced.`, {
+    icon: z.enum(ICONS.map((i) => i.name)).describe(`One of: ${ICONS.map((i) => `${i.name} (${i.label})`).join(', ')}`),
+  }, ({ icon }, schemas) => schemas.setIcon(icon));
 
   tool('get_schematic', 'One schematic\'s accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and pinned draft, saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic\'s id and draft. proposal says if a change is waiting for the user.', {
     schematic_id: z.string(),
@@ -198,6 +204,7 @@ export function buildServer(call, { version }) {
     goal: z.string().trim().min(1).optional().describe('The focus the user gave you for this work, in their words'),
     goal_title: z.string().trim().min(1).max(60).optional().describe('A short name for that focus'),
     note: z.string().trim().min(1).describe('What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as "Proposed change:"'),
+    icon: z.enum(ICONS.map((i) => i.name)).optional().describe('For a new schematic: its icon, shown on its tab and on home (see set_icon for the list)'),
     reasons: z.record(z.string(), z.string().trim().min(1).max(300)).optional().describe('Why each item changes, keyed by its id ("contract" for the contract): one short sentence for each item you add, change or remove, shown on that item while the user reviews. Kept when you propose again; send one again to replace it.'),
   }, ({ schematic_id, uses, remove_items, item_order, goal_title, domain_id, ...proposal }, schemas) => schemas.propose({
     ...proposal,

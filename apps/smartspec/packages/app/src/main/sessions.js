@@ -57,5 +57,5 @@ export function createSessions({ now = Date.now } = {}) {
 }
 
 // An AI app's name for itself as a person would say it.
-const NAMES = { 'claude-code': 'Claude Code', 'claude-ai': 'Claude', 'claude-desktop': 'Claude Desktop', 'smartspec-claude': 'Claude', 'smartspec-codex': 'ChatGPT' };
+const NAMES = { 'claude-code': 'Claude Code', 'claude-ai': 'Claude', 'claude-desktop': 'Claude Desktop', 'smartspec-claude': 'Claude', 'smartspec-codex': 'ChatGPT', 'smartdesktop-claude': 'Claude', 'smartdesktop-codex': 'ChatGPT' };
 export const clientLabel = (client) => NAMES[client] ?? client ?? 'An AI';

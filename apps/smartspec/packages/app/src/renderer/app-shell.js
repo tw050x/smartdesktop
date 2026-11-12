@@ -1,7 +1,8 @@
 import { APP_MARKUP } from './app-markup.js';
 import { watchArrowKeys } from './arrow-nav.js';
-import { NO_REVIEW, createChatPanel } from './chat-panel.js';
+import { createTabStrip } from './tab-strip.js';
 import { installTooltips } from './tooltips.js';
+import { createIconPicker } from './icon-picker.js';
 import { createSchemas } from './schemas.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
@@ -12,124 +13,79 @@ import './selection.js';
 export function startApp(api) {
   document.body.innerHTML = APP_MARKUP;
   document.body.classList.add(`platform-${api.platform}`);
+  // Which tab this is: Home (the only one showing home) or a schematic's (see main.js). The website's
+  // demo is neither: it's a whole window, and draws the window's top bar itself (tab-strip.js).
+  if (api.tabKind) document.body.classList.add(`${api.tabKind}-tab`);
+  else {
+    const stripEl = document.getElementById('tab-strip');
+    stripEl.hidden = false;
+    const strip = createTabStrip({ el: stripEl, api });
+    api.onTabs?.((state) => strip.render(state));
+  }
   api.onFullScreenChange((isFullScreen) => document.body.classList.toggle('full-screen', isFullScreen));
-  installTooltips();
+  const tooltips = installTooltips();
+  // The window's top bar's tooltips, drawn here, over this page (see tooltips.js).
+  api.onStripTip?.((tip) => (tip ? tooltips.showAt(tip.text, tip.box, { plain: tip.plain }) : tooltips.hide()));
+  // Choosing a schematic's icon, from its tab's right-click menu (or its home row's: see schemas.js).
+  const iconPicker = createIconPicker({ api });
+  api.onIconPicker?.((request) => iconPicker.open(request));
+  // The lower halves of the pills under the tab showing and the tab pointed at in the window's top
+  // bar (see tab-strip.js).
+  const tabLines = ['active', 'hover'].map(() => Object.assign(document.createElement('div'), { className: 'tab-hover-pill below', hidden: true }));
+  document.body.append(...tabLines);
+  api.onTabLines?.((lines) => {
+    [lines?.active, lines?.hover].forEach((box, i) => {
+      tabLines[i].hidden = !box;
+      if (box) Object.assign(tabLines[i].style, { left: `${box.left}px`, width: `${box.width}px` });
+    });
+  });
   const serverStatus = createServerStatus({ api });
   api.onAiControl((name) => serverStatus.setAiControl(name));
   createSettings({ dialog: document.getElementById('settings-dialog'), api });
   const chat = startChat(api);
-  createSchemas({ el: document.getElementById('content'), bottomBar: document.getElementById('review-bar'), crumbs: document.getElementById('breadcrumb'), draftNav: document.getElementById('draft-nav'), modeCard: document.getElementById('mode-card'), focusMenu: document.getElementById('focus-menu'), viewSwitch: document.getElementById('view-switch'), api, onShown: chat.shown, onCards: chat.cards, onAsk: chat.ask, onNote: chat.note });
+  createSchemas({ el: document.getElementById('content'), bottomBar: document.getElementById('review-bar'), crumbs: document.getElementById('breadcrumb'), draftNav: document.getElementById('draft-nav'), modeCard: document.getElementById('mode-card'), focusMenu: document.getElementById('focus-menu'), viewSwitch: document.getElementById('view-switch'), api, onShown: chat.shown, onCards: chat.cards, onAsk: chat.ask, onNote: chat.note, onChooseIcon: (request) => iconPicker.open(request) });
   watchArrowKeys();
 }
 
-// The chat with the user's own AI (see chat-panel.js), as SmartDoc's: docked, a column at the
-// right the window makes room for; or floating in a window of its own (chat.html), opening again
-// the way it was last. Each draft of a schematic has its own chat, and home one of its own: the
-// window says which (`shown`, from schemas.js), to the docked chat and to the floating one.
+// The chat is SmartDesktop's (see main/desktop.js), floating over the apps' windows, as SmartDoc's
+// is. This window tells it where it is (`shown`, from schemas.js: the line for the chat when that
+// changes, and what the AI is told), what to offer while it's about this window (the shortcuts of
+// what to ask the AI, an action one done here when asked, and what to say while the chat is
+// empty), lines of context, and requests for the AI.
 const HINTS = {
   home: 'Ask your AI for a new schematic, or about the ones you have. Each step it takes shows here as it’s done.',
   schematic: 'Ask about this schematic, or ask for a change. Each step your AI takes shows here as it’s done.',
 };
 function startChat(api) {
-  // The chat is the window's, one conversation whatever it shows (see chatOfWindow in main.js).
-  const windowChat = `window/${api.windowId ?? 'demo'}`;
-  let showing = { chatId: windowChat, where: null, hint: null };
-  let floating = false;
-  const CHAT_WINDOW_KEY = 'chat-in-window';
-  const prefersWindow = () => {
-    try {
-      return localStorage.getItem(CHAT_WINDOW_KEY) === '1';
-    } catch {
-      return false;
-    }
-  };
-  const rememberWindow = (inWindow) => {
-    try {
-      localStorage.setItem(CHAT_WINDOW_KEY, inWindow ? '1' : '0');
-    } catch {}
-  };
-  // What to ask the AI about what the window shows (see reviewBar in schemas.js), as shortcuts over
-  // the chat's message box; the floating window is sent them without their `run`, and asks for one
-  // by id. (What there is to decide is in the bottom bar, not in the chat.)
+  let showing = { where: null, hint: null };
+  // What to ask the AI about what the window shows (see reviewBar in schemas.js), sent without their
+  // `run`: the chat asks for an action one by id. (What there is to decide is in the bottom bar.)
   let shortcuts = [];
   const bare = ({ run, ...rest }) => rest;
-  const plainShortcuts = () => shortcuts.map(bare);
-  const sendState = () => {
-    if (floating) api.chatState?.({ ...showing, shortcuts: plainShortcuts() });
+  let sent = null;
+  const send = () => {
+    const next = JSON.stringify({ hint: showing.hint, shortcuts: shortcuts.map(bare) });
+    if (next === sent) return;
+    sent = next;
+    api.chatShortcuts?.(JSON.parse(next));
   };
-  const runAction = (id) => shortcuts.find((one) => one.id === id)?.run?.();
-  api.onChatAction?.(runAction);
-  const button = document.getElementById('chat-button');
-  let panel = null;
-  panel = createChatPanel({
-    el: document.getElementById('chat-panel'),
-    api,
-    review: NO_REVIEW,
-    chatId: () => showing.chatId,
-    emptyHint: () => showing.hint,
-    shortcuts: plainShortcuts,
-    onAction: (action) => runAction(action.id),
-    onDock: (on) => {
-      document.body.classList.toggle('chat-docked', on);
-      if (panel) showButton();
-    },
-    onFloat: (view) => api.chatFloat?.(view),
-  });
-  function showButton() {
-    const on = panel.isOpen() || floating;
-    button.setAttribute('aria-pressed', String(on));
-    const name = on ? 'Close the chat' : 'Open the chat';
-    button.title = name;
-    button.setAttribute('aria-label', name);
-  }
-  button.addEventListener('click', () => {
-    if (floating) api.chatClose?.();
-    else if (panel.isOpen()) panel.setOpen(false);
-    else if (prefersWindow() && api.chatFloat) api.chatFloat('main');
-    else panel.setOpen(true);
-    showButton();
-  });
-  // The chat's own window opened, docked back or closed.
-  api.onChatMode?.(({ mode }) => {
-    floating = mode === 'floating';
-    if (mode !== 'closed') rememberWindow(floating);
-    if (floating) {
-      panel.setOpen(false);
-      sendState();
-    } else if (mode === 'docked') {
-      panel.setOpen(true);
-    }
-    showButton();
-  });
-  showButton();
+  api.onChatAction?.((id) => shortcuts.find((one) => one.id === id)?.run?.());
   return {
     // Where the window went: said in the chat, as a line of context, and to the AI.
     shown({ chatId: where, name, line }) {
       if (where === showing.where) return;
-      showing = { chatId: windowChat, where, hint: where === 'home' ? HINTS.home : HINTS.schematic, name };
-      api.chatShows?.(where, line);
-      panel.documentChanged();
-      sendState();
+      showing = { where, hint: where === 'home' ? HINTS.home : HINTS.schematic };
+      api.chatShows?.(where, line, name);
+      send();
     },
-    // A request for the AI, sent from the chat, docked or floating (opening it if it's closed).
-    ask(text) {
-      if (floating) return api.chatAsk?.(text);
-      if (!panel.isOpen() && prefersWindow() && api.chatFloat) {
-        // The request follows the floating chat as it starts (main.js holds it till it's ready).
-        return api.chatFloat('main').then(() => api.chatAsk?.(text));
-      }
-      panel.ask(text);
-      showButton();
-    },
+    // A request for the AI: the chat sends it (opening, and starting SmartDesktop, if need be).
+    ask: (text) => api.chatAsk?.(text),
     // A line of context for the chat (what the user looked at or did), for the AI with their next
-    // message, in the window's chat.
-    note(next) {
-      api.chatNote?.(windowChat, next);
-    },
+    // message.
+    note: (next) => api.chatNote?.(next),
     cards(_cards, nextShortcuts = []) {
       shortcuts = nextShortcuts;
-      panel.shortcutsChanged();
-        sendState();
+      send();
     },
   };
 }

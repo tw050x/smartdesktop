@@ -2,7 +2,7 @@ import { Menu } from 'electron';
 
 // The application menu. Entries that don't apply to the window's state are disabled rather than
 // hidden.
-export function buildMenu({ hasWindow, actions }) {
+export function buildMenu({ hasWindow, inHome = false, actions }) {
   const isMac = process.platform === 'darwin';
 
   const fileMenu = {
@@ -12,7 +12,8 @@ export function buildMenu({ hasWindow, actions }) {
       { type: 'separator' },
       { label: 'Connect an AI…', click: actions.showConnectAi },
       { type: 'separator' },
-      { label: 'Close Window', accelerator: 'CmdOrCtrl+W', enabled: hasWindow, click: actions.close },
+      // A schematic's tab, or the window from Home (its pinned tab can't close).
+      { label: inHome ? 'Close Window' : 'Close Tab', accelerator: 'CmdOrCtrl+W', enabled: hasWindow, click: actions.close },
     ],
   };
 
@@ -37,6 +38,12 @@ export function buildMenu({ hasWindow, actions }) {
     role: 'window',
     submenu: [
       { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: actions.newWindow },
+      { type: 'separator' },
+      { label: 'Show Previous Tab', accelerator: 'CmdOrCtrl+Shift+[', enabled: hasWindow, click: () => actions.nextTab(-1) },
+      { label: 'Show Next Tab', accelerator: 'CmdOrCtrl+Shift+]', enabled: hasWindow, click: () => actions.nextTab(1) },
+      { type: 'separator' },
+      // The AI chat, SmartDesktop's (started if it isn't running): it has no button in the window.
+      { label: 'Show the Chat', accelerator: 'CmdOrCtrl+Shift+C', enabled: hasWindow, click: actions.showChat },
       { type: 'separator' },
       { role: 'minimize' },
       { role: 'zoom' },

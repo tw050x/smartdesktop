@@ -1,3 +1,4 @@
+import { iconSvg } from '../main/icons.js';
 import { CONTRACT, connectedPairs, isInternalLink, neighboursOf, parseLink, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
 import { makeCanvas } from './canvas-view.js';
 import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
@@ -59,7 +60,6 @@ const ARROW_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="curren
 const OPEN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5,21q-0.83,0-1.41-0.59T3,19V5Q3,4.17 3.59,3.59T5,3h7V5H5V19H19V12h2v7q0,0.82-0.59,1.41T19,21H5Zm4.7-5.3L8.3,14.3L17.6,5H14V3h7v7H19V6.4L9.7,15.7Z"/></svg>';
 const FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"/></svg>';
 const LEAVE_FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M22 3.41 16.71 8.7 20 12h-8V4l3.29 3.29L20.59 2zM3.41 22l5.29-5.29L12 20v-8H4l3.29 3.29L2 20.59z"/></svg>';
-const HOME_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>';
 // SmartDoc's folder icons: a folder on home's list, and New folder.
 const FOLDER_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
 const NEW_DOMAIN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -120,7 +120,7 @@ const smoothly = () => typeof document.startViewTransition === 'function' && doc
 // request (from the question before accepting); `onNote(note)` gives the chat a line of context for
 // the AI, about what the user looked at or did ({ text, detail, focus, about }: see note in
 // main/agent.js).
-export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focusMenu, viewSwitch, api, onShown = () => {}, onCards = () => {}, onAsk = () => {}, onNote = () => {} }) {
+export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focusMenu, viewSwitch, api, onShown = () => {}, onCards = () => {}, onAsk = () => {}, onNote = () => {}, onChooseIcon = () => {} }) {
   // A level: { schemaId, draftId (null for the latest), proposal (showing the proposed change),
   // label, item (what's selected in it), focus (a part of it to bring into view) }.
   let path = [];
@@ -138,18 +138,28 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   let moving = false; // the next drawing animates, as the browser can, to what it shows next
   const top = () => path.at(-1);
 
-  // Back and forward: where this window has been, as a browser keeps it. Each stop is the levels open,
+  // Which tab this is (see main.js): Home, the only one showing home, which opens a schematic in a
+  // tab of its own; or a schematic's, which never shows home (going home shows the Home tab). The
+  // website's demo is neither: a whole window, going between home and a schematic as it did.
+  const inHome = api.tabKind === 'home';
+  const inTab = api.tabKind === 'document';
+  let hadSchema = false; // a schematic's tab has shown its schematic (and closes once it's gone)
+
+  // Back and forward: where this tab has been, as a browser keeps it. Each stop is the levels open,
   // the item each shows, and whether that was in focus or on the overview. Choosing somewhere new
-  // drops what was ahead.
+  // drops what was ahead. The buttons are in the window's top bar (tab-strip.js), which asks this
+  // tab to go back or forward (`onHistoryStep`) and is told when it can (`historyState`).
   const HISTORY_LIMIT = 200;
-  const backButton = document.getElementById('history-back');
-  const forwardButton = document.getElementById('history-forward');
   const stop = () => JSON.stringify({ layout: path.length ? layout : null, path: path.map(({ schemaId, draftId, proposal, label, item, full }) => ({ schemaId, draftId, proposal, label, item, full })) });
-  let visited = [stop()];
-  let visiting = 0;
+  // (A schematic's tab starts with nothing: its first stop is its schematic, never home.)
+  let visited = inTab ? [] : [stop()];
+  let visiting = visited.length - 1;
+  let historyShown = null;
   const showHistory = () => {
-    backButton.disabled = visiting === 0;
-    forwardButton.disabled = visiting === visited.length - 1;
+    const state = { back: visiting > 0, forward: visiting < visited.length - 1 };
+    if (JSON.stringify(state) === historyShown) return;
+    historyShown = JSON.stringify(state);
+    api.historyState?.(state);
   };
   function remember() {
     const here = stop();
@@ -180,8 +190,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     closeFocus();
     render();
   }
-  backButton.addEventListener('click', () => travel(-1));
-  forwardButton.addEventListener('click', () => travel(1));
+  api.onHistoryStep?.((delta) => travel(delta));
+  showHistory();
   document.addEventListener('keydown', (event) => {
     if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
     if (document.querySelector('dialog[open]')) return;
@@ -227,12 +237,16 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     requestAnimationFrame(() => requestAnimationFrame(put));
   }
 
+  // A schematic's tab with no schematic yet (an AI's, opening one): nothing, under the line saying so
+  // (#tab-waiting).
+  const waitingView = () => h('div', { className: 'tab-waiting-view' });
+
   async function render() {
     const ticket = ++rendering;
     // The same thing drawn again keeps its place. Anything else starts at its top, once it shows.
     const place = placeShowing();
     const scroll = place === showingPlace ? el.scrollTop : 0;
-    const view = path.length ? await schemaView(top()) : await homeView();
+    const view = path.length ? await schemaView(top()) : inTab ? waitingView() : await homeView();
     if (ticket !== rendering) return;
     // Home's columns scroll on their own, and keep their place when it's drawn again.
     const lists = [...el.querySelectorAll('.browser-list')].map((list) => list.scrollTop);
@@ -247,6 +261,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // Home arriving (at launch, or back from a schematic): its columns rise in, as SmartDoc's do.
       if (!path.length && !homeShowing) view.classList.add('arriving');
       homeShowing = !path.length;
+      document.body.classList.toggle('has-schematic', path.length > 0);
       el.replaceChildren(view);
       showBar(view.bottomBar);
       onCards(view.bottomBar?.cards ?? [], view.bottomBar?.shortcuts ?? []);
@@ -306,6 +321,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   }
 
   function go(next) {
+    // Home opens a schematic in a tab of its own (see main.js), and a schematic's tab goes home by
+    // showing the Home tab.
+    if (inHome && next.length) {
+      selected = next[0].schemaId;
+      api.openInTab({ path: next.map(({ schemaId, draftId, proposal, label, item }) => ({ schemaId, draftId, proposal, label, item })), layout });
+      return render();
+    }
+    if (inTab && !next.length) return api.goHome();
     // Back home, the schema you were in is the one selected.
     if (!next.length && path.length) selected = path[0].schemaId;
     path = next;
@@ -519,6 +542,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
           attributes: { 'data-schema': each.id, 'aria-pressed': String(each.id === schema.id) },
           onclick: () => { selected = each.id; render(); },
           title: each.name,
+          icon: each.icon,
           arrow: true,
           tag: each.proposal && WAITING(),
           text: each.summary,
@@ -728,6 +752,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const here = schema.group ?? UNGROUPED;
     const choices = [[UNGROUPED, 'No domain', null], ...groups.map((group) => [group.id, group.name, group.path])].filter(([id]) => id !== here);
     const menu = h('div', { className: 'move-menu', role: 'menu', 'aria-label': `Move ${schema.name} to` },
+      // Its icon, chosen in a card beside the row (icon-picker.js).
+      h('button', { type: 'button', role: 'menuitem', 'data-icon': '', onclick: () => {
+        menu.remove();
+        onChooseIcon({ docId: schema.id, current: schema.icon, name: schema.name, at: { left: event.clientX, top: event.clientY } });
+      } }, 'Change Icon…'),
       h('span', { className: 'move-menu-head' }, 'Move to'),
       ...(choices.length ? choices.map(([id, name, folder]) => h('button', { type: 'button', role: 'menuitem', 'data-move-to': id, onclick: async () => {
         menu.remove();
@@ -841,9 +870,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   }
 
   // An arrow says a schema leads on to its drafts.
-  function row({ attributes, className = '', onclick, title, tag, text, meta, arrow = false }) {
+  function row({ attributes, className = '', onclick, title, icon = null, tag, text, meta, arrow = false }) {
+    // A schematic's icon (main/icons.js) before its name, as on its tab.
+    const mark = icon && h('span', { className: 'home-doc-icon', 'aria-hidden': 'true' });
+    if (mark) mark.innerHTML = iconSvg(icon, 15);
     const button = h('button', { ...attributes, className: `browser-row ${className}`, type: 'button', onclick },
-      h('span', { className: 'title-row' }, h('strong', {}, title), statusPills(tag)),
+      h('span', { className: 'title-row' }, h('strong', {}, ...(mark ? [mark] : []), title), statusPills(tag)),
       h('span', { className: 'browser-row-text' }, text),
       meta && h('span', { className: 'browser-row-meta' }, meta));
     if (arrow) {
@@ -869,11 +901,17 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
     if (!shown) shown = await api.getSchema(here.schemaId, here.draftId).catch(() => null);
     if (!shown) {
-      // It was discarded: back to the level above.
+      // It was discarded: back to the level above. A schematic's tab with nothing left in it closes.
       const at = path.indexOf(here);
       if (at >= 0) path = path.slice(0, at);
-      return path.length ? schemaView(top()) : homeView();
+      if (path.length) return schemaView(top());
+      if (inTab) {
+        if (hadSchema) api.tabClose();
+        return waitingView();
+      }
+      return homeView();
     }
+    hadSchema = true;
     here.label = shown.name;
     const opened = here.proposal ? (shown.total ? `Reviewing the proposed changes to “${shown.name}”` : `Reviewing the new schematic “${shown.name}”`) : `Opened “${shown.name}”, draft ${shown.number} of ${shown.total}`;
     onShown({ chatId: `${here.schemaId}/${here.proposal ? shown.basedOn ?? 'new' : shown.draftId}`, name: shown.name, line: { text: opened, detail: `${opened} (schematic_id ${here.schemaId})` } });
@@ -928,13 +966,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     h('h1', {}, 'Testing isn’t built yet'),
     h('p', {}, `This is where ${shown.name} will link to its implementation and run its contract tests, and you’ll see what’s passing or failing.`));
 
-  // In the top bar, with a schema open: home, the mode, and the focus: what the AI's work on this
-  // draft is for.
+  // In the toolbar, with a schema open: the mode, and the focus: what the AI's work on this draft is
+  // for.
   function breadcrumb() {
     if (!path.length) return [];
-    const home = h('button', { className: 'icon-button crumb-home', type: 'button', id: 'crumb-home', 'aria-label': 'Home', title: 'Home', onclick: () => go([]) });
-    home.innerHTML = HOME_ICON;
-    const list = [home, modes.button];
+    // (Home is a tab of its own, in the window's top bar.)
+    const list = [modes.button];
     // A focus is what the AI's design work is for, so it belongs to Design.
     if (modes.mode() === 'design' && top().choices) list.push(focusButton(top()));
     return list;
@@ -2208,6 +2245,20 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   api.aiWaiting?.().then(heardWaiting, () => {});
   api.onAiWaiting?.(heardWaiting);
   api.onNewSchema(newSchema);
+  // A schematic opened from Home, in this tab (see go and main.js's openInTab), as it was there.
+  api.onOpenLevel?.(({ path: next = [], layout: chosen = null } = {}) => {
+    if (!next.length) return;
+    if (chosen && chosen !== layout && ['focus', 'overview'].includes(chosen)) {
+      layout = chosen;
+      rememberView();
+    }
+    selected = next[0].schemaId;
+    path = next.map((one) => ({ ...level(one.schemaId, one), focus: null }));
+    remember();
+    render();
+  });
+  // Home, from the website demo's top bar (in the app it's a tab of its own).
+  api.onGoHome?.(() => go([]));
   // An AI's proposal, in the window it works in.
   api.onShowSchema(({ schemaId, name }) => {
     selected = schemaId;

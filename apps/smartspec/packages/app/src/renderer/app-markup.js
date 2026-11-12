@@ -1,23 +1,18 @@
 // The window's markup, put in an empty body before starting the interface (see app-shell.js).
 export const APP_MARKUP = `
-<header class="top-bar">
-  <!-- The app's status, first in the bar, just after the traffic lights: it opens the panel with
-       the AIs and the server, which slides in from the left (see server-status.js). -->
-  <button class="server-pill" id="server-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
+<!-- The window's top bar (tab-strip.js): in the app it's the window's own page, above this one
+     (tabs.html); only the website's demo draws it here. -->
+<header class="top-bar tab-strip" id="tab-strip" hidden></header>
+<!-- The schematic's toolbar, across the top of the content: its mode and, in Design, the focus: what
+     the AI's work is for (see schemas.js), its drafts, and the view. Shown with a schematic open. -->
+<header class="top-bar toolbar">
+  <!-- The app's status, which the window's top bar shows: kept here, hidden, as the status panel
+       (server-status.js) keeps it up to date. -->
+  <button class="server-pill" id="server-pill" hidden type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mcp-card">
     <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span id="server-pill-label">Starting…</span><span id="server-pill-ai" hidden></span></span>
   </button>
-  <!-- Back and forward through where this window has been (see schemas.js). -->
-  <div class="history-nav" id="history-nav" role="group" aria-label="History">
-    <button class="icon-button" id="history-back" type="button" aria-label="Back" title="Back" disabled>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
-    </button>
-    <button class="icon-button" id="history-forward" type="button" aria-label="Forward" title="Forward" disabled>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-    </button>
-  </div>
-  <!-- Home, the mode and, in Design, the focus: what the AI's work is for (see schemas.js). -->
-  <nav class="breadcrumb" id="breadcrumb" aria-label="Location"></nav>
-  <!-- The drafts of the schematic showing, centred in the top bar (see schemas.js). -->
+  <nav class="breadcrumb" id="breadcrumb" aria-label="Schematic"></nav>
+  <!-- The drafts of the schematic showing, centred in the toolbar (see schemas.js). -->
   <div class="draft-nav" id="draft-nav" role="group" aria-label="Drafts" hidden></div>
   <div class="top-bar-end">
     <!-- Focus | Overview, for a schematic in Design (see schemas.js). -->
@@ -25,26 +20,22 @@ export const APP_MARKUP = `
       <button type="button" data-view="focus">Focus</button>
       <button type="button" data-view="overview">Overview</button>
     </div>
-    <!-- The chat with your AI, docked or in its own window (see chat-panel.js). -->
-    <button class="icon-button chat-button" id="chat-button" type="button" aria-label="Open the chat" title="Open the chat" aria-pressed="false">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/><circle cx="8.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
-    </button>
   </div>
 </header>
 
-<!-- The modes to switch between, opened from the breadcrumb (see mode-switcher.js). -->
+<!-- The modes to switch between, opened from the toolbar (see mode-switcher.js). -->
 <div class="tool-card" id="mode-card" role="menu" aria-label="Modes" hidden></div>
-<!-- Everything in the schematic, to focus on, opened from the breadcrumb (see schemas.js). -->
+<!-- Everything in the schematic, to focus on, opened from the toolbar (see schemas.js). -->
 <div class="tool-card focus-menu" id="focus-menu" role="menu" aria-label="Focus" hidden></div>
 
+<!-- A schematic's tab before its schematic opens (an AI's, say): it never shows home. -->
+<div class="tab-waiting" id="tab-waiting"><p>Opening a schematic…</p></div>
 <main class="content" id="content"></main>
 <!-- The actions bar: what there is to decide about this view, with its buttons, or a sentence on what's going on (see showBar in schemas.js). -->
 <footer class="review-bar" id="review-bar" aria-label="About this view" hidden></footer>
 
-<!-- The chat with your AI: docked at the right, or floating in a window of its own (see chat-panel.js). -->
-<aside id="chat-panel" hidden></aside>
 
-<!-- The AIs and the MCP server: a full-height panel that slides in over the left of the window, above a mask that dulls the rest. -->
+<!-- SmartDesktop and the MCP server: a full-height panel that slides in over the right of the window, above a mask that dulls the rest. -->
 <div class="mcp-mask" id="mcp-mask"></div>
 <aside class="mcp-card" id="mcp-card" role="dialog" aria-modal="true" aria-labelledby="mcp-card-title" inert>
   <div class="mcp-card-bar">
@@ -57,12 +48,17 @@ export const APP_MARKUP = `
       <p id="ai-release-text"></p>
       <button type="button" class="secondary-button" id="ai-release-button">Release this window</button>
     </div>
-    <!-- The AIs the chat runs: where each stands, and installing or signing in, a click each (see
-         server-status.js and main/agent.js). -->
+    <!-- The chat: SmartDesktop, which runs the AI chat for SmartDoc and SmartSpec and sets up the AI
+         (see server-status.js and main/desktop.js). -->
     <section class="ai-setup">
-      <h3>AI</h3>
-      <p class="panel-hint">The AI you work with in the chat runs on this Mac, signed in with your own account on its maker’s site. SmartSpec never sees your sign-in.</p>
-      <div class="ai-list" id="ai-list"></div>
+      <h3>Chat</h3>
+      <p class="panel-hint">The AI chat is SmartDesktop’s, an app of its own that runs your own AI for SmartDoc and SmartSpec, in one conversation, in a window floating over theirs. You set up the AI there, from its icon in the menu bar.</p>
+      <div class="ai-list">
+        <div class="ai-row">
+          <div class="ai-row-text"><strong>SmartDesktop</strong><span id="desktop-state"></span></div>
+          <button type="button" class="secondary-button" id="desktop-action" hidden></button>
+        </div>
+      </div>
     </section>
     <h3 id="mcp-card-title">MCP server</h3>
     <p class="panel-hint server-intro">How the AI reads your schematics and proposes its changes in SmartSpec: a server built into the app that only this Mac can reach. It’s also how you can connect another AI app yourself.</p>
