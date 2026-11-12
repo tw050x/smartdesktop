@@ -1009,7 +1009,7 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .pane-title:has(h2:hover, h2:focus-visible) .title-card { display: grid; }
 .pane-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
 .page.schema-page.full { max-width: none; height: 100%; padding: 0; }
-.focus-full { display: flex; flex: 1; min-height: 0; }
+.focus-full { position: relative; display: flex; flex: 1; min-height: 0; } /* positioned: its comment markers are placed on it */
 /* What's in the middle has no card around it: its heading floats where a card's would be. The borders
    stay, unseen, so that nothing moves. */
 .focus-card.embeds { border-color: transparent; background: none; box-shadow: none; }

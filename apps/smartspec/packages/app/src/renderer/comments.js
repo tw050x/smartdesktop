@@ -220,12 +220,16 @@ function overText(element, x, y) {
 
 const MOST_QUOTED = 500;
 
-// What a long press at `event` in the open item `element` (a .board-item) is on: words selected there
+// An open item's card: on the board or the overview (.board-full), or full screen (.focus-card in
+// .focus-full, whose element is the full screen itself).
+const cardOf = (element) => element.querySelector(':scope > :is(.board-full, .focus-card)');
+
+// What a long press at `event` in the open item `element` (a .board-item, or .focus-full) is on: words selected there
 // and pressed on, its title (its card), the rest of its title bar (all of it), a part, or a point in
 // its content. Null if it's on none of those (a button, say).
 export function targetAt(element, event) {
   const item = element.dataset.item;
-  const full = element.querySelector(':scope > .board-full');
+  const full = cardOf(element);
   if (!full) return null;
   const { clientX: x, clientY: y } = event;
   const head = event.target.closest?.('.pane-head');
@@ -254,7 +258,7 @@ export function targetAt(element, event) {
 // card, at the right of the title bar for all of it, at a part's top right, at a point, or at the end
 // of the words for earlier comments on words (current ones are marked in the text instead).
 function spotOf(element, group) {
-  const full = element.querySelector(':scope > .board-full');
+  const full = cardOf(element);
   if (!full) return null;
   const { target } = group;
   const head = full.querySelector('.pane-head');
@@ -318,9 +322,11 @@ export function watchComments(root, { groups = [], open = () => {} } = {}) {
     markers.clear();
     words = [];
     for (const group of groups) {
-      // An item on the board, or on the overview.
-      const element = root.querySelector(`:is(.board > .board-item, .overview-world > .overview-item)[data-item="${CSS.escape(group.target.item)}"]`);
-      const body = element?.querySelector(':scope > .board-full .focus-body');
+      // An item on the board, or on the overview, or the one full screen (the root itself).
+      const element = root.matches('.focus-full')
+        ? (root.dataset.item === group.target.item ? root : null)
+        : root.querySelector(`:is(.board > .board-item, .overview-world > .overview-item)[data-item="${CSS.escape(group.target.item)}"]`);
+      const body = element && cardOf(element)?.querySelector('.focus-body');
       if (!element) continue;
       const current = group.comments.filter((comment) => !comment.earlier);
       const waiting = current.filter(isOpen).length;

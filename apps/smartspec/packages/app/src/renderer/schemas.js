@@ -285,7 +285,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       }
       restoreItemScrolls(scrolled);
       // A box of comments open before the page was drawn again opens again on the same thing.
-      const threads = (board ?? el.querySelector('.overview-page .diagram.overview'))?.threads;
+      const full = el.querySelector('.focus-full[data-item]');
+      if (full?.comments) watchComments(full, full.comments);
+      const threads = (board ?? full ?? el.querySelector('.overview-page .diagram.overview'))?.threads;
       if (threads) refreshThread(threads);
       else closeThread();
       const fullPage = el.querySelector('.focus-full .sheet-body');
@@ -1348,7 +1350,24 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const mark = (id) => (id === CONTRACT ? (shown.changes?.contract ? 'changed' : null) : isRemoved(id) ? 'removed' : shown.changes?.items[id]);
     const views = { shown, uses, content, mark, follow, openUse, isRemoved };
 
-    if (here.full) return h('div', { className: 'focus-full' }, await fullView(here, here.item, { ...views, full: true }));
+    // Full screen, one item has the whole window, with its comments as on the board: marked where
+    // they are (see showFull), and a long press comments on what was pressed (the user's choice: it
+    // had none).
+    if (here.full) {
+      const [comments, earlier] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
+      const groups = groupComments([...comments, ...earlier].filter((comment) => !comment.target.schematic && !comment.target.missing && comment.target.item === here.item));
+      const threads = threadsFor(here, on, groups, (id) => titleOf(id, shown, uses, removed));
+      const holder = h('div', { className: 'focus-full', 'data-item': here.item }, await fullView(here, here.item, { ...views, full: true }));
+      Object.assign(holder, { threads: threads.find, comments: { groups, open: (group, x, y) => threads.open(group.target, x, y) } });
+      watchLongPress(holder, {
+        accept: (event) => !event.target.closest('button, input, textarea, .comment-marker, .comment-thread, .canvas-controls, .card-drawer, .change-float') && Boolean(event.target.closest('.focus-card')),
+        fire: (event) => {
+          const target = targetAt(holder, event);
+          if (target) threads.open(target, event.clientX, event.clientY, true);
+        },
+      });
+      return holder;
+    }
 
     // Every comment on this draft or proposal, and the earlier ones still about something here (see
     // store.js). Those on an item gather by what they're on, each lot with a marker there (see
