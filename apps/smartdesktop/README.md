@@ -36,6 +36,14 @@ It's in beta, so it may change significantly from one version to the next.
   windows.
 - `packages/app/src/renderer`: the chat, setup and settings windows.
 
+## The website
+
+`site/` is smartdesktop.tw050x.net, one page, published to GitHub Pages by the Website workflow
+(`.github/workflows/pages.yml`) when it changes. It uses SmartDoc's and SmartSpec's `site.css` (keep
+it the same as theirs). Its still of the chat window (`site/shots/chat-dark.webp`, `-light.webp`) is
+made by hand from a test copy of the app with made-up chats (`SMARTDESKTOP_USER_DATA`,
+`SMARTDESKTOP_PORT`), never from real ones.
+
 ## Developing
 
 ```sh
