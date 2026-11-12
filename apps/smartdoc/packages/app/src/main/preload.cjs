@@ -109,7 +109,6 @@ contextBridge.exposeInMainWorld('smartdoc', {
   addToClaudeDesktop: () => call('add-to-claude-desktop'),
   // Updates (see updates.js): where they stand, checking now, and restarting into a downloaded one.
   getUpdates: () => call('get-updates'),
-  checkForUpdates: () => call('check-updates'),
   installUpdate: () => call('install-update'),
   // Light, dark or as the system is ('light', 'dark' or 'system'), from Settings.
   getAppearance: () => call('get-appearance'),

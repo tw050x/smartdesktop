@@ -20,6 +20,7 @@ import { RENDER_SCALE, drawPage, fitPageTo, sharpenPage } from './pdf-page.js';
 import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
+import { createUpdateToast } from './update-toast.js';
 import { createToolSwitcher } from './tool-switcher.js';
 import { createVariationCard } from './variation-card.js';
 import { APP_MARKUP } from './app-markup.js';
@@ -73,6 +74,7 @@ export function startApp(appApi) {
     requestAnimationFrame(placeDraftNav);
   });
   createSettings({ dialog: document.getElementById('settings-dialog'), api });
+  createUpdateToast({ api, name: 'SmartDoc' });
   const toolSwitcher = createToolSwitcher({
     button: document.getElementById('tool-button'),
     label: document.getElementById('tool-label'),

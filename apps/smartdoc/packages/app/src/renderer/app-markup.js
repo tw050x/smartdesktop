@@ -227,13 +227,6 @@ export const APP_MARKUP = `
   </form>
 </dialog>
 
-<!-- Shown at the bottom of the window once an update has downloaded (see settings.js). -->
-<div class="update-toast" id="update-toast" role="status" hidden>
-  <span id="update-toast-text"></span>
-  <button class="primary-button" id="update-toast-restart" type="button">Restart to Update</button>
-  <button class="secondary-button" id="update-toast-later" type="button">Later</button>
-</div>
-
 <!-- Settings, opened from the SmartDoc menu (see settings.js). -->
 <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title" tabindex="-1">
   <div class="settings-head">
@@ -253,12 +246,12 @@ export const APP_MARKUP = `
       </div>
       <p class="setting-note">System matches your Mac’s appearance. Your documents stay as they are.</p>
     </section>
-    <!-- The app's version and its updates, which download by themselves (see settings.js). -->
+    <!-- The app's version, in beta. Its updates show in the update toast (update-toast.js), and the
+         app menu's Check for Updates… looks for one now. -->
     <section class="setting">
-      <h3 class="setting-title">Updates</h3>
-      <p class="setting-line"><span id="update-version"></span> <span class="beta-tag">Beta</span> · <span id="update-state"></span></p>
-      <button class="secondary-button" id="update-action" type="button">Check for Updates</button>
-      <p class="setting-note">SmartDoc is in beta, so it may change significantly from one version to the next. New versions download by themselves and install when SmartDoc quits.</p>
+      <h3 class="setting-title">Version</h3>
+      <p class="setting-line"><span id="update-version"></span> <span class="beta-tag">Beta</span></p>
+      <p class="setting-note">SmartDoc is in beta, so it may change significantly from one version to the next. New versions download by themselves and install when SmartDoc quits; check for one now from the SmartDoc menu.</p>
     </section>
   </div>
 </dialog>

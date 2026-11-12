@@ -915,16 +915,22 @@ button:disabled { opacity: 0.5; cursor: default; }
 .setting-line { margin: 0 0 10px; color: var(--text-2); font-size: 13px; }
 /* The app is in beta (and says so in its About panel too). */
 .beta-tag { padding: 1px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; }
-/* The update notice: centred at the bottom of the window, above everything but dialogs. */
-.update-toast[hidden] { display: none; }
+/* The update toast (update-toast.js): centred at the bottom of the window, above everything but
+   dialogs. A spinner while a check the user asked for looks, the percentage downloaded, or Restart
+   to Update and Later. The same in SmartDoc, SmartSpec and SmartDesktop. */
+.update-toast[hidden], .update-toast [hidden] { display: none; }
 .update-toast {
   position: fixed; left: 50%; bottom: 20px; z-index: 50; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px;
+  display: flex; align-items: center; gap: 8px; min-height: 48px; box-sizing: border-box; padding: 8px 10px 8px 16px;
   border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); color: var(--text);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); font-size: 13px; white-space: nowrap;
   animation: update-toast-in 220ms ease-out;
 }
-.update-toast span { margin-right: 6px; }
+.update-toast-text { margin-right: 6px; }
+.update-toast-percent { min-width: 36px; margin-right: 6px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.update-toast-spinner { flex: none; width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: update-toast-spin 0.8s linear infinite; }
+@keyframes update-toast-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .update-toast-spinner { animation-duration: 2.4s; } }
 @keyframes update-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
 /* A row of choices, the chosen one raised, as macOS draws them. */
 .segmented { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--subtle-bg); border: 1px solid var(--border); }

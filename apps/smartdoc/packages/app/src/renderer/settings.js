@@ -1,8 +1,7 @@
 // Settings: a modal in the window, opened from the SmartDoc menu (Settings…, ⌘,). Closes with its close button,
 // Escape, or a click outside it. Holds the app's Appearance: as the system is, light or dark,
-// applied at once (main.js keeps it); and its Updates (updates.js), which download by themselves.
-// Once one has downloaded, a notice at the bottom of the window offers to restart into it; Later
-// puts it away until the next launch or the next version.
+// applied at once (main.js keeps it); and the app's version. Its updates show in the update toast
+// (update-toast.js), and the app menu's Check for Updates… looks for one now.
 
 export function createSettings({ dialog, api }) {
   const appearance = dialog.querySelector('#appearance');
@@ -15,38 +14,11 @@ export function createSettings({ dialog, api }) {
     });
   }
 
-  // Updates: the version, what's happening, and a button to check now or restart into a new one.
+  // The version (updates show in the update toast, update-toast.js).
   const version = dialog.querySelector('#update-version');
-  const state = dialog.querySelector('#update-state');
-  const action = dialog.querySelector('#update-action');
-  const toast = document.getElementById('update-toast');
-  const toastText = document.getElementById('update-toast-text');
-  let putOff = null; // the version the user chose Later for
-  function showUpdates(u) {
-    version.textContent = `SmartDoc ${u.version}`;
-    state.textContent = {
-      unavailable: 'Development build',
-      idle: 'Updates are checked for automatically',
-      checking: 'Checking for updates…',
-      current: 'Up to date',
-      downloading: `Downloading ${u.next ?? 'an update'}… ${u.percent ?? 0}%`,
-      ready: `${u.next} is ready to install`,
-      error: 'Couldn’t check for updates',
-    }[u.state];
-    action.textContent = u.state === 'ready' ? 'Restart to Update' : 'Check for Updates';
-    action.disabled = ['unavailable', 'checking', 'downloading'].includes(u.state);
-    toast.hidden = u.state !== 'ready' || u.next === putOff;
-    toastText.textContent = `SmartDoc ${u.next} is ready to install.`;
-  }
-  let updates = { state: 'idle', version: '' };
-  action.addEventListener('click', () => (updates.state === 'ready' ? api.installUpdate() : api.checkForUpdates()));
-  document.getElementById('update-toast-restart').addEventListener('click', () => api.installUpdate());
-  document.getElementById('update-toast-later').addEventListener('click', () => {
-    putOff = updates.next;
-    toast.hidden = true;
-  });
-  api.onUpdates((u) => showUpdates((updates = u)));
-  api.getUpdates().then((u) => showUpdates((updates = u)));
+  const showVersion = (u) => u?.version && (version.textContent = `SmartDoc ${u.version}`);
+  api.onUpdates(showVersion);
+  api.getUpdates().then(showVersion);
 
   // The dialog takes focus itself, not its close button, so nothing shows a focus ring on opening.
   api.onShowSettings(() => {

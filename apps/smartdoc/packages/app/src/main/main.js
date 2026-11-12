@@ -548,6 +548,11 @@ function updateMenu() {
       stepDraft: (delta) => workspace.stepDraft(delta),
       find: (which) => send('find', which),
       showSettings: () => send('show-settings'),
+      // Its answer shows in the update toast, in a window (one is opened if none is).
+      checkForUpdates: async () => {
+        if (!lastFocused) await createWindow().ready;
+        updates.check({ byUser: true });
+      },
       resetReview,
       showConnectAi,
     },
@@ -1426,7 +1431,6 @@ handle('open-website', () => shell.openExternal(WEBSITE));
 handle('claude-desktop-status', () => claudeDesktopStatus());
 handle('add-to-claude-desktop', () => confirmAddToClaudeDesktop());
 handle('get-updates', () => updates.status);
-handle('check-updates', () => updates.check());
 handle('install-update', () => updates.install());
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('set-appearance', (appearance) => setAppearance(appearance));
