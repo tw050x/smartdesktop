@@ -5,9 +5,11 @@ import updater from 'electron-updater';
 // release's latest-mac.yml): it checks soon after starting and every few hours, downloads a new
 // version in the background, and installs it when the app quits, or straight away if the user
 // chooses to restart. The app's MCP launcher is inside the app, so it updates with it.
-// `report(status)` hears each change: { state, version, next?, percent?, message? }, where state
-// is 'unavailable' (a development build), 'idle', 'checking', 'current', 'downloading', 'ready' or
-// 'error'.
+// `report(status)` hears each change: { state, version, next?, percent?, message?, asked? }, where
+// state is 'unavailable' (a development build), 'idle', 'checking', 'current', 'downloading',
+// 'ready' or 'error', and `asked` marks a check the user asked for (the app menu's Check for
+// Updates…), whose every step the update toast shows (update-toast.js), even finding nothing.
+// The same in SmartDoc, SmartSpec and SmartDesktop.
 
 const { autoUpdater } = updater;
 const FIRST_CHECK_MS = 10 * 1000;
@@ -16,8 +18,10 @@ const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 export function createUpdates({ report }) {
   const version = app.getVersion();
   let status = { state: app.isPackaged ? 'idle' : 'unavailable', version };
+  let asked = false; // the check under way was asked for, until it comes to an end
   const set = (next) => {
-    status = { version, ...next };
+    status = { version, ...next, ...(asked && { asked: true }) };
+    if (['current', 'ready', 'error'].includes(next.state)) asked = false;
     report(status);
   };
 
@@ -37,7 +41,15 @@ export function createUpdates({ report }) {
     });
   }
 
-  const check = () => {
+  // `byUser`: the user asked (the app menu), so the toast shows how it goes. Asked while a version
+  // is downloading or ready, that's what it shows again (even one put off with Later).
+  const check = ({ byUser = false } = {}) => {
+    if (byUser) {
+      if (!app.isPackaged) return report({ ...status, asked: true });
+      if (status.state === 'downloading' || status.state === 'ready') return report({ ...status, asked: true });
+      asked = true;
+      set({ state: 'checking' });
+    }
     if (!app.isPackaged || status.state === 'downloading' || status.state === 'ready') return;
     autoUpdater.checkForUpdates().catch(() => {}); // reported through the 'error' event
   };

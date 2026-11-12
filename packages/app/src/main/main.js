@@ -561,6 +561,9 @@ function updateTray() {
     { type: 'separator' },
     { label: 'Set Up AI…', click: openSetup },
     { label: 'Settings…', click: openSettings },
+    updates.status.state === 'ready'
+      ? { label: `Restart to Update to ${updates.status.next}`, click: () => installUpdate() }
+      : { label: 'Check for Updates…', click: checkForUpdates },
     { type: 'separator' },
     { label: connected.length ? `Connected to ${connected.join(' and ')}` : 'Not connected: open SmartDoc or SmartSpec', enabled: false },
     { type: 'separator' },
@@ -647,15 +650,32 @@ handle('open-settings', () => {
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('set-appearance', (appearance) => setAppearance(appearance));
 handle('get-updates', () => updates.status);
-handle('check-updates', () => updates.check());
-handle('install-update', () => updates.install());
+// Restarting to update closes the windows before the app says it's quitting (macOS's updater), and
+// the chat's window only hides when it's closed, unless the app is quitting: so it's marked as
+// quitting first, or the chat's window stopped the restart (the user found it did nothing).
+handle('install-update', () => installUpdate());
+function installUpdate() {
+  if (updates.status.state !== 'ready') return;
+  quitting = true;
+  hub?.close();
+  updates.install();
+}
 
 // --- Updates ---------------------------------------------------------------------------------
 const updates = createUpdates({
   report: (status) => {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send('updates', status);
+    updateTray(); // its menu offers Restart to Update once one is ready
   },
 });
+// The app menu's and the menu bar icon's Check for Updates…: its answer shows in the update toast,
+// in the chat's window (update-toast.js), which comes forward for it.
+async function checkForUpdates() {
+  setChatOpen(true, { now: true });
+  const win = chatWin();
+  if (win?.webContents.isLoading()) await new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
+  updates.check({ byUser: true });
+}
 
 // --- Starting ----------------------------------------------------------------------------------
 let hub = null;
@@ -664,7 +684,7 @@ app.whenReady().then(async () => {
   // No menu bar of its own shows (it lives in the menu bar's icon), but typing in the chat needs the
   // Edit menu's shortcuts (copy, paste, undo, select all), and ⌘Q quits.
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { role: 'appMenu', submenu: [{ label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings }, { type: 'separator' }, { role: 'quit' }] },
+    { role: 'appMenu', submenu: [{ role: 'about' }, { label: 'Check for Updates…', click: checkForUpdates }, { type: 'separator' }, { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'editMenu' },
   ]));
   app.setAboutPanelOptions({ credits: 'SmartDesktop is in beta, so it may change significantly from one version to the next.' });

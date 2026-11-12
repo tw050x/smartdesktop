@@ -49,7 +49,6 @@ contextBridge.exposeInMainWorld('smartdesktop', {
   getAppearance: () => call('get-appearance'),
   setAppearance: (appearance) => call('set-appearance', appearance),
   getUpdates: () => call('get-updates'),
-  checkForUpdates: () => call('check-updates'),
   installUpdate: () => call('install-update'),
   onUpdates: on('updates'),
 });

@@ -24,12 +24,12 @@
       <button class="secondary-button" id="open-setup" type="button">Set Up AI…</button>
       <p class="setting-note">Install and sign in to Claude or ChatGPT, the AIs the chat runs.</p>
     </section>
-    <!-- The app's version and its updates, which download by themselves (see updates.js). -->
+    <!-- The app's version, in beta. Its updates show in the update toast in the chat's window
+         (update-toast.js), and Check for Updates… in the menu looks for one now. -->
     <section class="setting">
-      <h3 class="setting-title">Updates</h3>
-      <p class="setting-line"><span id="update-version"></span> <span class="beta-tag">Beta</span> · <span id="update-state"></span></p>
-      <button class="secondary-button" id="update-action" type="button">Check for Updates</button>
-      <p class="setting-note">SmartDesktop is in beta, so it may change significantly from one version to the next. New versions download by themselves and install when SmartDesktop quits.</p>
+      <h3 class="setting-title">Version</h3>
+      <p class="setting-line"><span id="update-version"></span> <span class="beta-tag">Beta</span></p>
+      <p class="setting-note">SmartDesktop is in beta, so it may change significantly from one version to the next. New versions download by themselves and install when SmartDesktop quits; check for one now from the menu bar icon’s menu.</p>
     </section>
   </main>
   <script type="module" src="./settings.js"></script>
