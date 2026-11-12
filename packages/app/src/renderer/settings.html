@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Settings</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="panel-window">
+  <header class="panel-window-head"><h1>Settings</h1></header>
+  <main class="panel-window-body">
+    <!-- How the chat and these windows look: as the system is, or always light or dark. -->
+    <section class="setting">
+      <h3 class="setting-title" id="appearance-title">Appearance</h3>
+      <div class="segmented" id="appearance" role="radiogroup" aria-labelledby="appearance-title">
+        <button type="button" role="radio" data-appearance="system" aria-checked="true">System</button>
+        <button type="button" role="radio" data-appearance="light" aria-checked="false">Light</button>
+        <button type="button" role="radio" data-appearance="dark" aria-checked="false">Dark</button>
+      </div>
+      <p class="setting-note">System matches your Mac’s appearance.</p>
+    </section>
+    <section class="setting">
+      <h3 class="setting-title">AI</h3>
+      <button class="secondary-button" id="open-setup" type="button">Set Up AI…</button>
+      <p class="setting-note">Install and sign in to Claude or ChatGPT, the AIs the chat runs.</p>
+    </section>
+    <!-- The app's version and its updates, which download by themselves (see updates.js). -->
+    <section class="setting">
+      <h3 class="setting-title">Updates</h3>
+      <p class="setting-line"><span id="update-version"></span> <span class="beta-tag">Beta</span> · <span id="update-state"></span></p>
+      <button class="secondary-button" id="update-action" type="button">Check for Updates</button>
+      <p class="setting-note">SmartDesktop is in beta, so it may change significantly from one version to the next. New versions download by themselves and install when SmartDesktop quits.</p>
+    </section>
+  </main>
+  <script type="module" src="./settings.js"></script>
+</body>
+</html>

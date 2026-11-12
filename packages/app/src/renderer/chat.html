@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Chat</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="chat-window-body">
+  <!-- The top bar, as the apps' windows have: the traffic lights (the close button closes the chat).
+       It drags the window. -->
+  <header class="chat-head"></header>
+  <!-- The chats, in tabs, in columns side by side (see chat.js). -->
+  <main class="chat-grid" id="chat-grid"></main>
+  <script type="module" src="./chat.js"></script>
+</body>
+</html>

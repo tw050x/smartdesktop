@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Set Up Your AI</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="panel-window">
+  <header class="panel-window-head"><h1>Set up your AI</h1></header>
+  <main class="panel-window-body">
+    <p class="panel-intro">SmartDesktop is the chat for SmartDoc and SmartSpec. It runs your own AI on this Mac, signed in with your own account on its maker’s site, and gives it the apps’ tools, so it can work on what you have open. SmartDesktop never sees your sign-in.</p>
+    <p class="panel-intro">Set up one or both. You choose which to talk to under the chat’s message box.</p>
+    <!-- The AIs the chat runs: where each stands, and installing or signing in, a click each (see
+         setup.js and main/agent.js). -->
+    <div class="ai-list" id="ai-list"></div>
+  </main>
+  <footer class="panel-window-foot">
+    <button class="primary-button" id="setup-done" type="button">Done</button>
+  </footer>
+  <script type="module" src="./setup.js"></script>
+</body>
+</html>

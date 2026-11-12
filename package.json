@@ -1,0 +1,18 @@
+{
+  "name": "smartdesktop",
+  "version": "0.1.0",
+  "description": "The AI chat for SmartDoc and SmartSpec, run with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/app"
+  ],
+  "scripts": {
+    "build": "npm run build -w @smartdesktop/app",
+    "start": "npm start -w @smartdesktop/app",
+    "dist": "npm run dist -w @smartdesktop/app",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs"
+  }
+}
