@@ -14,7 +14,8 @@ name: Release
 #
 # Without "publish" ticked this is a dry run: it builds everything and reports what it would
 # release, but creates no tag or release. Publishing refuses to run unless the app is signed and
-# notarised, so an unsigned build can't be released by accident.
+# notarised, so an unsigned build can't be released by accident. The disk images are what
+# SmartDoc's and SmartSpec's Get SmartDesktop links and their websites' install steps download.
 #
 # Secrets (scripts/set-release-secrets.sh sets them): CSC_LINK (the Developer ID Application
 # certificate as base64 .p12) and CSC_KEY_PASSWORD; APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
