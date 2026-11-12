@@ -1,7 +1,7 @@
 {
   "name": "@smartdesktop/app",
   "productName": "SmartDesktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The AI chat for SmartDoc and SmartSpec, run with your own AI.",
   "license": "MIT",
   "private": true,
