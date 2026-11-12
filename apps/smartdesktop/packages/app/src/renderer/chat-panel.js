@@ -30,7 +30,9 @@ export function createChatPanel({ el, api, chatId }) {
   // What its tabs in the apps say (see main.js's chatState): { tabs, hint, shortcuts }, and which
   // apps are connected.
   let state = { tabs: [], hint: null, shortcuts: [], connected: [] };
-  // The AIs it can run (see main/agent.js), where each stands, and the one chosen (kept for next time).
+  // The AIs it can run (see main/agent.js), where each stands, and the one chosen: each chat keeps
+  // its own (two chats side by side can talk to different AIs), a new one starting with the AI
+  // chosen last.
   let statuses = null; // { claude: { name, tool, installed, loggedIn, … }, codex: … }
   let provider = readChoice();
   let loaded = false; // the conversation has been asked for at least once (see load)
@@ -206,18 +208,25 @@ export function createChatPanel({ el, api, chatId }) {
   // --- Which AI ----------------------------------------------------------------------------------
   function storedChoice() {
     try {
-      return localStorage.getItem('chat-ai');
+      return localStorage.getItem(`chat-ai:${chatId}`) ?? localStorage.getItem('chat-ai');
     } catch {
       return null;
     }
   }
+  // A chat with no choice of its own takes the one chosen last, and keeps it: choosing in another
+  // chat later doesn't change it.
   function readChoice() {
-    return storedChoice() ?? 'claude';
+    const id = storedChoice() ?? 'claude';
+    try {
+      if (localStorage.getItem('chat-ai')) localStorage.setItem(`chat-ai:${chatId}`, id);
+    } catch {}
+    return id;
   }
   // Choosing an AI that isn't set up opens the setup (the user's choice).
   function choose(id) {
     provider = id;
     try {
+      localStorage.setItem(`chat-ai:${chatId}`, id);
       localStorage.setItem('chat-ai', id);
     } catch {}
     showChoice();
