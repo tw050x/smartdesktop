@@ -492,7 +492,10 @@ function takeOverWindow(session, windowId) {
 const schemaClaim = (schemaId) => `schema:${schemaId}`;
 
 // The schemas as an AI session may use them. Its proposals show in its own window.
-const schemasFor = (session, ctx) => ({
+// The session's tab is opened only when a call shows something in it (a proposal): reading and
+// organising schematics need none, and a tab opened for them waited for a schematic that never came,
+// which looked frozen. `tab()` opens it (windowForSession).
+const schemasFor = (session, tab) => ({
   list: async () => (await store.list()).map((one) => ({ ...one, icon: itemIcons.get(one.id)?.icon ?? null })),
   getSchema: async (id, options) => {
     const shown = await store.getSchema(id, options);
@@ -501,7 +504,7 @@ const schemasFor = (session, ctx) => ({
   // Setting the icon of the schematic the window shows (set_icon): the user's choice is kept over
   // the AI's.
   setIcon(icon) {
-    const id = schemaOf(ctx);
+    const id = session.ctx && schemaOf(session.ctx);
     if (!id) throw new Error('This window shows no schematic. Open one, or propose one, first; then give it an icon.');
     const { icon: shown, kept } = itemIcons.set(id, icon, 'ai');
     return kept ? { icon: shown, note: 'The user chose this schematic\'s icon, so it stays.' } : { icon: shown };
@@ -530,6 +533,7 @@ const schemasFor = (session, ctx) => ({
     if (icon && !itemIcons.get(made.schema)) itemIcons.set(made.schema, icon, 'ai');
     // In the AI's tab; or, from Home (SmartDesktop's chat, the user being there), in a tab of its own.
     const request = { schemaId: made.schema, name: proposal.name ?? '' };
+    const ctx = await tab();
     if (ctx.home) await openInTab(ctx, made.schema, 'show-schema', request);
     else ctx.contents.send('show-schema', request);
     if (!ctx.win.isVisible()) ctx.win.showInactive();
@@ -566,8 +570,7 @@ const aiForServer = {
     if (window && !session.ctx) bindWindow(session, window, { strict: true });
     // Taking a window over is the one call that mustn't open one of its own.
     if (name === 'use_window') return run({ useWindow: (windowId) => takeOverWindow(session, windowId) });
-    const ctx = await windowForSession(session, startedApp);
-    return run(schemasFor(session, ctx));
+    return run(schemasFor(session, () => windowForSession(session, startedApp)));
   },
 };
 
