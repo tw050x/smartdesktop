@@ -1,6 +1,6 @@
 // The settings window (see main.js), from the menu bar icon's Settings…: the appearance, applied at
-// once (main.js keeps it); the AI setup; and updates (updates.js), which download by themselves and
-// install when SmartDesktop quits, or now, with Restart to Update.
+// once (main.js keeps it); the AI setup; and the version. Updates show in the update toast in the
+// chat's window (update-toast.js).
 const api = window.smartdesktop;
 document.body.classList.add(`platform-${api.platform}`);
 
@@ -16,25 +16,8 @@ api.getAppearance().then(showAppearance);
 
 document.getElementById('open-setup').addEventListener('click', () => api.openSetup());
 
+// The version (updates show in the update toast in the chat's window, update-toast.js).
 const version = document.getElementById('update-version');
-const state = document.getElementById('update-state');
-const action = document.getElementById('update-action');
-let updates = { state: 'idle', version: '' };
-function showUpdates(u) {
-  updates = u;
-  version.textContent = `SmartDesktop ${u.version}`;
-  state.textContent = {
-    unavailable: 'Development build',
-    idle: 'Updates are checked for automatically',
-    checking: 'Checking for updates…',
-    current: 'Up to date',
-    downloading: `Downloading ${u.next ?? 'an update'}… ${u.percent ?? 0}%`,
-    ready: `${u.next} is ready to install`,
-    error: 'Couldn’t check for updates',
-  }[u.state];
-  action.textContent = u.state === 'ready' ? 'Restart to Update' : 'Check for Updates';
-  action.disabled = ['unavailable', 'checking', 'downloading'].includes(u.state);
-}
-action.addEventListener('click', () => (updates.state === 'ready' ? api.installUpdate() : api.checkForUpdates()));
-api.onUpdates(showUpdates);
-api.getUpdates().then(showUpdates);
+const showVersion = (u) => u?.version && (version.textContent = `SmartDesktop ${u.version}`);
+api.onUpdates(showVersion);
+api.getUpdates().then(showVersion);

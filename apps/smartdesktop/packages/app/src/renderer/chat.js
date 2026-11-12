@@ -1,6 +1,7 @@
 import { createChatPanel } from './chat-panel.js';
 import { trackAiProgress } from './ai-progress.js';
 import { installTooltips } from './tooltips.js';
+import { createUpdateToast } from './update-toast.js';
 
 // The chat window (see main.js): under its top bar (the traffic lights), chats in tabs, in a row of
 // columns side by side, each with its own row of tabs and the chat it shows below (the user's
@@ -18,6 +19,7 @@ const api = window.smartdesktop;
 document.body.classList.add(`platform-${api.platform}`);
 installTooltips();
 trackAiProgress(api);
+createUpdateToast({ api, name: 'SmartDesktop' });
 
 const MIN_COLUMN = 280;
 const EDGE = 0.15; // the share of a column's width at either edge that splits it
