@@ -10,7 +10,8 @@
 // own; the director sets what's in it as the scene goes (setChat), and which AIs are set up.
 
 import { resolveQuote } from '../../main/anchors.js';
-import { DOCUMENT, DRAFTS, HIGHLIGHTS, IMPROVE, VARIATION } from './scenario.js';
+import { guessIcon } from '../../main/icons.js';
+import { CHAT_TITLE, DOCUMENT, DRAFTS, HIGHLIGHTS, IMPROVE, VARIATION } from './scenario.js';
 
 // What the app's MCP panel shows for an installed app.
 const DEMO_LAUNCHER = {
@@ -42,6 +43,9 @@ export function createDemoApi() {
   // chat for the window, whatever it shows, as in the app), the AIs, what the app window last sent
   // it, and an install or sign-in under way.
   const chat = { shown: false, window: null, ais: structuredClone(AIS), state: null, pending: null };
+  // The chat owns the document's tab (SmartDesktop's chat button on it): named after the AI's first
+  // reply, as the chat's own tab is.
+  const chatTitle = () => (chat.window?.main.messages.some((m) => m.role === 'assistant' && m.text?.trim()) ? CHAT_TITLE : 'New chat');
   const chatId = () => 'window/demo';
   const chatOf = () => (chat.window ??= { main: { messages: [], sessions: {} }, threads: {}, running: [] });
 
@@ -117,8 +121,24 @@ export function createDemoApi() {
     return { ...r, status: p.done ? 'committed' : 'open', committedAt: p.done ? committedAt[state.tool] ?? null : null, items: r.items.slice(0, p.shown), highlights: r.highlights.slice(0, p.shown) };
   };
 
+  // The window's top bar (tab-strip.js): Home, and the document's tab once it's been opened, the one
+  // showing as the screen is; back and forward off, as the demo can't go back; and the app ready.
+  let tabbed = false;
+  const tabs = () => ({
+    tabs: [
+      { id: 'home', home: true, title: 'Home', active: state.screen !== 'document' },
+      ...(tabbed ? [{ id: 'document', title: DOCUMENT.name.replace(/\.pdf$/i, ''), icon: guessIcon(DOCUMENT.name, 'file-text'), active: state.screen === 'document', chat: { title: chatTitle() } }] : []),
+    ],
+    back: false,
+    forward: false,
+    status: { state: 'running', label: 'Ready', title: 'SmartDoc is ready to work with your AI' },
+  });
+  const showTabs = () => emit('tabs', tabs());
+
   async function showDraft(n) {
     state.screen = 'document';
+    tabbed = true;
+    showTabs();
     state.draft = n;
     state.previewing = null;
     const draft = DRAFTS[n];
@@ -150,7 +170,7 @@ export function createDemoApi() {
     });
   }
 
-  const listed = () => (state.added ? [{ id: DOCUMENT.id, name: DOCUMENT.name, importedAt: DOCUMENT.importedAt }] : []);
+  const listed = () => (state.added ? [{ id: DOCUMENT.id, name: DOCUMENT.name, importedAt: DOCUMENT.importedAt, icon: guessIcon(DOCUMENT.name, 'file-text') }] : []);
 
   // Where a draft's reviews stand, as the home screen lists them (see workspace.variationsOf).
   function reviewsOf(draftId) {
@@ -199,6 +219,7 @@ export function createDemoApi() {
     // The home screen, listing the document (its variations and drafts as the state has them).
     showHome() {
       state.screen = 'home';
+      showTabs();
       emit('closed');
       emit('recent', listed());
     },
@@ -264,6 +285,18 @@ export function createDemoApi() {
     clearChats() {
       for (const key of chat.window?.running ?? []) emit('agent-event', { chatId: chatId(), conversation: key, type: 'running', running: false });
       chat.window = null;
+      emit('agent-event', { chatId: chatId(), conversation: 'main', type: 'messages', messages: [] });
+      api.showSetup(false);
+    },
+    // SmartDesktop's setup window, shown in the chat's window's place (see chat-window.js).
+    showSetup(on) {
+      if (Boolean(chat.setup) === on) return;
+      chat.setup = on;
+      emit('chat-setup', on);
+    },
+    onChatSetup(callback) {
+      on('chat-setup')(callback);
+      if (chat.setup) callback(true);
     },
     // Which AIs are installed and signed in: { codex: { installed: false } }, the rest as AIS has.
     setAis(changes = {}) {
@@ -317,6 +350,25 @@ export function createDemoApi() {
     onAgentEvent: on('agent-event'),
     onAgentProgress: on('agent-progress'),
     onChatMode: on('chat-mode'),
+    // The app window's side of the chat, as the app's is with SmartDesktop (see main/desktop.js):
+    // its chat button, what it offers there, lines of context (nothing to keep here), and where
+    // SmartDesktop stands (always there).
+    chatToggle: async () => {
+      api.showChat(!chat.shown);
+      return { chatOpen: chat.shown };
+    },
+    chatOpen: async () => {
+      if (!chat.shown) api.showChat(true);
+    },
+    onChatOpen: on('chat-shown'),
+    chatShortcuts: async (next) => api.chatState(next),
+    chatAction: async (id) => emit('chat-action', id),
+    onChatAction: on('chat-action'),
+    chatNote: async () => {},
+    chatAsk: async () => {},
+    desktopStatus: async () => 'connected',
+    onDesktopStatus: () => {},
+    getDesktop: async () => {},
     chatFloat(view) {
       api.showChat(true, view);
     },
@@ -362,6 +414,16 @@ export function createDemoApi() {
     showDocumentMenu: async () => {},
     showVariationMenu: async () => {},
     goHome: async () => {},
+    // The window's top bar, drawn in the demo's page (see tab-strip.js): its tabs, as the screen is.
+    onTabs(callback) {
+      on('tabs')(callback);
+      callback(tabs());
+    },
+    // A new scene starts with only Home, until it opens the document.
+    resetTabs() {
+      tabbed = false;
+      showTabs();
+    },
     acceptPreview: async () => {
       state.made = state.previewing;
       await showDraft(state.previewing);

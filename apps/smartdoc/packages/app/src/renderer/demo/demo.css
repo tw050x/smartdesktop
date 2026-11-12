@@ -6,7 +6,9 @@
    set on the body too, as pdf.js's stylesheet sets the root's. */
 .demo { color-scheme: light dark; }
 .demo { pointer-events: none; }
-.demo .top-bar::before {
+/* The window's top bar is drawn in the page (see tab-strip.js), above the document's toolbar. */
+.demo { --chrome-top: var(--top-bar-height); }
+.demo .tab-strip::before {
   content: "";
   position: absolute;
   top: 50%;
@@ -18,7 +20,24 @@
   box-shadow: 20px 0 #febc2e, 40px 0 #28c840;
   transform: translateY(-50%);
 }
-.demo .top-bar { position: relative; }
+.demo .tab-strip { position: relative; }
+/* The chat's window is SmartDesktop's (chat-window.js, desktop.css): its traffic lights in its top
+   bar too, and its setup window in its place for the setup scene. */
+.demo .chat-head, .demo .demo-setup .panel-window-head { position: relative; }
+.demo .chat-head::before, .demo .demo-setup .panel-window-head::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 20px 0 #febc2e, 40px 0 #28c840;
+  transform: translateY(-50%);
+}
+.demo .chat-head[hidden], .demo .chat-grid[hidden], .demo .demo-setup[hidden] { display: none; }
+.demo .demo-setup { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 .demo-cursor {
   position: fixed;

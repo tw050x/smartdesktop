@@ -5,6 +5,9 @@
 import draftOnePdf from './cv-draft-1.pdf?url';
 import originalPdf from './cv-original.pdf?url';
 
+// What the AI names the demo's chat after its first reply (SmartDesktop's chat tab, see chat-window.js).
+export const CHAT_TITLE = 'Make the CV stand out';
+
 export const DOCUMENT = { id: 'demo', name: 'Alex Example CV.pdf', importedAt: '2026-10-12T09:00:00.000Z' };
 
 export const DRAFTS = [

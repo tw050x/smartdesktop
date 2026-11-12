@@ -78,7 +78,7 @@ const FOCUS_HINTS = {
   'f-focus': { x: 0, y: 0, width: 689, height: 282 },
   'f-variation': { x: 839, y: 100, width: 377, height: 708 },
   'f-document': { x: 839, y: 100, width: 421, height: 708 },
-  'f-setup': { x: 0, y: 0, width: 520, height: 800 },
+  'f-setup': CHAT_PLACE,
 };
 // The top bar's left part and the focus menu that opens under it.
 // How far the chat's window is dragged to show what's under it: clear of the cards beside the pages.
@@ -170,6 +170,8 @@ export function createDirector({ api }) {
   // In the floating panel of the suggestion opened from its card.
   const inPanel = (selector) => document.querySelector(`.margin-opened:not([hidden]) ${selector}`);
   const panelButton = (label) => [...document.querySelectorAll('.margin-opened:not([hidden]) button')].find((b) => b.textContent.trim() === label);
+  // A row of SmartDesktop's setup window, shown in the chat's window (the setup scene).
+  const setupRow = (name) => [...(chat?.doc.querySelectorAll('.demo-setup .ai-row') ?? [])].find((r) => r.textContent.includes(name));
   const chatInput = () => inChat('.chat-compose textarea');
   const chatSend = () => inChat('.chat-send');
   const union = (...rects) => {
@@ -264,6 +266,7 @@ export function createDirector({ api }) {
       localStorage.setItem(`smartdoc.view.${DOC.id}`, 'document');
       localStorage.setItem('chat-in-window', '1');
       localStorage.setItem('chat-ai', 'claude');
+      localStorage.setItem('chat-ai:demo', 'claude'); // the demo's chat's own (SmartDesktop's chat keeps one per chat)
       localStorage.setItem('opened-card-place', JSON.stringify(PANEL_PLACE));
     } catch {}
   }
@@ -1209,18 +1212,20 @@ export function createDirector({ api }) {
       focus: () => WINDOW,
       beats: () => [wait(600), ...click(() => document.querySelector('#view-switch button[data-view="list"]'))],
     },
-    // Setting an AI up from the app: installed with its maker's installer, how far it's got where
-    // the button was, then signed in on its maker's page.
+    // Setting an AI up in SmartDesktop's setup window (shown in the chat's window's place): installed
+    // with its maker's installer, how far it's got where the button was, then signed in on its
+    // maker's page.
     'f-setup': {
       async build(id) {
         await onDocument(0, 'improve', { reviews: { improve: ALL_FINDINGS } }, id);
         api.setAis({ codex: { installed: false, loggedIn: false } });
-        document.getElementById('server-pill').click();
-        await waitFor(() => [...document.querySelectorAll('#ai-list .ai-row')].find((r) => r.textContent.includes('Codex') && r.querySelector('button')), id);
+        await openChat('main', { main: said('main', REVIEWED) }, id);
+        api.showSetup(true);
+        await waitFor(() => setupRow('Codex')?.querySelector('button'), id);
       },
-      focus: () => ({ x: 0, y: 0, width: 520, height: 800 }),
+      focus: () => place(),
       beats: () => {
-        const codex = () => [...document.querySelectorAll('#ai-list .ai-row')].find((r) => r.textContent.includes('Codex'));
+        const codex = () => setupRow('Codex');
         const percent = (n) => act(() => api.aiProgress('codex', 'install', 'Downloading Codex…', n), undefined, 160);
         return [
           wait(600),

@@ -28,7 +28,7 @@
   <main>
     <div class="hero">
       <div class="wrap">
-        <p class="eyebrow"><span class="beta">Beta</span>Works with Claude and ChatGPT</p>
+        <p class="eyebrow"><span class="beta">Beta</span>Use with SmartDesktop or your own AI agent</p>
         <h1>Your documents, <span class="blue">reviewed</span> by your own <span class="brown">AI</span>.</h1>
         <div class="actions">
           <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download for Apple silicon</a>
@@ -160,10 +160,14 @@
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">Install</p>
-          <h2>Install it, then choose your AI.</h2>
-          <p>Three steps, and nothing to type in Terminal.</p>
+          <h2>Use it with SmartDesktop, or bring your own AI agent.</h2>
+          <p>Two ways to work with your AI, and you can use both.</p>
         </div>
-        <!-- The way most people set up: SmartDoc, then their AI from its chat. -->
+        <!-- The way most people set up: SmartDoc, SmartDesktop (which runs the chat), then their AI from the chat. -->
+        <div class="install-way">
+          <h3>With SmartDesktop</h3>
+          <p>SmartDesktop is the chat for SmartDoc and SmartSpec: your own Claude or ChatGPT, signed in with your own account, in one conversation across both apps. Three steps, and nothing to type in Terminal. <a href="https://smartdesktop.tw050x.net">More about SmartDesktop</a></p>
+        </div>
         <ol class="install-steps grid">
           <li class="card">
             <span class="install-number" aria-hidden="true">1</span>
@@ -176,19 +180,23 @@
           </li>
           <li class="card">
             <span class="install-number" aria-hidden="true">2</span>
-            <h3>Open a document</h3>
-            <p>Open SmartDoc and drop a PDF on it. Then open the chat with its button at the top right.</p>
+            <h3>Download SmartDesktop</h3>
+            <p>SmartDesktop, the chat with your AI, is an app of its own, shared by SmartDoc and SmartSpec. Drag it into <strong>Applications</strong> too.</p>
+            <div class="actions">
+              <a class="button" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-arm64.dmg">Apple silicon</a>
+              <a class="button secondary" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-x64.dmg">Intel Mac</a>
+            </div>
           </li>
           <li class="card">
             <span class="install-number" aria-hidden="true">3</span>
-            <h3>Choose Claude or ChatGPT</h3>
-            <p>Not set up yet? SmartDoc installs it with its maker’s own installer and opens their sign-in page. Sign in with your own account and you’re ready. SmartDoc never sees your sign-in.</p>
+            <h3>Open the chat</h3>
+            <p>Open SmartDoc, drop a PDF on it, and choose <strong>Window › Show the Chat</strong> (⇧⌘C). Choose Claude or ChatGPT: if it isn’t set up yet, SmartDesktop installs it with its maker’s own installer and opens their sign-in page. SmartDesktop never sees your sign-in.</p>
           </li>
         </ol>
-        <!-- Connecting another AI app by hand, for anyone who'd rather. -->
-        <div class="install-other">
-          <h3>Using another AI app?</h3>
-          <p>Claude Desktop, Claude Code and any AI app that runs MCP servers can work in SmartDoc too. Connect yours below. After that, it opens SmartDoc by itself whenever it needs it.</p>
+        <!-- Connecting an AI agent by hand, for anyone who'd rather use their own. -->
+        <div class="install-way install-other">
+          <h3>Bring your own AI agent</h3>
+          <p>Claude Desktop, Claude Code and any AI agent that runs MCP servers can work in SmartDoc directly, without SmartDesktop. Connect yours below. After that, it opens SmartDoc by itself whenever it needs it.</p>
           <!-- One tab per AI app, for connecting one by hand (see the tabs script below). -->
           <div class="tabs" role="tablist" aria-label="Another AI app">
             <button type="button" role="tab" id="tab-desktop" aria-controls="install-desktop" aria-selected="true">Claude Desktop</button>
@@ -199,7 +207,7 @@
             <h3>Claude Desktop</h3>
             <p>SmartDoc adds itself.</p>
             <ol>
-              <li>Open SmartDoc and click its status at the top left, with the coloured dot. It usually says <strong>Ready</strong>.</li>
+              <li>Open SmartDoc and click its status at the top right, with the coloured dot. It usually says <strong>Ready</strong>.</li>
               <li>Open <strong>Connect another AI app yourself</strong> and choose <strong>Add to Claude Desktop</strong>.</li>
               <li>Quit Claude Desktop and open it again. Then start a new chat and ask Claude to review your document.</li>
             </ol>
@@ -262,7 +270,7 @@
         <ul class="points-track">
             <li>
               <h3>Bring your own AI</h3>
-              <p>SmartDoc works with the Claude or ChatGPT account you already have. No new account, no new subscription: just a better way to work on documents together.</p>
+              <p>Chat in SmartDesktop with the Claude or ChatGPT account you already have, or connect the AI agent you already use. No new account, no new subscription.</p>
             </li>
             <li>
               <h3>You have the final say</h3>
@@ -286,7 +294,7 @@
             </li>
             <li>
               <h3>One chat as you work</h3>
-              <p>Each window keeps one conversation, noting every document and draft you open, so you can always see what was asked for and why.</p>
+              <p>One conversation across SmartDoc and SmartSpec, noting every document and draft you open, so you can always see what was asked for and why.</p>
             </li>
             <li>
               <h3>Free to use</h3>
@@ -303,7 +311,7 @@
     <div class="closing">
       <div class="wrap">
         <h2>Give your next draft a second pair of eyes.</h2>
-        <p>Free for macOS, with Claude, ChatGPT and other AI apps. In beta, and still changing significantly.</p>
+        <p>Free for macOS, with SmartDesktop or your own AI agent. In beta, and still changing significantly.</p>
         <div class="actions">
           <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download for Apple silicon</a>
           <a class="button secondary" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">Download for Intel Mac</a>

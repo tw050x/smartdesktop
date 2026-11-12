@@ -1,70 +1,47 @@
 import { customScrollbar } from './scrollbar.js';
 import { rubberBand } from './rubber-band.js';
-import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgress } from './ai-progress.js';
+import { failureText } from './ai-progress.js';
 
-// The chat: where the user works with their own Claude or ChatGPT, run by the app (see
-// main/agent.js), on the document showing. It opens as a sidebar on the right that moves the
-// document aside, or floats in a window of its own (`windowed`, chat.html and chat-window.js)
-// attached to the app's window: it moves with it, can sit anywhere, even outside it, and is on top
-// of it alone (see main/chat-window.js). Each draft has its own chat. Without Claude Code or Codex,
-// or signed out, it says how to set them up.
+// A chat: where the user works with their own Claude or ChatGPT (see main/agent.js) on what's open
+// in its own tabs in SmartDoc and SmartSpec (each chat owns at most one tab in each). The chat
+// window holds several, each in a tab, in columns side by side (chat.js); this is one of them, the
+// one its column shows. A quiet line at the top of its conversation names its tabs in the apps, the
+// empty chat says what to ask there, and the shortcuts over the message box are theirs. Without an
+// AI set up, it says so, and the setup window does the rest.
 //
-// The same in both apps (SmartSpec's chat-panel.js; keep the two alike): only these first lines differ.
-const APP_NAME = 'SmartDoc';
-const DEFAULT_HINT = 'Ask about this document, or ask for a review. Each step shows here as it’s done.';
-const CHATLESS_HINT = 'Open a document to chat about it';
-const OTHER_APP_NOTE = 'Or use another AI app: the focus card in the top bar copies a prompt for it.';
+// It came from the chat SmartDoc and SmartSpec each had (chat-panel.js, before SmartDesktop): one
+// conversation, no threads (the user found them hard to find and unclear), and nothing to decide in
+// it: that's done in the apps, where what's decided is. What the user does there is posted to the
+// conversation as quiet lines of context (see note in main/agent.js), which go to the AI with their
+// next message, so it knows what they mean; the message box says what a question would be about.
+// Above it are shortcuts, things to ask the AI ({ id, label, text } sends `text`; without it, the
+// app does the action, `chatAction`), with the follow-up questions the AI suggested at the end of
+// its last reply: passing, each showing until it's used or the user sends something, and back only
+// once what brought it has gone and come again (`key` says which it is).
+const DEFAULT_HINT = 'Ask about what’s open in SmartDoc or SmartSpec, or ask your AI to work on it. Each step shows here as it’s done.';
+const CHATLESS_HINT = 'Open SmartDoc or SmartSpec to chat';
 
-const DOCK_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.5 4.5v15"/></svg>';
-const FLOAT_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><rect x="11" y="10" width="7" height="7" rx="1"/></svg>';
-const CROSS = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 // The send button's icons: an up arrow with a chevron head to send, a square to stop the AI.
 const SEND_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>';
 const STOP_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>';
-const BACK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
-// Docked (in the app's window): `onDock(on)` makes room for it, `onFloat(view)` floats it instead,
-// and `onResize()` says its width changed. Windowed (the floating window): `onDock(view)` docks it
-// back and `onClose()` closes it.
-const WIDTH_KEY = 'chat-width';
-const MIN_WIDTH = 300;
 
-// One conversation, no threads (the user found them hard to find and unclear), and nothing to decide
-// in it: that's done in the window, where what's decided is. What the user does there is posted to
-// the conversation as quiet lines of context (see note in main/agent.js), which go to the AI with
-// their next message, so it knows what they mean; the message box says what a question would be
-// about. Above it, `shortcuts()` are things to ask the AI ({ id, label, text } sends `text`; without
-// it, `onAction`), with the follow-up questions the AI suggested at the end of its last reply:
-// passing, each showing until it's used or the user sends something, and back only once what
-// brought it has gone and come again (`key` says which it is). Plain data, so the floating window
-// can be sent them. `review` gives the next step of a review to ask for (`setSuggestion`).
-export function createChatPanel({ el, api, review, chatId = () => null, emptyHint = () => DEFAULT_HINT, shortcuts = () => [], onAction = () => {}, windowed = false, onDock, onFloat, onClose, onResize }) {
-  let open = false;
-  let chats = null; // the draft's: { chatId, main: { messages }, running: [] }
-  // The AIs it can run (see main/agent.js), where each stands, and the one chosen (kept for next time).
-  let statuses = null; // { claude: { name, tool, installed, loggedIn, installers, … }, codex: … }
+export function createChatPanel({ el, api, chatId }) {
+  let chat = null; // { messages, running }
+  // What its tabs in the apps say (see main.js's chatState): { tabs, hint, shortcuts }, and which
+  // apps are connected.
+  let state = { tabs: [], hint: null, shortcuts: [], connected: [] };
+  // The AIs it can run (see main/agent.js), where each stands, and the one chosen: each chat keeps
+  // its own (two chats side by side can talk to different AIs), a new one starting with the AI
+  // chosen last.
+  let statuses = null; // { claude: { name, tool, installed, loggedIn, … }, codex: … }
   let provider = readChoice();
-  let busy = null; // 'install' or 'sign-in' while one is under way
-  let suggestion = null; // what to ask the AI next, from the review (see margin-review.js)
-  let loaded = false; // the chat has been asked for at least once (see load)
+  let loaded = false; // the conversation has been asked for at least once (see load)
   let drawnKey = null; // what the conversation was drawn from, so it's only redrawn when that changes
   let toEnd = true; // the next drawing starts at the end: on opening, on sending
 
   // --- Structure ------------------------------------------------------------------------------
   el.className = 'chat-panel';
-  trackAiProgress(api);
-  el.hidden = true;
   el.setAttribute('aria-label', 'Chat');
-  const head = div('chat-head');
-  const status = div('chat-status'); // a space, between the buttons at either end
-  const dock = windowed
-    ? iconButton(DOCK_ICON, 'Dock the chat at the side', () => onDock('main'))
-    : iconButton(FLOAT_ICON, 'Float the chat in a window of its own', () => onFloat('main'));
-  const close = iconButton(CROSS, 'Close the chat', () => (windowed ? onClose() : setOpen(false)));
-  // In its own window, one header row, its buttons at the end. Docked, it runs the window's full
-  // height: its top row is level with the top bar, its close and float buttons at the left (the
-  // server's status shows over its right end).
-  if (windowed) head.append(status, dock, close);
-  else head.append(close, dock, status);
   // Under the message box (the user's choice), which AI it talks to and which of its models, each
   // opening a small menu above it.
   const picker = (className, onclick) => {
@@ -98,67 +75,14 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
   // of their own: the conversation scrolls on behind them, fading out as it goes under, and can be
   // scrolled until its end is clear of them (`--chat-foot`).
   foot.append(chips, form, pickers);
-  // The conversation scrolls with the app's own scrollbar, over its right edge.
+  // The conversation scrolls with the apps' own scrollbar, over its right edge.
   const scrollArea = div('chat-scroll');
   const scrollbar = div('scrollbar chat-scrollbar');
   scrollbar.setAttribute('aria-hidden', 'true');
   scrollbar.append(div('scrollbar-thumb'));
   scrollArea.append(body, scrollbar);
-  el.append(head, aiMenu, scrollArea, foot);
+  el.append(aiMenu, scrollArea, foot);
   new ResizeObserver(() => el.style.setProperty('--chat-foot', `${foot.offsetHeight}px`)).observe(foot);
-
-  // Docked, its left edge resizes it, up to half the window (the CSS holds it to that as the window
-  // changes size too); the width is kept for next time. Double-clicking the edge forgets it.
-  if (!windowed) {
-    const setWidth = (px) => {
-      if (px == null) document.documentElement.style.removeProperty('--chat-chosen');
-      else document.documentElement.style.setProperty('--chat-chosen', `${Math.round(px)}px`);
-      onResize?.();
-    };
-    try {
-      const kept = Number(localStorage.getItem(WIDTH_KEY));
-      if (kept >= MIN_WIDTH) document.documentElement.style.setProperty('--chat-chosen', `${kept}px`);
-    } catch {}
-    const resizer = div('chat-resizer');
-    resizer.setAttribute('role', 'separator');
-    resizer.setAttribute('aria-orientation', 'vertical');
-    resizer.setAttribute('aria-label', 'Resize the chat');
-    resizer.title = 'Drag to resize the chat. Double-click to reset.';
-    el.append(resizer);
-    let queued = null;
-    resizer.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      resizer.setPointerCapture(event.pointerId);
-      document.body.classList.add('chat-resizing');
-      let width = el.getBoundingClientRect().width;
-      const move = (m) => {
-        width = Math.max(MIN_WIDTH, Math.min(innerWidth / 2, innerWidth - m.clientX));
-        if (queued) return;
-        queued = requestAnimationFrame(() => {
-          queued = null;
-          setWidth(width);
-        });
-      };
-      const end = () => {
-        resizer.removeEventListener('pointermove', move);
-        resizer.removeEventListener('lostpointercapture', end);
-        document.body.classList.remove('chat-resizing');
-        setWidth(width);
-        try {
-          localStorage.setItem(WIDTH_KEY, String(Math.round(width)));
-        } catch {}
-      };
-      resizer.addEventListener('pointermove', move);
-      resizer.addEventListener('lostpointercapture', end);
-    });
-    resizer.addEventListener('dblclick', () => {
-      try {
-        localStorage.removeItem(WIDTH_KEY);
-      } catch {}
-      setWidth(null);
-    });
-  }
-
 
   customScrollbar({ scrollbarEl: scrollbar, scrollers: [body], scroller: () => body, watch: [body] });
   // Scrolled on past either end, the conversation gives a little and springs back.
@@ -178,14 +102,12 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
   input.addEventListener('input', () => renderCompose());
 
   // --- Talking to the AI ------------------------------------------------------------------------
-  const messages = () => chats?.main.messages ?? [];
-  const isRunning = () => Boolean(chats?.running?.includes('main'));
+  const messages = () => chat?.messages ?? [];
+  const isRunning = () => Boolean(chat?.running);
   // Working, at the end of the conversation, whenever the AI is busy, except while its reply is
   // coming in (the user's choice: the reply shows it). A reply arrives whole, and the AI often
   // finishes a moment after, so it's hidden for a few seconds after one arrives; still busy after
-  // that, it's at work on something more (the user missed it while ChatGPT went on thinking after
-  // saying something), and it shows again. A reply still being written out (`streaming`, the
-  // website's demo) hides it throughout.
+  // that, it's at work on something more, and it shows again.
   const REPLY_SETTLES = 3000;
   const replyArriving = () => {
     const last = messages().at(-1);
@@ -197,8 +119,8 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
   const setup = () => statuses?.[provider] ?? null;
   const ready = () => Boolean(setup()?.installed && setup()?.loggedIn);
   const aiName = () => setup()?.name ?? (provider === 'codex' ? 'ChatGPT' : 'Claude');
-  // Nothing open behind it (its window gone home, say): nothing can be sent, and it says why.
-  const chatless = () => loaded && (!chats || chats.local);
+  // Neither app open: the AI would have no tools, so nothing can be sent, and it says why.
+  const chatless = () => !state.connected?.length;
 
   async function send(text) {
     text = text.trim();
@@ -209,19 +131,18 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     for (const chip of chipsShown) dismissed.add(chip.key);
     renderChips();
     try {
-      await api.agentSend(provider, 'main', text, chatId(), { model: model() });
+      await api.agentSend(chatId, provider, text, { model: model() });
     } catch (error) {
-      addLocal({ role: 'error', text: error.message });
+      addLocal({ role: 'error', text: failureText(error) });
     }
     renderCompose();
   }
-  const stop = () => api.agentStop('main', chatId());
+  const stop = () => api.agentStop(chatId);
 
-  // Sends the AI a request, opening the chat on it (the user wanted a button asking the AI to do
-  // something to do it, not fill the message box); if it can't go now (no AI set up, or the AI
-  // busy), it's put in the message box instead, to send when it can.
+  // Sends the AI a request (the user wanted a button asking the AI to do something to do it, not fill
+  // the message box); if it can't go now (no AI set up, or the AI busy), it's put in the message box
+  // instead, to send when it can.
   async function ask(text) {
-    setOpen(true);
     if (!statuses) await checkSetup();
     if (ready() && !isRunning() && !chatless()) send(text);
     else putInBox(text);
@@ -235,42 +156,40 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     input.setSelectionRange(text.length, text.length);
   }
 
-  // A message only this window knows of (an error before the AI ran), shown until the next load.
-  // With no chat loaded (nothing open behind it), it's shown on a stand-in, so an error is never
-  // lost: the user found their message gone and nothing said.
+  // A message only this window knows of (an error before the AI ran), shown until the next load, so
+  // an error is never lost: the user found their message gone and nothing said.
   function addLocal(message) {
-    chats ??= { chatId: null, local: true, main: { messages: [] }, running: [] };
-    chats.main.messages = [...chats.main.messages, { id: `local-${Date.now()}`, ...message }];
+    chat ??= { messages: [], running: false };
+    chat.messages = [...chat.messages, { id: `local-${Date.now()}`, ...message }];
     draw(true);
   }
 
-  api.onAgentEvent?.((event) => {
-    if (!chats || event.chatId !== chats.chatId || event.conversation !== 'main') return; // another chat
-    if (event.type === 'messages') {
-      chats.main.messages = event.messages;
-    } else if (event.type === 'running') {
-      chats.running = event.running ? ['main'] : [];
-    } else if (event.type === 'error') {
-      addLocal({ role: 'error', text: event.error });
-      return;
-    }
+  // What its AI does (chat.js passes on this chat's events).
+  function agentEvent(event) {
+    chat ??= { messages: [], running: false };
+    if (event.type === 'messages') chat.messages = event.messages;
+    else if (event.type === 'running') chat.running = event.running;
+    else if (event.type === 'error') return addLocal({ role: 'error', text: event.error });
     draw(event.type === 'running'); // a new message redraws; following the end only if the user is at it
-  });
+  }
 
   async function load() {
     toEnd = true;
     try {
-      chats = await api.agentChats?.(chatId());
+      chat = await api.chatLoad(chatId);
     } catch {
-      chats = null;
+      chat = null;
     }
     loaded = true;
     draw(true);
   }
 
+  // Where each AI stands. Asked again whenever the chat gets the focus, as it may have been set up
+  // in the meantime, and every few seconds while the chosen one isn't ready.
+  let checking = null;
   async function checkSetup() {
     try {
-      statuses = await api.agentStatus?.() ?? {};
+      statuses = (await api.agentStatus()) ?? {};
     } catch {
       statuses = {};
     }
@@ -281,26 +200,38 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     }
     showChoice();
     draw(true);
+    clearTimeout(checking);
+    if (!ready()) checking = setTimeout(checkSetup, 5000);
   }
+  window.addEventListener('focus', () => checkSetup());
 
   // --- Which AI ----------------------------------------------------------------------------------
   function storedChoice() {
     try {
-      return localStorage.getItem('chat-ai');
+      return localStorage.getItem(`chat-ai:${chatId}`) ?? localStorage.getItem('chat-ai');
     } catch {
       return null;
     }
   }
+  // A chat with no choice of its own takes the one chosen last, and keeps it: choosing in another
+  // chat later doesn't change it.
   function readChoice() {
-    return storedChoice() ?? 'claude';
+    const id = storedChoice() ?? 'claude';
+    try {
+      if (localStorage.getItem('chat-ai')) localStorage.setItem(`chat-ai:${chatId}`, id);
+    } catch {}
+    return id;
   }
+  // Choosing an AI that isn't set up opens the setup (the user's choice).
   function choose(id) {
     provider = id;
     try {
+      localStorage.setItem(`chat-ai:${chatId}`, id);
       localStorage.setItem('chat-ai', id);
     } catch {}
     showChoice();
     draw(true);
+    if (statuses && !ready()) api.openSetup();
   }
   // The model chosen for each AI (kept for next time), if it still offers it; else its own default.
   const modelKey = () => `chat-model-${provider}`;
@@ -359,8 +290,6 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     if (!aiMenu.children.length) aiMenu.append(div('chat-ai-option-state', 'Checking…'));
     const at = from.getBoundingClientRect();
     const panel = el.getBoundingClientRect();
-    aiMenu.style.right = '';
-    aiMenu.style.top = '';
     aiMenu.style.left = `${at.left - panel.left}px`;
     aiMenu.style.bottom = `${panel.bottom - at.top + 4}px`;
     aiMenu.hidden = false;
@@ -377,11 +306,10 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
 
   // --- Drawing ----------------------------------------------------------------------------------
   function draw(force = false) {
-    if (!open) return;
     renderChips();
     renderCompose();
     const list = messages();
-    const key = JSON.stringify([provider, setup(), busy, isRunning(), working(), list.length, list.at(-1)?.id, list.at(-1)?.text?.length]);
+    const key = JSON.stringify([provider, setup(), isRunning(), working(), chatless(), workingIn(), list.length, list.at(-1)?.id, list.at(-1)?.text?.length]);
     if (!force && key === drawnKey) return;
     // The conversation is read from its end: it opens at the bottom and stays there as things
     // arrive, unless the user has scrolled up to read, when it stays where they are.
@@ -390,83 +318,57 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     toEnd = false;
     drawnKey = key;
 
-    // (The header doesn't say it's working: the user found the conversation's line enough.)
-    // Once a reply has settled, if the AI's still busy, the line comes back.
+    // Once a reply has settled, if the AI's still busy, the working line comes back.
     clearTimeout(settleTimer);
     if (isRunning() && replyArriving() && !list.at(-1)?.streaming) {
       const since = Date.now() - Date.parse(list.at(-1).at);
       settleTimer = setTimeout(() => draw(), Math.max(0, REPLY_SETTLES - since) + 50);
     }
     body.replaceChildren();
-    // The conversation opens with a line saying when it started, drawn as the notes of what the
-    // window opened are.
+    // The conversation opens with a line saying when it started.
     body.append(div('chat-message event chat-start', startedLine(list)));
+    if (workingIn()) body.append(div('chat-working-in', workingIn()));
     if (setup() && !ready()) body.append(setupNotice());
     body.append(...messageElements(list));
-    if (!list.length && ready()) body.append(div('chat-empty', emptyHint() ?? DEFAULT_HINT));
+    if (!list.length && ready()) body.append(div('chat-empty', chatless() ? CHATLESS_HINT : state.hint ?? DEFAULT_HINT));
     if (working()) body.append(div('chat-working', 'Working'));
     if (keepScroll === null) body.scrollTop = body.scrollHeight;
     else body.scrollTop = keepScroll;
   }
 
-  // The chosen AI isn't ready: what to do about it, a click each. The install runs its maker's own
-  // installer; the sign-in opens the maker's page in the browser, and the app never sees it.
+  // Its tabs in the apps, quietly, at the top of the conversation ("Working in SmartDoc · CV and
+  // SmartSpec · Checkout").
+  function workingIn() {
+    const tabs = (state.tabs ?? []).map((t) => (t.title ? `${t.name} · ${t.title}` : t.name));
+    if (!tabs.length) return null;
+    return `Working in ${tabs.length > 1 ? `${tabs.slice(0, -1).join(', ')} and ${tabs.at(-1)}` : tabs[0]}`;
+  }
+
+  // The chosen AI isn't ready: a card saying so, opening the setup (the user's choice: installing
+  // and signing in are done there), or offering an AI that is ready.
   function setupNotice() {
     const s = setup();
     const box = div('chat-setup');
-    const act = (label, kind, run) => {
-      // While it runs, how it's getting on takes the button's place: the step, and the percentage
-      // done (or a spinner).
-      if (busy === kind) {
-        const strip = div('chat-setup-progress');
-        strip.append(progressLine(s.id, kind === 'install' ? `Getting ready to install ${s.tool}…` : 'Waiting for you to sign in in your browser…'), progressMark(s.id));
-        return strip;
-      }
-      const b = button('primary-button', label, async () => {
-        busy = kind;
-        draw(true);
-        try {
-          statuses = await run();
-        } catch (error) {
-          addLocal({ role: 'error', text: failureText(error) });
-        }
-        busy = null;
-        clearAiProgress(s.id);
-        showChoice();
-        draw(true);
-      });
-      b.disabled = Boolean(busy);
-      return b;
-    };
-    if (!s.installed) {
-      box.append(div('chat-setup-text', `To work with ${s.name} here, ${APP_NAME} installs ${s.tool}, ${s.name}’s own app for this, then you sign in with your ${s.name} account in your browser.`));
-      if (s.installers?.length) box.append(act(`Install ${s.tool}`, 'install', () => api.agentInstall(s.id)));
-      else box.append(button('primary-button', `Get ${s.tool}`, () => api.agentInstallHelp(s.id)), button('secondary-button', 'Check again', checkSetup));
-    } else {
-      box.append(div('chat-setup-text', `Sign in to ${s.name} to work with it here. Your browser opens ${s.name}’s own sign-in page; ${APP_NAME} never sees your sign-in.`));
-      box.append(act(`Sign in to ${s.name}`, 'sign-in', () => api.agentSignIn(s.id)));
-    }
+    box.append(div('chat-setup-text', s.installed
+      ? `Sign in to ${s.name} to work with it here: the setup opens ${s.name}’s own sign-in page in your browser.`
+      : `To work with ${s.name} here, set up ${s.tool}, ${s.name}’s own app for this, and sign in with your ${s.name} account.`));
+    const actions = div('chat-setup-actions');
+    actions.append(button('primary-button', `Set Up ${s.name}`, () => api.openSetup()));
     const other = Object.values(statuses ?? {}).find((o) => o.id !== s.id && o.installed && o.loggedIn);
-    if (other) box.append(button('secondary-button', `Use ${other.name} instead`, () => choose(other.id)));
-    box.append(div('chat-setup-note', OTHER_APP_NOTE));
+    if (other) actions.append(button('secondary-button', `Use ${other.name} instead`, () => choose(other.id)));
+    box.append(actions);
     return box;
   }
 
   // --- Shortcuts ----------------------------------------------------------------------------------
   // Passing (see above): each shows until it's used or the user sends something, and comes back only
-  // once what brought it has gone and come again. The review's next step is one too: the go-ahead an
-  // AI in another app (with `wait`) is waiting for, or else what to ask the AI (but not to start a
-  // review: the user took that out). Then the questions the AI suggested at the end of its last
-  // reply, while nothing has been said since.
+  // once what brought it has gone and come again. The app window's own (what to ask the AI there, or
+  // the go-ahead an AI in another app is waiting for), then the questions the AI suggested at the
+  // end of its last reply, while nothing has been said since.
   const dismissed = new Set();
   let chipsShown = [];
   function chipsNow() {
-    const all = [...shortcuts()];
-    if (suggestion && !suggestion.sent && suggestion.what !== 'start') {
-      all.push(suggestion.waiting
-        ? { id: `confirm-${suggestion.what}`, label: suggestion.what === 'preview' ? 'Confirm comments to your AI' : 'Confirm changes to your AI', kind: 'primary', run: () => api.sendToAi(suggestion.what) }
-        : { id: `ask-${suggestion.what}`, label: suggestion.label, text: suggestion.prompt });
-    }
+    const all = [...(state.shortcuts ?? [])];
     const list = messages();
     const reply = list.findLast((m) => m.role === 'assistant' || m.role === 'user');
     if (reply?.role === 'assistant') {
@@ -483,8 +385,7 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
         dismissed.add(chip.key);
         renderChips();
         if (chip.text) ask(chip.text);
-        else if (chip.run) chip.run();
-        else onAction(chip);
+        else api.chatAction(chip);
       });
       press.dataset.action = chip.id;
       if (chip.title) press.title = chip.title;
@@ -506,13 +407,13 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     sendButton.disabled = !ready() || (!running && (chatless() || !input.value.trim()));
   }
 
-  // What the user is looking at in the window, if they've looked at something since they last wrote
-  // (a context line with `about`): what a question would be about, which the message box says.
+  // What the user is looking at in an app, if they've looked at something since they last wrote (a
+  // context line with `about`): what a question would be about, which the message box says.
   function askingAbout() {
     const list = messages();
     const since = list.slice(list.findLastIndex((m) => m.role === 'user') + 1);
-    const about = since.findLast((m) => m.kind === 'context' && m.focus)?.about;
-    return about ? (about.length > 40 ? `“${about.slice(0, 39)}…”` : `“${about}”`) : null;
+    const thing = since.findLast((m) => m.kind === 'context' && m.focus)?.about;
+    return thing ? (thing.length > 40 ? `“${thing.slice(0, 39)}…”` : `“${thing}”`) : null;
   }
 
   // When the conversation started: today with the time, else the day (and the year if not this one).
@@ -541,7 +442,7 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
         const start = button('secondary-button chat-new-session', 'Start a new session', async () => {
           start.disabled = true;
           try {
-            await api.agentNewSession(message.provider, 'main', chatId());
+            await api.agentNewSession(chatId, message.provider);
           } catch (error) {
             start.disabled = false;
             addLocal({ role: 'error', text: failureText(error) });
@@ -553,52 +454,29 @@ export function createChatPanel({ el, api, review, chatId = () => null, emptyHin
     });
   }
 
-  // --- Docked or in a window of its own ------------------------------------------------------------
-  function layout() {
-    el.hidden = !open;
-    el.classList.toggle('windowed', windowed);
-    if (!windowed) onDock(open);
-  }
-
-  function setOpen(next) {
-    if (open === next) return;
-    open = next;
-    toEnd = true;
-    layout();
-    if (open) {
-      checkSetup();
-      load();
-      draw(true);
-    }
-  }
-
   showChoice();
+  checkSetup();
+  load();
 
   return {
-    isOpen: () => open,
-    setOpen,
-    toggle: () => setOpen(!open),
-    // Opens the chat (as something is chosen in the window, which it gets a line of context about).
-    openItem() {
-      setOpen(true);
+    el,
+    agentEvent,
+    // Typing goes to its message box.
+    focus() {
+      // With the cursor at the end of what's written, so typing adds to it and Backspace takes from it.
+      if (document.activeElement === input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
     },
-    view: () => 'main',
-    // The review redrew: the suggestion may have changed.
-    refresh: () => draw(),
-    setSuggestion(next) {
-      suggestion = next;
-      if (open) renderChips();
+    // What its tabs in the apps say changed.
+    setState(next) {
+      const before = JSON.stringify(state.shortcuts);
+      state = next;
+      if (JSON.stringify(state.shortcuts) !== before || !loaded) renderChips();
+      draw();
     },
-    // What there is to ask changed (see `shortcuts`).
-    shortcutsChanged: () => draw(),
     // Sends the AI a request (see `ask`).
     ask: (text) => ask(text),
-    // The window shows something else (another draft, schematic, or home): the chat is the
-    // window's, so it's drawn again, with the line saying where the window went.
-    documentChanged() {
-      drawnKey = null;
-      if (open) load();
-    },
   };
 }
 
@@ -657,13 +535,5 @@ function button(className, text, onclick) {
   node.className = className;
   if (text != null) node.textContent = text;
   node.addEventListener('click', onclick);
-  return node;
-}
-
-function iconButton(icon, name, onclick) {
-  const node = button('icon-button', null, onclick);
-  node.innerHTML = icon;
-  node.title = name;
-  node.setAttribute('aria-label', name);
   return node;
 }
