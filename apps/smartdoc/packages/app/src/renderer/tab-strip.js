@@ -15,6 +15,11 @@
 // narrow, the name gives way and the icon stays, so a tab can still be told apart (the user's
 // choice). Its right-click menu changes the icon.
 //
+// A tab (not Home) is dragged to move it (the user's choice): along the top bar, into another
+// window's, or out of them all to a window of its own. Its picture follows the pointer meanwhile, in
+// a window of its own over everything (main/tab-drag.js), and the top bar it's over shows a line
+// where it would go. Home stays first.
+//
 // The app draws it in the window's own page (tabs.html, see tabs.js), above the tabs' pages, from
 // what the main process sends (`onTabs`: { tabs, back, forward, status }); the website's demo draws
 // it in its page, from what its stand-in API sends.
@@ -37,6 +42,9 @@ export function createTabStrip({ el, api }) {
     </div>
     <div class="tabs" role="tablist" aria-label="Tabs"></div>
     <div class="top-bar-end">
+      <button class="reader-switch" type="button" role="switch" aria-checked="false" hidden title="Experimental: draw pages with SmartDoc’s own renderer instead of pdf.js">
+        <span class="reader-switch-label">New renderer</span><span class="reader-switch-track" aria-hidden="true"><span class="reader-switch-knob"></span></span>
+      </button>
       <button class="server-pill" type="button" aria-haspopup="dialog">
         <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span class="server-pill-label"></span></span>
       </button>
@@ -72,10 +80,24 @@ export function createTabStrip({ el, api }) {
     return { left: Math.round(r.left + INSET), width: Math.round(Math.max(12, r.width - 2 * INSET)) };
   };
   let pointed = null; // the tab pointed at
+  let sentBoxes = null;
   const measure = () => {
     lines.active = boxOf(el.querySelector('.tab[aria-selected="true"]'));
-    lines.hover = pointed?.isConnected ? boxOf(pointed) : null;
+    lines.hover = pointed?.isConnected && !press?.dragging ? boxOf(pointed) : null;
     showLines();
+    sendBoxes();
+  };
+  // Where the tabs are, for where one dragged over this top bar would go (see main.js).
+  const sendBoxes = () => {
+    const boxes = [...tabsEl.querySelectorAll('.tab')].map((tab) => {
+      const r = tab.getBoundingClientRect();
+      return { id: tab.dataset.id, left: Math.round(r.left), width: Math.round(r.width) };
+    });
+    const now = JSON.stringify(boxes);
+    if (now !== sentBoxes) {
+      sentBoxes = now;
+      api.tabBoxes?.(boxes);
+    }
   };
   el.addEventListener('pointerover', (event) => {
     const tab = event.target.closest?.('.tab') ?? null;
@@ -88,10 +110,100 @@ export function createTabStrip({ el, api }) {
     measure();
   });
   addEventListener('resize', measure);
+
+  // Dragging a tab: held and moved a little, it's picked up; the main process follows it from
+  // there (points on the screen), and moves it where it's let go. The pointer is captured by the
+  // row of tabs (which stays as the tabs are drawn again), so the drag goes on outside the window.
+  let press = null; // { id, x, y, pointerId, dragging, point }
+  let dragged = false; // a drag just ended: the click that follows isn't one
+  const DRAG_START = 5;
+  tabsEl.addEventListener('pointerdown', (event) => {
+    const tab = event.target.closest('.tab');
+    if (event.button !== 0 || !api.tabDragStart || !tab || tab.classList.contains('tab-home') || event.target.closest('button')) return;
+    press = { id: tab.dataset.id, x: event.clientX, y: event.clientY, pointerId: event.pointerId, dragging: false, point: null };
+  });
+  tabsEl.addEventListener('pointermove', (event) => {
+    if (!press || event.pointerId !== press.pointerId) return;
+    if (!(event.buttons & 1)) return (press = null); // let go outside the tabs, before it was a drag
+    press.point = { x: event.screenX, y: event.screenY };
+    if (press.dragging) return api.tabDragMove(press.point);
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_START) return;
+    const tab = tabsEl.querySelector(`.tab[data-id="${press.id}"]`);
+    if (!tab) return (press = null);
+    press.dragging = true;
+    // Captured only once it's a drag, so a click still goes to the tab.
+    tabsEl.setPointerCapture(event.pointerId);
+    tabsEl.classList.add('dragging-tab');
+    const r = tab.getBoundingClientRect();
+    const drag = press;
+    // It fades where it was once its picture has been taken.
+    const fade = () => drag === press && tabsEl.querySelector(`.tab[data-id="${drag.id}"]`)?.classList.add('dragging');
+    api.tabDragStart(press.id, {
+      chip: { x: r.left, y: r.top, width: r.width, height: r.height },
+      offset: { x: press.x - r.left, y: press.y - r.top },
+      point: press.point,
+    }).then(fade, fade);
+    measure();
+  });
+  const letGo = (event) => {
+    if (!press || event.pointerId !== press.pointerId) return;
+    const { dragging, point } = press;
+    press = null;
+    if (tabsEl.hasPointerCapture(event.pointerId)) tabsEl.releasePointerCapture(event.pointerId);
+    if (!dragging) return;
+    dragged = true;
+    setTimeout(() => (dragged = false));
+    tabsEl.classList.remove('dragging-tab');
+    for (const tab of tabsEl.querySelectorAll('.tab.dragging')) tab.classList.remove('dragging');
+    api.tabDragEnd(event.type === 'pointerup' ? { x: event.screenX, y: event.screenY } : point);
+    measure();
+  };
+  tabsEl.addEventListener('pointerup', letGo);
+  tabsEl.addEventListener('pointercancel', letGo);
+  tabsEl.addEventListener('lostpointercapture', letGo);
+  tabsEl.addEventListener('click', (event) => {
+    if (dragged) event.stopPropagation();
+  }, true);
+
+  // Where a tab dragged over this top bar would go: a line in the gap there. `index` is among the
+  // tabs without the one dragged (it may be this window's); over the gap either side of it, it
+  // stays where it is, and the line is on the side the pointer is.
+  const dropLine = document.createElement('div');
+  dropLine.className = 'tab-drop-line';
+  dropLine.hidden = true;
+  el.append(dropLine);
+  api.onTabDrop?.((drop) => {
+    dropLine.hidden = !drop;
+    if (!drop) return;
+    const all = [...tabsEl.querySelectorAll('.tab')];
+    const others = all.filter((tab) => tab.dataset.id !== drop.id);
+    const before = others[drop.index - 1];
+    const after = others[drop.index];
+    const self = all.find((tab) => tab.dataset.id === drop.id);
+    const GAP = 3; // half the gap between tabs
+    let x;
+    const selfBox = self?.getBoundingClientRect();
+    const between = self && all.indexOf(self) === all.indexOf(before) + 1;
+    if (between) x = drop.x < selfBox.left + selfBox.width / 2 ? selfBox.left - GAP : selfBox.right + GAP;
+    else if (after) x = after.getBoundingClientRect().left - GAP;
+    else x = (before ?? all.at(-1)).getBoundingClientRect().right + GAP;
+    const row = (after ?? before ?? self).getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    Object.assign(dropLine.style, { left: `${Math.round(x - box.left - 1.5)}px`, top: `${Math.round(row.top - box.top)}px`, height: `${Math.round(row.height)}px` });
+  });
   for (const button of [back, forward]) button.addEventListener('click', () => api.historyStep?.(Number(button.dataset.step)));
   pill.addEventListener('click', () => api.showStatus?.());
 
-  function render({ tabs = [], back: canBack = false, forward: canForward = false, status = null } = {}) {
+  // SmartDoc's switch between pdf.js and its own renderer (experimental; the user's choice, in the
+  // top bar so it can be flipped at will): shown when the state says where it stands.
+  const readerSwitch = el.querySelector('.reader-switch');
+  let readerOn = false;
+  readerSwitch.addEventListener('click', () => api.setExperimental?.('reader', !readerOn));
+
+  function render({ tabs = [], back: canBack = false, forward: canForward = false, status = null, reader } = {}) {
+    readerSwitch.hidden = typeof reader !== 'boolean';
+    readerOn = reader === true;
+    readerSwitch.setAttribute('aria-checked', String(readerOn));
     back.disabled = !canBack;
     forward.disabled = !canForward;
     tabsEl.replaceChildren(...tabs.map((tab) => {
@@ -101,6 +213,7 @@ export function createTabStrip({ el, api }) {
       node.setAttribute('aria-selected', String(tab.active));
       node.dataset.noTip = '';
       node.dataset.id = tab.id;
+      if (press?.dragging && press.id === tab.id && tabsEl.querySelector('.tab.dragging')) node.classList.add('dragging');
       node.addEventListener('mousedown', (event) => {
         // The middle button closes it, as in a browser.
         if (event.button === 1 && !tab.home) {
@@ -156,7 +269,9 @@ export function createTabStrip({ el, api }) {
       }
       return node;
     }));
-    // The tabs moved or changed: the pills follow (once they're laid out).
+    // The tabs moved or changed: where they are now, at once (a window behind another may get no
+    // animation frames, and a tab can be dragged into it meanwhile), and the pills follow.
+    sendBoxes();
     requestAnimationFrame(() => {
       if (pointed && !pointed.isConnected) pointed = tabsEl.querySelector(`.tab[data-id="${pointed.dataset.id}"]`);
       measure();

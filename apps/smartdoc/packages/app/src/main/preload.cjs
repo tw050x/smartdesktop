@@ -28,6 +28,14 @@ contextBridge.exposeInMainWorld('smartdoc', {
   tabMenu: (id, box) => call('tab-menu', id, box),
   // A tab's chat button: that chat, brought forward in SmartDesktop.
   tabChat: (id) => call('tab-chat', id),
+  // Dragging a tab (points on the screen): to another place in the top bar, another window's, or
+  // out of them all to a new window. The top bar says where its tabs are (`tabBoxes`), and hears
+  // where a tab dragged over it would go (`onTabDrop`).
+  tabBoxes: (boxes) => call('tab-boxes', boxes),
+  tabDragStart: (id, drag) => call('tab-drag-start', id, drag),
+  tabDragMove: (point) => call('tab-drag-move', point),
+  tabDragEnd: (point) => call('tab-drag-end', point),
+  onTabDrop: on('tab-drop'),
   setIcon: (docId, icon) => call('set-icon', docId, icon),
   onIconPicker: on('icon-picker'),
   historyStep: (delta) => call('history-step', delta),
@@ -115,6 +123,10 @@ contextBridge.exposeInMainWorld('smartdoc', {
   setAppearance: (appearance) => call('set-appearance', appearance),
   getExperimental: () => call('get-experimental'),
   setExperimental: (name, on) => call('set-experimental', name, on),
+  // The experiments' state, whenever it changes ({ convert, reader }).
+  onExperimental: on('experimental'),
+  // A bundled font's bytes (packages/pdf/fonts), for SmartDoc's own reader.
+  readerFont: (file) => call('reader-font', file),
   onRecentDocuments: on('recent-documents'),
   onDraftOpened: on('draft-opened'),
   onDocumentClosed: on('document-closed'),

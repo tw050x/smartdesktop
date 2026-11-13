@@ -1,4 +1,4 @@
-import { getDocument } from 'pdfjs-dist';
+import { getDocument } from './pdf-engine.js';
 import { pageModel, rangeRects } from './anchors.js';
 import { drawPage, fitPageTo } from './pdf-page.js';
 import { diffPages } from './word-diff.js';
@@ -88,6 +88,7 @@ export function createCompareView({ el, api }) {
       el.replaceChildren(head, rows);
 
       const tasks = [];
+      const drawings = []; // pages are drawn in turn, after their text is laid out (see pdf-page.js)
       try {
         const { before, after } = await api.previewComparison();
         if (mine !== ticket) return;
@@ -108,6 +109,7 @@ export function createCompareView({ el, api }) {
               rows.append(pageEl);
               fitPageTo(pageEl, availableWidth());
             });
+            drawings.push(drawn.drawn);
             if (mine !== ticket) return;
             models.push(pageModel(drawn.items, drawn.textDivs, drawn.contentEl));
           }
@@ -127,7 +129,9 @@ export function createCompareView({ el, api }) {
         console.error(error);
       } finally {
         // What's drawn stays on the page; the PDFs themselves aren't needed once it is.
-        for (const task of tasks) task.destroy();
+        Promise.all(drawings).finally(() => {
+          for (const task of tasks) task.destroy();
+        });
       }
     },
     close() {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView } from 'electron';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -12,6 +12,8 @@ import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { createDesktop } from './desktop.js';
 import { iconFor } from './icons.js';
 import { createItemIcons } from './item-icons.js';
+import { readPdfText } from './pdf-text.js';
+import { createTabDrag } from './tab-drag.js';
 import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
@@ -82,7 +84,9 @@ const windows = new Map(); // webContents id → { id, win, workspace, ready, se
 let lastFocused = null;
 const current = () => context.getStore() ?? lastFocused;
 const win = () => current()?.win ?? null;
-const shared = createShared(app.getPath('userData'));
+// Page texts are read here too, so the AI needn't wait for a window to draw them (pdf-text.js).
+const readDir = app.isPackaged ? path.join(process.resourcesPath, 'pdf', 'read') : path.join(dirname, '../../../pdf/read');
+const shared = createShared(app.getPath('userData'), { readText: (file) => readPdfText(file, readDir) });
 const waits = createWaits({ store: shared.store, events: shared.events, onChange: () => broadcast('ai-waiting', waits.active()) });
 const workspace = new Proxy({}, {
   get(_, key) {
@@ -120,16 +124,32 @@ function setAppearance(appearance) {
 }
 nativeTheme.themeSource = APPEARANCES.includes(readSettings().appearance) ? readSettings().appearance : 'system';
 
-// Experimental features, off until the user turns them on in Settings › Experimental (kept in
-// settings.json): `convert`, opening Word, Excel and PowerPoint files (and Markdown, text and
-// pictures) by turning them into PDFs (convert.js).
-const EXPERIMENTS = ['convert'];
-const experimental = () => ({ convert: readSettings().experimental?.convert === true });
+// Experimental features, off until the user turns them on (kept in settings.json): `convert`,
+// opening Word, Excel and PowerPoint files (and Markdown, text and pictures) by turning them into
+// PDFs (convert.js), in Settings › Experimental; `reader`, drawing PDFs with SmartDoc's own reader
+// (packages/pdf/read) rather than pdf.js, switched at will from the top bar (the user's choice: it
+// replaces pdf.js once they're happy with it). Every window hears of a change (`experimental`).
+const EXPERIMENTS = ['convert', 'reader'];
+const experimental = () => ({ convert: readSettings().experimental?.convert === true, reader: readSettings().experimental?.reader === true });
 function setExperimental(name, on) {
   if (!EXPERIMENTS.includes(name)) return;
   fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
   const settings = readSettings();
   fs.writeFileSync(settingsFile, JSON.stringify({ ...settings, experimental: { ...settings.experimental, [name]: Boolean(on) } }, null, 2));
+  broadcast('experimental', experimental());
+  sendAllTabs();
+}
+
+// The bundled fonts (packages/pdf/fonts), which SmartDoc's reader draws fonts a PDF doesn't
+// embed with when the Mac hasn't the font itself.
+function readerFont(file) {
+  if (typeof file !== 'string' || !/^[A-Za-z]+-[A-Za-z]+\.ttf$/.test(file)) return null;
+  const dir = app.isPackaged ? path.join(process.resourcesPath, 'pdf', 'fonts') : path.join(dirname, '../../../pdf/fonts');
+  try {
+    return fs.readFileSync(path.join(dir, file));
+  } catch {
+    return null;
+  }
 }
 
 // The window's own colours, which the interface can't set: its background (showing as it opens
@@ -171,7 +191,8 @@ const layoutTabs = (host) => {
   for (const tab of host.tabs) tab.view.setBounds(tabBounds(host));
 };
 
-function createWindow({ focus = true } = {}) {
+// `bounds`, where to put it (a tab dragged out of a window makes one where it's dropped).
+function createWindow({ focus = true, bounds = null } = {}) {
   const colours = windowColours();
   const frame = process.platform === 'darwin'
     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
@@ -179,6 +200,7 @@ function createWindow({ focus = true } = {}) {
   const browser = new BrowserWindow({
     width: 1280,
     height: 820,
+    ...bounds,
     minWidth: 760,
     minHeight: 480,
     title: WINDOW_TITLE,
@@ -192,6 +214,9 @@ function createWindow({ focus = true } = {}) {
       sandbox: true,
     },
   });
+  // Placed again once made: macOS fits a new window on the screen, which would move a tab dragged
+  // out from under the pointer.
+  if (bounds) browser.setBounds(bounds);
   // The window keeps its own title, not the page's, so a development build's is told apart.
   browser.on('page-title-updated', (e) => e.preventDefault());
   const host = { win: browser, tabs: [], active: null, history: { back: false, forward: false } };
@@ -203,6 +228,7 @@ function createWindow({ focus = true } = {}) {
   // The window has the focus: its active tab does, for the menu, the AI chat (SmartDesktop shows the
   // chat while a window of the apps has the focus) and the keyboard.
   browser.on('focus', () => {
+    host.focusedAt = Date.now(); // the window in front, for where a dragged tab is dropped
     const ctx = host.active;
     if (!ctx) return;
     lastFocused = ctx;
@@ -247,7 +273,7 @@ function createTab(host, { home = false } = {}) {
     },
   });
   view.setBackgroundColor(windowColours().background);
-  const ctx = { id, host, home, view, contents: view.webContents, get win() { return host.win; }, workspace: createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true, hadDocument: false, history: { back: false, forward: false } };
+  const ctx = { id, host, home, view, contents: view.webContents, get win() { return this.host.win; }, workspace: createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true, hadDocument: false, history: { back: false, forward: false } };
   windows.set(view.webContents.id, ctx);
   if (home) host.tabs.unshift(ctx);
   else host.tabs.push(ctx);
@@ -265,7 +291,7 @@ function createTab(host, { home = false } = {}) {
     // A tab whose document has closed (deleted, say) closes too.
     if (!ctx.home && !doc && ctx.hadDocument) return closeTab(ctx);
     if (doc) ctx.hadDocument = true;
-    sendTabs(host);
+    sendTabs(ctx.host);
     return sendDraft();
   }));
   ctx.workspace.events.on('tool', inTab((tool) => !(ctx.home && ctx.workspace.document) && send('tool', tool)));
@@ -276,7 +302,7 @@ function createTab(host, { home = false } = {}) {
   }));
   ctx.ready = new Promise((resolve) => view.webContents.once('did-finish-load', resolve));
   ctx.ready.then(inTab(sendEverything));
-  ctx.ready.then(() => host.active === ctx && ctx.contents.send('tab-lines', host.lines ?? null));
+  ctx.ready.then(() => ctx.host.active === ctx && ctx.contents.send('tab-lines', ctx.host.lines ?? null));
   view.webContents.loadFile(path.join(dirname, '../../build/renderer/index.html'));
   sendTabs(host);
   return ctx;
@@ -334,6 +360,31 @@ function disposeTab(ctx) {
   ctx.workspace.events.removeAllListeners(); // nothing left to tell
   ctx.workspace.close();
   updateMenuFor(lastFocused);
+}
+
+// Moves a tab to `index` among a window's tabs (never before Home): in its own window, or into
+// another (its page, and all it holds, go with it: the document, its history, an AI working in it),
+// where it shows.
+function moveTab(ctx, to, index) {
+  const from = ctx.host;
+  const at = from.tabs.indexOf(ctx);
+  if (ctx.home || at < 0 || to.win.isDestroyed()) return;
+  from.tabs.splice(at, 1);
+  if (from !== to) {
+    if (from.active === ctx) {
+      from.active = null;
+      activateTab(from.tabs[at] ?? from.tabs[at - 1] ?? from.tabs[0]);
+    }
+    from.win.contentView.removeChildView(ctx.view);
+    ctx.host = to;
+    to.win.contentView.addChildView(ctx.view);
+    ctx.view.setBounds(tabBounds(to));
+    ctx.contents.send('full-screen', to.win.isFullScreen());
+    sendTabs(from);
+  }
+  to.tabs.splice(Math.max(1, Math.min(index, to.tabs.length)), 0, ctx);
+  activateTab(ctx);
+  if (from !== to) to.win.focus();
 }
 
 // A document opened in Home goes to its own tab (the one already showing it, if one is), and Home
@@ -395,6 +446,8 @@ function sendTabs(host) {
     back: Boolean(host.active?.history.back),
     forward: Boolean(host.active?.history.forward),
     status: appStatus(),
+    // The switch between pdf.js and SmartDoc's own reader (experimental).
+    reader: experimental().reader,
   };
   host.win.webContents.send('tabs', state);
 }
@@ -1456,6 +1509,72 @@ handle('tab-lines', (lines) => {
   host.lines = lines;
   for (const tab of host.tabs) tab.contents.send('tab-lines', tab === host.active ? lines : null);
 });
+// Dragging a tab (tab-strip.js, tab-drag.js): to another place in its top bar, into another
+// window's, or anywhere else to make a new window of it, its picture following the pointer meanwhile.
+// The top bar says where its tabs are (`tab-boxes`), and the one the pointer is over shows where the
+// tab would go (`tab-drop`: { id, index, x }, or null).
+const tabDrag = createTabDrag({ topBar: TOP_BAR_HEIGHT });
+let dragging = null; // { tab, offset, chip, point, target }
+handle('tab-boxes', (boxes) => {
+  const host = current()?.host;
+  if (host) host.tabBoxes = Array.isArray(boxes) ? boxes : [];
+});
+const hostsInFront = () => [...hosts].sort((a, b) => (b.focusedAt ?? 0) - (a.focusedAt ?? 0));
+function dragOver(point) {
+  const target = tabDrag.targetAt(point, hostsInFront(), dragging.tab.id);
+  const before = dragging.target;
+  dragging.target = target;
+  if (before && before.host !== target?.host && !before.host.win.isDestroyed()) before.host.win.webContents.send('tab-drop', null);
+  if (target && (target.host !== before?.host || target.index !== before.index || target.x !== before.x)) target.host.win.webContents.send('tab-drop', { id: dragging.tab.id, index: target.index, x: target.x });
+  tabDrag.move(point, Boolean(target));
+}
+handle('tab-drag-start', async (id, { chip, offset, point } = {}) => {
+  const host = current()?.host;
+  const tab = host?.tabs.find((t) => t.id === id);
+  if (!tab || tab.home || dragging || !chip || !offset || !point) return false;
+  const drag = { tab, offset, chip, point, target: null };
+  dragging = drag;
+  const box = { x: Math.round(chip.x), y: Math.round(chip.y), width: Math.max(1, Math.round(chip.width)), height: Math.max(1, Math.round(chip.height)) };
+  const [chipImage, pageImage] = await Promise.all([
+    host.win.webContents.capturePage(box),
+    tab.contents.capturePage().catch(() => null), // a tab not showing gives its last picture
+  ]);
+  if (dragging !== drag) return false; // let go meanwhile
+  await tabDrag.show({ chip: chipImage, chipSize: box, page: pageImage, pageSize: tab.view.getBounds(), offset, point: drag.point, colours: windowColours() });
+  if (dragging === drag) dragOver(drag.point);
+  return true;
+});
+handle('tab-drag-move', (point) => {
+  if (!dragging || !point) return;
+  dragging.point = point;
+  dragOver(point);
+});
+handle('tab-drag-end', (point) => {
+  const drag = dragging;
+  if (!drag) return;
+  if (point) {
+    drag.point = point;
+    dragOver(point);
+  }
+  dragging = null;
+  tabDrag.hide();
+  const { tab, target } = drag;
+  if (target && !target.host.win.isDestroyed()) target.host.win.webContents.send('tab-drop', null);
+  if (!windows.has(tab.contents.id)) return; // closed meanwhile
+  if (target) return moveTab(tab, target.host, target.index);
+  // Over no top bar: a new window, the size of the one it came from, its tab under the pointer where
+  // it was let go (the window may run off the screen, but never its top bar).
+  const from = tab.host;
+  const { width, height } = from.win.getBounds();
+  const first = from.tabBoxes?.[1]?.left ?? 120; // where a window's first tab after Home starts
+  const area = screen.getDisplayNearestPoint({ x: Math.round(drag.point.x), y: Math.round(drag.point.y) }).workArea;
+  const KEEP = 160; // of the window, kept on the screen across
+  const x = Math.round(Math.min(Math.max(drag.point.x - first - drag.offset.x, area.x + KEEP - width), area.x + area.width - KEEP));
+  const y = Math.round(Math.min(Math.max(drag.point.y - drag.chip.y - drag.offset.y, area.y), area.y + area.height - 2 * TOP_BAR_HEIGHT));
+  const home = createWindow({ bounds: { x, y, width, height } });
+  moveTab(tab, home.host, 1);
+});
+
 handle('strip-tip', (tip) => {
   const host = current()?.host;
   if (!host) return;
@@ -1485,6 +1604,7 @@ handle('install-update', () => updates.install());
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('get-experimental', () => experimental());
 handle('set-experimental', (name, on) => setExperimental(name, on));
+handle('reader-font', (file) => readerFont(file));
 handle('set-appearance', (appearance) => setAppearance(appearance));
 
 // --- App lifecycle -----------------------------------------------------------------------

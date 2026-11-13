@@ -1,4 +1,4 @@
-import { TextLayer } from 'pdfjs-dist';
+import { layOutText } from './pdf-engine.js';
 
 // Pages are drawn once at this scale, then shrunk with CSS to fit the space available, so
 // resizing the window never needs a redraw.
@@ -36,11 +36,35 @@ export async function drawPage(page, place) {
   pageEl.density = ratio;
   place(pageEl);
 
-  await page.render({ canvas, viewport, transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0] }).promise;
+  // The drawing goes in a queue, one page at a time, in order, while the text is laid out at once:
+  // pdf.js draws on animation frames, which a tab not showing never gets, so waiting for the drawing
+  // left a document opened in the background without its text, still loading.
+  const drawn = drawInTurn(canvas, () => page.render({ canvas, viewport, transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0] }));
   const textContent = await page.getTextContent();
-  const textLayer = new TextLayer({ textContentSource: textContent, container: textLayerEl, viewport });
-  await textLayer.render();
-  return { items: textContent.items, textDivs: textLayer.textDivs, contentEl, textLayerEl };
+  const textDivs = await layOutText(page, textContent, textLayerEl, viewport);
+  return { items: textContent.items, textDivs, contentEl, textLayerEl, drawn };
+}
+
+// A page whose canvas has left the page (another document showing, or the pages drawn again with
+// the other reader) isn't drawn, and its drawing is cancelled if it has started: otherwise one that
+// never finishes (pdf.js's, in a tab not showing) would hold up every page after it.
+let turn = Promise.resolve();
+const GONE_CHECK_MS = 500;
+function drawInTurn(canvas, draw) {
+  const done = turn.then(() => {
+    if (!canvas.isConnected) return null;
+    const task = draw();
+    return new Promise((resolve) => {
+      const watch = setInterval(() => {
+        if (canvas.isConnected) return;
+        task.cancel?.();
+        resolve();
+      }, GONE_CHECK_MS);
+      task.promise.then(resolve, resolve).finally(() => clearInterval(watch));
+    });
+  }).catch(() => {});
+  turn = done;
+  return done;
 }
 
 // Sizes a drawn page to fit a width, never enlarging it past `most` times its drawn size (1 unless

@@ -35,7 +35,7 @@ const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.s
 //   'draft'       the document or draft changed (the window reloads the PDF)
 //   'review'      the current review changed
 //   'recent'      the recent documents changed
-//   'page-texts'  the window reported the current draft's page texts
+//   'page-texts'  the current draft's page texts are known (read here, or reported by the window)
 // A draft's current review is its newest one. Reviews are single records: the user's requests, the
 // AI's findings and annotations, the user's decisions and the history all live in one file.
 // What every window shares: the documents on disk, one copy in memory of each record, and the list
@@ -49,18 +49,19 @@ function cleanName(name, what) {
   return clean;
 }
 
-export function createShared(userData) {
+// `readText(file)`, if given, reads a PDF's page texts and details without the window (pdf-text.js).
+export function createShared(userData, { readText = null } = {}) {
   const events = new EventEmitter();
   events.setMaxListeners(0);
   const store = createStore(userData, {
     onReview: (r) => events.emit('review', r),
     onDocument: (d) => events.emit('document', d),
   });
-  return { store, events, recent: [], folders: folders.NO_FOLDERS, labels: labels.NO_LABELS, userData };
+  return { store, events, recent: [], folders: folders.NO_FOLDERS, labels: labels.NO_LABELS, userData, readText };
 }
 
 export function createWorkspace(shared) {
-  const { store, userData } = shared;
+  const { store, userData, readText } = shared;
   const events = new EventEmitter();
   events.setMaxListeners(0); // waits on the page texts add listeners of their own
   const recentFile = path.join(userData, 'recent-documents.json');
@@ -169,6 +170,7 @@ export function createWorkspace(shared) {
     await store.saveDocument(doc);
     pageTexts = null;
     pdfDetails = null;
+    readOwnText();
     review = await newestReview();
     events.emit('draft');
     events.emit('review', review);
@@ -244,6 +246,25 @@ export function createWorkspace(shared) {
       } catch {} // moved or deleted since
     }
     return imported;
+  }
+
+  // The current draft's page texts and details, read here as soon as it shows (pdf-text.js), so the
+  // AI needn't wait for the window to draw it, nor for a window at all. The window's report, when
+  // it comes, is the one kept: its text is what its text layer (and so every anchor) is made from.
+  let reading = null;
+  function readOwnText() {
+    if (!readText || !doc) return;
+    const docId = doc.id;
+    const draftId = doc.currentDraftId;
+    const mine = readText(store.draftPdfPath(docId, draftId))
+      .then(({ texts, details }) => {
+        if (reading !== mine || pageTexts || doc?.id !== docId || doc.currentDraftId !== draftId) return;
+        pageTexts = texts;
+        pdfDetails = details;
+        events.emit('page-texts');
+      })
+      .catch(() => {}); // the window's report is still to come
+    reading = mine;
   }
 
   // Waits a little for a document that's just been opened to finish loading in the window.

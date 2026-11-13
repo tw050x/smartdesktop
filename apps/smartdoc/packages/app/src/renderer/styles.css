@@ -297,7 +297,31 @@ body:not(.has-document) .breadcrumb { visibility: hidden; }
 .server-pill[data-state="running"] .server-dot { background: #1f9d55; }
 .server-pill[data-state="off"] .server-dot { background: #d64545; }
 
-.server-pill { position: relative; z-index: 33; } /* stays on top of the mask and the MCP panel */
+.server-pill { position: relative; z-index: 33; }
+/* The switch between pdf.js and SmartDoc's own renderer (experimental), before the status pill. */
+.reader-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.reader-switch[hidden] { display: none; }
+.reader-switch:hover { background: var(--subtle-bg); }
+.reader-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.reader-switch-track { position: relative; width: 26px; height: 16px; border-radius: 8px; background: light-dark(#c7c7cc, #48484c); transition: background-color 0.15s ease; }
+.reader-switch-knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 25%); transition: transform 0.15s ease; }
+.reader-switch[aria-checked="true"] .reader-switch-track { background: var(--accent); }
+.reader-switch[aria-checked="true"] .reader-switch-knob { transform: translateX(10px); } /* stays on top of the mask and the MCP panel */
 .server-pill { transition: background-color 0.3s ease, border-color 0.3s ease; }
 /* The two labels share a cell, so the pill is as wide as the longer one whichever is showing. */
 .server-pill-labels { display: grid; justify-items: start; white-space: nowrap; }
@@ -959,12 +983,40 @@ button:disabled { opacity: 0.5; cursor: default; }
 .segmented button[aria-checked="true"] { background: light-dark(var(--bg), #46464c); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 .segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* pdf.js's text pieces can overlap (e.g. a space between two words), and its see-through
+/* A page's text layer (read/text-layer.js, or pdf.js's TextLayer): invisible text over the drawing,
+   to select and search, each piece placed and sized from the variables the layer sets
+   (--font-height, --scale-x, --rotate, and the page's --total-scale-factor). The rules the app used
+   from pdf.js's pdf_viewer.css, so it no longer needs that stylesheet (Mozilla's, Apache License 2.0;
+   see packages/pdf/read/NOTICES.md). */
+.textLayer {
+  color-scheme: only light; position: absolute; inset: 0; overflow: clip; z-index: 0;
+  text-align: initial; line-height: 1; letter-spacing: normal; word-spacing: normal; opacity: 1;
+  text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
+.textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1; --font-height: 0; --scale-x: 1; --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent { display: contents; }
+.textLayer span[role="img"] { user-select: none; cursor: default; }
+.textLayer ::selection { background: color-mix(in srgb, AccentColor, transparent 50%); color: transparent; }
+.textLayer br::selection { background: transparent; }
+/* Below the text, so a selection dragged past the last piece doesn't jump; it covers the layer while
+   selecting (see keepSelectionSteady in app-shell.js). */
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+
+/* The text's pieces can overlap (e.g. a space between two words), and a see-through
    selection colour then shows darker where they do. A solid colour, multiplied onto the page so
    the text still shows through, looks the same however many pieces overlap. */
 .textLayer { mix-blend-mode: multiply; }
 .page-content .textLayer ::selection { background: color-mix(in srgb, AccentColor 45%, white); }
-/* pdf.js's line breaks sit at the page's left edge; it hides their selection, and so must this. */
+/* The line breaks sit at the page's left edge: their selection is hidden. */
 .page-content .textLayer br::selection { background: transparent; }
 
 /* --- Marks on the page -------------------------------------------------------------------- */
@@ -1518,3 +1570,10 @@ body:has(.document.dragging) .compare { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { .copied-tip { animation: none; } }
 
 .server-off #server-retry { margin-top: 8px; }
+
+/* Dragging a tab (tab-strip.js): it fades where it was, and a line shows where it would go in the
+   top bar it's over. */
+.tab.dragging { opacity: 0.4; }
+.tabs.dragging-tab .tab:hover:not([aria-selected="true"]) { background: var(--button-hover); }
+.tab-drop-line { position: absolute; z-index: 46; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-drop-line[hidden] { display: none; }

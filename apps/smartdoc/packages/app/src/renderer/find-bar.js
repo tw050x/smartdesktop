@@ -1,4 +1,4 @@
-import { getDocument } from 'pdfjs-dist';
+import { getDocument } from './pdf-engine.js';
 import { anchorRects, pageContent, pageText, pageTexts, textOfItems } from './anchors.js';
 import { historyVerdict, matchesInPages, matchesOnPage, snippetOf } from './text-search.js';
 

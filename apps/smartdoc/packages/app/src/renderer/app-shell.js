@@ -1,6 +1,5 @@
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import { GlobalWorkerOptions } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import 'pdfjs-dist/web/pdf_viewer.css';
 import { clearPages, nearestTextPosition, pageTexts, registerPage, selectionAnchors } from './anchors.js';
 import { createCommentComposer } from './comment-composer.js';
 import { promptNamingWindow } from './take-over-note.js';
@@ -17,6 +16,7 @@ import { installTooltips } from './tooltips.js';
 import { customScrollbar } from './scrollbar.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
 import { RENDER_SCALE, drawPage, fitPageTo, sharpenPage } from './pdf-page.js';
+import { getDocument, useOwnReader, usingOwnReader } from './pdf-engine.js';
 import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
@@ -127,8 +127,12 @@ export function startApp(appApi) {
 
   let loading = 0; // newest draft wins if drafts are switched quickly
 
+  // The PDF showing, kept (a copy: pdf.js takes the bytes it's given) to draw again when the
+  // reader is switched.
+  let shownPdf = null;
   async function showPdf(data, { docId, draftId }) {
     const ticket = ++loading;
+    shownPdf = { data: new Uint8Array(data).slice(), docId, draftId };
     const pdf = await getDocument({ data }).promise;
     if (ticket !== loading) return;
     pagesEl.replaceChildren();
@@ -680,7 +684,18 @@ export function startApp(appApi) {
     updateScrollUi();
   });
 
+  // The reader drawing the pages: pdf.js, or SmartDoc's own (experimental), as the user has it,
+  // switched from the top bar at will; switching draws the document showing again with the other.
+  const switchReader = (on) => {
+    const was = usingOwnReader();
+    useOwnReader(on, api);
+    if (Boolean(on) !== was && shownPdf) showPdf(shownPdf.data, shownPdf).then(updateScrollUi);
+  };
+  api.getExperimental?.().then((e) => switchReader(e?.reader));
+  api.onExperimental?.((e) => switchReader(e?.reader));
+
   api.onDocumentClosed(() => {
+    shownPdf = null;
     loading++;
     setComparing(false);
     composer.close();
@@ -713,7 +728,7 @@ export function startApp(appApi) {
 
   // As in pdf.js's own viewer: while selecting, an unselectable layer fills the gaps between the
   // text, so a cursor between lines doesn't make the selection jump to text further down the page
-  // (the stylesheet from pdf_viewer.css places .endOfContent and stretches it under .selecting).
+  // (styles.css places .endOfContent and stretches it under .selecting).
   function keepSelectionSteady(textLayerEl) {
     const end = document.createElement('div');
     end.className = 'endOfContent';
