@@ -1766,11 +1766,16 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // scrolling, which the user drags anywhere by any part of it but its buttons (the user's choice:
   // across the bottom it was mostly empty). Where it was put is kept while the app is open.
   let floatPlace = null;
+  // Approve goes underneath why it changes (the user's choice: alone in the top row it left an
+  // empty strip above the reason); the switch, if there is one, stays at the top.
   function floatingCard(card, controls, reason) {
+    const approve = controls.filter((c) => c?.classList?.contains('approve-button'));
+    const others = controls.filter((c) => !approve.includes(c));
     const float = h('div', { className: 'change-float' },
       h('div', { className: 'change-float-grip', 'aria-hidden': 'true' }),
-      controls.length > 0 && h('div', { className: 'card-drawer-row' }, ...controls),
-      reason && h('div', { className: 'change-float-why' }, h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason)));
+      others.length > 0 && h('div', { className: 'card-drawer-row' }, ...others),
+      reason && h('div', { className: 'change-float-why' }, h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason)),
+      approve.length > 0 && h('div', { className: 'card-drawer-row change-float-foot' }, ...approve));
     const place = (left, top) => {
       const room = card.getBoundingClientRect();
       const x = Math.min(Math.max(0, left), Math.max(0, room.width - float.offsetWidth));
