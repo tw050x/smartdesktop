@@ -1,4 +1,5 @@
 import { markSides } from './diff-marks.js';
+import { markScrolling } from './scroll-marks.js';
 import { PAGE_WIDTH } from './page-view.js';
 
 // Writing the AI proposes to change, beside the draft it changes, across the whole window, as
@@ -82,6 +83,8 @@ export function openCompare({ title, beforeLabel, afterLabel, render }) {
   fit();
 
   marks = markSides(before.firstChild, after.firstChild);
+  // Where the changes are, along the scrollbar: removed on its left half, added on its right.
+  markScrolling(pages, { sides: true });
   status.textContent = marks.length === 0 ? 'No changes to the words' : marks.length === 1 ? '1 change' : `${marks.length} changes`;
   previous.disabled = next.disabled = marks.length === 0;
   addEventListener('keydown', keys, true);

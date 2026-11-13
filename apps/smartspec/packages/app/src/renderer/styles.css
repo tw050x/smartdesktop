@@ -1128,6 +1128,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .segmented button[aria-checked="true"] { background: light-dark(var(--bg), #46464c); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 .segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* Where writing changed, along its scrollbar (scroll-marks.js): over the track, letting the
+   scrollbar under it be used; removed on the left half of a mark and added on the right, so a change
+   that does both shows both (on the comparison, as its pages are). */
+.scroll-marks { position: absolute; z-index: 3; pointer-events: none; }
+.scroll-marks[hidden] { display: none; }
+.scroll-mark { position: absolute; right: 0; width: 6px; height: 3px; margin-top: -1px; border-radius: 1.5px; }
+.scroll-mark.added { background: var(--diff-added-mark, #28af55); }
+.scroll-mark.removed { background: var(--diff-removed-mark, #e23c3c); }
+.scroll-mark.removed { right: 3px; width: 3px; border-radius: 1.5px 0 0 1.5px; }
+.scroll-mark.added { width: 3px; border-radius: 0 1.5px 1.5px 0; }
+.scroll-marks.sides .scroll-mark { width: 4px; }
+.scroll-marks.sides .scroll-mark.removed { right: 4px; }
 /* Where an item's content goes on out of sight, an inner shadow along that edge (scroll-shade.js). */
 .table-body { position: relative; }
 .scroll-shade { position: absolute; z-index: 2; pointer-events: none; border-radius: inherit;

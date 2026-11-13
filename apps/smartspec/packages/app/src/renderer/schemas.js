@@ -11,6 +11,7 @@ import { shadeScrolling } from './scroll-shade.js';
 import { watchLongPress } from './long-press.js';
 import { itemView, kindLabel, sequenceKey, wipeView } from './item-views.js';
 import { markInline, readText } from './diff-marks.js';
+import { markScrolling } from './scroll-marks.js';
 import { diffOf } from './item-diffs.js';
 import { CROSS, openCompare } from './compare-view.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
@@ -1586,6 +1587,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
     // Where its content goes on out of sight, an inner shadow says so (a canvas pans instead).
     if (!canvas) shadeScrolling(body);
+    // Writing under review: where it changed, along its scrollbar.
+    if (!canvas && body.querySelector('.diff-added, .diff-removed')) markScrolling(body);
     const holder = body.querySelector(':scope > .item-table-holder');
     if (holder) shadeScrolling(holder);
     return middle;
