@@ -112,7 +112,18 @@ export function startApp(appApi) {
   const documentEl = document.getElementById('document');
   const pagesEl = document.getElementById('pages');
   const compareEl = document.getElementById('compare');
-  const compareView = createCompareView({ el: compareEl, api });
+  // The scrollbar's marks: the review's cards on the document, the changes on the comparison; the
+  // view showing has its own (see showTrack).
+  const tracks = { document: [], compare: [] };
+  const showTrack = () => updateScrollUi.marks(comparing ? tracks.compare : tracks.document);
+  const compareView = createCompareView({
+    el: compareEl,
+    api,
+    onTrack: (marks) => {
+      tracks.compare = marks;
+      showTrack();
+    },
+  });
   let comparing = false;
   // The pages take the middle 60% of the view, leaving a fifth either side for the review's margins,
   // unless the user has dragged them to another size (see the page resizers below).
@@ -384,6 +395,7 @@ export function startApp(appApi) {
     document.body.classList.toggle('comparing', on);
     if (on) compareView.open();
     else compareView.close();
+    showTrack();
     marginReview.update({ comparing: on });
     updateScrollUi();
   }
@@ -555,7 +567,8 @@ export function startApp(appApi) {
       const wrap = document.getElementById('pages-wrap');
       const top = wrap.getBoundingClientRect().top - documentEl.getBoundingClientRect().top + documentEl.scrollTop;
       const height = documentEl.scrollHeight || 1;
-      updateScrollUi.marks(marks.map(({ y, color, bright }) => ({ at: (top + y) / height, color, bright })));
+      tracks.document = marks.map(({ y, color, bright }) => ({ at: (top + y) / height, color, bright }));
+      showTrack();
     },
     onSuggestion: (next) => {
       suggestion = next;

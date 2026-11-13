@@ -26,9 +26,11 @@ export function customScrollbar({ scrollbarEl, scrollers, scroller, watch }) {
     thumbEl.style.transform = `translateY(${top}px)`;
   }
 
-  // Marks along the strip: [{ at, color, bright }], `at` the fraction of the scrolling content's
-  // height where each is (so a mark is inside the thumb while what it marks is in view), drawn in
-  // its colour, faded unless bright. The page's review gives its cards' (see margin-review.js).
+  // Marks along the strip: [{ at, color, bright, side }], `at` the fraction of the scrolling
+  // content's height where each is (so a mark is inside the thumb while what it marks is in view),
+  // drawn in its colour, faded unless bright, across the strip or on one `side` of it ('left' or
+  // 'right'), so two at the same height both show. The page's review gives its cards' (see
+  // margin-review.js), the comparison its changes (compare.js).
   const marksEl = document.createElement('div');
   marksEl.className = 'scrollbar-marks';
   scrollbarEl.append(marksEl);
@@ -37,9 +39,9 @@ export function customScrollbar({ scrollbarEl, scrollers, scroller, watch }) {
     const key = JSON.stringify(list);
     if (key === lastMarks) return;
     lastMarks = key;
-    marksEl.replaceChildren(...[...list].sort((a, b) => a.bright - b.bright).map(({ at, color, bright }) => {
+    marksEl.replaceChildren(...[...list].sort((a, b) => a.bright - b.bright).map(({ at, color, bright, side }) => {
       const mark = document.createElement('div');
-      mark.className = `scrollbar-mark${bright ? ' bright' : ''}`;
+      mark.className = `scrollbar-mark${bright ? ' bright' : ''}${side === 'left' || side === 'right' ? ` ${side}` : ''}`;
       mark.style.top = `${Math.min(1, Math.max(0, at)) * 100}%`;
       mark.style.setProperty('--mark-color', color);
       return mark;

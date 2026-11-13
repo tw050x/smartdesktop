@@ -581,7 +581,8 @@ body:not(.has-document) .review-bar { display: none; }
   background: var(--thumb);
   transition: width 0.15s ease, background-color 0.15s ease;
 }
-/* Where the review's cards are, over the thumb (scrollbar.js): bright while one needs answering. */
+/* Where the review's cards are, over the thumb (scrollbar.js): bright while one needs answering;
+   in the comparison, where its changes are. */
 .scrollbar-marks { position: absolute; inset: 0; pointer-events: none; }
 .scrollbar-mark {
   position: absolute;
@@ -594,6 +595,9 @@ body:not(.has-document) .review-bar { display: none; }
   opacity: 0.4;
 }
 .scrollbar-mark.bright { opacity: 1; }
+/* The comparison's: the draft's changes on the left half, the preview's on the right, as the pages are. */
+.scrollbar-mark.left { right: 5px; width: 4px; border-radius: 1.5px 0 0 1.5px; }
+.scrollbar-mark.right { width: 4px; border-radius: 0 1.5px 1.5px 0; }
 .scrollbar:hover .scrollbar-thumb {
   width: 8px;
   transition-delay: 0.35s;

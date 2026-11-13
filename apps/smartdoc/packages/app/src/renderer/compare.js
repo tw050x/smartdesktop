@@ -6,8 +6,10 @@ import { diffPages } from './word-diff.js';
 // The AI's preview beside the draft it was written from, as pages side by side scrolling together:
 // removed text marked on the left, added text on the right. The marks exist only here, on this
 // view's own copies of the pages, so nothing about the document view (or what the AI reads from
-// it, see anchors.js) changes.
-export function createCompareView({ el, api }) {
+// it, see anchors.js) changes. `onTrack(marks)` gives where the changes are, for the scrollbar, as
+// the review's cards do (see scrollbar.js): [{ at, color, bright }], a mark for each change on each
+// side, red where text was removed and green where it was added, on that side's half of the strip.
+export function createCompareView({ el, api, onTrack = () => {} }) {
   const PAGE_GAP = 16;
   const SIDE_PADDING = 24;
   let ticket = 0; // closing or reopening stops a drawing still under way
@@ -17,7 +19,25 @@ export function createCompareView({ el, api }) {
   const availableWidth = () => (el.clientWidth - PAGE_GAP - 2 * SIDE_PADDING) / 2;
   new ResizeObserver(() => {
     el.querySelectorAll('.page').forEach((pageEl) => fitPageTo(pageEl, availableWidth()));
+    track();
   }).observe(el);
+
+  // Each change's place along the scrollbar: where its first mark on each side is, as a fraction of
+  // this view's scrolling height. All bright, until changes are stepped through: then the one
+  // stepped to, as the others fade on the pages.
+  const TRACK_COLORS = { removed: '#e23c3c', added: '#28af55' };
+  function track() {
+    if (!marksByChange.length) return onTrack([]);
+    const top = el.getBoundingClientRect().top - el.scrollTop;
+    const height = el.scrollHeight || 1;
+    onTrack(marksByChange.flatMap((marks, i) => ['removed', 'added'].flatMap((kind) => {
+      const first = marks.find((m) => m.classList.contains(kind));
+      if (!first?.isConnected) return [];
+      // The draft's (removed) on the left half of the mark, the preview's (added) on the right, as
+      // the pages are, so a change that does both shows both.
+      return [{ at: (first.getBoundingClientRect().top - top) / height, color: TRACK_COLORS[kind], bright: at === -1 || at === i, side: kind === 'removed' ? 'left' : 'right' }];
+    })));
+  }
 
   function title(label, kind) {
     const span = document.createElement('span');
@@ -50,6 +70,7 @@ export function createCompareView({ el, api }) {
     const top = el.scrollTop + target.top - el.getBoundingClientRect().top - el.clientHeight / 2;
     el.scrollTo({ top, behavior: 'smooth' });
     status.textContent = `Change ${at + 1} of ${total}`;
+    track();
   }
 
   function markChange(pages, ranges, kind, marks) {
@@ -70,6 +91,7 @@ export function createCompareView({ el, api }) {
       const mine = ++ticket;
       at = -1;
       marksByChange = [];
+      onTrack([]);
       el.classList.remove('stepping');
       el.scrollTop = 0;
 
@@ -123,6 +145,7 @@ export function createCompareView({ el, api }) {
           return marks;
         });
         status.textContent = changes.length === 0 ? 'No text changes' : changes.length === 1 ? '1 change' : `${changes.length} changes`;
+        track();
         prev.disabled = next.disabled = changes.length === 0;
       } catch (error) {
         if (mine === ticket) status.textContent = 'Couldn’t compare';
@@ -139,6 +162,7 @@ export function createCompareView({ el, api }) {
       el.classList.remove('stepping');
       el.replaceChildren();
       marksByChange = [];
+      onTrack([]);
     },
   };
 }
