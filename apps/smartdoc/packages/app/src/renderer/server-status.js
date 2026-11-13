@@ -117,7 +117,7 @@ export function createServerStatus({ api }) {
   const chatAppState = document.getElementById('desktop-state');
   const chatAppAction = document.getElementById('desktop-action');
   const DESKTOP = {
-    connected: { text: 'Connected. Open the chat with Window › Show the Chat (⇧⌘C), or from SmartDesktop’s icon in the menu bar.' },
+    connected: { text: 'Connected. Open the chat with Window › Show the Chat (⇧⌘C), or from SmartDesktop’s icon in the Dock.' },
     starting: { text: 'Starting…' },
     off: { text: 'Not running. It starts when you open the chat.', button: 'Open the Chat', run: () => api.chatToggle() },
     missing: { text: 'Not installed. SmartDesktop runs the AI chat for SmartDoc and SmartSpec: download it, then open the chat.', button: 'Get SmartDesktop', run: () => api.getDesktop() },

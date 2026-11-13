@@ -141,7 +141,7 @@ export const APP_MARKUP = `
          (see server-status.js and main/desktop.js). -->
     <section class="ai-setup">
       <h3>Chat</h3>
-      <p class="panel-hint">The AI chat is SmartDesktop’s, an app of its own that runs your own AI for SmartDoc and SmartSpec, in one conversation, in a window floating over theirs. You set up the AI there, from its icon in the menu bar.</p>
+      <p class="panel-hint">The AI chat is SmartDesktop’s, an app of its own that runs your own AI for SmartDoc and SmartSpec, in one conversation, in a window floating over theirs. You set up the AI there, from its Set Up AI… (in its app menu, or its Dock icon’s menu).</p>
       <div class="ai-list">
         <div class="ai-row">
           <div class="ai-row-text"><strong>SmartDesktop</strong><span id="desktop-state"></span></div>
