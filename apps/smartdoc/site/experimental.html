@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartDoc experimental</title>
+  <meta name="description" content="Open Word, Excel and PowerPoint files in SmartDoc: an experimental feature that turns them into PDFs itself, without Office, measured against Office's own PDFs.">
+  <!-- Not linked from the rest of the site until the feature lands, and kept out of search engines. -->
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='2' width='24' height='28' rx='5' fill='%23ffffff' stroke='%23c7c7cf' stroke-width='2'/%3E%3Crect x='9' y='10' width='14' height='3' rx='1.5' fill='%232f6fde'/%3E%3Crect x='9' y='16' width='10' height='3' rx='1.5' fill='%23b45309'/%3E%3Crect x='9' y='22' width='12' height='3' rx='1.5' fill='%23c7c7cf'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="site.css">
+  <style>
+    /* This page's own: the formats it opens, and the measurements against Office as a table. */
+    .formats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 0; padding: 0; list-style: none; }
+    .formats .card { padding: 22px; }
+    .formats .ext { display: inline-block; margin: 0 0 12px; padding: 2px 9px; border-radius: 99px; background: var(--blue-soft); color: var(--blue); font: 600 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .formats h3 { margin: 0 0 6px; font-size: 18px; }
+    .measure-wrap { overflow-x: auto; border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
+    .measure { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 15px; }
+    .measure th, .measure td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .measure tr:last-child td { border-bottom: 0; }
+    .measure thead th { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .measure thead th[rowspan] { vertical-align: bottom; }
+    .measure thead th.group { padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    .measure thead tr:first-child th:not([rowspan]) { border-bottom-color: var(--border); }
+    .measure td.ours { color: var(--text); font-weight: 600; }
+    .measure td { color: var(--muted); }
+    .measure td.app { color: var(--text); font-weight: 600; white-space: nowrap; }
+    .measure-note { max-width: 720px; margin: 16px 0 0; font-size: 14px; color: var(--muted); text-wrap: pretty; }
+    .notyet { display: grid; gap: 10px 32px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 0; padding: 0; list-style: none; }
+    .notyet li { padding-left: 18px; position: relative; color: var(--muted); }
+    .notyet li::before { content: ""; position: absolute; left: 0; top: 0.65em; width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+    .notyet strong { color: var(--text); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="./">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="2" width="24" height="28" rx="5" fill="var(--card)" stroke="var(--line)" stroke-width="2"/><rect x="9" y="10" width="14" height="3" rx="1.5" fill="var(--blue)"/><rect x="9" y="16" width="10" height="3" rx="1.5" fill="var(--brown)"/><rect x="9" y="22" width="12" height="3" rx="1.5" fill="var(--line)"/></svg>
+        SmartDoc
+      </a>
+      <nav aria-label="Sections">
+        <a href="./#how">How it works</a>
+        <a href="features.html">Features</a>
+        <a class="keep" href="./#install">Install</a>
+        <a class="keep" href="https://github.com/tw050x/smartdoc">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow">New in SmartDoc 0.19 <span class="beta">Experimental</span></p>
+        <h1>Open Word, Excel and PowerPoint files.</h1>
+        <p class="lede">SmartDoc turns them into PDFs itself, without Office or any other app, so you can review them with your AI like any other document. The original is kept with it.</p>
+      </div>
+    </div>
+
+    <!-- Turning it on, and opening a file. -->
+    <section id="turn-on" class="install">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Turn it on</p>
+          <h2>Off until you want it.</h2>
+          <p>It’s experimental, so it’s off to start with. Once it’s on, files open the way PDFs do.</p>
+        </div>
+        <ol class="install-steps grid">
+          <li class="card">
+            <span class="install-number" aria-hidden="true">1</span>
+            <h3>Open Settings</h3>
+            <p>In SmartDoc, choose <strong>SmartDoc › Settings…</strong> (⌘,), and under <strong>Experimental</strong> turn on <strong>Open Word, Excel and PowerPoint files</strong>.</p>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">2</span>
+            <h3>Open a file</h3>
+            <p>Drop it on SmartDoc, choose <strong>File › Open…</strong>, or ask your AI to open it. SmartDoc turns it into a PDF in a moment, and opens it.</p>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">3</span>
+            <h3>Review it</h3>
+            <p>Suggestions, highlights, drafts and variations all work as they do for a PDF. If anything didn’t come out as it is, SmartDoc says so as it opens, and tells your AI too.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- What it opens. -->
+    <section id="formats">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">What it opens</p>
+          <h2>Laid out as Office lays them out.</h2>
+          <p>Each kind of file has a layout engine of its own, written to do what Office does: where lines break, where pages end, how a sheet prints.</p>
+        </div>
+        <ul class="formats">
+          <li class="card">
+            <span class="ext">.docx</span>
+            <h3>Word</h3>
+            <p>Styles, lists and numbering, tables, headers and footers with page numbers, footnotes, sections and columns, tabs and leaders, pictures.</p>
+          </li>
+          <li class="card">
+            <span class="ext">.xlsx</span>
+            <h3>Excel</h3>
+            <p>Every sheet as it prints: its print area and titles, paper, margins and scale, number formats, fonts, fills and borders, merged cells, headers and footers.</p>
+          </li>
+          <li class="card">
+            <span class="ext">.pptx</span>
+            <h3>PowerPoint</h3>
+            <p>A page a slide, with its layout and theme: text, bullets and numbering, shapes, pictures and tables. Hidden slides are left out, as PowerPoint leaves them out.</p>
+          </li>
+          <li class="card">
+            <span class="ext">.md .txt .png .jpg</span>
+            <h3>And more</h3>
+            <p>Markdown, plain text and pictures open too. Older <code>.doc</code>, <code>.xls</code> and <code>.ppt</code> files don’t: save them in the newer format first.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- How close it is, measured. -->
+    <section id="measured">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Measured</p>
+          <h2>Held to Office’s own PDFs.</h2>
+          <p>Every test document is turned into a PDF by SmartDoc, by Office and by LibreOffice. SmartDoc’s has to be at least as close to Office’s as LibreOffice’s is: the same pages, each line broken in the same place and set where Office sets it, and the same ink on the page.</p>
+        </div>
+        <div class="measure-wrap">
+          <table class="measure">
+            <thead>
+              <tr><th scope="col" rowspan="2">Office app</th><th scope="col" rowspan="2">SmartDoc’s lines</th><th scope="colgroup" colspan="2" class="group">Ink that differs from Office’s</th></tr>
+              <tr><th scope="col">SmartDoc</th><th scope="col">LibreOffice</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="app">Word</td><td>Every line, within a point</td><td class="ours">0–10%</td><td>2.5–72%</td></tr>
+              <tr><td class="app">Excel</td><td>Every line, within a point</td><td class="ours">0–0.1%</td><td>39–66%</td></tr>
+              <tr><td class="app">PowerPoint</td><td>Every line, 0.2 points out on average</td><td class="ours">0%</td><td>5%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="measure-note">Measured on SmartDoc’s own test documents against Word, Excel and PowerPoint 16 for Mac. Excel follows Excel for Mac, which prints a sheet a little larger than Excel for Windows. Where Office’s fonts aren’t on your Mac, SmartDoc uses stand-ins with the same measurements (for Calibri, Cambria, Arial, Times New Roman and Courier New), so lines still break in the same places.</p>
+      </div>
+    </section>
+
+    <!-- What isn't there yet. -->
+    <section id="not-yet">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Not yet</p>
+          <h2>What’s still to come.</h2>
+          <p>SmartDoc tells you when a document has any of these, so nothing goes missing without you knowing.</p>
+        </div>
+        <ul class="notyet">
+          <li><strong>Charts</strong> in Excel and PowerPoint aren’t drawn yet.</li>
+          <li><strong>Gradients</strong> show as a single colour.</li>
+          <li><strong>Text boxes and shapes</strong> in Word documents aren’t drawn yet, and <strong>floating pictures</strong> show in line with the text.</li>
+          <li><strong>Conditional formatting</strong> in Excel isn’t shown: cells keep their own formatting.</li>
+          <li><strong>Rotated text</strong> in Excel cells shows level.</li>
+          <li><strong>Fonts with no stand-in</strong>, such as Calibri Light without Office installed, are shown in the nearest font, so some lines may break differently.</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="closing">
+      <div class="wrap">
+        <h2>No Office needed.</h2>
+        <p>In SmartDoc 0.19 and later, free for macOS. The converter is open source too, with no other program behind it.</p>
+        <div class="actions">
+          <a class="button" href="./#install">Install SmartDoc</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartdoc/tree/master/packages/pdf">See the converter on GitHub</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="brand" href="./">
+        <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="2" width="24" height="28" rx="5" fill="var(--card)" stroke="var(--line)" stroke-width="2"/><rect x="9" y="10" width="14" height="3" rx="1.5" fill="var(--blue)"/><rect x="9" y="16" width="10" height="3" rx="1.5" fill="var(--brown)"/><rect x="9" y="22" width="12" height="3" rx="1.5" fill="var(--line)"/></svg>
+        SmartDoc
+      </a>
+      <span>Review your documents with your own AI.</span>
+      <a class="end" href="https://github.com/tw050x/smartdoc">Source on GitHub</a>
+    </div>
+  </footer>
+</body>
+</html>
