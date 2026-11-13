@@ -1,4 +1,4 @@
-// The settings window (see main.js), from the menu bar icon's Settings…: the appearance, applied at
+// The settings window (see main.js), from the app menu's (or the Dock icon's) Settings…: the appearance, applied at
 // once (main.js keeps it); the AI setup; and the version. Updates show in the update toast in the
 // chat's window (update-toast.js).
 const api = window.smartdesktop;

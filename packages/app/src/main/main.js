@@ -1,10 +1,10 @@
-// SmartDesktop: the AI chat for SmartDoc and SmartSpec. It has no window of its own and no Dock
-// icon, only an icon in the menu bar (Set Up AI…, Settings…, Quit) and the chat, a window floating
-// over the apps' windows. SmartDoc and SmartSpec start it when they need it, connect to it (hub.js)
+// SmartDesktop: the AI chat for SmartDoc and SmartSpec. An ordinary app with an icon in the Dock (the
+// user's choice: it was an icon in the menu bar, with none in the Dock), which shows the chat, a window
+// floating over the apps' windows; its Dock menu has Set Up AI…, Settings… and the rest. SmartDoc and SmartSpec start it when they need it, connect to it (hub.js)
 // and tell it about their windows; it runs the user's own AI (agent.js) with both apps' tools, in
 // one conversation across them.
 
-import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, nativeTheme, screen, shell } from 'electron';
+import { BrowserWindow, Menu, app, ipcMain, nativeImage, nativeTheme, screen, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,9 +14,16 @@ import * as grid from './chat-layout.js';
 import { startHub } from './hub.js';
 import { createUpdates } from './updates.js';
 
+// A macOS symbol for a menu item of the app's own (the standard ones get theirs from macOS), so
+// Check for Updates… isn't the one without an icon (the user's choice, as in the apps).
+const menuSymbol = (name) => {
+  if (process.platform !== 'darwin' || !nativeImage.createMenuSymbol) return undefined;
+  const image = nativeImage.createMenuSymbol(name);
+  return image.isEmpty() ? undefined : image;
+};
+
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const page = (name) => path.join(dirname, '../../build/renderer', name);
-const resource = (name) => path.join(dirname, '../../resources', name);
 
 // A development copy keeps its data in SmartDesktop Dev, and listens on a port of its own, so it
 // runs beside the installed app: the apps' development builds connect to it, and installed apps to
@@ -310,7 +317,7 @@ async function chatSend(chatId, providerId, text, { model = null } = {}) {
 // --- The chat's window -----------------------------------------------------------------------
 // A window of its own, on the Space the user is on (not every Space: the user's choice, so it isn't a
 // panel, which would be; see makeChat). It shows when it's asked for (the chat button on an app's
-// tab, Show the Chat, a shortcut in an app, the menu bar icon), brought forward with the typing in
+// tab, Show the Chat, a shortcut in an app, the Dock icon), brought forward with the typing in
 // its focused chat, and stays until it's closed, an ordinary window among the others (the user's
 // choice: it came forward with the apps, floating over them, and hid when another app did). It
 // shows in Mission Control, to be picked from there. The user can put it anywhere; it opens again
@@ -386,7 +393,7 @@ function setChatOpen(open, { now = false } = {}) {
   chatOpen = open;
   writeSettings({ chatOpen });
   hub?.broadcast({ type: 'chat-open', open });
-  updateTray();
+  updateDock();
   arrange({ now });
   if (open && now) {
     // SmartDesktop comes forward (it's in the background while the app is used), and the chat with
@@ -509,8 +516,7 @@ function askInChat(chatId, text) {
 }
 
 // --- The setup and settings windows ------------------------------------------------------------
-// Ordinary windows. While either is open SmartDesktop shows in the Dock, so it can be found again
-// behind other windows; with neither, it goes back to the menu bar alone.
+// Ordinary windows.
 const panels = {};
 function openPanel(name, { width, height, title }) {
   if (panels[name] && !panels[name].isDestroyed()) {
@@ -532,14 +538,12 @@ function openPanel(name, { width, height, title }) {
     webPreferences: { preload: path.join(dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   panels[name] = win;
-  app.dock?.show();
   win.once('ready-to-show', () => {
     win.show();
     app.focus({ steal: true });
   });
   win.on('closed', () => {
     delete panels[name];
-    if (!Object.keys(panels).length) app.dock?.hide();
   });
   win.loadFile(page(`${name}.html`));
   return win;
@@ -550,26 +554,29 @@ function openSetup() {
 }
 const openSettings = () => openPanel('settings', { width: 480, height: 420, title: 'Settings' });
 
-// --- The menu bar icon -----------------------------------------------------------------------
-let tray = null;
-function updateTray() {
-  if (!tray) return;
+// --- The Dock icon ---------------------------------------------------------------------------
+// Clicking it shows the chat; its menu (right-click) has what the menu bar icon had: the chat, the
+// setup and settings, updates, and which apps are connected. macOS adds Quit, Options and the windows.
+let problem = null; // why it couldn't start listening, if it couldn't
+function updateDock() {
+  if (!app.dock) return;
   const connected = [...apps.values()].map((a) => a.client.name);
-  tray.setToolTip(connected.length ? `${NAME}: the chat for ${connected.join(' and ')}` : NAME);
-  tray.setContextMenu(Menu.buildFromTemplate([
+  app.dock.setMenu(Menu.buildFromTemplate([
     { label: chatOpen ? 'Hide the Chat' : 'Show the Chat', click: () => setChatOpen(!chatOpen, { now: true }) },
     { type: 'separator' },
     { label: 'Set Up AI…', click: openSetup },
     { label: 'Settings…', click: openSettings },
     updates.status.state === 'ready'
-      ? { label: `Restart to Update to ${updates.status.next}`, click: () => installUpdate() }
-      : { label: 'Check for Updates…', click: checkForUpdates },
+      ? { label: `Restart to Update to ${updates.status.next}`, icon: menuSymbol('arrow.clockwise.circle'), click: () => installUpdate() }
+      : { label: 'Check for Updates…', icon: menuSymbol('arrow.down.circle'), click: checkForUpdates },
     { type: 'separator' },
-    { label: connected.length ? `Connected to ${connected.join(' and ')}` : 'Not connected: open SmartDoc or SmartSpec', enabled: false },
-    { type: 'separator' },
-    { label: `Quit ${NAME}`, role: 'quit' },
+    { label: problem ?? (connected.length ? `Connected to ${connected.join(' and ')}` : 'Not connected: open SmartDoc or SmartSpec'), enabled: false },
   ]));
 }
+// Clicked in the Dock (or opened again from Finder): the chat.
+app.on('activate', () => {
+  if (app.isReady()) setChatOpen(true, { now: true });
+});
 
 // --- Requests from SmartDesktop's own windows ----------------------------------------------------
 const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
@@ -665,10 +672,10 @@ function installUpdate() {
 const updates = createUpdates({
   report: (status) => {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send('updates', status);
-    updateTray(); // its menu offers Restart to Update once one is ready
+    updateDock(); // its Dock menu offers Restart to Update once one is ready
   },
 });
-// The app menu's and the menu bar icon's Check for Updates…: its answer shows in the update toast,
+// The app menu's and the Dock menu's Check for Updates…: its answer shows in the update toast,
 // in the chat's window (update-toast.js), which comes forward for it.
 async function checkForUpdates() {
   setChatOpen(true, { now: true });
@@ -680,16 +687,38 @@ async function checkForUpdates() {
 // --- Starting ----------------------------------------------------------------------------------
 let hub = null;
 app.whenReady().then(async () => {
-  app.dock?.hide();
-  // No menu bar of its own shows (it lives in the menu bar's icon), but typing in the chat needs the
-  // Edit menu's shortcuts (copy, paste, undo, select all), and ⌘Q quits.
+  // A development build is Electron's own executable: its Dock icon is SmartDesktop's all the same.
+  if (!app.isPackaged) app.dock?.setIcon(path.join(dirname, '../../resources/icon.png'));
+  // Its menus, as an ordinary app's: the app menu (with Set Up AI… beside Settings…), Edit for typing
+  // in the chat, and Window, which shows the chat.
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { role: 'appMenu', submenu: [{ role: 'about' }, { label: 'Check for Updates…', click: checkForUpdates }, { type: 'separator' }, { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings }, { type: 'separator' }, { role: 'quit' }] },
+    { role: 'appMenu', submenu: [
+      { role: 'about' },
+      { label: 'Check for Updates…', icon: menuSymbol('arrow.down.circle'), click: checkForUpdates },
+      { type: 'separator' },
+      { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings },
+      { label: 'Set Up AI…', click: openSetup },
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ] },
     { role: 'editMenu' },
+    { label: 'Window', role: 'windowMenu', submenu: [
+      { label: 'Show the Chat', accelerator: 'Shift+CmdOrCtrl+C', click: () => setChatOpen(true, { now: true }) },
+      { type: 'separator' },
+      { role: 'minimize' },
+      { role: 'zoom' },
+      { type: 'separator' },
+      { role: 'front' },
+    ] },
   ]));
   app.setAboutPanelOptions({ credits: 'SmartDesktop is in beta, so it may change significantly from one version to the next.' });
-  tray = new Tray(nativeImage.createFromPath(resource('trayTemplate.png')));
-  updateTray();
+  updateDock();
   try {
     hub = await startHub({
       userData: app.getPath('userData'),
@@ -701,7 +730,7 @@ app.whenReady().then(async () => {
         apps.set(client.id, { client, windows: new Map() });
         // Its tabs are new (it started again, or SmartDesktop did): no chat owns any of them yet.
         for (const tabs of owned.values()) delete tabs[client.app];
-        updateTray();
+        updateDock();
         sendOwners(client.app);
         sendChatState();
       },
@@ -711,7 +740,7 @@ app.whenReady().then(async () => {
         for (const tabs of owned.values()) delete tabs[client.app];
         if (front?.clientId === client.id) front = null;
         if (lastFront?.clientId === client.id) lastFront = null;
-        updateTray();
+        updateDock();
         arrange();
         sendChatState();
       },
@@ -720,7 +749,8 @@ app.whenReady().then(async () => {
     // The port taken: another copy of the same build (the single instance lock stops that), or
     // another program.
     console.error(`SmartDesktop couldn’t listen on port ${HUB_PORT}:`, error.message);
-    tray.setToolTip(`${NAME} couldn’t start: port ${HUB_PORT} is taken by another program.`);
+    problem = `Couldn’t start: port ${HUB_PORT} is taken by another program`;
+    updateDock();
   }
   // The names of the chats in the chat window's tabs; a chat no longer there leaves its tab.
   for (const chatId of layout.columns.flatMap((c) => c.chats)) {
@@ -734,7 +764,7 @@ app.whenReady().then(async () => {
   if (!readSettings().setupSeen) openSetup();
 });
 
-// It keeps running with no windows: it lives in the menu bar.
+// It keeps running with no windows, in the Dock, ready to show the chat.
 app.on('window-all-closed', () => {});
 let quitting = false;
 app.on('before-quit', () => {

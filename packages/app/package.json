@@ -27,7 +27,6 @@
     "files": [
       "src/main/**/*",
       "build/renderer/**/*",
-      "resources/tray*.png",
       "package.json"
     ],
     "publish": [
@@ -54,10 +53,7 @@
           ]
         }
       ],
-      "category": "public.app-category.productivity",
-      "extendInfo": {
-        "LSUIElement": true
-      }
+      "category": "public.app-category.productivity"
     },
     "dmg": {
       "artifactName": "SmartDesktop-mac-${arch}.${ext}"

@@ -3,7 +3,7 @@
 The AI chat for [SmartDoc](https://github.com/tw050x/smartdoc) and
 [SmartSpec](https://github.com/tw050x/smartspec), run with your own AI.
 
-SmartDesktop is a Mac app that lives in the menu bar, with no Dock icon. Its one window is the
+SmartDesktop is a Mac app with an icon in the Dock: click it for the chat. Its one window is the
 chat: several chats in tabs, side by side in columns if you like, each a conversation of its own.
 SmartDoc and SmartSpec start it when you open the chat. It runs your own Claude (Claude Code) or
 ChatGPT (Codex), signed in with your own account on its maker's site, and gives it both apps' tools,
@@ -19,7 +19,7 @@ It's in beta, so it may change significantly from one version to the next.
 2. Open the chat from a SmartDoc or SmartSpec window: Window › Show the Chat (⇧⌘C), or Open Chat in
    a tab's right-click menu.
 3. Set up Claude or ChatGPT: the setup window opens the first time, and again from the chat or the
-   menu bar icon's **Set Up AI…**. It installs the AI's own command-line tool with its maker's
+   app menu's **Set Up AI…** (or the Dock icon's menu). It installs the AI's own command-line tool with its maker's
    installer and opens their sign-in page. SmartDesktop never sees your sign-in.
 
 ## How it works
@@ -32,7 +32,7 @@ It's in beta, so it may change significantly from one version to the next.
   its own AI (`claude -p` or `codex exec`) with every connected app's MCP server, acting on that
   chat's own tabs in the apps.
 - `packages/app/src/main/chat-layout.js`: the chat window's columns and the chats' tabs in them.
-- `packages/app/src/main/main.js`: the menu bar icon, the chat's window, and the setup and settings
+- `packages/app/src/main/main.js`: the Dock icon and its menu, the chat's window, and the setup and settings
   windows.
 - `packages/app/src/renderer`: the chat, setup and settings windows.
 
