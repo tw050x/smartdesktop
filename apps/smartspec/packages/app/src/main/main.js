@@ -833,21 +833,46 @@ async function acceptProposal(ctx, schemaId) {
   return 'accepted';
 }
 
-// A domain (a group in the store) goes, and its schemas go to No domain: asked first, as it can't be
-// had back.
+// A domain (a group in the store) goes, asked first, as it can't be had back. With schematics in it,
+// the choice is to delete them with it, or not yet, to move them elsewhere first (the user's choice:
+// moving them is cancelling, and done by hand; they used to go to No domain).
 async function deleteGroup(ctx, id) {
   const { groups } = await store.listGroups();
   const group = groups.find((one) => one.id === id);
   if (!group) return false;
+  const inside = (await store.list()).filter((row) => row.group === id);
+  if (!inside.length) {
+    const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+      type: 'warning',
+      message: `Delete the domain “${group.name}”?`,
+      detail: 'It has no schematics in it.',
+      buttons: ['Cancel', 'Delete'],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (response !== 1) return false;
+    await store.deleteGroup(id);
+    return true;
+  }
+  const count = inside.length === 1 ? 'its schematic' : `its ${inside.length} schematics`;
+  const names = inside.map((row) => `“${row.name}”`);
+  const and = (list) => (list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`);
+  const listed = names.length <= 5 ? and(names) : `${names.slice(0, 4).join(', ')} and ${names.length - 4} more`;
+  // Schematics elsewhere that embed these show them as no longer available afterwards.
+  const embedders = await store.embeddersOf(inside.map((row) => row.id)).catch(() => []);
+  const embedded = embedders.length
+    ? ` ${and(embedders.map((one) => `“${one.name}”`))} ${embedders.length === 1 ? 'embeds' : 'embed'} ${inside.length === 1 ? 'it' : 'some of them'}, and will show ${inside.length === 1 ? 'it' : 'them'} as no longer available.`
+    : '';
   const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
     type: 'warning',
-    message: `Delete the domain “${group.name}”?`,
-    detail: group.schemas ? `Its ${group.schemas === 1 ? 'schematic moves' : `${group.schemas} schematics move`} to No domain. Nothing in them changes.` : 'It has no schematics in it.',
-    buttons: ['Cancel', 'Delete'],
+    message: `Delete the domain “${group.name}” and ${count}?`,
+    detail: `${listed} ${inside.length === 1 ? 'is' : 'are'} deleted with it: drafts, proposals and comments too. This can't be undone.${embedded} To keep ${inside.length === 1 ? 'it' : 'them'}, move ${inside.length === 1 ? 'it' : 'them'} to another domain first.`,
+    buttons: ['Move Schematics Elsewhere', 'Delete Domain and Schematics'],
     defaultId: 0,
     cancelId: 0,
   });
   if (response !== 1) return false;
+  for (const row of inside) await store.deleteSchema(row.id);
   await store.deleteGroup(id);
   return true;
 }

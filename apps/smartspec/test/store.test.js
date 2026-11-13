@@ -555,6 +555,27 @@ describe('domains (groups in the store)', () => {
     await assert.rejects(store.moveSchema(schema, team.id), /no domain/);
   });
 
+  test('a domain can go with its schemas: they and their proposals go, and what embeds them is named', async () => {
+    const store = newStore();
+    const team = await store.createGroup('Auth');
+    const keys = await accepted(store, { name: 'Keys', groupId: team.id });
+    const login = await store.propose(proposal({ name: 'Login', groupId: team.id }));
+    const billing = await accepted(store, { name: 'Billing', uses: [{ id: 'keys', schemaId: keys.schema }] });
+    const outside = await accepted(store, { name: 'Other' });
+    assert.deepEqual(await store.embeddersOf([keys.schema, login.schema]), [{ id: billing.schema, name: 'Billing', embeds: [keys.schema] }]);
+    const proposalId = login.proposal;
+    await store.deleteSchema(keys.schema);
+    await store.deleteSchema(login.schema);
+    await store.deleteGroup(team.id);
+    assert.deepEqual((await store.list()).map((one) => one.name).sort(), ['Billing', 'Other']);
+    assert.equal((await store.proposalOutcome(proposalId))?.outcome, 'discarded');
+    // What embedded one shows it as no longer there.
+    const shown = await store.getSchema(billing.schema);
+    assert.equal(shown.uses[0].missing, true);
+    await assert.rejects(store.deleteSchema(keys.schema));
+    assert.ok(outside.schema);
+  });
+
   test('a new schema can be proposed straight into a group', async () => {
     const store = newStore();
     const group = await store.createGroup('Auth');

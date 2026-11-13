@@ -433,6 +433,35 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       });
     },
 
+    // A schema goes, with its drafts, proposal and comments (the user deleting its domain with it): an
+    // AI waiting on its proposal hears it was discarded. Where another embeds it, it shows as no longer
+    // available (see describeUse).
+    deleteSchema(schemaId) {
+      return serial(async () => {
+        await requireSchema(schemaId);
+        const proposal = await readProposal(schemaId);
+        await rm(schemaDir(schemaId), { recursive: true, force: true });
+        if (proposal) await recordOutcome(proposal, 'discarded', schemaId);
+        finished(schemaId, proposal?.id);
+        return { deleted: schemaId };
+      });
+    },
+
+    // The schemas not in `ids` whose latest draft or proposal embeds one of them: [{ id, name, embeds }].
+    async embeddersOf(ids) {
+      const inside = new Set(ids);
+      const out = [];
+      for (const row of await this.list()) {
+        if (inside.has(row.id)) continue;
+        const schema = await readSchema(row.id);
+        const latest = schema?.line.at(-1);
+        const records = [latest && (await readDraft(row.id, latest)), await readProposal(row.id)].filter(Boolean);
+        const embeds = [...new Set(records.flatMap((record) => (record.uses ?? []).map((use) => use.schemaId)).filter((id) => inside.has(id)))];
+        if (embeds.length) out.push({ id: row.id, name: row.name, embeds });
+      }
+      return out;
+    },
+
     // Puts a schema in a group, or in none (null). Only the list changes, so it isn't a change to the
     // schema, and doesn't make it the most recently changed.
     moveSchema(schemaId, groupId) {
