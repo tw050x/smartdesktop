@@ -434,7 +434,8 @@ export function createChatPanel({ el, api, chatId }) {
     return list.filter((message) => message.role !== 'assistant' || message.text?.trim()).map((message) => {
       const node = div(`chat-message ${message.role}${message.kind ? ` ${message.kind}` : ''}`);
       if (message.role === 'assistant') node.append(...formatted(message.text));
-      else if (message.role === 'step' || message.role === 'event') node.textContent = message.text;
+      else if (message.role === 'event') eventLine(node, message);
+      else if (message.role === 'step') node.textContent = message.text;
       else for (const paragraph of message.text.split(/\n{2,}/)) node.append(div('chat-paragraph', paragraph));
       // The AI's session for the conversation has gone: while that's the latest thing, a way to
       // start a new one (the user may fix it instead, and send again).
@@ -452,6 +453,20 @@ export function createChatPanel({ el, api, chatId }) {
       }
       return node;
     });
+  }
+
+  // A line of context or where things went, always one line: what doesn't fit ends in "…", whole
+  // on hover. Where a tab went (or a new session) is drawn across the conversation, between rules;
+  // what the user did in it is a plain line with its verb's icon (see ACTION_ICONS).
+  function eventLine(node, message) {
+    const text = div('chat-event-text', message.text);
+    node.title = message.text;
+    if (message.kind === 'context' && !isMove(message)) {
+      node.classList.add('action');
+      const icon = div('chat-event-icon');
+      icon.innerHTML = actionIcon(message.text);
+      node.append(icon, text);
+    } else node.append(text);
   }
 
   showChoice();
@@ -521,6 +536,21 @@ function inline(text) {
   if (at < text.length) nodes.push(document.createTextNode(text.slice(at)));
   return nodes;
 }
+
+// Lines saved before moves were marked as such (`move`), known by how they start.
+const isMove = (message) => message.move || /^(Opened |Went home|Reviewing the proposed)/.test(message.text);
+
+// The icon for what the user did, by the verb its line starts with (Lucide's, ISC); a dot otherwise.
+const ICON = (paths) => `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const ACTION_ICONS = [
+  [/^(Accepted|Approved|Answered|Acknowledged|Chose|Decided)\b/, ICON('<path d="M20 6 9 17l-5-5"/>')],
+  [/^(Rejected|Discarded)\b/, ICON('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>')],
+  [/^Skipped\b/, ICON('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>')],
+  [/^Looking at\b/, ICON('<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>')],
+  [/^Commented on\b/, ICON('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>')],
+  [/^Took back\b/, ICON('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>')],
+];
+const actionIcon = (text) => ACTION_ICONS.find(([verb]) => verb.test(text))?.[1] ?? ICON('<circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>');
 
 function div(className, text) {
   const node = document.createElement('div');

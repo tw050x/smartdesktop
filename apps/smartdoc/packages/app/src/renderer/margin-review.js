@@ -182,7 +182,9 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   function noteDecision(cur, decision, choice = null) {
     if (!decision?.status) return;
     const verb = choice ? `Chose “${choice}” for` : cur.item?.kind === 'question' && decision.status === 'rejected' ? 'Skipped' : DECIDED[decision.status] ?? 'Decided';
-    onNote({ text: `${verb} “${cur.title}”`, detail: `${verb} the ${cur.label.toLowerCase()} “${cur.title}” (${cur.type ?? 'finding'} ${cur.id})${decision.edited ? `, with my own wording: “${decision.edited}”` : ''}${decision.answer ? `, answering: “${decision.answer}”` : ''}` });
+    // The chat's line is one line, so a long option is shortened there, the finding's title after it.
+    const text = choice ? `Chose “${clip(choice, 32)}” · “${cur.title}”` : `${verb} “${cur.title}”`;
+    onNote({ text, detail: `${verb} the ${cur.label.toLowerCase()} “${cur.title}” (${cur.type ?? 'finding'} ${cur.id})${decision.edited ? `, with my own wording: “${decision.edited}”` : ''}${decision.answer ? `, answering: “${decision.answer}”` : ''}` });
   }
 
   function openCard(id) {
@@ -1012,6 +1014,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   };
 }
 
+// Text cut to `max` characters at a word, with an ellipsis, if it's longer.
+const clip = (text, max) => (text.length <= max ? text : `${text.slice(0, max).replace(/\s+\S*$/, '')}…`);
 const quoteOf = (anchors) => anchors.map((a) => a.text.replace(/\s+/g, ' ')).join(' … ');
 
 // A see-through version of a #rrggbb colour.
