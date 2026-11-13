@@ -68,7 +68,8 @@ contextBridge.exposeInMainWorld('smartdoc', {
   variationsOf: (docId) => call('variations-of', docId),
   focusesFor: (docId, variationId, draftId, type) => call('focuses-for', docId, variationId, draftId, type),
   prepareDraft: (docId, variationId, draftId, tool) => call('prepare-draft', docId, variationId, draftId, tool),
-  openDraft: (docId, variationId, draftId, tool) => call('open-draft', docId, variationId, draftId, tool),
+  // `{ preview: true }` opens its draft preview too, in the tab it opens in.
+  openDraft: (docId, variationId, draftId, tool, options) => call('open-draft', docId, variationId, draftId, tool, options),
   showDraftMenu: (draft) => call('draft-menu', draft),
   // The preview of the next draft (the AI writes it; only the user makes it a draft).
   openPreview: () => call('open-preview'),

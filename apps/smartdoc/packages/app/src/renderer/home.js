@@ -807,8 +807,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       if (!preview) continue;
       const item = el('li', 'home-item home-draft home-preview');
       const row = rowButton(false, async () => {
-        await api.openDraft(tree.id, variation.id, d.id, 'improve');
-        await api.openPreview();
+        await api.openDraft(tree.id, variation.id, d.id, 'improve', { preview: true });
       }, openIcon);
       row.title = `Open the draft preview written from ${d.label}`;
       const head = el('span', 'home-title-row');

@@ -405,9 +405,10 @@ export function createDemoApi() {
     focusesFor: async () => ({ current: [], earlier: [] }),
     prepareDraft: async () => {},
     // A draft chosen in the top bar's list (draft-picker.js).
-    openDraft: async (_docId, _variationId, draftId) => {
+    openDraft: async (_docId, _variationId, draftId, _tool, { preview = false } = {}) => {
       const n = DRAFTS.findIndex((d) => d.id === draftId);
       if (n !== -1 && n <= state.made) await showDraft(n);
+      if (preview) await showPreview(state.made + 1);
     },
     showDraftMenu: async () => {},
     showDocumentMenu: async () => {},

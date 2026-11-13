@@ -395,7 +395,7 @@ async function moveToTab(home) {
   const doc = home.workspace.document;
   if (!doc) return;
   home.moving = (async () => {
-    const at = { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: home.workspace.tool, preview: home.workspace.previewing };
+    const at = { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: home.workspace.tool, preview: home.workspace.previewing || Boolean(home.openPreviewNext) };
     const { session } = home;
     // A chat's AI gets a tab of its own, even with the document open in another (the same document
     // can be open in several tabs, each a different chat's); the user, the tab showing it that no
@@ -1260,11 +1260,23 @@ handle('variations-of', (docId) => (workspace.isRecent(docId) ? workspace.variat
 handle('focuses-for', (docId, variationId, draftId, type) => (workspace.isRecent(docId) ? workspace.focusesFor(docId, variationId, draftId, type) : null));
 handle('prepare-draft', (docId, variationId, draftId, tool) => (workspace.isRecent(docId) ? workspace.prepareDraft(docId, variationId, draftId, tool) : null));
 // Another draft of the tab's document opens in the tab; another document, from Home, in its own.
-handle('open-draft', async (docId, variationId, draftId, tool) => {
+// `preview`: then its draft preview, wherever the document opens (Home hands it to a tab of its own
+// as it opens it, so asking for the preview afterwards reached Home, which no longer had it).
+handle('open-draft', async (docId, variationId, draftId, tool, { preview = false } = {}) => {
   if (!workspace.isRecent(docId)) return;
-  if (current().home || workspace.document?.id === docId) return workspace.openDraft(docId, variationId, draftId, tool);
-  const home = homeOf();
-  await context.run(home, () => home.workspace.openDraft(docId, variationId, draftId, tool));
+  const here = current();
+  if (!here.home && workspace.document?.id === docId) {
+    await workspace.openDraft(docId, variationId, draftId, tool);
+    if (preview) await workspace.openPreview();
+    return;
+  }
+  const home = here.home ? here : homeOf();
+  home.openPreviewNext = Boolean(preview);
+  try {
+    await context.run(home, () => home.workspace.openDraft(docId, variationId, draftId, tool));
+  } finally {
+    home.openPreviewNext = false;
+  }
 });
 // A draft's right-click menu on the home screen: a new variation from it (the window's variation
 // card), a new document from it, or deleting it (not the original, or a draft another variation
