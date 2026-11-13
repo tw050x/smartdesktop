@@ -12,6 +12,7 @@ import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { createDesktop } from './desktop.js';
 import { iconFor } from './icons.js';
 import { createItemIcons } from './item-icons.js';
+import { firstTodo, todoOf } from '../renderer/home-review-state.js';
 import { readPdfText } from './pdf-text.js';
 import { createTabDrag } from './tab-drag.js';
 import { READ_ONLY } from './mcp-tools.js';
@@ -425,7 +426,7 @@ async function moveToTab(home) {
 const itemIcons = createItemIcons(app.getPath('userData'), {
   onChange: () => {
     sendAllTabs();
-    broadcast('recent-documents', withIcons(shared.recent));
+    broadcastRecent();
   },
 });
 const tabIcon = (ctx) => {
@@ -478,7 +479,27 @@ const broadcast = (channel, value) => {
 // The home screen's documents, each with where it stands in each tool.
 // Each with its icon (see icons.js): its own, or the guess from its name.
 const withIcons = (list) => list.map((r) => ({ ...r, icon: iconFor(itemIcons.get(r.id), r.name, 'file-text') }));
-const recentForWindow = async () => withIcons(shared.recent);
+// Home's documents, each with what it waits on the user for (`todo`: a draft preview, or what a
+// review needs), for its pill there and its folder's (see home-review-state.js).
+async function todoOfDocument(docId) {
+  const each = [...windows.values()][0]?.workspace;
+  if (!each) return null;
+  try {
+    const { variations } = await each.variationsOf(docId);
+    return firstTodo(variations.map((v) => todoOf(v.drafts)));
+  } catch {
+    return null;
+  }
+}
+const recentForWindow = async () => Promise.all(withIcons(shared.recent).map(async (r) => ({ ...r, todo: await todoOfDocument(r.id) })));
+const broadcastRecent = async () => broadcast('recent-documents', await recentForWindow());
+// A review saved anywhere can change what home's documents wait on: told shortly after (a burst of
+// saves, once).
+let recentSoon = null;
+const broadcastRecentSoon = () => {
+  clearTimeout(recentSoon);
+  recentSoon = setTimeout(broadcastRecent, 300);
+};
 const MENU_RECENT = 10; // File › Open Recent; the home screen lists them all
 
 // What the window shows, for the chat in SmartDesktop: what it moves to (a document, another draft or
@@ -571,8 +592,9 @@ shared.events.on('renamed', (docId) => {
   }
   sendAllTabs();
 });
+shared.events.on('review', broadcastRecentSoon);
 shared.events.on('recent', () => {
-  broadcast('recent-documents', withIcons(shared.recent));
+  broadcastRecent();
   updateMenuFor(lastFocused);
 });
 

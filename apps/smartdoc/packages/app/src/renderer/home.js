@@ -11,6 +11,10 @@
 // dragging onto a folder, the path or the list, where hovering over a folder or the back arrow
 // opens it on the way; or by Cut and Paste. Folders only organise the list (see main/folders.js).
 //
+// What waits on the user shows as a pill: on a draft, what its review needs (Decide, Apply), and a
+// draft preview waiting as a row of its own at the top of the drafts; on a variation, a document and
+// a folder, the most pressing of what's in it, a draft preview first (home-review-state.js).
+//
 // Documents, variations and drafts can have labels the user defines, at the bottom of their rows:
 // right-click an item to add one, typing a name or choosing one of its scope, and right-click a label
 // for its color. Labels show on everything below the item they're on (see main/labels.js).
@@ -20,7 +24,7 @@ import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
 import { levelOf } from './home-level.js';
-import { actionFor } from './home-review-state.js';
+import { actionFor, firstTodo, todoOf } from './home-review-state.js';
 import { LABEL_COLORS, NO_LABELS, labelsOn, labelsToChoose } from '../main/labels.js';
 import { arrowKeysIn } from './menu-keys.js';
 
@@ -346,6 +350,23 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
   const folderById = (id) => folderState.folders.find((f) => f.id === id);
   const foldersIn = (parentId) => folderState.folders.filter((f) => (f.parentId ?? null) === parentId).sort((a, b) => a.name.localeCompare(b.name));
   const documentsIn = (folderId) => documents.filter((d) => folderOf(d.id) === folderId);
+  // What a folder's documents wait on the user for, at any depth (see todoOf).
+  const todoInFolder = (folderId, seen = new Set()) => {
+    if (seen.has(folderId)) return null;
+    seen.add(folderId);
+    return firstTodo([...documentsIn(folderId).map((d) => d.todo), ...foldersIn(folderId).map((f) => todoInFolder(f.id, seen))]);
+  };
+  // A title with the pill saying what it waits on the user for, beside it or under it if it doesn't fit.
+  const titleWith = (title, todo) => {
+    const head = el('span', 'home-title-row');
+    head.append(title);
+    if (todo) {
+      const pills = el('span', 'home-pills');
+      pills.append(el('span', 'home-pill', todo));
+      head.append(pills);
+    }
+    return head;
+  };
   function pathTo(folderId) {
     const path = [];
     const seen = new Set();
@@ -640,7 +661,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     name.innerHTML = folderIcon;
     name.append(el('span', null, f.name));
     const count = foldersIn(f.id).length + documentsIn(f.id).length;
-    row.append(name, el('span', 'home-meta', count ? `${count} item${count === 1 ? '' : 's'}` : 'Empty'));
+    row.append(titleWith(name, todoInFolder(f.id)), el('span', 'home-meta', count ? `${count} item${count === 1 ? '' : 's'}` : 'Empty'));
     row.title = f.name;
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -678,7 +699,9 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
       documentsEl.append(el('li', 'home-empty', shownFolder ? 'This folder is empty. Drag documents here, or right-click to paste.' : 'No documents yet. Drop a PDF here, or use File › Open.'));
       return;
     }
-    for (const i of shown) documentsEl.append(i.kind === 'folder' ? folderRow(folderById(i.id)) : documentRow(i));
+    // A document's row from the document itself (its icon, what it waits on), not the level's entry.
+    const byId = new Map(documents.map((d) => [d.id, d]));
+    for (const i of shown) documentsEl.append(i.kind === 'folder' ? folderRow(folderById(i.id)) : documentRow(byId.get(i.id) ?? i));
   }
 
   function documentRow(d) {
@@ -691,7 +714,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
     const icon = el('span', 'home-doc-icon');
     icon.innerHTML = iconSvg(d.icon ?? 'file-text', 15);
     title.append(icon, document.createTextNode(d.name));
-    row.append(title, el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
+    row.append(titleWith(title, d.todo), el('span', 'home-meta', `Added ${formatDate(d.importedAt)}`));
     const labelled = labelsRow([d.id]);
     if (labelled) row.append(labelled);
     row.title = d.name;
@@ -753,7 +776,7 @@ export function createHome({ documentsEl, variationsEl, draftsEl, api }) {
         renderVariations();
         renderDrafts();
       });
-      row.append(el('span', 'home-title', v.name));
+      row.append(titleWith(el('span', 'home-title', v.name), todoOf(v.drafts)));
       if (v.purpose && v.purpose !== v.name) row.append(el('span', 'home-purpose', v.purpose));
       const count = v.drafts.length - 1;
       row.append(el('span', 'home-meta', [count ? `${count} draft${count === 1 ? '' : 's'}` : 'No drafts yet', v.from && `from ${v.from}`].filter(Boolean).join(' · ')));
