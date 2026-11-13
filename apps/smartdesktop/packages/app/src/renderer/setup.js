@@ -2,7 +2,7 @@ import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgre
 
 // The setup window (see main.js): the AIs the chat runs, a row each with its name, where it stands
 // and the one thing to do next, installed with its maker's own installer and signed in to in the
-// browser. It opens the first time SmartDesktop runs, from the menu bar icon's Set Up AI…, and from
+// browser. It opens the first time SmartDesktop runs, from the app menu's (or the Dock icon's) Set Up AI…, and from
 // the chat when the AI chosen there isn't ready. (It was the AI half of each app's status panel.)
 const api = window.smartdesktop;
 document.body.classList.add(`platform-${api.platform}`);
