@@ -675,6 +675,9 @@ async function offerMoveToApplications(ctx) {
 // --- Updates -----------------------------------------------------------------------------
 
 const updates = createUpdates({ report: (status) => broadcast('updates', status) });
+// As the app quits, an AI waiting on the user (`wait`) is told, and whether it's restarting to
+// install an update, so it carries on once the app is back rather than thinking it's gone.
+app.on('before-quit', () => mcp?.endWaits(updates.restarting));
 
 // --- The chat, in SmartDesktop (see desktop.js) -----------------------------------------------
 // The AI chat is SmartDesktop's, an app of its own, for SmartDoc and SmartSpec both: one chat
@@ -928,7 +931,11 @@ handle('copy-mcp-setup', async (_ctx, target) => clipboard.writeText(await mcpSe
 handle('claude-desktop-status', () => claudeDesktopStatus());
 handle('add-to-claude-desktop', (ctx) => confirmAddToClaudeDesktop(ctx));
 handle('get-updates', () => updates.status);
-handle('install-update', () => updates.install());
+handle('install-update', () => {
+  // The waits are told before the windows close (macOS quits the app only once they have).
+  if (updates.status.state === 'ready') mcp?.endWaits(true);
+  return updates.install();
+});
 // The chat, in SmartDesktop (see desktop.js): the window's chat button, where the window is (the line
 // for the chat when that changes, and what the AI is told), the shortcuts and the hint it offers,
 // lines of context, and requests for the AI.

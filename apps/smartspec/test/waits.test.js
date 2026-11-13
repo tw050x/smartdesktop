@@ -90,7 +90,7 @@ describe('waiting for a proposal', () => {
 
 describe('the wait command', () => {
   // A stand-in for the app, answering as `answer` says.
-  async function run(args, answer) {
+  async function run(args, answer, options = {}) {
     const dir = mkdtempSync(path.join(temp, 'data-'));
     writeFileSync(path.join(dir, 'mcp-token'), 'secret');
     const bodies = [];
@@ -102,7 +102,7 @@ describe('the wait command', () => {
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const lines = [];
-    const code = await wait(args, { env: { SMARTSPEC_PORT: String(server.address().port), SMARTSPEC_USER_DATA: dir }, out: (t) => lines.push(t), err: (t) => lines.push(t) });
+    const code = await wait(args, { env: { SMARTSPEC_PORT: String(server.address().port), SMARTSPEC_USER_DATA: dir }, out: (t) => lines.push(t), err: (t) => lines.push(t), retryMs: 10, ...options });
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     return { code, lines, bodies };
@@ -124,6 +124,31 @@ describe('the wait command', () => {
     const { code, lines } = await run(['proposal', '--id', 'p1'], (res) => res.writeHead(404).end('{"error":"There\'s no proposal p1."}'));
     assert.equal(code, EXIT.refused);
     assert.deepEqual(lines, ["There's no proposal p1."]);
+  });
+
+  test('carries on through a restart to install an update, saying so', async () => {
+    let n = 0;
+    const { code, lines, bodies } = await run(['proposal', '--id', 'p1'], (res) => {
+      if (n++ === 0) return res.writeHead(503).end('{"restarting":true,"error":"SmartSpec is restarting"}');
+      res.writeHead(200).end('{"event":"proposal-accepted"}');
+    });
+    assert.equal(code, EXIT.happened);
+    assert.match(lines[0], /restarting to install an update/);
+    assert.equal(lines.at(-1), '{"event":"proposal-accepted"}');
+    assert.equal(bodies.length, 2);
+  });
+
+  test('gives up when a restarting app doesn’t come back', async () => {
+    // The stand-in keeps answering "restarting", so the wait gives up once its time is up.
+    const { code, lines } = await run(['proposal', '--id', 'p1'], (res) => res.writeHead(503).end('{"restarting":true}'), { restartWaitMs: 100 });
+    assert.equal(code, EXIT.noApp);
+    assert.match(lines.at(-1), /hasn’t come back/);
+  });
+
+  test('says when the app has quit, as it tells the wait', async () => {
+    const { code, lines } = await run(['proposal', '--id', 'p1'], (res) => res.writeHead(503).end('{"quit":true,"error":"SmartSpec has quit. Ask the user to open it."}'));
+    assert.equal(code, EXIT.noApp);
+    assert.match(lines.at(-1), /has quit/);
   });
 
   test('refuses a wrong command', async () => {
