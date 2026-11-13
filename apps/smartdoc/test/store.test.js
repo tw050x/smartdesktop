@@ -304,3 +304,19 @@ describe('windows on the same document', () => {
     assert.equal((await createStore(root).loadReview(id, store.ORIGINAL, review.id)).summary, 'save 19');
   });
 });
+
+describe('converted files', () => {
+  test('a Word document opens as the PDF made from it, its original and report kept beside it', async () => {
+    const { convert, describeReport } = await import('../packages/pdf/index.js');
+    const source = path.join(root, 'Cover letter.docx');
+    await writeFile(source, await readFile(new URL('../packages/pdf/test/fixtures/docx/letter.docx', import.meta.url)));
+    const { pdf, kind, report } = await convert(await readFile(source), { name: 'Cover letter.docx' });
+    const doc = await store.importDocument(source, { converted: { pdf: Buffer.from(pdf), kind, report, notes: describeReport(report) ?? [] } });
+    assert.equal(doc.name, 'Cover letter.pdf');
+    assert.deepEqual(doc.convertedFrom, { name: 'Cover letter.docx', kind: 'docx', notes: [] });
+    const draft = await readFile(store.draftPdfPath(doc.id, ORIGINAL));
+    assert.equal(draft.subarray(0, 5).toString('latin1'), '%PDF-');
+    assert.deepEqual(await readFile(store.originalPath(doc)), await readFile(source), 'the original is kept as it was');
+    assert.equal((await store.loadDocument(doc.id)).convertedFrom.kind, 'docx', 'and the document remembers it');
+  });
+});

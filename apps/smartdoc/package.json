@@ -7,7 +7,8 @@
   "type": "module",
   "workspaces": [
     "packages/app",
-    "packages/cli"
+    "packages/cli",
+    "packages/pdf"
   ],
   "scripts": {
     "build": "npm run build -w @smartdoc/app",

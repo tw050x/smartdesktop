@@ -1,0 +1,33 @@
+{
+  "name": "@smartdoc/pdf",
+  "version": "0.18.2",
+  "description": "Turns documents into PDFs with no other program and no dependencies: Word, Excel and PowerPoint files laid out by its own engines, images, text and Markdown. PDFs pass straight through. Experimental.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "formats/",
+    "fonts/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tw050x/smartdoc.git",
+    "directory": "packages/pdf"
+  },
+  "homepage": "https://smartdoc.tw050x.net/",
+  "keywords": [
+    "pdf",
+    "docx",
+    "xlsx",
+    "pptx",
+    "convert"
+  ]
+}

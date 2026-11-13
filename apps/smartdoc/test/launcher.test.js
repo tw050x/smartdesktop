@@ -33,9 +33,10 @@ async function serve(handler) {
 }
 
 describe('versions', () => {
-  test('the app and the launcher are released together, so share one version', () => {
+  test('the app, the launcher and the converter are released together, so share one version', () => {
     const read = (file) => JSON.parse(readFileSync(path.join(root, file), 'utf8')).version;
     assert.equal(read('packages/cli/package.json'), read('packages/app/package.json'));
+    assert.equal(read('packages/pdf/package.json'), read('packages/app/package.json'));
   });
 });
 

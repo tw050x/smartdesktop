@@ -276,6 +276,9 @@ export function createWorkspace(shared) {
       draft: number === 0 ? 'Original' : `Draft ${number} of ${newest}`,
       ...(number < newest && { notNewest: `Draft ${newest} is the newest draft of this variation. This older draft can be read, but not improved: to work on it, ask the user whether to fork it into a new variation or a new document.` }),
       ...(doc.createdFrom && { createdFrom: { id: doc.createdFrom.id, name: doc.createdFrom.name, draft: doc.createdFrom.draft } }),
+      // A document SmartDoc made from another file (a Word document, say): what it was, and what
+      // didn't come out as it is. Its original is kept, but only the PDF is reviewed and redrafted.
+      ...(doc.convertedFrom && { convertedFrom: { name: doc.convertedFrom.name, kind: doc.convertedFrom.kind, ...(doc.convertedFrom.notes?.length && { notes: doc.convertedFrom.notes }), note: 'SmartDoc turned this file into the PDF shown (an experimental feature), so its layout may differ from the original in places.' } }),
     };
   };
 
@@ -464,9 +467,10 @@ export function createWorkspace(shared) {
       await saveRecent();
     },
 
-    // Opening a file always imports it as a new document.
-    async importAndOpen(sourcePath) {
-      const imported = await store.importDocument(sourcePath);
+    // Opening a file always imports it as a new document (`converted`: the PDF made from a file
+    // that isn't one, see convert.js).
+    async importAndOpen(sourcePath, { converted = null } = {}) {
+      const imported = await store.importDocument(sourcePath, { converted });
       if (homeFolder && shared.folders.folders.some((f) => f.id === homeFolder)) await changeFolders(folders.moveDocument(shared.folders, imported.id, homeFolder));
       await this.openDocument(imported.id);
       return imported;

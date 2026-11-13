@@ -2,6 +2,7 @@
 // the chat): the native one is hidden, and this one is a thin thumb drawn over the scrolling area's
 // right edge with no track, shown only when there's something to scroll. Hovering its strip for a
 // moment widens the thumb; it narrows on leaving, and stays wide while dragged (see .scrollbar).
+// It can show marks along its strip, over the thumb (`update.marks(list)`, see below).
 
 const THUMB_MIN = 32;
 
@@ -24,6 +25,26 @@ export function customScrollbar({ scrollbarEl, scrollers, scroller, watch }) {
     thumbEl.style.height = `${height}px`;
     thumbEl.style.transform = `translateY(${top}px)`;
   }
+
+  // Marks along the strip: [{ at, color, bright }], `at` the fraction of the scrolling content's
+  // height where each is (so a mark is inside the thumb while what it marks is in view), drawn in
+  // its colour, faded unless bright. The page's review gives its cards' (see margin-review.js).
+  const marksEl = document.createElement('div');
+  marksEl.className = 'scrollbar-marks';
+  scrollbarEl.append(marksEl);
+  let lastMarks = '';
+  update.marks = (list) => {
+    const key = JSON.stringify(list);
+    if (key === lastMarks) return;
+    lastMarks = key;
+    marksEl.replaceChildren(...[...list].sort((a, b) => a.bright - b.bright).map(({ at, color, bright }) => {
+      const mark = document.createElement('div');
+      mark.className = `scrollbar-mark${bright ? ' bright' : ''}`;
+      mark.style.top = `${Math.min(1, Math.max(0, at)) * 100}%`;
+      mark.style.setProperty('--mark-color', color);
+      return mark;
+    }));
+  };
 
   for (const el of scrollers) el.addEventListener('scroll', update, { passive: true });
   const observer = new ResizeObserver(update);

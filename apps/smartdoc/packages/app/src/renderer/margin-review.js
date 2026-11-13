@@ -58,11 +58,13 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // elements; `bar` is the bar under the pages. `onMarks` is given what to draw on the page:
 // { items: [{ id, anchors, tint, strong }], focus: [ids], veil } (see overlays.js).
 // `onReveal(anchors)` scrolls text into view; `onClearFilter` is called to show every deck again.
-// `onOpenItem(id)` says an item was opened beside the pages (the chat opens with it); `onNote(note)`
-// gives the chat a line of context for the AI, about what the user looked at or decided ({ text,
-// detail, focus, about }: see note in main/agent.js); `onSuggestion(next)` gives the chat what to
-// ask the AI next ({ what, label, prompt, waiting }), or null; `onChange()` says the review redrew.
-export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onOpenItem = () => {}, onNote = () => {}, onSuggestion, onChange, onClearFilter }) {
+// `onNote(note)` gives the chat a line of context for the AI, about what the user looked at or
+// decided ({ text, detail, focus, about }: see note in main/agent.js); `onSuggestion(next)` gives
+// the chat what to ask the AI next ({ what, label, prompt, waiting }), or null; `onChange()` says the review redrew.
+// `onTrack(marks)` gives where the cards are, for the scrollbar: [{ y, color, bright }], `y` in
+// layer coordinates, bright while one still needs answering (a finding not decided, a comment the
+// AI hasn't answered), faded once it has been or needs nothing.
+export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onNote = () => {}, onTrack = () => {}, onSuggestion, onChange, onClearFilter }) {
   let state = { document: null, review: null, earlier: [], tool: 'improve', view: 'document', filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
   let focused = null; // the id of the item open beside the pages: it stands out on the page
   let iconOnly = false; // the gutters are too narrow for more than the kinds' icons
@@ -98,7 +100,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       return {
         id: item.id, type: 'finding', item, side: kind.side, anchors: item.anchors,
         label: kind.label, color: kind.color, title: item.title,
-        decidable: true, decided: item.decision.status !== 'pending',
+        decidable: true, decided: item.decision.status !== 'pending', open: item.decision.status === 'pending',
         status: committed ? findingStatus(item) : 'Waiting for the AI',
       };
     });
@@ -115,7 +117,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       const responded = request.replies?.length || review.items.some((i) => i.inResponseTo === request.id);
       return {
         id: request.id, type: 'comment', request, side: 'r', anchors: request.anchors,
-        ...COMMENT, title: request.note, decidable: false, decided: done, done,
+        ...COMMENT, title: request.note, decidable: false, decided: done, done, open: !done && !responded,
         status: done ? request.outcome ?? 'No further action required'
           : request.outcome ?? (responded ? 'Your AI responded' : state.preview ? 'For your AI to change' : committed ? 'For the next draft' : 'For your AI'),
       };
@@ -189,7 +191,6 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     render();
     if (!item) return;
     if (item.anchors.length) onReveal(item.anchors);
-    onOpenItem(id);
     onNote({
       text: `Looking at “${item.title}”`,
       detail: `Looking at the ${item.label.toLowerCase()} “${item.title}” (${item.type} ${item.id}) in the review on screen`,
@@ -422,7 +423,17 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     renderBar();
     onSuggestion?.(suggestion);
     sendMarks();
+    onTrack(trackMarks());
     onChange?.();
+  }
+
+  // Where each card's text is, for the scrollbar; none while the pages aren't what scrolls.
+  function trackMarks() {
+    if (state.comparing || state.view === 'list') return [];
+    return shown.filter((i) => i.anchors.length).flatMap((i) => {
+      const y = i.y ?? lineTop(i.anchors);
+      return y == null ? [] : [{ y, color: i.color, bright: Boolean(i.open) }];
+    });
   }
 
   function deckElements(deck, geo, width) {

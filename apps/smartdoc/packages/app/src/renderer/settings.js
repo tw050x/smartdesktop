@@ -1,6 +1,7 @@
 // Settings: a modal in the window, opened from the SmartDoc menu (Settings…, ⌘,). Closes with its close button,
 // Escape, or a click outside it. Holds the app's Appearance: as the system is, light or dark,
-// applied at once (main.js keeps it); and the app's version. Its updates show in the update toast
+// applied at once (main.js keeps it); its experimental features, off until turned on; and the
+// app's version. Its updates show in the update toast
 // (update-toast.js), and the app menu's Check for Updates… looks for one now.
 
 export function createSettings({ dialog, api }) {
@@ -14,6 +15,12 @@ export function createSettings({ dialog, api }) {
     });
   }
 
+  // Experimental features (main.js keeps them), shown as they are each time Settings opens.
+  const convert = dialog.querySelector('#experimental-convert');
+  const showExperimental = () => api.getExperimental?.().then((x) => (convert.checked = Boolean(x?.convert)));
+  convert.addEventListener('change', () => api.setExperimental('convert', convert.checked));
+  showExperimental();
+
   // The version (updates show in the update toast, update-toast.js).
   const version = dialog.querySelector('#update-version');
   const showVersion = (u) => u?.version && (version.textContent = `SmartDoc ${u.version}`);
@@ -24,6 +31,7 @@ export function createSettings({ dialog, api }) {
   api.onShowSettings(() => {
     if (dialog.open) return;
     api.getAppearance().then(show); // as it is now, wherever it was last set
+    showExperimental();
     dialog.showModal();
     dialog.focus();
   });

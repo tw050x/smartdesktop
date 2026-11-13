@@ -336,6 +336,8 @@ export function createDemoApi() {
     onShowSettings: () => {}, // the demo has no menu, so Settings never opens
     copyText: async () => {},
     getAppearance: async () => 'system',
+    getExperimental: async () => ({ convert: false }),
+    setExperimental: async () => {},
     setAppearance: async () => {},
 
     // --- The chat (the app's window and the chat's) ---
@@ -356,9 +358,6 @@ export function createDemoApi() {
     chatToggle: async () => {
       api.showChat(!chat.shown);
       return { chatOpen: chat.shown };
-    },
-    chatOpen: async () => {
-      if (!chat.shown) api.showChat(true);
     },
     onChatOpen: on('chat-shown'),
     chatShortcuts: async (next) => api.chatState(next),

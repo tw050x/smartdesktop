@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { confirmReplace } from './confirm-replace.js';
+import { CONVERTED, convertFile, EXTENSIONS, inspect } from './convert.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { createDesktop } from './desktop.js';
@@ -118,6 +119,18 @@ function setAppearance(appearance) {
   fs.writeFileSync(settingsFile, JSON.stringify({ ...readSettings(), appearance }, null, 2));
 }
 nativeTheme.themeSource = APPEARANCES.includes(readSettings().appearance) ? readSettings().appearance : 'system';
+
+// Experimental features, off until the user turns them on in Settings › Experimental (kept in
+// settings.json): `convert`, opening Word, Excel and PowerPoint files (and Markdown, text and
+// pictures) by turning them into PDFs (convert.js).
+const EXPERIMENTS = ['convert'];
+const experimental = () => ({ convert: readSettings().experimental?.convert === true });
+function setExperimental(name, on) {
+  if (!EXPERIMENTS.includes(name)) return;
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  const settings = readSettings();
+  fs.writeFileSync(settingsFile, JSON.stringify({ ...settings, experimental: { ...settings.experimental, [name]: Boolean(on) } }, null, 2));
+}
 
 // The window's own colours, which the interface can't set: its background (showing as it opens
 // or resizes) and, on Windows and Linux, the title bar's (the top bar's, see styles.css).
@@ -578,11 +591,33 @@ function stepTab(delta) {
 async function importFile(filePath) {
   await ensureWindow();
   const home = homeOf();
+  let checked;
   try {
-    await context.run(home, () => home.workspace.importAndOpen(filePath));
+    checked = await checkImportable(filePath);
+  } catch (error) {
+    dialog.showErrorBox('Couldn’t open the file', error.message);
+    return;
+  }
+  try {
+    await context.run(home, () => home.workspace.importAndOpen(checked.path, { converted: checked.converted }));
   } catch {
     dialog.showErrorBox('Couldn’t open the file', `${filePath} could not be read.`);
+    return;
   }
+  tellConversion(checked);
+}
+
+// After a file's been turned into a PDF, what didn't come out as it is, if anything (fonts stood
+// in for, things not drawn yet): said once, as it opens. The AI reads it in get_document_info.
+function tellConversion(checked) {
+  const notes = checked?.converted?.notes;
+  if (!notes?.length || !win()) return;
+  dialog.showMessageBox(win(), {
+    type: 'info',
+    message: `${path.basename(checked.path)} was turned into a PDF`,
+    detail: `Opening Word, Excel and PowerPoint files is experimental. The original is kept with the document.\n\n${notes.join('\n\n')}`,
+    buttons: ['OK'],
+  });
 }
 
 // A document from the recent list: its tab, if one shows it, or a new one.
@@ -597,7 +632,7 @@ async function openDocument(docId) {
 async function pickPdf() {
   const { canceled, filePaths } = await dialog.showOpenDialog(win() ?? undefined, {
     properties: ['openFile'],
-    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    filters: experimental().convert ? [{ name: 'Documents', extensions: EXTENSIONS }] : [{ name: 'PDF', extensions: ['pdf'] }],
   });
   return canceled ? null : filePaths[0] ?? null;
 }
@@ -670,18 +705,31 @@ function waitForRequest(kind, id) {
 
 const expandHome = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
 
-async function checkPdf(filePath) {
+// Whether a file can be opened: a PDF, or (with Settings › Experimental › Open Word, Excel and
+// PowerPoint files) one that can be turned into one, which it then is: { path, converted? }.
+async function checkImportable(filePath) {
   const resolved = path.resolve(expandHome(filePath));
   const stats = await fs.promises.stat(resolved).catch(() => null);
   if (!stats?.isFile()) throw new Error(`There's no file at ${resolved}.`);
   const handle = await fs.promises.open(resolved, 'r');
+  let isPdf;
   try {
     const { buffer } = await handle.read(Buffer.alloc(5), 0, 5, 0);
-    if (buffer.toString('latin1') !== '%PDF-') throw new Error(`${path.basename(resolved)} isn't a PDF. SmartDoc opens PDFs only.`);
+    isPdf = buffer.toString('latin1') === '%PDF-';
   } finally {
     await handle.close();
   }
-  return resolved;
+  if (isPdf) return { path: resolved };
+  const name = path.basename(resolved);
+  const { kind, bytes, refusal } = await inspect(resolved);
+  if (refusal) throw new Error(refusal);
+  if (!CONVERTED[kind]) throw new Error(`${name} isn't a PDF. SmartDoc opens PDFs${experimental().convert ? ', Word, Excel and PowerPoint files, Markdown, text and pictures' : ' only'}.`);
+  if (!experimental().convert) throw new Error(`${name} is a ${CONVERTED[kind]}, and SmartDoc opens PDFs. To open it, turn on Open Word, Excel and PowerPoint files in Settings › Experimental.`);
+  try {
+    return { path: resolved, converted: await convertFile(resolved, bytes) };
+  } catch (error) {
+    throw new Error(`${name} couldn’t be turned into a PDF: ${error.message}`);
+  }
 }
 
 // Delete requests from the AI still to be reported, by document: one at a time for each.
@@ -721,13 +769,15 @@ const documentsForAi = {
       return { status: 'opened', document: workspace.document.name };
     }
     if (filePath) {
-      const resolved = await checkPdf(filePath);
+      const checked = await checkImportable(filePath);
+      const resolved = checked.path;
       const name = path.basename(resolved);
       const waiting = waitOnUser(name, async () => {
         await bringToFront();
         const choice = await confirmReplace(win(), { current: workspace.document?.name, next: name, unsaved: false, source: path.dirname(resolved) });
         if (choice === 'cancel') return false;
-        await workspace.importAndOpen(resolved);
+        await workspace.importAndOpen(resolved, { converted: checked.converted });
+        tellConversion(checked);
         return true;
       });
       return {
@@ -740,7 +790,9 @@ const documentsForAi = {
       await bringToFront();
       const picked = await pickPdf();
       if (!picked) return false;
-      await workspace.importAndOpen(picked);
+      const checked = await checkImportable(picked);
+      await workspace.importAndOpen(checked.path, { converted: checked.converted });
+      tellConversion(checked);
       return true;
     });
     return {
@@ -1339,8 +1391,6 @@ handle('mcp-retry', () => startMcp());
 // The chat, in SmartDesktop (see desktop.js): the window's chat button, the shortcuts and the hint it
 // offers there, lines of context, and requests for the AI.
 handle('chat-toggle', () => desktop.chat(current().id, 'toggle'));
-// Opening an item opens the chat too, if SmartDesktop is running (it isn't started for that).
-handle('chat-open', () => desktop.status === 'connected' && desktop.chat(current().id, true));
 handle('chat-shortcuts', ({ hint = null, shortcuts = [] } = {}) => desktop.window(current().id, { hint, shortcuts }));
 handle('chat-note', (note) => desktop.note(current().id, note));
 handle('chat-ask', (text) => desktop.ask(current().id, text));
@@ -1433,6 +1483,8 @@ handle('add-to-claude-desktop', () => confirmAddToClaudeDesktop());
 handle('get-updates', () => updates.status);
 handle('install-update', () => updates.install());
 handle('get-appearance', () => nativeTheme.themeSource);
+handle('get-experimental', () => experimental());
+handle('set-experimental', (name, on) => setExperimental(name, on));
 handle('set-appearance', (appearance) => setAppearance(appearance));
 
 // --- App lifecycle -----------------------------------------------------------------------

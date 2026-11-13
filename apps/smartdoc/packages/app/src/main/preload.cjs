@@ -113,6 +113,8 @@ contextBridge.exposeInMainWorld('smartdoc', {
   // Light, dark or as the system is ('light', 'dark' or 'system'), from Settings.
   getAppearance: () => call('get-appearance'),
   setAppearance: (appearance) => call('set-appearance', appearance),
+  getExperimental: () => call('get-experimental'),
+  setExperimental: (name, on) => call('set-experimental', name, on),
   onRecentDocuments: on('recent-documents'),
   onDraftOpened: on('draft-opened'),
   onDocumentClosed: on('document-closed'),
@@ -121,12 +123,10 @@ contextBridge.exposeInMainWorld('smartdoc', {
   onMcpStatus: on('mcp-status'),
   mcpStatus: () => call('mcp-status'),
   // The chat, in SmartDesktop (see main/desktop.js): the window's chat button (`chatToggle`, and
-  // `onChatOpen` as it opens and closes), opening it with an item (`chatOpen`, only if SmartDesktop
-  // is running), what to offer there (`chatShortcuts`: { hint, shortcuts }) and the actions it asks
-  // of this window (`onChatAction`), lines of context (`chatNote`), and requests for the AI
-  // (`chatAsk`); and where SmartDesktop stands ('connected', 'starting', 'off' or 'missing').
+  // `onChatOpen` as it opens and closes), what to offer there (`chatShortcuts`: { hint, shortcuts })
+  // and the actions it asks of this window (`onChatAction`), lines of context (`chatNote`), and
+  // requests for the AI (`chatAsk`); and where SmartDesktop stands ('connected', 'starting', 'off' or 'missing').
   chatToggle: () => call('chat-toggle'),
-  chatOpen: () => call('chat-open'),
   onChatOpen: on('chat-open'),
   chatShortcuts: (state) => call('chat-shortcuts', state),
   onChatAction: on('chat-action'),

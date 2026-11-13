@@ -246,6 +246,15 @@ export const APP_MARKUP = `
       </div>
       <p class="setting-note">System matches your Mac’s appearance. Your documents stay as they are.</p>
     </section>
+    <!-- Experimental features, off until turned on here (see settings.js and main.js). -->
+    <section class="setting">
+      <h3 class="setting-title">Experimental</h3>
+      <label class="setting-switch">
+        <span class="setting-switch-text">Open Word, Excel and PowerPoint files <span class="beta-tag">Experimental</span></span>
+        <input type="checkbox" role="switch" id="experimental-convert">
+      </label>
+      <p class="setting-note">SmartDoc turns them into PDFs itself, without Office, and keeps the original with the document. Markdown, text and pictures open too. Layouts may differ from Office’s in places.</p>
+    </section>
     <!-- The app's version, in beta. Its updates show in the update toast (update-toast.js), and the
          app menu's Check for Updates… looks for one now. -->
     <section class="setting">

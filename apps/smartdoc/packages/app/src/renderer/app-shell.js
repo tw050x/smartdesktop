@@ -543,10 +543,16 @@ export function startApp(appApi) {
     bar: document.getElementById('review-bar'),
     api,
     onMarks: setMarks,
-    // Opening an item beside the pages opens the chat too (if SmartDesktop is running), where the
-    // user can ask about it; what they looked at and decided goes to the chat as context.
-    onOpenItem: () => api.chatOpen?.(),
+    // What the user looked at and decided goes to the chat as context. Opening an item doesn't open
+    // the chat (the user found it popping up each time annoying).
     onNote: (note) => api.chatNote?.(note),
+    // The cards' places along the scrollbar, as fractions of the pages' scrolling height.
+    onTrack: (marks) => {
+      const wrap = document.getElementById('pages-wrap');
+      const top = wrap.getBoundingClientRect().top - documentEl.getBoundingClientRect().top + documentEl.scrollTop;
+      const height = documentEl.scrollHeight || 1;
+      updateScrollUi.marks(marks.map(({ y, color, bright }) => ({ at: (top + y) / height, color, bright })));
+    },
     onSuggestion: (next) => {
       suggestion = next;
       sendShortcuts();
@@ -776,7 +782,8 @@ export function startApp(appApi) {
   documentEl.addEventListener('drop', async (e) => {
     if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
-    const file = [...e.dataTransfer.files].find((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    // A PDF, or a file SmartDoc can turn into one (the main process says so if that's turned off).
+    const file = [...e.dataTransfer.files].find((f) => f.type === 'application/pdf' || /\.(pdf|docx|xlsx|pptx|md|markdown|txt|png|jpe?g|doc|xls|ppt)$/i.test(f.name));
     if (!file) return void documentEl.classList.remove('dragging');
     const drop = (dropping = {});
     try {

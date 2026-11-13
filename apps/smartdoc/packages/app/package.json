@@ -33,6 +33,17 @@
     ],
     "extraResources": [
       {
+        "from": "../pdf",
+        "to": "pdf",
+        "filter": [
+          "index.js",
+          "lib/**/*",
+          "formats/**/*",
+          "fonts/**/*",
+          "package.json"
+        ]
+      },
+      {
         "from": "../cli",
         "to": "cli",
         "filter": [

@@ -4,8 +4,8 @@ name: Release
 # goes ahead once the Prerequisites workflow has passed on the same commit; if it's still
 # running, this waits.
 #
-# One version is released everywhere at once (packages/app/package.json and
-# packages/cli/package.json must match; the tests check):
+# One version is released everywhere at once (packages/app, packages/cli and packages/pdf's
+# package.json must match; the tests check):
 #   - the macOS app, signed and notarised, as a disk image per architecture, SmartDoc-mac-<arch>.dmg
 #     (no version in the name, so the website links to the latest release's), with SmartDoc's
 #     MCP launcher inside it
@@ -14,6 +14,8 @@ name: Release
 #   - SHA256SUMS.txt
 #   - the smartdoc command on npm as @smartdoc/cli: setup, doctor, and the MCP connection for
 #     agents set up with npx
+#   - the converter on npm as @smartdoc/pdf (Word, Excel and PowerPoint files and more as PDFs;
+#     the app carries its own copy), once its first version has been published by hand
 # Windows and Linux builds follow once they're signed too; the launcher says so meanwhile.
 #
 # Without "publish" ticked this is a dry run: it builds everything and reports what it would
@@ -178,6 +180,14 @@ jobs:
           if npm view "@smartdoc/cli@$version" version >/dev/null 2>&1; then
             problems="$problems @smartdoc/cli@$version is already on npm."
           fi
+          # @smartdoc/pdf can trust this workflow only once it exists on npm: until its first
+          # version is published by hand, it's left out (and the report says so).
+          if npm view @smartdoc/pdf name >/dev/null 2>&1; then
+            echo "converter=true" >> "$GITHUB_OUTPUT"
+            if npm view "@smartdoc/pdf@$version" version >/dev/null 2>&1; then
+              problems="$problems @smartdoc/pdf@$version is already on npm."
+            fi
+          fi
           echo "problems=$problems" >> "$GITHUB_OUTPUT"
 
       - name: Report
@@ -187,6 +197,7 @@ jobs:
           SIGNED: ${{ needs.build.outputs.signed }}
           PUBLISH: ${{ inputs.publish }}
           RELEASED: ${{ steps.version.outputs.released }}
+          CONVERTER: ${{ steps.version.outputs.converter }}
         run: |
           {
             if [ "$PUBLISH" = true ]; then echo "## Releasing $VERSION"; else echo "## Dry run: nothing was released"; fi
@@ -194,9 +205,10 @@ jobs:
             echo "- Commit: \`$GITHUB_SHA\`"
             echo "- Version **$VERSION** as tag **v$VERSION** and npm @smartdoc/cli@$VERSION."
             echo "- Signed and notarised: $SIGNED"
+            if [ "$CONVERTER" = true ]; then echo "- And npm @smartdoc/pdf@$VERSION."; else echo "- @smartdoc/pdf isn't on npm yet, so it's left out: publish its first version by hand (npm publish -w @smartdoc/pdf --access public), then set this workflow as its trusted publisher."; fi
             if [ "$RELEASED" = true ]; then echo "- The GitHub release v$VERSION already exists, with the same launcher: finishing it, on npm."; fi
             if [ -n "$PROBLEMS" ]; then
-              echo "- ⚠️$PROBLEMS Bump the version in packages/app/package.json and packages/cli/package.json."
+              echo "- ⚠️$PROBLEMS Bump the version in packages/app, packages/cli and packages/pdf's package.json."
             fi
             echo "- Files:"
             for f in artifacts/*; do echo "  - $(basename "$f")"; done
@@ -219,3 +231,6 @@ jobs:
         run: |
           npm install -g npm@^11.15.0
           npm stage publish -w @smartdoc/cli --provenance --access public
+      - name: Stage the converter on npm
+        if: inputs.publish && steps.version.outputs.converter == 'true'
+        run: npm stage publish -w @smartdoc/pdf --provenance --access public

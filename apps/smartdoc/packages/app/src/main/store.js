@@ -79,7 +79,7 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
     const doc = withVariations({ id, name, importedAt: now(), ...extra, line: [ORIGINAL], currentDraftId: ORIGINAL });
     const to = draftDir(id, ORIGINAL);
     await mkdir(path.join(to, 'reviews'), { recursive: true });
-    await copyOriginal(to);
+    await copyOriginal(to, docDir(id));
     await writeJson(path.join(to, 'draft.json'), {
       id: ORIGINAL, parentId: null, fromReviewId: null, createdAt: doc.importedAt, abandoned: false, summary: null, appliedItemIds: [],
     });
@@ -91,9 +91,23 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
     ORIGINAL,
     draftPdfPath: (docId, draftId) => path.join(draftDir(docId, draftId), 'draft.pdf'),
 
-    async importDocument(sourcePath) {
-      return newDocument(path.basename(sourcePath), (to) => copyFile(sourcePath, path.join(to, 'draft.pdf')));
+    // A file opened as a new document: a PDF as it is; another file (Settings › Experimental) as
+    // the PDF made from it (`converted`: { pdf, kind, report, notes }), named as the file is but
+    // .pdf, with the file itself kept beside its drafts (original.docx …) and the conversion's report
+    // (conversion.json, and on the document: what it was and what didn't show as it is).
+    async importDocument(sourcePath, { converted = null } = {}) {
+      const file = path.basename(sourcePath);
+      if (!converted) return newDocument(file, (to) => copyFile(sourcePath, path.join(to, 'draft.pdf')));
+      const name = `${file.replace(/\.[^.]+$/, '') || file}.pdf`;
+      return newDocument(name, async (to, dir) => {
+        await writeFile(path.join(to, 'draft.pdf'), converted.pdf);
+        await copyFile(sourcePath, path.join(dir, originalFile(file)));
+        await writeJson(path.join(dir, 'conversion.json'), { from: file, kind: converted.kind, report: converted.report, notes: converted.notes ?? [] });
+      }, { convertedFrom: { name: file, kind: converted.kind, notes: converted.notes ?? [] } });
     },
+
+    // The file a converted document was made from (kept beside its drafts), or null.
+    originalPath: (doc) => (doc?.convertedFrom ? path.join(docDir(doc.id), originalFile(doc.convertedFrom.name)) : null),
 
     // An empty document, made in the app rather than imported: its original is a blank page and the
     // empty HTML it was drawn from, for the AI to write the next draft into.
@@ -363,6 +377,13 @@ function selectVariation(doc, variationId) {
 
 export function logTo(review, who, what) {
   review.history.push({ at: now(), who, what });
+}
+
+// Where a converted document keeps the file it was made from: original.docx and the like (its
+// real name is on the document).
+function originalFile(name) {
+  const ext = /\.([A-Za-z0-9]{1,8})$/.exec(name)?.[1]?.toLowerCase();
+  return ext ? `original.${ext}` : 'original';
 }
 
 // Ids come from the app itself, but never let one step outside the data folder.
