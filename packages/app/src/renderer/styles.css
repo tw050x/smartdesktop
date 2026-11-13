@@ -197,7 +197,9 @@ body.chat-window-body { display: flex; flex-direction: column; background: var(-
 .chat-message.step::before { content: "•"; margin-right: 6px; }
 /* Where an app window went, noted in the conversation: a quiet line across it. */
 .chat-message.event { align-self: stretch; display: flex; align-items: center; gap: 8px; max-width: none; color: var(--muted); font-size: 11.5px; }
-.chat-message.event::before, .chat-message.event::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.chat-message.event::before, .chat-message.event::after { content: ""; flex: 1 0 16px; height: 1px; background: var(--border); }
+/* Always one line: what doesn't fit ends in "…" (the whole line on hover). */
+.chat-event-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-message.error { align-self: stretch; padding: 7px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del-text); }
 /* The AI's session has gone: said plainly, not as a failure, with a way to start a new one. */
 .chat-message.error.session-gone { display: grid; gap: 10px; justify-items: start; padding: 10px 12px; background: var(--subtle-bg); color: var(--text-2); }
@@ -215,6 +217,11 @@ body.chat-window-body { display: flex; flex-direction: column; background: var(-
 /* What the user did or looked at in an app, posted to the conversation as context for their
    next message (see chat-panel.js): a quiet line across it, as other notes are. */
 .chat-message.event.context { color: var(--muted); font-style: italic; }
+/* Something the user did in a tab (not where it went): a plain line on the left, its verb's icon
+   first, as the AI's steps are, with no rules. */
+.chat-message.event.action { gap: 6px; font-size: 12px; font-style: normal; }
+.chat-message.event.action::before, .chat-message.event.action::after { content: none; }
+.chat-event-icon { display: flex; flex: none; opacity: 0.8; }
 /* A question the AI suggested asking next: a shortcut like the others, in its own quieter style. */
 .chat-chip.suggested { border-style: dashed; }
 /* The message box floats over the conversation's bottom, on the chat's background, which

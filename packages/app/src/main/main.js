@@ -141,7 +141,7 @@ async function onMessage(client, message) {
         const before = win.shows?.key;
         const owner = ownerOf(client.app, id);
         if (owner && before !== undefined && before !== message.shows.key && message.shows.text) {
-          agent.note(owner, { text: message.shows.text, detail: `In ${client.name}: ${message.shows.detail ?? message.shows.text}` });
+          agent.note(owner, { text: message.shows.text, detail: `In ${client.name}: ${message.shows.detail ?? message.shows.text}`, move: true });
         }
         win.shows = message.shows;
       }

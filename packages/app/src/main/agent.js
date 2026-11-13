@@ -602,15 +602,16 @@ export function createAgent({ userData, onEvent, trial = null }) {
   // not sent to the AI by itself, but with the user's next message (contextFor), so it knows what has
   // happened and what they were looking at. `detail` is what the AI is told, if it needs more than
   // the line says. Looking at something new replaces a line about what they looked at before, if
-  // nothing came between, so the conversation doesn't fill with them.
-  async function note(id, { text, detail = null, focus = false, about = null } = {}) {
+  // nothing came between, so the conversation doesn't fill with them. `move` marks where a tab went
+  // (drawn across the conversation), as against something the user did there.
+  async function note(id, { text, detail = null, focus = false, about = null, move = false } = {}) {
     if (!text) return;
     const chat = await load(id);
     if (!chat) return;
     const { messages } = chat;
     const last = messages.at(-1);
     if (last?.kind === 'context' && last.text === text) return;
-    const entry = { id: `m-${Date.now().toString(36)}-${messages.length}`, at: new Date().toISOString(), role: 'event', kind: 'context', text, ...(detail && { detail }), ...(focus && { focus: true }), ...(about && { about }) };
+    const entry = { id: `m-${Date.now().toString(36)}-${messages.length}`, at: new Date().toISOString(), role: 'event', kind: 'context', text, ...(detail && { detail }), ...(focus && { focus: true }), ...(about && { about }), ...(move && { move: true }) };
     if (focus && last?.kind === 'context' && last.focus) messages[messages.length - 1] = entry;
     else messages.push(entry);
     await save(chat);
