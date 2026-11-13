@@ -1411,3 +1411,10 @@ body.chat-window-body { display: flex; background: var(--bg); }
 /* Side by side, beside the switch: it opens a view across the window. The app's button height. */
 .side-by-side { flex: none; box-sizing: border-box; height: 30px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: default; }
 .side-by-side:hover { background: var(--button-hover); }
+
+/* Dragging a tab (tab-strip.js): it fades where it was, and a line shows where it would go in the
+   top bar it's over. */
+.tab.dragging { opacity: 0.4; }
+.tabs.dragging-tab .tab:hover:not([aria-selected="true"]) { background: var(--button-hover); }
+.tab-drop-line { position: absolute; z-index: 46; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-drop-line[hidden] { display: none; }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView } from 'electron';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createDesktop } from './desktop.js';
 import { guessIcon, isIcon } from './icons.js';
 import { createItemIcons } from './item-icons.js';
+import { createTabDrag } from './tab-drag.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -123,7 +124,8 @@ const layoutTabs = (host) => {
   for (const tab of host.tabs) tab.view.setBounds(tabBounds(host));
 };
 
-function createWindow({ focus = true } = {}) {
+// `bounds`, where to put it (a tab dragged out of a window makes one where it's dropped).
+function createWindow({ focus = true, bounds = null } = {}) {
   const colours = windowColours();
   const frame = process.platform === 'darwin'
     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (TOP_BAR_HEIGHT - TRAFFIC_LIGHTS_HEIGHT) / 2 } }
@@ -131,6 +133,7 @@ function createWindow({ focus = true } = {}) {
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
+    ...bounds,
     minWidth: 760,
     minHeight: 480,
     title: WINDOW_TITLE,
@@ -144,6 +147,9 @@ function createWindow({ focus = true } = {}) {
       sandbox: true,
     },
   });
+  // Placed again once made: macOS fits a new window on the screen, which would move a tab dragged
+  // out from under the pointer.
+  if (bounds) win.setBounds(bounds);
   // The window's name, not the page's (see WINDOW_TITLE).
   win.on('page-title-updated', (event) => event.preventDefault());
   const host = { win, tabs: [], active: null };
@@ -155,6 +161,7 @@ function createWindow({ focus = true } = {}) {
   // The window has the focus: its active tab does, for the menu, the AI chat (SmartDesktop shows the
   // chat while a window of the apps has the focus) and the keyboard.
   win.on('focus', () => {
+    host.focusedAt = Date.now(); // the window in front, for where a dragged tab is dropped
     const ctx = host.active;
     if (!ctx) return;
     lastFocused = ctx;
@@ -199,7 +206,7 @@ function createTab(host, { home = false } = {}) {
   });
   view.setBackgroundColor(windowColours().background);
   const contents = view.webContents;
-  const ctx = { id, host, home, view, contents, get win() { return host.win; }, ready: null, session: null, untouched: true, where: null, name: null, hadSchema: false, history: { back: false, forward: false } };
+  const ctx = { id, host, home, view, contents, get win() { return this.host.win; }, ready: null, session: null, untouched: true, where: null, name: null, hadSchema: false, history: { back: false, forward: false } };
   windows.set(contents.id, ctx);
   if (home) host.tabs.unshift(ctx);
   else host.tabs.push(ctx);
@@ -222,7 +229,7 @@ function createTab(host, { home = false } = {}) {
     return { action: 'deny' };
   });
   ctx.ready = new Promise((resolve) => contents.once('did-finish-load', resolve));
-  ctx.ready.then(() => host.active === ctx && ctx.contents.send('tab-lines', host.lines ?? null));
+  ctx.ready.then(() => ctx.host.active === ctx && ctx.contents.send('tab-lines', ctx.host.lines ?? null));
   ctx.ready.then(() => {
     contents.send('mcp-status', mcpStatus());
     if (ctx.session) contents.send('ai-control', clientLabel(ctx.session.client));
@@ -275,6 +282,31 @@ function disposeTab(ctx) {
   if (ctx.session) ctx.session.ctx = null;
   desktop.closed(ctx.id);
   updateMenu();
+}
+
+// Moves a tab to `index` among a window's tabs (never before Home): in its own window, or into
+// another (its page, and all it holds, go with it: the schematic, its history, an AI working in it),
+// where it shows.
+function moveTab(ctx, to, index) {
+  const from = ctx.host;
+  const at = from.tabs.indexOf(ctx);
+  if (ctx.home || at < 0 || to.win.isDestroyed()) return;
+  from.tabs.splice(at, 1);
+  if (from !== to) {
+    if (from.active === ctx) {
+      from.active = null;
+      activateTab(from.tabs[at] ?? from.tabs[at - 1] ?? from.tabs[0]);
+    }
+    from.win.contentView.removeChildView(ctx.view);
+    ctx.host = to;
+    to.win.contentView.addChildView(ctx.view);
+    ctx.view.setBounds(tabBounds(to));
+    ctx.contents.send('full-screen', to.win.isFullScreen());
+    sendTabs(from);
+  }
+  to.tabs.splice(Math.max(1, Math.min(index, to.tabs.length)), 0, ctx);
+  activateTab(ctx);
+  if (from !== to) to.win.focus();
 }
 
 // The tab showing a schematic (in the window of `host`) that no chat owns, if one does.
@@ -966,6 +998,71 @@ handle('strip-tip', (ctx, tip) => {
     else tab.contents.send('strip-tip', null);
   }
 });
+// Dragging a tab (tab-strip.js, tab-drag.js): to another place in its top bar, into another
+// window's, or anywhere else to make a new window of it, its picture following the pointer meanwhile.
+// The top bar says where its tabs are (`tab-boxes`), and the one the pointer is over shows where the
+// tab would go (`tab-drop`: { id, index, x }, or null). As SmartDoc's.
+const tabDrag = createTabDrag({ topBar: TOP_BAR_HEIGHT });
+let dragging = null; // { tab, offset, chip, point, target }
+handle('tab-boxes', (ctx, boxes) => {
+  if (ctx?.host) ctx.host.tabBoxes = Array.isArray(boxes) ? boxes : [];
+});
+const hostsInFront = () => [...hosts].sort((a, b) => (b.focusedAt ?? 0) - (a.focusedAt ?? 0));
+function dragOver(point) {
+  const target = tabDrag.targetAt(point, hostsInFront(), dragging.tab.id);
+  const before = dragging.target;
+  dragging.target = target;
+  if (before && before.host !== target?.host && !before.host.win.isDestroyed()) before.host.win.webContents.send('tab-drop', null);
+  if (target && (target.host !== before?.host || target.index !== before.index || target.x !== before.x)) target.host.win.webContents.send('tab-drop', { id: dragging.tab.id, index: target.index, x: target.x });
+  tabDrag.move(point, Boolean(target));
+}
+handle('tab-drag-start', async (ctx, id, { chip, offset, point } = {}) => {
+  const host = ctx?.host;
+  const tab = host?.tabs.find((t) => t.id === id);
+  if (!tab || tab.home || dragging || !chip || !offset || !point) return false;
+  const drag = { tab, offset, chip, point, target: null };
+  dragging = drag;
+  const box = { x: Math.round(chip.x), y: Math.round(chip.y), width: Math.max(1, Math.round(chip.width)), height: Math.max(1, Math.round(chip.height)) };
+  const [chipImage, pageImage] = await Promise.all([
+    host.win.webContents.capturePage(box),
+    tab.contents.capturePage().catch(() => null), // a tab not showing gives its last picture
+  ]);
+  if (dragging !== drag) return false; // let go meanwhile
+  await tabDrag.show({ chip: chipImage, chipSize: box, page: pageImage, pageSize: tab.view.getBounds(), offset, point: drag.point, colours: windowColours() });
+  if (dragging === drag) dragOver(drag.point);
+  return true;
+});
+handle('tab-drag-move', (_ctx, point) => {
+  if (!dragging || !point) return;
+  dragging.point = point;
+  dragOver(point);
+});
+handle('tab-drag-end', (_ctx, point) => {
+  const drag = dragging;
+  if (!drag) return;
+  if (point) {
+    drag.point = point;
+    dragOver(point);
+  }
+  dragging = null;
+  tabDrag.hide();
+  const { tab, target } = drag;
+  if (target && !target.host.win.isDestroyed()) target.host.win.webContents.send('tab-drop', null);
+  if (!windows.has(tab.contents.id)) return; // closed meanwhile
+  if (target) return moveTab(tab, target.host, target.index);
+  // Over no top bar: a new window, the size of the one it came from, its tab under the pointer where
+  // it was let go (the window may run off the screen, but never its top bar).
+  const from = tab.host;
+  const { width, height } = from.win.getBounds();
+  const first = from.tabBoxes?.[1]?.left ?? 120; // where a window's first tab after Home starts
+  const area = screen.getDisplayNearestPoint({ x: Math.round(drag.point.x), y: Math.round(drag.point.y) }).workArea;
+  const KEEP = 160; // of the window, kept on the screen across
+  const x = Math.round(Math.min(Math.max(drag.point.x - first - drag.offset.x, area.x + KEEP - width), area.x + area.width - KEEP));
+  const y = Math.round(Math.min(Math.max(drag.point.y - drag.chip.y - drag.offset.y, area.y), area.y + area.height - 2 * TOP_BAR_HEIGHT));
+  const home = createWindow({ bounds: { x, y, width, height } });
+  moveTab(tab, home.host, 1);
+});
+
 // Home is a tab of its own: going home shows it.
 handle('go-home', (ctx) => {
   const home = homeOf(ctx);

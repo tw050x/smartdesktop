@@ -30,6 +30,14 @@ contextBridge.exposeInMainWorld('smartspec', {
   tabMenu: (id, box) => call('tab-menu', id, box),
   // A tab's chat button: that chat, brought forward in SmartDesktop.
   tabChat: (id) => call('tab-chat', id),
+  // Dragging a tab (points on the screen): to another place in the top bar, another window's, or
+  // out of them all to a new window. The top bar says where its tabs are (`tabBoxes`), and hears
+  // where a tab dragged over it would go (`onTabDrop`).
+  tabBoxes: (boxes) => call('tab-boxes', boxes),
+  tabDragStart: (id, drag) => call('tab-drag-start', id, drag),
+  tabDragMove: (point) => call('tab-drag-move', point),
+  tabDragEnd: (point) => call('tab-drag-end', point),
+  onTabDrop: on('tab-drop'),
   setIcon: (schemaId, icon) => call('set-icon', schemaId, icon),
   onIconPicker: on('icon-picker'),
   historyStep: (delta) => call('history-step', delta),
