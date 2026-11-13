@@ -1,4 +1,12 @@
-import { Menu } from 'electron';
+import { Menu, nativeImage } from 'electron';
+
+// A macOS symbol for a menu item of the app's own (the standard ones get theirs from macOS), so it
+// isn't the one without an icon (the user's choice). None elsewhere, or where the symbol is missing.
+const symbol = (name) => {
+  if (process.platform !== 'darwin' || !nativeImage.createMenuSymbol) return undefined;
+  const image = nativeImage.createMenuSymbol(name);
+  return image.isEmpty() ? undefined : image;
+};
 
 // The application menu. Entries that don't apply to the window's state are disabled rather than
 // hidden. Each window shows at most one document, and the menu follows the focused window.
@@ -89,7 +97,7 @@ export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBac
     submenu: [
       { role: 'about' },
       // Its answer shows in the update toast (update-toast.js).
-      { label: 'Check for Updates…', click: actions.checkForUpdates },
+      { label: 'Check for Updates…', icon: symbol('arrow.down.circle'), click: actions.checkForUpdates },
       { type: 'separator' },
       { label: 'Settings…', accelerator: 'CmdOrCtrl+,', enabled: hasWindow, click: actions.showSettings },
       { type: 'separator' },
