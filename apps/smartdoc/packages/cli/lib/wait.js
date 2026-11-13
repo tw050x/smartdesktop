@@ -17,9 +17,10 @@ export const WAIT_HELP = `Usage: npx @smartdoc/cli wait <what> <id> [--timeout <
   delete --request <id>     The user has answered this delete_document request
 
 Prints what happened as JSON. Exits with 0 when it has happened, 1 if the command is wrong, 2 if
-the timeout passed, 3 if the app says this can never happen, and 4 if the app isn't running or quits.`;
+the timeout passed, 3 if the app says this can never happen, and 4 if the app isn't running or quits.
+If the app restarts to install an update meanwhile, it says so and goes on waiting once it's back.`;
 
-export async function wait(argv, { env = process.env, out = console.log, err = console.error } = {}) {
+export async function wait(argv, { env = process.env, out = console.log, err = console.error, restartWaitMs = RESTART_WAIT_MS, retryMs = RETRY_MS } = {}) {
   let values;
   let positionals;
   try {
@@ -42,13 +43,39 @@ export async function wait(argv, { env = process.env, out = console.log, err = c
     return EXIT.noApp;
   }
 
-  const reply = await ask(`${mcpUrl(env)}/wait`, token, { what, ...(byRequest ? { request: id } : { review: id }) }, timeout);
+  // Asked again while the app restarts to install an update (it says so as it quits), until it's
+  // back, so the AI's wait carries on by itself; told it has quit, or not back in time, it stops.
+  const started = Date.now();
+  let backBy = null;
+  let reply;
+  for (;;) {
+    const left = timeout === null ? null : timeout - (Date.now() - started) / 1000;
+    if (left !== null && left <= 0) {
+      reply = { timedOut: true };
+      break;
+    }
+    reply = await ask(`${mcpUrl(env)}/wait`, readToken({ env }) ?? token, { what, ...(byRequest ? { request: id } : { review: id }) }, left);
+    const ended = reply.status === 503 ? parsed(reply.text) : null;
+    if (ended?.restarting) {
+      if (backBy === null) err('SmartDoc is restarting to install an update. Waiting for it to come back…');
+      backBy ??= Date.now() + restartWaitMs;
+    } else if (!(reply.lost && backBy !== null)) break;
+    if (Date.now() > backBy) {
+      err('SmartDoc hasn’t come back since restarting. Open it, then wait again.');
+      return EXIT.noApp;
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryMs));
+  }
   if (reply.timedOut) {
     err(`Nothing yet after ${timeout} seconds.`);
     return EXIT.timedOut;
   }
   if (reply.lost) {
     err('SmartDoc isn’t running. Open it, then wait again.');
+    return EXIT.noApp;
+  }
+  if (reply.status === 503 && parsed(reply.text)?.quit) {
+    err(parsed(reply.text).error);
     return EXIT.noApp;
   }
   if (reply.status === 200) {
@@ -62,6 +89,16 @@ export async function wait(argv, { env = process.env, out = console.log, err = c
   err(reason);
   return reply.status === 401 || reply.status === 403 ? EXIT.noApp : EXIT.refused;
 }
+
+const RESTART_WAIT_MS = 2 * 60 * 1000; // how long a restarting app has to come back
+const RETRY_MS = 1500;
+const parsed = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
 
 function ask(url, token, body, timeoutSeconds) {
   return new Promise((resolve) => {

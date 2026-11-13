@@ -164,6 +164,41 @@ describe('the wait command', () => {
     server.close();
   });
 
+  test('carries on through a restart to install an update, saying so', async () => {
+    let n = 0;
+    const { asked, env, server } = await app((res) => {
+      if (n++ === 0) return res.writeHead(503).end('{"restarting":true,"error":"SmartDoc is restarting"}');
+      res.writeHead(200).end('{"event":"done"}');
+    });
+    const out = [];
+    const err = [];
+    const code = await wait(['decisions', '--review', 'r1'], { env, out: (l) => out.push(l), err: (l) => err.push(l), retryMs: 10 });
+    assert.equal(code, EXIT.happened);
+    assert.equal(out.join(''), '{"event":"done"}');
+    assert.match(err.join(''), /restarting to install an update/);
+    assert.equal(asked.length, 2);
+    server.close();
+  });
+
+  test('gives up when a restarting app doesn’t come back', async () => {
+    const { env, server } = await app((res) => {
+      res.writeHead(503).end('{"restarting":true}');
+      server.close();
+    });
+    const err = [];
+    const code = await wait(['decisions', '--review', 'r1'], { env, out: () => {}, err: (l) => err.push(l), retryMs: 10, restartWaitMs: 100 });
+    assert.equal(code, EXIT.noApp);
+    assert.match(err.join('\n'), /hasn’t come back/);
+  });
+
+  test('says when the app has quit, as it tells the wait', async () => {
+    const { env, server } = await app((res) => res.writeHead(503).end('{"quit":true,"error":"SmartDoc has quit. Ask the user to open it."}'));
+    const { code, err } = await run(['decisions', '--review', 'r1'], env);
+    assert.equal(code, EXIT.noApp);
+    assert.match(err, /has quit/);
+    server.close();
+  });
+
   test('says when the app is not running', async () => {
     const { env, server } = await app(() => {});
     await new Promise((resolve) => server.close(resolve));

@@ -29,6 +29,9 @@ export async function mcpToken(userData) {
 // without the token. `documents` lists and opens documents for the AI (it needs the window).
 export async function startMcpServer(ai, userData) {
   const token = await mcpToken(userData);
+  // The waits held open (see /mcp/wait), each answered as the app quits (`endWaits`).
+  const waiting = new Set();
+  let ending = null; // once quitting: the answer every wait gets
   const http = createServer(async (req, res) => {
     const deny = (code, message) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify({ error: message }));
     if (req.headers.origin) return deny(403, 'Browser requests are not allowed.');
@@ -55,15 +58,21 @@ export async function startMcpServer(ai, userData) {
     } catch {
       return deny(400, 'Invalid JSON.');
     }
-    // From `smartdoc wait`: answered once what it's waiting for has happened, however long that is.
+    // From `smartdoc wait`: answered once what it's waiting for has happened, however long that is,
+    // or when the app quits, saying whether it's restarting (`endWaits`).
     if (req.url.startsWith('/mcp/wait')) {
+      if (ending) return res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify(ending));
       try {
         const wait = ai.wait(body);
-        res.on('close', wait.cancel);
+        waiting.add(res);
+        res.on('close', () => {
+          waiting.delete(res);
+          wait.cancel();
+        });
         const result = await wait.promise;
-        if (result) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+        if (result && !res.headersSent) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
       } catch (error) {
-        deny(error.status ?? 500, error.message);
+        if (!res.headersSent) deny(error.status ?? 500, error.message);
       }
       return;
     }
@@ -80,7 +89,19 @@ export async function startMcpServer(ai, userData) {
     http.once('error', reject);
     http.listen(MCP_PORT, '127.0.0.1', resolve);
   });
-  return { url: `http://127.0.0.1:${MCP_PORT}/mcp`, token, close: () => http.close() };
+  // As the app quits: every wait held open is told, so the AI knows. `restarting`: to install an
+  // update, and back in a moment, when `smartdoc wait` carries on by itself (older copies of it show
+  // the message, which says to wait again).
+  const endWaits = (restarting) => {
+    ending = restarting
+      ? { restarting: true, error: 'SmartDoc is restarting to install an update. Run the same wait command again in a moment.' }
+      : { quit: true, error: 'SmartDoc has quit. Ask the user to open it, then run the same wait command again.' };
+    for (const res of waiting) {
+      if (!res.headersSent) res.writeHead(503, { 'content-type': 'application/json', connection: 'close' }).end(JSON.stringify(ending));
+    }
+    waiting.clear();
+  };
+  return { url: `http://127.0.0.1:${MCP_PORT}/mcp`, token, close: () => http.close(), endWaits };
 }
 
 // What's listening on the port, when the server finds it taken: another SmartDoc (which says so at

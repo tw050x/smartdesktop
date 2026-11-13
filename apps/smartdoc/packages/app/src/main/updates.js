@@ -64,9 +64,12 @@ export function createUpdates({ report }) {
       setInterval(check, CHECK_EVERY_MS);
     },
     check,
-    // Quits, installs the downloaded version and opens it again.
+    // Quits, installs the downloaded version and opens it again (`restarting` says so meanwhile).
     install() {
-      if (status.state === 'ready') autoUpdater.quitAndInstall();
+      if (status.state !== 'ready') return;
+      this.restarting = true;
+      autoUpdater.quitAndInstall();
     },
+    restarting: false,
   };
 }

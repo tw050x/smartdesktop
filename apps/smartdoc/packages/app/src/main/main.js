@@ -1208,6 +1208,9 @@ async function offerMoveToApplications() {
 // --- Updates -----------------------------------------------------------------------------
 
 const updates = createUpdates({ report: (status) => broadcast('updates', status) });
+// As the app quits, an AI waiting on the user (`wait`) is told, and whether it's restarting to
+// install an update, so it carries on once the app is back rather than thinking it's gone.
+app.on('before-quit', () => mcp?.endWaits(updates.restarting));
 
 // --- Window requests ---------------------------------------------------------------------
 
@@ -1600,7 +1603,11 @@ handle('open-website', () => shell.openExternal(WEBSITE));
 handle('claude-desktop-status', () => claudeDesktopStatus());
 handle('add-to-claude-desktop', () => confirmAddToClaudeDesktop());
 handle('get-updates', () => updates.status);
-handle('install-update', () => updates.install());
+handle('install-update', () => {
+  // The waits are told before the windows close (macOS quits the app only once they have).
+  if (updates.status.state === 'ready') mcp?.endWaits(true);
+  return updates.install();
+});
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('get-experimental', () => experimental());
 handle('set-experimental', (name, on) => setExperimental(name, on));
