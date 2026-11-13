@@ -1214,6 +1214,14 @@ button:disabled { opacity: 0.5; cursor: default; }
 .change-float-grip { flex: none; width: 30px; height: 4px; margin: 2px auto 2px; border-radius: 2px; background: var(--border-strong); }
 .change-float-why { max-height: 96px; overflow: auto; padding: 2px 14px 4px; font-size: 13px; line-height: 1.5; }
 .change-float-why p { margin: 3px 0 0; cursor: text; }
+/* What a diagram's proposal changed, under why it changes (flowSummary in item-diffs.js). */
+.card-drawer-title.what-changed { display: block; margin-top: 10px; }
+.what-changed-line { margin: 3px 0 0; }
+/* Pointing at a part of a diagram the proposal changes: what about it changed (watchChanges). */
+.change-card { max-width: 340px; }
+.change-card .change-words .diff-removed { margin: 0; }
+.part-card-subhead { margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.change-card .change-then { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--change-del) 70%, transparent); }
 .change-float-foot { padding: 6px 12px 6px; }
 /* An image wiped between the old and the new: the new over the old, cut away from the left. */
 .image-wipe { position: relative; display: grid; cursor: ew-resize; user-select: none; touch-action: none; }

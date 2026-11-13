@@ -3,6 +3,8 @@ import { pinOffset } from './canvas-view.js';
 import { hideHoverCard, showHoverCard } from './hover-card.js';
 import { GROUP_WORDS, layoutFlow, layoutSequence } from './layout.js';
 import { inlineMarkdown, renderMarkdown } from './markdown.js';
+import { changedFields } from './item-diffs.js';
+import { diffText } from './word-diff.js';
 
 // Each kind of item's way of rendering. Whatever the kind, a part that can be linked to has
 // data-part, and one that links elsewhere calls `onLink`. Labels are drawn as plain text, so a
@@ -126,16 +128,98 @@ function flowView(item, onLink, diff = null) {
     const group = svg('g', { class: `diagram-edge${diffClass(diff, id)}`, 'data-part': id }, svg('path', { d: route(edge.points), class: 'diagram-line', 'marker-end': arrow }), svg('path', { d: route(edge.points), class: 'diagram-hit' }));
     if (edge.label) group.append(...edgeLabel(edge.label, edge.labelX, edge.labelY));
     linkPart(group, edge.link, onLink);
-    root.append(wasTitle(diff, id, group));
+    root.append(diff?.parts ? group : wasTitle(diff, id, group));
   }
   for (const node of layout.nodes) {
     const group = svg('g', { class: `diagram-node${diffClass(diff, node.id)}`, 'data-part': node.id },
       svg('rect', { x: node.x - node.width / 2, y: node.y - node.height / 2, width: node.width, height: node.height, rx: 8, class: 'diagram-box' }),
       text(node.label, node.x, node.y, 'diagram-text'));
     linkPart(group, node.link, onLink);
-    root.append(wasTitle(diff, node.id, group));
+    root.append(diff?.parts ? group : wasTitle(diff, node.id, group));
   }
+  if (diff?.parts) watchChanges(root, diff);
   return root;
+}
+
+// Under review, pointing at (or clicking) a box or connection the proposal adds, removes or changes
+// says what about it changed (the user's choice: an amber outline alone didn't say what, as what
+// changed is often its description, which the diagram doesn't show): its label then and now, its
+// description with the words removed struck through and those added marked, where it links.
+function watchChanges(root, diff) {
+  const labelOf = (id) => diff.item.nodes.find((one) => one.id === id)?.label ?? id;
+  const show = (event) => {
+    const element = event.target.closest?.('[data-part]');
+    const id = element?.dataset.part;
+    const change = id && diff.parts.get(id);
+    if (!change || event.buttons || root.closest('.panning')) return hideHoverCard();
+    showHoverCard(element, (card) => card.replaceChildren(...changeLines(change, diff.status.get(id), labelOf)), { x: event.clientX, y: event.clientY }, 'part-card change-card');
+  };
+  root.addEventListener('pointermove', show);
+  root.addEventListener('click', show);
+  root.addEventListener('pointerleave', () => hideHoverCard());
+}
+
+function changeLines({ before, after }, status, labelOf) {
+  const part = after ?? before;
+  const edge = 'from' in part;
+  const line = (className, words) => Object.assign(document.createElement('div'), { className, textContent: words });
+  const name = (one) => one?.label || (one?.from ? `${labelOf(one.from)} → ${labelOf(one.to)}` : '');
+  const lines = [line('part-card-kind', `${{ added: 'New', removed: 'Removed', changed: 'Changed' }[status]} ${edge ? 'connection' : 'box'}`), line('part-card-title', name(part))];
+  if (status !== 'changed') {
+    if (part.description) lines.push(line('part-card-text', part.description));
+    return lines;
+  }
+  const fields = changedFields(after, before);
+  if (fields.includes('label') && before.label) lines.push(line('part-card-note', `Was “${before.label}”`));
+  if (fields.includes('description')) {
+    const then = before.description ?? '';
+    const now = after.description ?? '';
+    // A few words changed: marked where they are. Most of it rewritten: then and now, one above the
+    // other, as words struck through and put back between the new ones don't read.
+    const changes = diffText(then, now).flatMap((change) => change.parts);
+    const touched = changes.reduce((n, part) => n + (part.added ? part.added.end - part.added.start : 0) + (part.removed ? part.removed.end - part.removed.start : 0), 0);
+    if (!then || !now || touched > 0.5 * (then.length + now.length)) {
+      if (then) lines.push(line('part-card-subhead', 'Before'), line('part-card-text change-then', then));
+      lines.push(line('part-card-subhead', now ? 'Now' : 'Its description is gone'));
+      if (now) lines.push(line('part-card-text', now));
+    } else {
+      const words = document.createElement('div');
+      words.className = 'part-card-text change-words';
+      words.append(...markedWords(then, now));
+      lines.push(words);
+    }
+  } else if (after.description) lines.push(line('part-card-text', after.description));
+  if (fields.includes('link')) lines.push(line('part-card-note', after.link ? `Now links to ${after.link}${before.link ? `, not ${before.link}` : ''}` : `No longer links to ${before.link}`));
+  if (fields.includes('start') || fields.includes('end')) lines.push(line('part-card-note', `Was ${labelOf(before.from)} → ${labelOf(before.to)}`));
+  lines.push(line('part-card-note', `What changed: its ${fields.join(', ')}`));
+  return lines;
+}
+
+// `after`, with the words added marked and the words removed put back where they were, struck through.
+function markedWords(before, after) {
+  const pieces = [];
+  let at = 0;
+  const plain = (to) => {
+    if (to > at) pieces.push(document.createTextNode(after.slice(at, to)));
+    at = Math.max(at, to);
+  };
+  const span = (className, words) => Object.assign(document.createElement('span'), { className, textContent: words });
+  for (const change of diffText(before, after)) {
+    for (const { removed, added, at: where } of change.parts) {
+      plain(where);
+      if (removed) {
+        if (pieces.length && !/\s$/.test(pieces.at(-1).textContent)) pieces.push(document.createTextNode(' '));
+        pieces.push(span('diff-removed', before.slice(removed.start, removed.end)), document.createTextNode(' '));
+      }
+      if (added) {
+        plain(added.start);
+        pieces.push(span('diff-added', after.slice(added.start, added.end)));
+        at = added.end;
+      }
+    }
+  }
+  plain(after.length);
+  return pieces;
 }
 
 function groupView(group) {

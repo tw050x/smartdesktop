@@ -30,29 +30,77 @@ export function mergeOrder(after, before, key = (one) => one.id) {
 
 // Each part of `after` and `before` that isn't the same in both: added, removed or changed, by key,
 // with what a changed one was labelled before.
-function compare(after, before, key, status, was, label = (one) => one.label) {
+// `parts`, if given, gets each such part's two versions: { before, after } (one of them null).
+function compare(after, before, key, status, was, label = (one) => one.label, parts = null) {
   const old = new Map(before.map((one) => [key(one), one]));
   const kept = new Set(after.map(key));
   for (const one of after) {
     const id = key(one);
-    if (!old.has(id)) status.set(id, 'added');
-    else if (!same(one, old.get(id))) {
+    if (!old.has(id)) {
+      status.set(id, 'added');
+      parts?.set(id, { before: null, after: one });
+    } else if (!same(one, old.get(id))) {
       status.set(id, 'changed');
+      parts?.set(id, { before: old.get(id), after: one });
       if (label(old.get(id)) !== label(one)) was.set(id, label(old.get(id)));
     }
   }
-  for (const one of before) if (!kept.has(key(one))) status.set(key(one), 'removed');
+  for (const one of before) {
+    if (kept.has(key(one))) continue;
+    status.set(key(one), 'removed');
+    parts?.set(key(one), { before: one, after: null });
+  }
+}
+
+// What about a changed part is different, in words: its label, description, where it links, where a
+// connection starts or ends, anything else as its details.
+const FIELD_WORDS = { label: 'label', description: 'description', link: 'link', from: 'start', to: 'end' };
+export function changedFields(after, before) {
+  const keys = new Set([...Object.keys(after ?? {}), ...Object.keys(before ?? {})]);
+  keys.delete('id');
+  const words = [];
+  for (const key of keys) {
+    if (JSON.stringify(after?.[key] ?? null) === JSON.stringify(before?.[key] ?? null)) continue;
+    const word = FIELD_WORDS[key] ?? 'details';
+    if (!words.includes(word)) words.push(word);
+  }
+  return words;
+}
+
+// What a flow's Changes view changed, in a few lines for the card's drawer: the boxes and connections
+// added, removed and changed (and in what), each by its label (a connection without one by its ends).
+export function flowSummary(diff) {
+  if (!diff?.parts) return [];
+  const labelOf = (id) => {
+    const node = diff.item.nodes.find((one) => one.id === id);
+    return node?.label ?? id;
+  };
+  const nameOf = (part) => part.label || (part.from ? `${labelOf(part.from)} → ${labelOf(part.to)}` : part.id);
+  const lines = [];
+  for (const [status, word] of [['added', 'New'], ['changed', 'Changed'], ['removed', 'Removed']]) {
+    const names = [];
+    for (const [id, { before, after }] of diff.parts) {
+      if (diff.status.get(id) !== status) continue;
+      const part = after ?? before;
+      const what = status === 'changed' ? ` (${changedFields(after, before).join(', ')})` : '';
+      names.push(`${nameOf(part)}${what}`);
+    }
+    if (names.length) lines.push(`${word}: ${names.join('; ')}`);
+  }
+  return lines;
 }
 
 export function flowDiff(after, before) {
   const status = new Map();
   const was = new Map();
-  compare(after.nodes, before.nodes, (node) => node.id, status, was);
-  compare(after.edges ?? [], before.edges ?? [], edgeId, status, was);
+  const parts = new Map(); // each changed part's two versions, for what pointing at it shows
+  compare(after.nodes, before.nodes, (node) => node.id, status, was, undefined, parts);
+  compare(after.edges ?? [], before.edges ?? [], edgeId, status, was, undefined, parts);
   return {
     item: { ...after, nodes: mergeOrder(after.nodes, before.nodes), edges: mergeOrder(after.edges ?? [], before.edges ?? [], edgeId) },
     status,
     was,
+    parts,
   };
 }
 

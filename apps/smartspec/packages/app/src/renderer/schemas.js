@@ -12,7 +12,7 @@ import { watchLongPress } from './long-press.js';
 import { itemView, kindLabel, sequenceKey, wipeView } from './item-views.js';
 import { markInline, readText } from './diff-marks.js';
 import { markScrolling } from './scroll-marks.js';
-import { diffOf } from './item-diffs.js';
+import { diffOf, flowSummary } from './item-diffs.js';
 import { CROSS, openCompare } from './compare-view.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
@@ -1501,6 +1501,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // drawer along the bottom of the card, so its title row is only its title (see cardDrawer).
     // Full screen too (the user's choice); the bottom bar then says what the item is and how it shows.
     const reason = here.proposal ? shown.reasons?.[use ? null : id] : null;
+    let summary = [];
     const foot = [];
     if (use) {
       await useOverview(use, middle, body, openUse);
@@ -1515,6 +1516,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // way, until they pick another.
       const showing = earlier ? here.diffs?.[item.id] ?? (approvals.has(item.id) ? 'after' : 'changes') : 'after';
       const view = changedView(item, earlier, showing, onLink);
+      // What a diagram's proposal changed, in words, under why it changes: which boxes and connections
+      // are new, removed or changed, and in what (the user's choice: the outlines alone didn't say).
+      if (earlier && item.kind === 'flow') summary = flowSummary(diffOf(item, earlier));
       if (earlier) foot.push(diffSwitch(here, item.id, showing));
       // Writing can be compared with the draft side by side too: a button of its own beside the
       // switch, as it opens a view across the window rather than changing how the card shows.
@@ -1560,7 +1564,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // full screen, in the bottom bar with the item's switch.
     const change = here.proposal && !use ? mark(id) : null;
     if (change && actionsOf(middle)) foot.push(approveButton(here, shown, id, change, item?.title));
-    if (foot.length || reason) middle.append(full ? floatingCard(middle, foot, reason) : cardDrawer(here, id, middle, foot, reason));
+    if (foot.length || reason || summary.length) middle.append(full ? floatingCard(middle, foot, reason, summary) : cardDrawer(here, id, middle, foot, reason, summary));
     actionsOf(middle).append(fullButton(here, id));
 
     // A diagram is a canvas, writing is a page, and a table or image sits on a surface of its own.
@@ -1693,11 +1697,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // go back to a size). Its size is kept for each item while the app is open, never stored. Full
   // screen, it's a floating card instead (see floatingCard).
   const DRAWER_OPEN = 140;
-  function cardDrawer(here, key, card, controls, reason) {
+  function cardDrawer(here, key, card, controls, reason, summary = []) {
     here.drawers ??= {};
     const kept = (here.drawers[key] ??= { open: false, height: null });
-    const row = h('div', { className: 'card-drawer-row' }, ...(controls.length ? controls : [h('strong', { className: 'card-drawer-title' }, 'Why it changes')]));
-    const more = reason && h('div', { className: 'card-drawer-more' }, controls.length > 0 && h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason));
+    const row = h('div', { className: 'card-drawer-row' }, ...(controls.length ? controls : [h('strong', { className: 'card-drawer-title' }, reason ? 'Why it changes' : 'What changed')]));
+    const more = (reason || summary.length > 0) && h('div', { className: 'card-drawer-more' },
+      reason && controls.length > 0 && h('strong', { className: 'card-drawer-title' }, 'Why it changes'),
+      reason && h('p', {}, reason),
+      ...whatChanged(summary, Boolean(reason) || controls.length > 0));
     const drawer = h('div', { className: 'card-drawer' }, row, more);
     // Pressing in it never picks up the card or starts a comment.
     drawer.addEventListener('pointerdown', (event) => event.stopPropagation());
@@ -1771,13 +1778,19 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   let floatPlace = null;
   // Approve goes underneath why it changes (the user's choice: alone in the top row it left an
   // empty strip above the reason); the switch, if there is one, stays at the top.
-  function floatingCard(card, controls, reason) {
+  // The lines saying what changed, under a title of their own (none where it's the drawer's title).
+  function whatChanged(summary, titled = true) {
+    if (!summary.length) return [];
+    return [titled && h('strong', { className: 'card-drawer-title what-changed' }, 'What changed'), ...summary.map((line) => h('p', { className: 'what-changed-line' }, line))];
+  }
+
+  function floatingCard(card, controls, reason, summary = []) {
     const approve = controls.filter((c) => c?.classList?.contains('approve-button'));
     const others = controls.filter((c) => !approve.includes(c));
     const float = h('div', { className: 'change-float' },
       h('div', { className: 'change-float-grip', 'aria-hidden': 'true' }),
       others.length > 0 && h('div', { className: 'card-drawer-row' }, ...others),
-      reason && h('div', { className: 'change-float-why' }, h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason)),
+      (reason || summary.length > 0) && h('div', { className: 'change-float-why' }, reason && h('strong', { className: 'card-drawer-title' }, 'Why it changes'), reason && h('p', {}, reason), ...whatChanged(summary)),
       approve.length > 0 && h('div', { className: 'card-drawer-row change-float-foot' }, ...approve));
     const place = (left, top) => {
       const room = card.getBoundingClientRect();

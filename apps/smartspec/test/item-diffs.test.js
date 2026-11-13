@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { diffOf, flowDiff, mergeOrder, sequenceDiff, tableDiff, WAS } from '../packages/app/src/renderer/item-diffs.js';
+import { describe, test } from 'node:test';
+import { diffOf, flowDiff, mergeOrder, sequenceDiff, tableDiff, WAS, changedFields, flowSummary } from '../packages/app/src/renderer/item-diffs.js';
 
 const ids = (list) => list.map((one) => one.id);
 
@@ -79,4 +79,33 @@ test('rows taken into a new box show as removed where they were, and added insid
 test('only diagrams and tables are drawn from both versions', () => {
   assert.equal(diffOf({ kind: 'document', markdown: 'b' }, { kind: 'document', markdown: 'a' }), null);
   assert.equal(diffOf({ kind: 'table', columns: [], rows: [] }, null), null);
+});
+
+describe('what a flow proposal changed, in words', () => {
+  const before = {
+    kind: 'flow',
+    nodes: [{ id: 'fn', label: 'Cloud Functions', description: 'Sign-in links and deletions.' }, { id: 'old', label: 'Old box' }, { id: 'db', label: 'Firestore' }],
+    edges: [{ from: 'fn', to: 'db', label: 'writes' }],
+  };
+  const after = {
+    kind: 'flow',
+    nodes: [{ id: 'fn', label: 'Cloud Functions', description: 'Sign-in links, deletions and locks.', link: 'account' }, { id: 'db', label: 'Firestore backup' }, { id: 'mail', label: 'Mailjet' }],
+    edges: [{ from: 'fn', to: 'db', label: 'writes' }, { from: 'fn', to: 'mail' }],
+  };
+
+  test('each part keeps its two versions, and says which of its fields changed', () => {
+    const diff = flowDiff(after, before);
+    assert.deepEqual(diff.parts.get('fn').before, before.nodes[0]);
+    assert.deepEqual(diff.parts.get('fn').after, after.nodes[0]);
+    assert.deepEqual(changedFields(after.nodes[0], before.nodes[0]), ['description', 'link']);
+    assert.deepEqual(changedFields(after.nodes[1], before.nodes[2]), ['label']);
+  });
+
+  test('the drawer lists what is new, changed and removed, connections without a label by their ends', () => {
+    assert.deepEqual(flowSummary(flowDiff(after, before)), [
+      'New: Mailjet; Cloud Functions → Mailjet',
+      'Changed: Cloud Functions (description, link); Firestore backup (label)',
+      'Removed: Old box',
+    ]);
+  });
 });
