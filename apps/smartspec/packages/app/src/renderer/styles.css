@@ -1030,6 +1030,27 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .canvas-controls { position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; box-sizing: border-box; height: 30px; gap: 2px; padding: 2px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); cursor: default; }
 .canvas-controls button { min-width: 24px; height: 24px; padding: 0 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
 .canvas-controls button:hover { background: var(--button-hover); }
+.canvas-controls .details-button[aria-pressed="true"] { background: var(--button-active); color: var(--accent); }
+/* A flow's box open to its description (flowView): the description under the label, muted, its
+   changes under review marked; and the small arrow that opens or closes a box on its own. */
+.diagram-svg .diagram-desc { font-size: 12px; fill: var(--muted); }
+.diagram-svg .diagram-desc .added { fill: var(--change-add); font-weight: 600; }
+.diagram-svg .diagram-desc .removed { fill: var(--change-del); text-decoration: line-through; }
+.diagram-svg .diagram-desc .gone { fill: var(--change-del); font-weight: 600; }
+/* Writing shown Before or After (changedView): its own side marked, as side by side's pages are. */
+.side-marks .diff-removed { margin: 0; color: inherit; text-decoration: none; user-select: text; }
+.diagram-svg .diagram-toggle { cursor: pointer; }
+.diagram-svg .box-switch-bg { fill: var(--subtle-bg, rgba(127, 127, 127, 0.12)); stroke: var(--border); }
+.diagram-svg .box-switch-option { cursor: pointer; }
+.diagram-svg .box-switch-hit { fill: transparent; }
+.diagram-svg .box-switch-option:hover .box-switch-hit { fill: var(--button-hover); }
+.diagram-svg .box-switch-option.chosen .box-switch-hit { fill: var(--button-active); }
+.diagram-svg .box-switch-word { font-size: 11px; fill: var(--muted); }
+.diagram-svg .box-switch-option.chosen .box-switch-word { fill: var(--text); font-weight: 600; }
+.diagram-svg .diagram-toggle-hit { fill: transparent; }
+.diagram-svg .diagram-toggle:hover .diagram-toggle-hit { fill: var(--button-hover); }
+.diagram-svg .diagram-toggle-arrow { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.diagram-svg .diagram-toggle:hover .diagram-toggle-arrow { stroke: var(--text); }
 .canvas-amount { min-width: 42px; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; }
 .sheet-body { display: flex; flex-direction: column; padding: 0 0 16px; }
 .focus-full .sheet-body { padding: 20px 24px 24px; }
@@ -1214,14 +1235,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .change-float-grip { flex: none; width: 30px; height: 4px; margin: 2px auto 2px; border-radius: 2px; background: var(--border-strong); }
 .change-float-why { max-height: 96px; overflow: auto; padding: 2px 14px 4px; font-size: 13px; line-height: 1.5; }
 .change-float-why p { margin: 3px 0 0; cursor: text; }
-/* What a diagram's proposal changed, under why it changes (flowSummary in item-diffs.js). */
-.card-drawer-title.what-changed { display: block; margin-top: 10px; }
-.what-changed-line { margin: 3px 0 0; }
-/* Pointing at a part of a diagram the proposal changes: what about it changed (watchChanges). */
-.change-card { max-width: 340px; }
-.change-card .change-words .diff-removed { margin: 0; }
-.part-card-subhead { margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 600; }
-.change-card .change-then { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--change-del) 70%, transparent); }
 .change-float-foot { padding: 6px 12px 6px; }
 /* An image wiped between the old and the new: the new over the old, cut away from the left. */
 .image-wipe { position: relative; display: grid; cursor: ew-resize; user-select: none; touch-action: none; }

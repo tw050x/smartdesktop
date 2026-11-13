@@ -3,7 +3,6 @@ import { pinOffset } from './canvas-view.js';
 import { hideHoverCard, showHoverCard } from './hover-card.js';
 import { GROUP_WORDS, layoutFlow, layoutSequence } from './layout.js';
 import { inlineMarkdown, renderMarkdown } from './markdown.js';
-import { changedFields } from './item-diffs.js';
 import { diffText } from './word-diff.js';
 
 // Each kind of item's way of rendering. Whatever the kind, a part that can be linked to has
@@ -120,106 +119,278 @@ function edgeLabel(label, x, y, from = 'middle') {
   ];
 }
 
-function flowView(item, onLink, diff = null) {
-  const layout = layoutFlow(item, measure);
+// A flow diagram: its boxes and the connections between them, each box by its label. A box's
+// description shows under its label with Details on (`details`, the button beside the zoom), or
+// for a box opened on its own (`opened`, by the small arrow beside its label, `onToggle`), and a
+// connection's under its label with Details on. Under review the descriptions carry their changes:
+// words removed struck through in red, words added in green, and a label that changed its old one,
+// struck through, above (the user's choice: one way to read what changed, in place).
+const DESC_FONT = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+const DESC_LINE = 16;
+const DESC_WRAP = 44; // characters on a description's line
+const DESC_GAP = 8; // between a label and what's under it
+const TOGGLE = 20; // room for the arrow that opens a box
+// A changed box, open, has its own switch along its bottom (the user's choice: the marked words can
+// be hard to read): its version before, its changes marked, or its version after, for it alone.
+const BOX_VIEWS = [['before', 'Before'], ['changes', 'Changed'], ['after', 'After']];
+// Before shows the old words with those removed in red; After the new with those added in green;
+// Changed both, the removed struck through (the user's choice).
+
+const SWITCH_FONT = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+const SWITCH_HEIGHT = 20;
+const SWITCH_PAD = 9; // each segment's room either side of its word
+
+function flowView(item, onLink, diff = null, { details = false, opened = new Set(), onToggle = null, boxViews = {}, onBoxView = null } = {}) {
+  // Whether a part's change shows in its words (its label or description), so it can be switched.
+  const switchable = (id) => {
+    const change = diff?.parts?.get(id);
+    return diff?.status.get(id) === 'changed' && (change.before.label !== change.after.label || (change.before.description ?? '') !== (change.after.description ?? ''));
+  };
+  // The whole item shown before or after (its switch, see sideDiff) shows every box that way, with no
+  // switch of its own; otherwise each changed box has its own.
+  const viewOf = (id) => (switchable(id) ? diff.side ?? boxViews[id] ?? 'changes' : null);
+  // The label a box shows: its old one, switched to Before.
+  const labelOf = (node) => (viewOf(node.id) === 'before' ? diff.parts.get(node.id).before.label : node.label);
+  // What shows under each part's label when it's open: lines of pieces, each with its kind of change.
+  const extraOf = (id, part) => {
+    const change = diff?.parts?.get(id);
+    const status = diff?.status.get(id);
+    const view = viewOf(id);
+    if (view === 'before' || view === 'after') return wrapPieces(sidePieces(change.before.description ?? '', change.after.description ?? '', view));
+    const lines = [];
+    if (status === 'changed' && change.before.label && change.before.label !== change.after.label) lines.push([{ text: change.before.label, kind: 'removed' }]);
+    const description = status === 'changed' ? markedPieces(change.before.description ?? '', change.after.description ?? '') : part.description ? [{ text: part.description, kind: null }] : [];
+    lines.push(...wrapPieces(description));
+    return lines;
+  };
+  context.font = SWITCH_FONT;
+  const segments = BOX_VIEWS.map(([view, word]) => ({ view, word, width: Math.ceil(context.measureText(word).width) + 2 * SWITCH_PAD }));
+  const switchWidth = segments.reduce((sum, one) => sum + one.width, 0) + 4;
+  const extras = new Map();
+  for (const node of item.nodes) {
+    const lines = extraOf(node.id, node);
+    if (lines.length || switchable(node.id)) extras.set(node.id, lines);
+  }
+  const edgeExtras = new Map();
+  if (details) {
+    for (const edge of item.edges ?? []) {
+      const lines = extraOf(edgeId(edge), edge);
+      if (lines.length) edgeExtras.set(edgeId(edge), lines);
+    }
+  }
+  const isOpen = (id) => (extras.has(id) || switchable(id)) && (details || opened.has(id));
+  const hasSwitch = (id) => Boolean(onBoxView) && !diff?.side && isOpen(id) && switchable(id);
+  const toggles = !details && Boolean(onToggle);
+  const extraSize = (lines) => {
+    context.font = DESC_FONT;
+    return { width: Math.ceil(Math.max(0, ...lines.map((line) => context.measureText(line.map((piece) => piece.text).join('')).width))), height: lines.length * DESC_LINE };
+  };
+  const nodeSize = (node) => {
+    const label = measure(labelOf(node));
+    const width = label.width + (toggles && (extras.has(node.id) || switchable(node.id)) ? TOGGLE : 0);
+    if (!isOpen(node.id)) return { width, height: label.height };
+    const more = extraSize(extras.get(node.id) ?? []);
+    const room = hasSwitch(node.id) ? DESC_GAP + SWITCH_HEIGHT : 0;
+    return { width: Math.max(width, more.width, hasSwitch(node.id) ? switchWidth : 0), height: label.height + (more.height ? DESC_GAP + more.height : 0) + room };
+  };
+  const edgeSize = (edge) => {
+    const label = edge.label ? measure(edge.label) : { width: 0, height: 0 };
+    const lines = edgeExtras.get(edgeId(edge));
+    if (!lines) return label;
+    const more = extraSize(lines);
+    return { width: Math.max(label.width, more.width), height: label.height + (label.height ? DESC_GAP : 0) + more.height };
+  };
+
+  const layout = layoutFlow(item, measure, { nodeSize, edgeSize });
   const { root, arrow } = canvas(layout.width, layout.height);
   for (const edge of layout.edges) {
     const id = edgeId(edge);
     const group = svg('g', { class: `diagram-edge${diffClass(diff, id)}`, 'data-part': id }, svg('path', { d: route(edge.points), class: 'diagram-line', 'marker-end': arrow }), svg('path', { d: route(edge.points), class: 'diagram-hit' }));
-    if (edge.label) group.append(...edgeLabel(edge.label, edge.labelX, edge.labelY));
+    const lines = edgeExtras.get(id);
+    if (lines) group.append(...edgeDetails(edge.label, lines, edge.labelX, edge.labelY, edgeSize(edge)));
+    else if (edge.label) group.append(...edgeLabel(edge.label, edge.labelX, edge.labelY));
     linkPart(group, edge.link, onLink);
-    root.append(diff?.parts ? group : wasTitle(diff, id, group));
+    root.append(wasTitle(diff, id, group));
   }
   for (const node of layout.nodes) {
-    const group = svg('g', { class: `diagram-node${diffClass(diff, node.id)}`, 'data-part': node.id },
-      svg('rect', { x: node.x - node.width / 2, y: node.y - node.height / 2, width: node.width, height: node.height, rx: 8, class: 'diagram-box' }),
-      text(node.label, node.x, node.y, 'diagram-text'));
+    const open = isOpen(node.id);
+    const shownLabel = labelOf(node);
+    const label = measure(shownLabel);
+    const top = node.y - node.height / 2;
+    const labelY = open ? top + 12 + label.height / 2 : node.y;
+    const openable = extras.has(node.id) || switchable(node.id);
+    const labelX = toggles && openable ? node.x - TOGGLE / 2 : node.x;
+    const group = svg('g', { class: `diagram-node${diffClass(diff, node.id)}${open ? ' open' : ''}`, 'data-part': node.id },
+      svg('rect', { x: node.x - node.width / 2, y: top, width: node.width, height: node.height, rx: 8, class: 'diagram-box' }),
+      text(shownLabel, labelX, labelY, 'diagram-text'));
+    if (open && extras.get(node.id)?.length) group.append(piecesText(extras.get(node.id), node.x - node.width / 2 + 12, labelY + label.height / 2 + DESC_GAP + DESC_LINE / 2));
+    if (hasSwitch(node.id)) group.append(boxSwitch(segments, node.x, top + node.height - 8 - SWITCH_HEIGHT / 2, switchWidth, viewOf(node.id), (view) => onBoxView(node.id, view)));
+    if (toggles && openable) group.append(toggleArrow(node, labelY, open, () => onToggle(node.id)));
     linkPart(group, node.link, onLink);
-    root.append(diff?.parts ? group : wasTitle(diff, node.id, group));
+    root.append(open ? group : wasTitle(diff, node.id, group));
   }
-  if (diff?.parts) watchChanges(root, diff);
   return root;
 }
 
-// Under review, pointing at (or clicking) a box or connection the proposal adds, removes or changes
-// says what about it changed (the user's choice: an amber outline alone didn't say what, as what
-// changed is often its description, which the diagram doesn't show): its label then and now, its
-// description with the words removed struck through and those added marked, where it links.
-function watchChanges(root, diff) {
-  const labelOf = (id) => diff.item.nodes.find((one) => one.id === id)?.label ?? id;
-  const show = (event) => {
-    const element = event.target.closest?.('[data-part]');
-    const id = element?.dataset.part;
-    const change = id && diff.parts.get(id);
-    if (!change || event.buttons || root.closest('.panning')) return hideHoverCard();
-    showHoverCard(element, (card) => card.replaceChildren(...changeLines(change, diff.status.get(id), labelOf)), { x: event.clientX, y: event.clientY }, 'part-card change-card');
-  };
-  root.addEventListener('pointermove', show);
-  root.addEventListener('click', show);
-  root.addEventListener('pointerleave', () => hideHoverCard());
-}
-
-function changeLines({ before, after }, status, labelOf) {
-  const part = after ?? before;
-  const edge = 'from' in part;
-  const line = (className, words) => Object.assign(document.createElement('div'), { className, textContent: words });
-  const name = (one) => one?.label || (one?.from ? `${labelOf(one.from)} → ${labelOf(one.to)}` : '');
-  const lines = [line('part-card-kind', `${{ added: 'New', removed: 'Removed', changed: 'Changed' }[status]} ${edge ? 'connection' : 'box'}`), line('part-card-title', name(part))];
-  if (status !== 'changed') {
-    if (part.description) lines.push(line('part-card-text', part.description));
-    return lines;
+// A changed box's own switch, centred on (x, y): Before, Changed, After. Choosing one never follows
+// the box's link or moves the canvas.
+function boxSwitch(segments, x, y, width, showing, onChoose) {
+  const left = x - width / 2;
+  const element = svg('g', { class: 'box-switch', role: 'group', 'aria-label': 'Show this box' },
+    svg('rect', { x: left, y: y - SWITCH_HEIGHT / 2, width, height: SWITCH_HEIGHT, rx: 6, class: 'box-switch-bg' }));
+  let at = left + 2;
+  for (const { view, word, width: w } of segments) {
+    const chosen = view === showing;
+    const segment = svg('g', { class: `box-switch-option${chosen ? ' chosen' : ''}`, role: 'button', tabindex: '0', 'aria-pressed': String(chosen) },
+      svg('rect', { x: at, y: y - SWITCH_HEIGHT / 2 + 2, width: w, height: SWITCH_HEIGHT - 4, rx: 4, class: 'box-switch-hit' }),
+      Object.assign(svg('text', { x: at + w / 2, y, 'text-anchor': 'middle', 'dominant-baseline': 'central', class: 'box-switch-word' }), { textContent: word }));
+    const choose = (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      if (!chosen) onChoose(view);
+    };
+    segment.addEventListener('click', choose);
+    segment.addEventListener('pointerdown', (event) => event.stopPropagation());
+    segment.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') choose(event);
+    });
+    element.append(segment);
+    at += w;
   }
-  const fields = changedFields(after, before);
-  if (fields.includes('label') && before.label) lines.push(line('part-card-note', `Was “${before.label}”`));
-  if (fields.includes('description')) {
-    const then = before.description ?? '';
-    const now = after.description ?? '';
-    // A few words changed: marked where they are. Most of it rewritten: then and now, one above the
-    // other, as words struck through and put back between the new ones don't read.
-    const changes = diffText(then, now).flatMap((change) => change.parts);
-    const touched = changes.reduce((n, part) => n + (part.added ? part.added.end - part.added.start : 0) + (part.removed ? part.removed.end - part.removed.start : 0), 0);
-    if (!then || !now || touched > 0.5 * (then.length + now.length)) {
-      if (then) lines.push(line('part-card-subhead', 'Before'), line('part-card-text change-then', then));
-      lines.push(line('part-card-subhead', now ? 'Now' : 'Its description is gone'));
-      if (now) lines.push(line('part-card-text', now));
-    } else {
-      const words = document.createElement('div');
-      words.className = 'part-card-text change-words';
-      words.append(...markedWords(then, now));
-      lines.push(words);
-    }
-  } else if (after.description) lines.push(line('part-card-text', after.description));
-  if (fields.includes('link')) lines.push(line('part-card-note', after.link ? `Now links to ${after.link}${before.link ? `, not ${before.link}` : ''}` : `No longer links to ${before.link}`));
-  if (fields.includes('start') || fields.includes('end')) lines.push(line('part-card-note', `Was ${labelOf(before.from)} → ${labelOf(before.to)}`));
-  lines.push(line('part-card-note', `What changed: its ${fields.join(', ')}`));
-  return lines;
+  return element;
 }
 
-// `after`, with the words added marked and the words removed put back where they were, struck through.
-function markedWords(before, after) {
+// The small arrow beside a box's label that opens it to its description, or closes it. Clicking it
+// never follows the box's link.
+function toggleArrow(node, y, open, onClick) {
+  const x = node.x + node.width / 2 - 14;
+  const shape = open ? `M${x - 4} ${y - 2}L${x} ${y + 2}L${x + 4} ${y - 2}` : `M${x - 2} ${y - 4}L${x + 2} ${y}L${x - 2} ${y + 4}`;
+  const element = svg('g', { class: 'diagram-toggle', role: 'button', tabindex: '0', 'aria-label': open ? 'Close this box' : 'Open this box to its description' },
+    svg('rect', { x: x - 9, y: y - 9, width: 18, height: 18, rx: 4, class: 'diagram-toggle-hit' }),
+    svg('path', { d: shape, class: 'diagram-toggle-arrow' }));
+  const toggle = (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    onClick();
+  };
+  element.addEventListener('click', toggle);
+  element.addEventListener('pointerdown', (event) => event.stopPropagation());
+  element.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') toggle(event);
+  });
+  return element;
+}
+
+// Lines of pieces as SVG text, left-aligned at `x`, the first line's middle at `y`, each piece's
+// change as its class (added, removed).
+function piecesText(lines, x, y) {
+  const element = svg('text', { x, y, class: 'diagram-desc', 'dominant-baseline': 'central' });
+  lines.forEach((line, index) => {
+    line.forEach((piece, at) => {
+      const span = svg('tspan', { class: piece.kind ?? undefined, ...(at === 0 ? { x, dy: index ? DESC_LINE : 0 } : {}) });
+      span.textContent = piece.text;
+      element.append(span);
+    });
+  });
+  return element;
+}
+
+// A connection's label and its description (Details on), on one grey card centred on (x, y).
+function edgeDetails(label, lines, x, y, size) {
+  const left = x - size.width / 2;
+  const top = y - size.height / 2;
+  const elements = [svg('rect', { x: left - LABEL_PAD, y: top - 3, width: size.width + 2 * LABEL_PAD, height: size.height + 6, rx: 4, class: 'diagram-label-bg' })];
+  let below = top;
+  if (label) {
+    const words = svg('text', { x: left, y: top + LINE / 2, class: 'diagram-label', 'text-anchor': 'start', 'dominant-baseline': 'central' });
+    linesOf(label).forEach((line, index) => {
+      const span = svg('tspan', { x: left, dy: index ? LINE : 0 });
+      span.textContent = line;
+      words.append(span);
+    });
+    elements.push(words);
+    below = top + measure(label).height + DESC_GAP;
+  }
+  elements.push(piecesText(lines, left, below + DESC_LINE / 2));
+  return elements;
+}
+
+// `after` as pieces, with the words removed put back where they were (kind 'removed') and those
+// added marked ('added').
+function markedPieces(before, after) {
   const pieces = [];
   let at = 0;
   const plain = (to) => {
-    if (to > at) pieces.push(document.createTextNode(after.slice(at, to)));
+    if (to > at) pieces.push({ text: after.slice(at, to), kind: null });
     at = Math.max(at, to);
   };
-  const span = (className, words) => Object.assign(document.createElement('span'), { className, textContent: words });
   for (const change of diffText(before, after)) {
     for (const { removed, added, at: where } of change.parts) {
       plain(where);
       if (removed) {
-        if (pieces.length && !/\s$/.test(pieces.at(-1).textContent)) pieces.push(document.createTextNode(' '));
-        pieces.push(span('diff-removed', before.slice(removed.start, removed.end)), document.createTextNode(' '));
+        if (pieces.length && !/\s$/.test(pieces.at(-1).text)) pieces.push({ text: ' ', kind: null });
+        pieces.push({ text: before.slice(removed.start, removed.end), kind: 'removed' }, { text: ' ', kind: null });
       }
       if (added) {
         plain(added.start);
-        pieces.push(span('diff-added', after.slice(added.start, added.end)));
+        pieces.push({ text: after.slice(added.start, added.end), kind: 'added' });
         at = added.end;
       }
     }
   }
   plain(after.length);
   return pieces;
+}
+
+// One side of a change as pieces: `before` with the words removed marked ('gone'), or `after` with
+// the words added marked ('added').
+function sidePieces(before, after, side) {
+  const text = side === 'before' ? before : after;
+  const ranges = diffText(before, after).flatMap((change) => change.parts).map((part) => (side === 'before' ? part.removed : part.added)).filter(Boolean);
+  const pieces = [];
+  let at = 0;
+  for (const { start, end } of ranges) {
+    if (start > at) pieces.push({ text: text.slice(at, start), kind: null });
+    pieces.push({ text: text.slice(start, end), kind: side === 'before' ? 'gone' : 'added' });
+    at = end;
+  }
+  if (at < text.length) pieces.push({ text: text.slice(at), kind: null });
+  return pieces;
+}
+
+// Pieces broken into lines at the words, about DESC_WRAP characters each, each word keeping its kind
+// and whether a space came before it (so a change ending at a comma doesn't gain a space before it).
+function wrapPieces(pieces) {
+  const words = [];
+  let spaced = false;
+  for (const piece of pieces) {
+    for (const [, space, word] of piece.text.matchAll(/(\s*)(\S+)/g)) {
+      words.push({ text: word, kind: piece.kind, space: words.length > 0 && (spaced || space.length > 0) });
+      spaced = false;
+    }
+    if (/\s$/.test(piece.text)) spaced = true;
+  }
+  const lines = [];
+  let line = [];
+  let length = 0;
+  for (const word of words) {
+    const gap = word.space && line.length ? 1 : 0;
+    if (length && length + gap + word.text.length > DESC_WRAP && word.space) {
+      lines.push(line);
+      line = [];
+      length = 0;
+    }
+    const last = line.at(-1);
+    const space = word.space && line.length ? ' ' : '';
+    if (last && last.kind === word.kind) last.text += space + word.text;
+    else {
+      if (space) line.push({ text: space, kind: null }); // a space between kinds is neither's
+      line.push({ text: word.text, kind: word.kind });
+    }
+    length += space.length + word.text.length;
+  }
+  if (line.length) lines.push(line);
+  return lines;
 }
 
 function groupView(group) {
@@ -532,6 +703,8 @@ function tableView(item, onLink, diff = null) {
       const before = diff?.cells?.get(row.id)?.get(column.id);
       if (before !== undefined) {
         cell.classList.add('change-changed');
+        // Before or After alone shows only its own value, marked as changed (see sideDiff).
+        if (diff.side) continue;
         const old = document.createElement('del');
         old.className = 'change-was';
         inlineMarkdown(old, before || '—');
@@ -617,8 +790,9 @@ const VIEWS = { document: documentView, flow: flowView, sequence: sequenceView, 
 
 // An item's view. `onLink(target)` follows a link, in the form it's written. `diff` (a diagram's or
 // table's, from item-diffs.js) draws `item`, both versions together, with what changed marked.
-export function itemView(item, onLink, diff = null) {
-  const view = VIEWS[item.kind](item, onLink, diff);
+// `options` go to the kind's view: a flow's Details and opened boxes (see flowView).
+export function itemView(item, onLink, diff = null, options = undefined) {
+  const view = VIEWS[item.kind](item, onLink, diff, options);
   if (view.classList.contains('diagram-svg')) {
     const holder = document.createElement('div');
     holder.className = 'diagram';

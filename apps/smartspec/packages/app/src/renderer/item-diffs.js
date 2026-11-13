@@ -67,29 +67,6 @@ export function changedFields(after, before) {
   return words;
 }
 
-// What a flow's Changes view changed, in a few lines for the card's drawer: the boxes and connections
-// added, removed and changed (and in what), each by its label (a connection without one by its ends).
-export function flowSummary(diff) {
-  if (!diff?.parts) return [];
-  const labelOf = (id) => {
-    const node = diff.item.nodes.find((one) => one.id === id);
-    return node?.label ?? id;
-  };
-  const nameOf = (part) => part.label || (part.from ? `${labelOf(part.from)} → ${labelOf(part.to)}` : part.id);
-  const lines = [];
-  for (const [status, word] of [['added', 'New'], ['changed', 'Changed'], ['removed', 'Removed']]) {
-    const names = [];
-    for (const [id, { before, after }] of diff.parts) {
-      if (diff.status.get(id) !== status) continue;
-      const part = after ?? before;
-      const what = status === 'changed' ? ` (${changedFields(after, before).join(', ')})` : '';
-      names.push(`${nameOf(part)}${what}`);
-    }
-    if (names.length) lines.push(`${word}: ${names.join('; ')}`);
-  }
-  return lines;
-}
-
 export function flowDiff(after, before) {
   const status = new Map();
   const was = new Map();
@@ -194,4 +171,29 @@ export function diffOf(after, before) {
   if (after.kind === 'sequence') return sequenceDiff(after, before);
   if (after.kind === 'table') return tableDiff(after, before);
   return null;
+}
+
+// One version alone, marked on its own side (the user's choice): Before, the version in the draft
+// with what the proposal removes in red (and what it changes in amber); After, the proposed version
+// with what it adds in green (and what it changes). Changes, both together, is diffOf's. The parts'
+// two versions come along, for a flow's descriptions. Null where there's no such view.
+export function sideDiff(after, before, side) {
+  const both = diffOf(after, before);
+  if (!both) return null;
+  const status = new Map();
+  for (const [id, change] of both.status) {
+    if (side === 'after') {
+      if (change !== 'removed' && !id.endsWith(WAS)) status.set(id, change);
+    } else if (id.endsWith(WAS)) {
+      status.set(id.slice(0, -WAS.length), 'removed'); // a sequence's changed message: its old row
+    } else if (change !== 'added' && !status.has(id)) status.set(id, change);
+  }
+  return {
+    item: side === 'after' ? after : before,
+    status,
+    was: side === 'after' ? both.was : new Map(),
+    cells: both.cells,
+    parts: both.parts,
+    side,
+  };
 }

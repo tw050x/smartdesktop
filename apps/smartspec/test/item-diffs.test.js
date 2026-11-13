@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { diffOf, flowDiff, mergeOrder, sequenceDiff, tableDiff, WAS, changedFields, flowSummary } from '../packages/app/src/renderer/item-diffs.js';
+import { diffOf, flowDiff, mergeOrder, sequenceDiff, tableDiff, WAS, changedFields, sideDiff } from '../packages/app/src/renderer/item-diffs.js';
 
 const ids = (list) => list.map((one) => one.id);
 
@@ -100,12 +100,34 @@ describe('what a flow proposal changed, in words', () => {
     assert.deepEqual(changedFields(after.nodes[0], before.nodes[0]), ['description', 'link']);
     assert.deepEqual(changedFields(after.nodes[1], before.nodes[2]), ['label']);
   });
+});
 
-  test('the drawer lists what is new, changed and removed, connections without a label by their ends', () => {
-    assert.deepEqual(flowSummary(flowDiff(after, before)), [
-      'New: Mailjet; Cloud Functions → Mailjet',
-      'Changed: Cloud Functions (description, link); Firestore backup (label)',
-      'Removed: Old box',
-    ]);
+describe('one side alone', () => {
+  const before = { kind: 'flow', nodes: [{ id: 'a', label: 'A' }, { id: 'gone', label: 'Gone' }, { id: 'c', label: 'C', description: 'old words' }], edges: [{ from: 'a', to: 'gone' }] };
+  const after = { kind: 'flow', nodes: [{ id: 'a', label: 'A' }, { id: 'new', label: 'New' }, { id: 'c', label: 'C', description: 'new words' }], edges: [{ from: 'a', to: 'new' }] };
+
+  test('Before is the draft’s version with what’s removed marked, and what changed', () => {
+    const side = sideDiff(after, before, 'before');
+    assert.equal(side.item, before);
+    assert.equal(side.side, 'before');
+    assert.equal(side.status.get('gone'), 'removed');
+    assert.equal(side.status.get('c'), 'changed');
+    assert.equal(side.status.has('new'), false);
+    assert.equal(side.parts.get('c').before.description, 'old words');
+  });
+
+  test('After is the proposed version with what’s added marked, and what changed', () => {
+    const side = sideDiff(after, before, 'after');
+    assert.equal(side.item, after);
+    assert.equal(side.status.get('new'), 'added');
+    assert.equal(side.status.get('c'), 'changed');
+    assert.equal(side.status.has('gone'), false);
+  });
+
+  test('a sequence’s changed message is its old row, removed, before, and its new one, added, after', () => {
+    const was = { kind: 'sequence', participants: [{ id: 'p', label: 'P' }, { id: 'q', label: 'Q' }], messages: [{ id: 'm', from: 'p', to: 'q', label: 'asks' }] };
+    const now = { kind: 'sequence', participants: was.participants, messages: [{ id: 'm', from: 'p', to: 'q', label: 'asks twice' }] };
+    assert.equal(sideDiff(now, was, 'before').status.get('m'), 'removed');
+    assert.equal(sideDiff(now, was, 'after').status.get('m'), 'added');
   });
 });

@@ -10,9 +10,9 @@ import { closeThread, openThread, refreshThread } from './comment-overlay.js';
 import { shadeScrolling } from './scroll-shade.js';
 import { watchLongPress } from './long-press.js';
 import { itemView, kindLabel, sequenceKey, wipeView } from './item-views.js';
-import { markInline, readText } from './diff-marks.js';
+import { markInline, markSides, readText } from './diff-marks.js';
 import { markScrolling } from './scroll-marks.js';
-import { diffOf, flowSummary } from './item-diffs.js';
+import { diffOf, sideDiff } from './item-diffs.js';
 import { CROSS, openCompare } from './compare-view.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
@@ -1253,8 +1253,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // (or what the proposal does to it). Its controls are in its own drawer (see cardDrawer).
   const SHOWING = {
     changes: () => 'Showing what the proposal changes in it: new in green, removed in red, changed in amber.',
-    before: (number) => `Showing it as it is in draft ${number}.`,
-    after: () => 'Showing it as it would be once accepted.',
+    before: (number) => `Showing it as it is in draft ${number}, what the proposal removes in red.`,
+    after: () => 'Showing it as it would be once accepted, what the proposal adds in green.',
   };
   function fullItem(here, shown) {
     const use = shown.uses.find((one) => one.id === here.item);
@@ -1501,7 +1501,6 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // drawer along the bottom of the card, so its title row is only its title (see cardDrawer).
     // Full screen too (the user's choice); the bottom bar then says what the item is and how it shows.
     const reason = here.proposal ? shown.reasons?.[use ? null : id] : null;
-    let summary = [];
     const foot = [];
     if (use) {
       await useOverview(use, middle, body, openUse);
@@ -1515,17 +1514,34 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // Changes, unless the user has approved it: then After, as it will be (the user's choice). Either
       // way, until they pick another.
       const showing = earlier ? here.diffs?.[item.id] ?? (approvals.has(item.id) ? 'after' : 'changes') : 'after';
-      const view = changedView(item, earlier, showing, onLink);
-      // What a diagram's proposal changed, in words, under why it changes: which boxes and connections
-      // are new, removed or changed, and in what (the user's choice: the outlines alone didn't say).
-      if (earlier && item.kind === 'flow') summary = flowSummary(diffOf(item, earlier));
+      // A flow diagram shows each box's description with Details on, or a box opened on its own (see
+      // flowView): Details starts on under review (Before, Changes and After all mark what changed in
+      // the descriptions), else off, until the user says (kept per item while the app is open).
+      const flow = item.kind === 'flow' && !(earlier && showing === 'before' && earlier.kind !== 'flow') ? {
+        details: here.flowDetails?.[item.id] ?? Boolean(earlier),
+        opened: new Set(here.flowOpen?.[item.id] ?? []),
+        onToggle: (part) => {
+          const open = new Set(here.flowOpen?.[item.id] ?? []);
+          if (open.has(part)) open.delete(part);
+          else open.add(part);
+          here.flowOpen = { ...here.flowOpen, [item.id]: [...open] };
+          render();
+        },
+        // Each changed box's own Before, Changed or After (the user's choice).
+        boxViews: here.flowBoxViews?.[item.id] ?? {},
+        onBoxView: (part, way) => {
+          here.flowBoxViews = { ...here.flowBoxViews, [item.id]: { ...here.flowBoxViews?.[item.id], [part]: way } };
+          render();
+        },
+      } : undefined;
+      const view = changedView(item, earlier, showing, onLink, flow);
       if (earlier) foot.push(diffSwitch(here, item.id, showing));
       // Writing can be compared with the draft side by side too: a button of its own beside the
       // switch, as it opens a view across the window rather than changing how the card shows.
       if (earlier && changedWriting(here, shown, item, mark)) foot.push(h('button', { type: 'button', className: 'side-by-side', title: 'Open it beside the draft it changes, across the window', onclick: () => openCompareOf(here, shown, item) }, 'Side by side'));
       if (earlier && full) here.fullDiff = { showing, basedOn: shown.line.indexOf(shown.basedOn) + 1 };
       // Where a canvas has been moved to is kept for each size it shows at, and each way it shows.
-      const place = `${item.id}:${Boolean(full)}:${showing}`;
+      const place = `${item.id}:${Boolean(full)}:${showing}:${Boolean(flow?.details)}`;
       here.views ??= {};
       const drawing = view.querySelector?.(':scope > svg');
       const canvas = view.classList.contains('diagram') && !still
@@ -1535,6 +1551,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
           fitted: true,
         })
         : view;
+      // A flow diagram's Details: every box's description under its label, or labels alone.
+      if (flow && canvas.classList.contains('diagram-canvas')) {
+        const button = h('button', { type: 'button', className: 'details-button', 'aria-pressed': String(flow.details), title: flow.details ? 'Show the boxes’ labels alone' : 'Show each box’s description under its label', onclick: () => {
+          here.flowDetails = { ...here.flowDetails, [item.id]: !flow.details };
+          render();
+        } }, 'Details');
+        canvas.querySelector(':scope > .canvas-controls')?.prepend(button);
+      }
       // A sequence diagram has a key to its lines and boxes, for anyone who doesn't know them.
       if (drawing?.keyParts && canvas.classList.contains('diagram-canvas')) {
         const key = h('button', { type: 'button', title: 'What the lines and boxes mean', 'aria-label': 'Key to this diagram', onclick: () => showKey(item.title, drawing.keyParts) }, 'Key');
@@ -1564,7 +1588,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // full screen, in the bottom bar with the item's switch.
     const change = here.proposal && !use ? mark(id) : null;
     if (change && actionsOf(middle)) foot.push(approveButton(here, shown, id, change, item?.title));
-    if (foot.length || reason || summary.length) middle.append(full ? floatingCard(middle, foot, reason, summary) : cardDrawer(here, id, middle, foot, reason, summary));
+    if (foot.length || reason) middle.append(full ? floatingCard(middle, foot, reason) : cardDrawer(here, id, middle, foot, reason));
     actionsOf(middle).append(fullButton(here, id));
 
     // A diagram is a canvas, writing is a page, and a table or image sits on a surface of its own.
@@ -1654,17 +1678,31 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // draft ('before'), as proposed ('after'), or with what changed marked ('changes'): writing with
   // its added and removed words (diff-marks.js), a diagram or table drawn from both versions
   // (item-diffs.js), an image wiped between the two.
-  function changedView(item, earlier, showing, onLink) {
-    if (!earlier || showing === 'after') return itemView(item, onLink);
-    if (showing === 'before') return itemView(earlier, onLink);
-    if (item.kind === 'image' && earlier.kind === 'image') return wipeView(item, earlier);
+  // Before and After each mark their own side of what changed (the user's choice): Before, the draft's
+  // version with what's removed in red; After, the proposed one with what's added in green; Changes,
+  // both together. An image has nothing to mark: Before and After are the pictures.
+  function changedView(item, earlier, showing, onLink, options = undefined) {
+    if (!earlier) return itemView(item, onLink, null, options);
+    if (item.kind === 'image' && earlier.kind === 'image') return showing === 'changes' ? wipeView(item, earlier) : itemView(showing === 'before' ? earlier : item, onLink);
     if (item.kind === 'document' && typeof earlier.markdown === 'string') {
-      const view = itemView(item, onLink);
-      markInline(view, readText((element) => renderMarkdown(element, earlier.markdown)));
+      if (showing === 'changes') {
+        const view = itemView(item, onLink);
+        markInline(view, readText((element) => renderMarkdown(element, earlier.markdown)));
+        return view;
+      }
+      const before = itemView(earlier, onLink);
+      const after = itemView(item, onLink);
+      markSides(before, after);
+      const view = showing === 'before' ? before : after;
+      view.classList.add('side-marks');
       return view;
     }
-    const diff = diffOf(item, earlier);
-    return diff ? itemView(diff.item, onLink, diff) : itemView(item, onLink);
+    if (showing === 'changes') {
+      const diff = diffOf(item, earlier);
+      return diff ? itemView(diff.item, onLink, diff, options) : itemView(item, onLink, null, options);
+    }
+    const side = sideDiff(item, earlier, showing);
+    return side ? itemView(side.item, onLink, side, options) : itemView(showing === 'before' ? earlier : item, onLink, null, options);
   }
   // Approving a change: the user's say on it before the proposal is accepted. Accepting doesn't wait
   // for it: what isn't approved is accepted as proposed, and the confirmation says so (the user's
@@ -1690,21 +1728,18 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return button;
   }
 
-  const DIFF_WAYS = [['before', 'Before', 'As it is in the draft'], ['changes', 'Changes', 'What the proposal changes, marked'], ['after', 'After', 'As it would be, once accepted']];
+  const DIFF_WAYS = [['before', 'Before', 'As it is in the draft, with what the proposal removes in red'], ['changes', 'Changes', 'What the proposal changes, removed and added together'], ['after', 'After', 'As it would be once accepted, with what the proposal adds in green']];
   // The drawer along the bottom of a card under review: its controls in a row (or, with none, a
   // heading), and below them why the item changes, scrolling. A handle on its top edge drags it
   // taller or shorter; double-clicking the handle opens or closes it (the user's choice: it doesn't
   // go back to a size). Its size is kept for each item while the app is open, never stored. Full
   // screen, it's a floating card instead (see floatingCard).
   const DRAWER_OPEN = 140;
-  function cardDrawer(here, key, card, controls, reason, summary = []) {
+  function cardDrawer(here, key, card, controls, reason) {
     here.drawers ??= {};
     const kept = (here.drawers[key] ??= { open: false, height: null });
-    const row = h('div', { className: 'card-drawer-row' }, ...(controls.length ? controls : [h('strong', { className: 'card-drawer-title' }, reason ? 'Why it changes' : 'What changed')]));
-    const more = (reason || summary.length > 0) && h('div', { className: 'card-drawer-more' },
-      reason && controls.length > 0 && h('strong', { className: 'card-drawer-title' }, 'Why it changes'),
-      reason && h('p', {}, reason),
-      ...whatChanged(summary, Boolean(reason) || controls.length > 0));
+    const row = h('div', { className: 'card-drawer-row' }, ...(controls.length ? controls : [h('strong', { className: 'card-drawer-title' }, 'Why it changes')]));
+    const more = reason && h('div', { className: 'card-drawer-more' }, controls.length > 0 && h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason));
     const drawer = h('div', { className: 'card-drawer' }, row, more);
     // Pressing in it never picks up the card or starts a comment.
     drawer.addEventListener('pointerdown', (event) => event.stopPropagation());
@@ -1778,19 +1813,13 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   let floatPlace = null;
   // Approve goes underneath why it changes (the user's choice: alone in the top row it left an
   // empty strip above the reason); the switch, if there is one, stays at the top.
-  // The lines saying what changed, under a title of their own (none where it's the drawer's title).
-  function whatChanged(summary, titled = true) {
-    if (!summary.length) return [];
-    return [titled && h('strong', { className: 'card-drawer-title what-changed' }, 'What changed'), ...summary.map((line) => h('p', { className: 'what-changed-line' }, line))];
-  }
-
-  function floatingCard(card, controls, reason, summary = []) {
+  function floatingCard(card, controls, reason) {
     const approve = controls.filter((c) => c?.classList?.contains('approve-button'));
     const others = controls.filter((c) => !approve.includes(c));
     const float = h('div', { className: 'change-float' },
       h('div', { className: 'change-float-grip', 'aria-hidden': 'true' }),
       others.length > 0 && h('div', { className: 'card-drawer-row' }, ...others),
-      (reason || summary.length > 0) && h('div', { className: 'change-float-why' }, reason && h('strong', { className: 'card-drawer-title' }, 'Why it changes'), reason && h('p', {}, reason), ...whatChanged(summary)),
+      reason && h('div', { className: 'change-float-why' }, h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason)),
       approve.length > 0 && h('div', { className: 'card-drawer-row change-float-foot' }, ...approve));
     const place = (left, top) => {
       const room = card.getBoundingClientRect();

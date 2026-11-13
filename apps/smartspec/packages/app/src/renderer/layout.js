@@ -8,16 +8,18 @@ const NODE_PADDING = { x: 16, y: 12 };
 
 // Top to bottom unless told otherwise: tall diagrams spread what they link to down the page, where
 // the side cards can line up with it, and wide ones squeeze the middle card.
-export function layoutFlow({ direction = 'TB', nodes, edges = [] }, measure) {
+// `nodeSize` and `edgeSize`, if given, size a box's or a connection label's content (a box open to its
+// description is taller); otherwise each is its label, measured.
+export function layoutFlow({ direction = 'TB', nodes, edges = [] }, measure, { nodeSize = null, edgeSize = null } = {}) {
   const graph = new dagre.graphlib.Graph({ multigraph: true });
   graph.setGraph({ rankdir: direction, nodesep: 32, edgesep: 16, ranksep: 64, marginx: 8, marginy: 8 });
   graph.setDefaultEdgeLabel(() => ({}));
   for (const node of nodes) {
-    const size = measure(node.label);
+    const size = nodeSize ? nodeSize(node) : measure(node.label);
     graph.setNode(node.id, { width: size.width + 2 * NODE_PADDING.x, height: size.height + 2 * NODE_PADDING.y });
   }
   for (const edge of edges) {
-    const size = edge.label ? measure(edge.label) : { width: 0, height: 0 };
+    const size = edgeSize ? edgeSize(edge) : edge.label ? measure(edge.label) : { width: 0, height: 0 };
     graph.setEdge(edge.from, edge.to, { width: size.width, height: size.height, labelpos: 'c' }, edgeId(edge));
   }
   dagre.layout(graph);
