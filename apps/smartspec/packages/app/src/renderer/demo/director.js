@@ -635,7 +635,7 @@ export function createDirector({ api }) {
 
     // --- The home page: a schematic, from asking for it to handing it on ---
 
-    // The chat opened (from the Window menu, or SmartDesktop's icon in the menu bar: the window has no
+    // The chat opened (from the Window menu, or SmartDesktop's icon in the Dock: the window has no
     // button for it), and a new schematic asked for in it.
     ask: {
       narrowX: CHAT_X,
