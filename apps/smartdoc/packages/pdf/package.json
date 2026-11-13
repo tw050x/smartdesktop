@@ -12,6 +12,7 @@
     "lib/",
     "formats/",
     "fonts/",
+    "read/",
     "README.md"
   ],
   "engines": {
