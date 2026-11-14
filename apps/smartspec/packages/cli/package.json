@@ -1,6 +1,6 @@
 {
   "name": "@smartspec/cli",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "The smartspec command: installs the SmartSpec app, sets up Claude Desktop and Claude Code to use it, checks the connection, and runs SmartSpec's MCP connection for agents set up with npx.",
   "license": "MIT",
   "type": "module",
