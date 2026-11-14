@@ -24,7 +24,7 @@ import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';
 import { levelOf } from './home-level.js';
-import { actionFor, firstTodo, todoOf } from './home-review-state.js';
+import { actionFor, firstTodo, todoOf } from '../main/home-review-state.js';
 import { LABEL_COLORS, NO_LABELS, labelsOn, labelsToChoose } from '../main/labels.js';
 import { arrowKeysIn } from './menu-keys.js';
 

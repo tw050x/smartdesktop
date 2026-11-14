@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { actionFor } from '../packages/app/src/renderer/home-review-state.js';
+import { actionFor } from '../packages/app/src/main/home-review-state.js';
 
 const review = (over) => ({ status: 'committed', findings: 3, decided: 1, applied: false, preview: false, waitingForAi: false, ...over });
 
