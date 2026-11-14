@@ -1,7 +1,7 @@
 {
   "name": "@smartspec/app",
   "productName": "SmartSpec",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "description": "Plan systems and define the contracts between them, with your own AI.",
   "license": "MIT",
   "private": true,
