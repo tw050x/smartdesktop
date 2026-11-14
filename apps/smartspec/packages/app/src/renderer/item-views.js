@@ -63,8 +63,8 @@ function text(label, x, y, className, wrap = WRAP, anchor = 'middle') {
   return element;
 }
 
-// A part that links somewhere is outlined in blue; only its arrow (`linkIcon`) follows the link, the
-// one way to follow a link in any diagram or table (the user's choice: clicking a whole linked box
+// A part that links somewhere is marked (`part-link`), and only its arrow (`linkIcon`), blue, follows the
+// link (the user's choice: the part itself isn't blue too), the one way to follow a link in any diagram or table (the user's choice: clicking a whole linked box
 // and clicking an arrow beside another were two ways, and confusing).
 function linkPart(element, target) {
   if (target) element.classList.add('part-link');
@@ -571,7 +571,7 @@ export function sequenceKey(parts) {
     box: ['Box', 'Participants that belong together, such as the parts of one system.', () => [svg('rect', { x: 2, y: 2, width: W - 4, height: H - 4, rx: 6, class: 'diagram-participants-box' })]],
     section: ['Section', 'Divides a box into its sections, each with its condition in brackets.', () => [svg('rect', { x: 2, y: 2, width: W - 4, height: H - 4, rx: 3, class: 'diagram-group-frame' }), svg('line', { x1: 2, x2: W - 2, y1: H / 2, y2: H / 2, class: 'diagram-group-divider' })]],
     end: ['End of sequence', 'Where the sequence ends: the lifelines stop here.', () => [svg('rect', { x: 2, y: 6, width: W - 4, height: H - 12, rx: 4, class: 'diagram-end-box' })]],
-    link: ['Link', 'Outlined in blue, with this arrow: it links to another part of this schematic. The arrow goes there.', () => [svg('g', { class: 'part-link' }, svg('rect', { x: 6, y: 4, width: W - 12, height: H - 8, rx: 6, class: 'diagram-box' })), svg('path', { d: `M${W - 22.5} ${H / 2 + 3.5}L${W - 15.5} ${H / 2 - 3.5}M${W - 20.5} ${H / 2 - 3.5}H${W - 15.5}V${H / 2 + 1.5}`, class: 'diagram-link-arrow' })]],
+    link: ['Link', 'A part with this arrow links to another part of this schematic. The arrow goes there.', () => [svg('g', {}, svg('rect', { x: 6, y: 4, width: W - 12, height: H - 8, rx: 6, class: 'diagram-box' })), svg('path', { d: `M${W - 22.5} ${H / 2 + 3.5}L${W - 15.5} ${H / 2 - 3.5}M${W - 20.5} ${H / 2 - 3.5}H${W - 15.5}V${H / 2 + 1.5}`, class: 'diagram-link-arrow' })]],
   };
   for (const [kind, word] of Object.entries(GROUP_WORDS)) ROWS[`group:${kind}`] = [`${word[0].toUpperCase()}${word.slice(1)} box`, `${GROUP_MEANINGS[kind]} Its condition is in its header.`, frame(word)];
   const list = document.createElement('dl');

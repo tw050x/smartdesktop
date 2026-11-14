@@ -652,8 +652,7 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .diagram-key dd span { color: var(--text-2); }
 .key-swatch { overflow: visible; }
 .diagram-label-bg { fill: color-mix(in srgb, var(--text) 11%, var(--bg)); }
-/* A part that links somewhere: outlined in blue, followed only by its arrow (see linkPart). */
-.part-link .diagram-box { stroke: var(--accent); }
+/* A part that links somewhere is followed only by its arrow, which alone is blue (see linkPart). */
 .item-table .row-link { width: 1px; padding: 4px 8px 0 0; vertical-align: top; }
 .row-link-button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; }
 .row-link-button:hover, .row-link-button:focus-visible { background: color-mix(in srgb, var(--accent) 18%, transparent); }
