@@ -216,7 +216,7 @@ function flowView(item, onLink, diff = null, { details = false, opened = new Set
     const id = edgeId(edge);
     const group = svg('g', { class: `diagram-edge${diffClass(diff, id)}`, 'data-part': id }, svg('path', { d: route(edge.points), class: 'diagram-line', 'marker-end': arrow }), svg('path', { d: route(edge.points), class: 'diagram-hit' }));
     const lines = edgeExtras.get(id);
-    const follow = edge.link ? () => onLink(edge.link) : null;
+    const follow = edge.link ? followOf(edge.link, onLink) : null;
     if (lines) group.append(...edgeDetails(edge.label, lines, edge.labelX, edge.labelY, edgeSize(edge), follow));
     else if (edge.label || follow) group.append(...edgeLabel(edge.label ?? '', edge.labelX, edge.labelY, 'middle', follow));
     linkPart(group, edge.link);
@@ -241,7 +241,7 @@ function flowView(item, onLink, diff = null, { details = false, opened = new Set
     } else group.append(words);
     if (open && extras.get(node.id)?.length) group.append(piecesText(extras.get(node.id), left + 12, labelY + label.height / 2 + DESC_GAP + DESC_LINE / 2));
     if (hasSwitch(node.id)) group.append(boxSwitch(segments, node.x, top + node.height - 8 - SWITCH_HEIGHT / 2, switchWidth, viewOf(node.id), (view) => onBoxView(node.id, view)));
-    if (node.link) group.append(linkIcon(node.x + node.width / 2 - 16, firstLine, () => onLink(node.link)));
+    if (node.link) group.append(linkIcon(node.x + node.width / 2 - 16, firstLine, followOf(node.link, onLink)));
     linkPart(group, node.link);
     root.append(open ? group : wasTitle(diff, node.id, group));
   }
@@ -298,6 +298,33 @@ function boxHead(left, top, width, height, words, x, y, open, onClick) {
   return element;
 }
 
+// Following a link, as its arrow does: `onLink(link)`, and what it goes to, for the arrow's hover card
+// (`onLink.describe`, if the view gives one: see schemas.js).
+const followOf = (link, onLink) => Object.assign(() => onLink(link), { describe: () => onLink.describe?.(link) });
+
+// Pointing at a link's arrow shows where it goes, on the window's hover card (the user's choice: the
+// arrow alone didn't say): what it goes to, its kind, and the part of it if the link is to one.
+function showsWhereTo(element, follow) {
+  const show = () => {
+    const box = element.getBoundingClientRect();
+    showHoverCard(element, async (card) => {
+      const where = await follow.describe?.();
+      if (!where) return;
+      const line = (className, words) => Object.assign(document.createElement('div'), { className, textContent: words });
+      card.replaceChildren(...[
+        line('part-card-kind', 'Goes to'),
+        line('part-card-title', where.title),
+        where.part && line('part-card-text', where.part),
+        where.kind && line('part-card-note', where.kind),
+      ].filter(Boolean));
+    }, { left: box.left, top: box.top, bottom: box.bottom, width: box.width }, 'part-card link-card');
+  };
+  element.addEventListener('pointerenter', show);
+  element.addEventListener('focus', show);
+  element.addEventListener('pointerleave', () => hideHoverCard());
+  element.addEventListener('blur', () => hideHoverCard());
+}
+
 // A box's link, an icon (an arrow out of a corner) centred on (x, y): it brings what the box links to
 // into view, as following any link does. Clicking it never opens or closes the box.
 function linkIcon(x, y, onClick) {
@@ -314,6 +341,7 @@ function linkIcon(x, y, onClick) {
   element.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') follow(event);
   });
+  showsWhereTo(element, onClick);
   return element;
 }
 
@@ -480,6 +508,7 @@ function watchSequenceHover(root, about) {
     return id && about.has(id) ? { element, info: about.get(id) } : null;
   };
   root.addEventListener('pointermove', (event) => {
+    if (event.target.closest?.('.diagram-link-icon')) return; // its arrow says where it goes
     const found = partAt(event);
     if (!found || event.buttons || root.closest('.panning')) return hideHoverCard();
     showHoverCard(found.element, (card) => {
@@ -585,7 +614,7 @@ function sequenceView(item, onLink, diff = null) {
     const group = svg('g', { class: `diagram-box-group${diffClass(diff, box.id)}`, 'data-part': box.id },
       svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: layout.end.top - 6, rx: 8, class: 'diagram-participants-box' }), svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: 22, rx: 8, class: 'diagram-box-hit' }));
     if (box.label) heads.append(text(box.label, (box.left + box.right) / 2, 13, 'diagram-label'));
-    if (box.link) heads.append(linkIcon(box.right - 14, 13, () => onLink(box.link)));
+    if (box.link) heads.append(linkIcon(box.right - 14, 13, followOf(box.link, onLink)));
     linkPart(group, box.link);
     root.append(group);
   }
@@ -598,7 +627,7 @@ function sequenceView(item, onLink, diff = null) {
     const line = svg('g', { class: `diagram-life${diffClass(diff, one.id)}`, 'data-about': one.id }, svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-lifeline' }), svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-hit' }));
     const head = svg('g', { class: `diagram-node${diffClass(diff, one.id)}`, 'data-part': one.id },
       svg('g', {}, svg('rect', { x: one.x - width / 2, y: layout.headTop + 4, width, height: HEAD_BOX, rx: 8, class: 'diagram-box' }), text(one.label, one.x - (one.link ? LINK_ROOM / 2 : 0), middle, 'diagram-text')));
-    if (one.link) head.append(linkIcon(one.x + width / 2 - 16, middle - (size.height - LINE) / 2, () => onLink(one.link)));
+    if (one.link) head.append(linkIcon(one.x + width / 2 - 16, middle - (size.height - LINE) / 2, followOf(one.link, onLink)));
     linkPart(head, one.link);
     root.append(line);
     heads.append(wasTitle(diff, one.id, head));
@@ -607,13 +636,13 @@ function sequenceView(item, onLink, diff = null) {
     const element = svg('rect', { x: bar.x - 5, y: bar.top, width: 10, height: bar.bottom - bar.top, rx: 2, class: `diagram-activation${diffClass(diff, bar.id)}`, 'data-part': bar.id });
     linkPart(element, bar.link);
     root.append(element);
-    if (bar.link) root.append(linkIcon(bar.x + 16, bar.top + 9, () => onLink(bar.link)));
+    if (bar.link) root.append(linkIcon(bar.x + 16, bar.top + 9, followOf(bar.link, onLink)));
   }
   for (const group of layout.groups) {
     const element = groupView(group);
     if (diff?.status.get(group.id)) element.classList.add(`change-${diff.status.get(group.id)}`);
     if (banded(group.id)) element.prepend(band(group.id, group.top - 4, group.bottom + 4));
-    if (group.link) element.append(linkIcon(group.right - 14, group.top + 11, () => onLink(group.link)));
+    if (group.link) element.append(linkIcon(group.right - 14, group.top + 11, followOf(group.link, onLink)));
     linkPart(element, group.link);
     root.append(wasTitle(diff, group.id, element));
   }
@@ -650,7 +679,7 @@ function sequenceView(item, onLink, diff = null) {
     // has its label beside its loop, clear of the lifeline.
     const above = message.y - 12 - (measure(message.label).height - LINE) / 2;
     const row = rows.get(message.id);
-    const follow = message.link ? () => onLink(message.link) : null;
+    const follow = message.link ? followOf(message.link, onLink) : null;
     const group = svg('g', { class: `diagram-edge${diffClass(diff, message.id)}`, 'data-part': message.id },
       ...(row ? [band(message.id, row.top, row.bottom, row.inBox)] : []),
       svg('path', { d: path, class: `diagram-line${message.reply ? ' reply' : ''}`, 'marker-end': arrow }),
@@ -768,7 +797,7 @@ function tableView(item, onLink, diff = null) {
     if (linked) {
       const cell = line.insertCell();
       cell.className = 'row-link';
-      if (row.link) cell.append(rowLinkButton(() => onLink(row.link)));
+      if (row.link) cell.append(rowLinkButton(followOf(row.link, onLink)));
     }
     linkPart(line, row.link);
   }
@@ -788,6 +817,7 @@ function rowLinkButton(onClick) {
     onClick();
   });
   button.addEventListener('pointerdown', (event) => event.stopPropagation());
+  showsWhereTo(button, onClick);
   return button;
 }
 

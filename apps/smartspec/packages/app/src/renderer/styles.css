@@ -1218,13 +1218,19 @@ button:disabled { opacity: 0.5; cursor: default; }
    (cardDrawer in schemas.js). */
 /* It lies over the card's content, which keeps its size as it's dragged (the user's choice): the
    content stops above it shut (--drawer-shut), and it's drawn over the content when it's opened. */
-.card-drawer { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border); background: var(--bg); border-radius: 0 0 var(--card-radius) var(--card-radius); transition: height 0.2s ease; }
+.card-drawer { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border); background: var(--bg); border-radius: 0 0 var(--card-radius) var(--card-radius); transition: height 0.2s ease, transform 0.2s ease; }
 .card-drawer.open { box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.16); }
 .focus-card:has(> .card-drawer) { padding-bottom: var(--drawer-shut, 43px); }
 .card-drawer.dragging { transition: none; }
 .card-drawer-row { display: flex; flex: none; align-items: center; gap: 8px; padding: 6px 8px; }
 /* Approve at the far end, the ways to look at the change together at the start. */
 .card-drawer-row > .approve-button { margin-left: auto; }
+/* What the change is, on the row beside the controls (changeLine in schemas.js). */
+.card-drawer-change { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 6px; min-width: 0; overflow: hidden; padding: 0 4px; color: var(--muted); font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
+.card-drawer-change svg { flex: none; padding: 2px; border-radius: 4px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.card-drawer-change.added svg { color: var(--change-add); background: var(--change-add-bg); }
+.card-drawer-change.changed svg { color: var(--change-mod); background: color-mix(in srgb, var(--change-mod) 16%, transparent); }
+.card-drawer-change.removed svg { color: var(--change-del); background: var(--change-del-bg); }
 .card-drawer.titled .card-drawer-row { padding: 8px 14px; }
 .card-drawer-title { display: block; color: var(--muted); font-size: 11.5px; font-weight: 600; }
 .card-drawer-more { display: none; flex: 1; min-height: 0; overflow: auto; padding: 2px 14px 12px; color: var(--text); font-size: 13px; line-height: 1.5; }

@@ -145,10 +145,18 @@ export function watchOverview(holder, pairs, connections) {
     holder.scrollLeft = 0;
   });
   holder.addEventListener('focusout', () => light(holder, pairs, []));
+  // Only a card it showed for a line is hidden as the pointer leaves the lines: what's in an item
+  // shows its own (a link's arrow, a part of a sequence diagram).
+  let lineShown = false;
   holder.addEventListener('mousemove', (event) => {
     const line = event.target.closest?.('[data-hit]');
     const details = line && connections[line.dataset.hit];
-    if (details && !holder.classList.contains('panning')) showHoverCard(line, (card) => fillCard(card, details), { x: event.clientX, y: event.clientY }, 'link-card');
-    else hideHoverCard();
+    if (details && !holder.classList.contains('panning')) {
+      showHoverCard(line, (card) => fillCard(card, details), { x: event.clientX, y: event.clientY }, 'link-card');
+      lineShown = true;
+    } else if (lineShown) {
+      hideHoverCard();
+      lineShown = false;
+    }
   });
 }

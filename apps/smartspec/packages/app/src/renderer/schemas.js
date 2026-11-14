@@ -1,5 +1,5 @@
 import { iconSvg } from '../main/icons.js';
-import { CONTRACT, connectedPairs, isInternalLink, neighboursOf, parseLink, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
+import { CONTRACT, connectedPairs, isInternalLink, neighboursOf, parseLink, partName, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
 import { makeCanvas } from './canvas-view.js';
 import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
 import { watchBoard } from './board-view.js';
@@ -1517,6 +1517,16 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // An item the proposal under review changes shows Before, its Changes (the default) or After,
       // as its card's switch says (the user's choice): see changedView.
       const onLink = (link) => follow(link, id);
+      // Where a link goes, for its arrow's hover card: the item (or embedded schematic, or the
+      // contract), its kind, and the part of it.
+      onLink.describe = async (link) => {
+        const { target, part } = parseLink(link, id);
+        const title = titleOf(target, shown, uses);
+        if (target === CONTRACT) return { title, kind: 'The contract' };
+        if (uses.has(target)) return { title, kind: 'Embedded schematic' };
+        const linked = target === id ? item : await content(target);
+        return { title, kind: linked ? kindLabel(linked) : null, part: part && linked ? partName(linked, part) : part };
+      };
       const earlier = here.proposal && shown.basedOn && mark(item.id) === 'changed'
         ? await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null) : null;
       // Changes, unless the user has approved it: then After, as it will be (the user's choice). Either
@@ -1596,7 +1606,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // full screen, in the bottom bar with the item's switch.
     const change = here.proposal && !use ? mark(id) : null;
     if (change && actionsOf(middle)) foot.push(approveButton(here, shown, id, change, item?.title));
-    if (foot.length || reason) middle.append(full ? floatingCard(middle, foot, reason) : cardDrawer(here, id, middle, foot, reason));
+    if (foot.length || reason) middle.append(full ? floatingCard(middle, foot, reason) : cardDrawer(here, id, middle, foot, reason, change));
     // An embedded schematic has no full screen (the user's choice: its overview there was only to
     // look at): it opens in a tab of its own instead (see useOverview).
     if (!use) actionsOf(middle).append(fullButton(here, id));
@@ -1745,21 +1755,46 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // go back to a size). Its size is kept for each item while the app is open, never stored. Full
   // screen, it's a floating card instead (see floatingCard).
   const DRAWER_OPEN = 140;
-  function cardDrawer(here, key, card, controls, reason) {
+  const RUBBER = 40; // px: the most a drawer gives past its limits
+  // What a change is, beside its Approve: an icon and a few words, coloured as the change marks are
+  // (the user's choice: Approve was alone on the row, and the start of why it changes repeated
+  // what's below).
+  const CHANGE_WORDS = { added: 'New in this proposal', changed: 'Changed in this proposal', removed: 'Removed in this proposal' };
+  const CHANGE_SHAPES = { added: 'M8 4v8M4 8h8', changed: 'M3.5 9.2c1.5-2.4 3-2.4 4.5 0s3 2.4 4.5 0', removed: 'M4 8h8' };
+  function changeLine(change) {
+    if (!CHANGE_WORDS[change]) return null;
+    const line = h('span', { className: `card-drawer-change ${change}` });
+    line.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="${CHANGE_SHAPES[change]}"/></svg>`;
+    line.append(CHANGE_WORDS[change]);
+    return line;
+  }
+
+  function cardDrawer(here, key, card, controls, reason, change = null) {
     here.drawers ??= {};
     const kept = (here.drawers[key] ??= { open: false, height: null });
     const row = h('div', { className: 'card-drawer-row' }, ...(controls.length ? controls : [h('strong', { className: 'card-drawer-title' }, 'Why it changes')]));
+    const what = controls.length ? changeLine(change) : null;
+    if (what) row.insertBefore(what, row.querySelector(':scope > .approve-button'));
     const more = reason && h('div', { className: 'card-drawer-more' }, controls.length > 0 && h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, reason));
     const drawer = h('div', { className: 'card-drawer' }, row, more);
     // Pressing in it never picks up the card or starts a comment.
     drawer.addEventListener('pointerdown', (event) => event.stopPropagation());
     drawer.addEventListener('dblclick', (event) => event.stopPropagation());
-    // The content stops above it shut, and it lies over the content when it's opened.
+    // The content stops above it shut, and it lies over the content when it's opened (the user's
+    // choice, again: making room for it opened grew the card on the overview).
     requestAnimationFrame(() => card.style.setProperty('--drawer-shut', `${row.offsetHeight + 1}px`));
     if (!more) return drawer;
     if (!controls.length) drawer.classList.add('titled');
     const shut = () => row.offsetHeight + 1; // its row and its top border
-    const most = () => Math.max(shut() + 40, (card.clientHeight || 400) * 0.7);
+    // As tall as what it says, no taller, and at most 0.7 of the card.
+    const said = () => {
+      const was = more.style.cssText;
+      Object.assign(more.style, { display: 'block', flex: 'none', height: 'auto' }); // its own height, not the drawer's
+      const height = more.offsetHeight;
+      more.style.cssText = was;
+      return height;
+    };
+    const most = () => Math.max(shut() + 24, Math.min(shut() + said() + 2, (card.clientHeight || 400) * 0.7));
     const size = (height, open) => {
       drawer.classList.toggle('open', open);
       drawer.style.height = open ? `${height}px` : '';
@@ -1795,15 +1830,23 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const from = drawer.offsetHeight;
       drawer.classList.add('dragging');
       let height = from;
+      // Past its limits (shut, or as tall as it goes) it gives a little, more and more stiffly, and
+      // springs back when let go (the user's choice: it stopped dead).
+      const give = (over) => (over * RUBBER) / (over + RUBBER);
       const move = (moved) => {
-        height = Math.min(most(), Math.max(shut(), from - (moved.clientY - start) / scale));
-        size(height, height > shut() + 1);
+        const wanted = from - (moved.clientY - start) / scale;
+        height = wanted > most() ? most() + give(wanted - most()) : wanted < shut() ? shut() - give(shut() - wanted) : wanted;
+        // Below shut it slides down past the card's bottom edge, rather than squashing its row.
+        drawer.style.transform = height < shut() ? `translateY(${shut() - height}px)` : '';
+        size(Math.max(shut(), height), height > shut() + 1);
       };
       const end = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', end);
         window.removeEventListener('pointercancel', end);
         drawer.classList.remove('dragging');
+        drawer.style.transform = '';
+        height = Math.min(most(), Math.max(shut(), height));
         // Let go nearly shut, it shuts; otherwise it stays as it was left, and opens to that.
         kept.open = height > shut() + 24;
         if (kept.open) kept.height = height;
