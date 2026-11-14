@@ -11,8 +11,9 @@ const GAP = 16;
 export const CROSS = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const PADDING = 24;
 
-// `render(element, which)` draws 'before' or 'after' into a page.
-export function openCompare({ title, beforeLabel, afterLabel, render }) {
+// `render(element, which)` draws 'before' or 'after' into a page. `actions`, elements for the head
+// beside Close (the change's Approve, the user's choice: it had none here).
+export function openCompare({ title, beforeLabel, afterLabel, render, actions = [] }) {
   const overlay = document.createElement('div');
   overlay.className = 'compare-overlay';
   overlay.setAttribute('role', 'dialog');
@@ -58,7 +59,9 @@ export function openCompare({ title, beforeLabel, afterLabel, render }) {
   const shut = button('', 'Close the comparison', close, 'icon-button compare-close');
   shut.title = 'Close';
   shut.innerHTML = CROSS;
-  head.append(label(beforeLabel, 'removed'), nav, label(afterLabel, 'added'), shut);
+  const extra = Object.assign(document.createElement('div'), { className: 'compare-actions' });
+  extra.append(...actions);
+  head.append(label(beforeLabel, 'removed'), nav, label(afterLabel, 'added'), extra, shut);
 
   // Each side a page, as writing is everywhere (see page-view.js), as large as half the window allows.
   const page = (which) => {

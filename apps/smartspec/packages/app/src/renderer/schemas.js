@@ -1728,7 +1728,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // for it: what isn't approved is accepted as proposed, and the confirmation says so (the user's
   // choice, as SmartDoc goes on with sensible defaults). The chat is told, as a line of context.
   const APPROVE_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  function approveButton(here, shown, key, change, title) {
+  // `onChange`, called once it's been approved or taken back, for a button outside the board (side by
+  // side), which the board's redrawing doesn't reach.
+  function approveButton(here, shown, key, change, title, { onChange = null } = {}) {
     const approved = approvals.has(key);
     const what = key === CONTRACT ? 'the contract' : `“${title ?? key}”`;
     const doing = change === 'added' ? `adding ${what}` : change === 'removed' ? `removing ${what}` : `the change to ${what}`;
@@ -1739,9 +1741,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       title: approved ? `You’ve approved ${doing}. Click to take it back.` : `Approve ${doing}`,
       onclick: () => answer(async () => {
         await api.approveChange(here.schemaId, key, !approved);
+        if (approved) approvals.delete(key);
+        else approvals.add(key);
         const said = `${approved ? 'Took back approving' : 'Approved'} ${doing}`;
         onNote({ text: said, detail: `${said} in the proposal for ${shown.name} (schematic ${here.schemaId})` });
-      }),
+      }).then(() => onChange?.()),
     });
     button.innerHTML = APPROVE_ICON;
     button.append(approved ? 'Approved' : 'Approve');
@@ -1924,11 +1928,16 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // Opens the writing beside the draft it changes, across the window (see compare-view.js).
   async function openCompareOf(here, shown, item) {
     const earlier = await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null);
+    // Its Approve, as in its card's drawer, kept up to date as it's clicked.
+    const approve = h('span', { className: 'compare-approve' });
+    const draw = () => approve.replaceChildren(approveButton(here, shown, item.id, 'changed', item.title, { onChange: draw }));
+    draw();
     openCompare({
       title: item.title,
       beforeLabel: `Draft ${shown.line.indexOf(shown.basedOn) + 1}`,
       afterLabel: 'Proposed',
       render: (element, which) => renderMarkdown(element, which === 'before' ? earlier?.markdown ?? '' : item.markdown),
+      actions: [approve],
     });
   }
 
