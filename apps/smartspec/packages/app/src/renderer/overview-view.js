@@ -25,11 +25,14 @@ const svg = (tag, attributes = {}) => {
 // needs. `pairs` are from connectedPairs, and `room` is the size of the space it's shown in.
 // `pinned` ({ card, at }) are comment cards the user put somewhere, at `at` (fractions of the
 // drawing), over whatever's there. The drawing is HTML, with the lines in an svg beneath, so what's
-// in an item works as it does anywhere else.
-export function drawOverview(items, pairs, room, pinned = []) {
+// in an item works as it does anywhere else. `kind` is a class the drawing will have (as
+// `embed-overview`), which its items are measured under too, as its styles set their sizes.
+export function drawOverview(items, pairs, room, pinned = [], { kind = '' } = {}) {
   const world = Object.assign(document.createElement('div'), { className: 'overview-world' });
-  // Measured in the same markup as the canvas, as its styles set their sizes.
-  const measuring = Object.assign(document.createElement('div'), { className: 'diagram overview overview-measuring' });
+  // Measured in the same markup as the canvas, as its styles set their sizes: an embedded
+  // schematic's item measured without them was as wide as its card's face, its whole text on one
+  // line (thousands of pixels), and the overview was fitted to that, too small to read.
+  const measuring = Object.assign(document.createElement('div'), { className: `diagram overview overview-measuring ${kind}`.trim() });
   const sheet = Object.assign(document.createElement('div'), { className: 'overview-world' });
   sheet.append(...items, ...pinned.map((one) => one.card));
   measuring.append(sheet);

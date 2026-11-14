@@ -20,9 +20,41 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const fromSide = (cx) => Math.min(cx, 1 - cx);
 
 // The scale an open item shows at, its outer edge `e` from the side: 1 from FULL_FROM in, falling
-// steadily to SMALLEST_SCALE by SMALLEST_BY.
-export function scaleAtEdge(e) {
-  return 1 - (1 - SMALLEST_SCALE) * clamp((FULL_FROM - e) / (FULL_FROM - SMALLEST_BY), 0, 1);
+// steadily to its smallest (`least`, see leastScale) by SMALLEST_BY.
+export function scaleAtEdge(e, least = SMALLEST_SCALE) {
+  return 1 - (1 - least) * clamp((FULL_FROM - e) / (FULL_FROM - SMALLEST_BY), 0, 1);
+}
+
+// How small an item can get at the side: as small as its card's face (its kind's icon, its title, and
+// a row for each tag under it, such as New or its draft) still fits with room round it, between
+// LEAST_SCALE[0] and LEAST_SCALE[1]. Items start the same size, and all scaled down alike they made
+// a side of cards all the same size (the user's choice: some variety, a card with a short title
+// smaller as it needs less room). Always its full size's shape. `full` is its full size in px;
+// `measure(text, px)` the width of `text` in the card's title font at that size.
+export const LEAST_SCALE = [0.1, 0.2];
+export function leastScale({ title, icon = true, rows = 0, full, measure }) {
+  const words = String(title ?? '').split(/\s+/).filter(Boolean);
+  const fits = (scale) => {
+    const width = full.width * scale;
+    const height = full.height * scale;
+    // As the card's styles size them (styles.css, .board-card): its title's font and its icon follow
+    // its width, within limits.
+    const font = clamp(width * 0.085, 10, 12);
+    const inner = width - 2 * 9 - 6; // its padding, and a little room either side
+    const lines = [];
+    for (const word of words) {
+      if (measure(word, font) > inner) return false;
+      const joined = lines.length ? `${lines.at(-1)} ${word}` : null;
+      if (joined && measure(joined, font) <= inner) lines[lines.length - 1] = joined;
+      else lines.push(word);
+    }
+    if (lines.length > 3) return false; // a title is cut after three lines
+    const iconRoom = icon ? clamp(width * 0.22, 18, 38) + clamp(width * 0.025, 2, 4) + 2 : 0;
+    const needed = 2 * 6 + iconRoom + Math.max(1, lines.length) * font * 1.3 + rows * 17;
+    return needed <= height * 0.8; // with room above and below
+  };
+  for (let scale = LEAST_SCALE[0]; scale < LEAST_SCALE[1]; scale += 0.005) if (fits(scale)) return scale;
+  return LEAST_SCALE[1];
 }
 
 // Whether it's its card (1) rather than its open view (0). An item is always the same shape, its full
@@ -115,7 +147,7 @@ export function settleFilling(layout, board) {
 // `alone` (chosen on the overview), it's the only thing there: everything else in or near the middle
 // goes to the nearer side, at the same height, and it fills the middle.
 export function bringToMiddle(layout, id, board = null, { alone = false } = {}) {
-  const settled = board && !alone ? settleFilling(layout, board) : layout;
+  const settled = forgetSnap(board && !alone ? settleFilling(layout, board) : layout);
   const was = settled.boxes[id];
   const boxes = { ...settled.boxes };
   if (alone) {
@@ -131,11 +163,26 @@ export function bringToMiddle(layout, id, board = null, { alone = false } = {}) 
   return { boxes };
 }
 
+// An item dragged to the board's top has the middle to itself (see board-view.js), and keeps, as
+// `restore`, its own box before and those of what it sent to the sides: dragged away again, it
+// takes its size back and they come back to the middle, as a Mac window dragged down from filling
+// the screen does. Anything else coming into the middle forgets it (the user's choice: the middle is
+// no longer its own). In memory only, never saved.
+export function forgetSnap(layout) {
+  if (!Object.values(layout.boxes).some((box) => box.restore)) return layout;
+  const boxes = {};
+  for (const [id, box] of Object.entries(layout.boxes)) {
+    const { restore, ...kept } = box;
+    boxes[id] = kept;
+  }
+  return { boxes };
+}
+
 // An open item made as big as the middle allows, as a lone one fills it, and in front (a double click
 // on its title bar). It keeps that size, whatever else comes into the middle. `board` is the board's
 // size in px.
 export function fillMiddle(layout, id, board) {
-  const settled = settleFilling(layout, board);
+  const settled = forgetSnap(settleFilling(layout, board));
   const { ex, ...kept } = settled.boxes[id] ?? {};
   return { boxes: { ...settled.boxes, [id]: { ...kept, ...fillBox(board), sized: true, z: topZ(settled) + 1 } } };
 }

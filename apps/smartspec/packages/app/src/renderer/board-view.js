@@ -10,7 +10,7 @@
 // first needed by `build(id)`) and its card (`.board-card`). The board calls `onChange(layout)` when
 // the user has moved or sized something, and `onBring(id)` when a card is clicked.
 
-import { bringToMiddle, cardnessAtEdge, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
+import { bringToMiddle, cardnessAtEdge, leastScale, forgetSnap, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, inMiddle, isCard, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
 import { watchPage } from './page-view.js';
 import { longPressed } from './long-press.js';
 
@@ -35,6 +35,8 @@ function band(value, low, high) {
 const narrow = () => matchMedia('(max-width: 900px)').matches;
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const GRIPS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+
+const SNAP_TOP = 16; // px from the board's top: an item dragged there and let go fills the middle alone
 
 export function watchBoard(board, { layout: first, build, onChange = () => {}, onBring = () => {} }) {
   let layout = first;
@@ -79,8 +81,33 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   function sizeAt(one, e) {
     // A comment on the whole schematic is a card of its own size wherever it is.
     if (one.fixed) return { width: one.fixed.width * one.shrink, height: one.fixed.height * one.shrink, scale: one.shrink, cardness: 1 };
-    const scale = scaleAtEdge(e) * one.shrink;
+    const scale = scaleAtEdge(e, one.least) * one.shrink;
     return { width: one.full.width * scale, height: one.full.height * scale, scale, cardness: cardnessAtEdge(e) };
+  }
+
+  // How small an item gets at the side, by what its card shows (see leastScale), worked out again
+  // only when its title, its tags or its full size change.
+  const fontContext = document.createElement('canvas').getContext('2d');
+  let titleFont = null;
+  const measureTitle = (text, px) => {
+    fontContext.font = `${titleFont.weight} ${px}px ${titleFont.family}`;
+    return fontContext.measureText(text).width;
+  };
+  function smallestOf(element, full) {
+    const face = element.querySelector(':scope > .board-card');
+    const strong = face?.querySelector('.title-row strong');
+    if (!strong) return undefined;
+    const rows = [...strong.parentElement.children].filter((child) => child !== strong && child.textContent.trim()).length;
+    const icon = Boolean(face.querySelector(':scope > .kind-icon svg'));
+    const key = `${strong.textContent}|${rows}|${icon}|${Math.round(full.width)}|${Math.round(full.height)}`;
+    if (element.least?.key !== key) {
+      if (!titleFont) {
+        const style = getComputedStyle(strong);
+        titleFont = { weight: style.fontWeight, family: style.fontFamily };
+      }
+      element.least = { key, scale: leastScale({ title: strong.textContent, icon, rows, full, measure: measureTitle }) };
+    }
+    return element.least.scale;
   }
 
   // Where an item's outer edge is when only its centre is known: the one place where its size and
@@ -107,6 +134,7 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       fixed: element.classList.contains('board-comment') ? commentSize(element, false) : null,
       shrink: id === dragging || id === placed ? element.keepShrink ?? 1 : 1,
     };
+    one.least = smallestOf(element, one.full);
     // An item with no edge kept, whose centre is where cards go, is a card.
     one.e = box.ex != null && !filling ? box.ex : zoneAt(box.cx) === 'edge' ? 0 : edgeFromCentre(one);
     const zone = zoneAtEdge(one.e);
@@ -311,6 +339,29 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
 
   const changed = () => onChange(layout);
 
+  // An item dragged to the board's top had the middle to itself, and is now dragged away or resized:
+  // what it sent to the sides comes back to the middle, and with `self` it takes back its own size
+  // from before (the user's choice: either way it no longer fills the middle, as a Mac window dragged
+  // down or resized from filling the screen). If anything else has come into the middle since, it's
+  // forgotten instead (see forgetSnap in board.js). Whether anything came back.
+  function unsnap(id, { self = false } = {}) {
+    const restore = layout.boxes[id]?.restore;
+    if (!restore) return false;
+    if (inMiddle(layout).join() !== id) {
+      layout = forgetSnap(layout);
+      return false;
+    }
+    const boxes = { ...layout.boxes };
+    for (const [other, box] of Object.entries(restore.others)) if (boxes[other] && isCard(boxes[other])) boxes[other] = box;
+    const { restore: _, ...kept } = boxes[id];
+    boxes[id] = self ? { ...restore.self, ex: kept.ex, cx: kept.cx, cy: kept.cy, z: kept.z } : kept;
+    layout = { boxes };
+    placeAll();
+    return true;
+  }
+  // Where an item dragged to the board's top would go (see showSnap in the drag).
+  const snapShade = Object.assign(document.createElement('div'), { className: 'board-snap', ariaHidden: 'true' });
+
   // A card clicked comes to the middle, centred and in front. Nothing else moves.
   function bring(id) {
     layout = bringToMiddle(layout, id, size());
@@ -377,6 +428,7 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const hold = { x: (start.x - picked.left) / (picked.width || 1), y: (start.y - picked.top) / (picked.height || 1) };
     let from = null;
     let frameNow = null; // its size under the pointer, for springing back inside the window
+    let snap = false; // the pointer at the board's top: let go there, it has the middle to itself
     const onMove = (move) => {
       const dx = move.clientX - start.x;
       const dy = move.clientY - start.y;
@@ -385,6 +437,8 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
         if (longPressed()) return onEnd();
         if (Math.hypot(dx, dy) < DRAG_FROM) return;
         settleFilling();
+        // Dragged to the top before: it takes back the size it had (see unsnap).
+        unsnap(id, { self: true });
         from = { ...layout.boxes[id] };
         element.keepShrink = element.shrunk ?? 1; // its size when picked up stays its size
         dragging = id;
@@ -409,7 +463,21 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
         layout = { boxes: { ...layout.boxes, [id]: { ...from, ex: edge, cx: (left + w / 2) / width, cy: (top + h / 2) / height } } };
         frameNow = { w, h };
       }
+      showSnap(pointer.y < SNAP_TOP);
       placeAll();
+    };
+    // Dragged to the board's top, the middle it would fill shows, as a window dragged to the top of
+    // a Mac's screen shows where it would go.
+    const showSnap = (on) => {
+      if (on === snap) return;
+      snap = on;
+      if (on) {
+        const { width, height } = size();
+        const fill = fillBox(size());
+        Object.assign(snapShade.style, { left: `${(fill.cx - fill.w / 2) * width}px`, top: `${(fill.cy - fill.h / 2) * height}px`, width: `${fill.w * width}px`, height: `${fill.h * height}px` });
+        if (!snapShade.isConnected) board.append(snapShade);
+      }
+      snapShade.classList.toggle('shown', on);
     };
     const onEnd = () => {
       board.removeEventListener('pointermove', onMove);
@@ -431,6 +499,19 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       dragging = null;
       justDragged = true;
       setTimeout(() => { justDragged = false; });
+      // Let go at the top, it has the middle to itself, as full screen gives it the window (the
+      // user's choice): it fills the middle, and everything else there goes to the nearer side.
+      const snapped = snap;
+      // What it had before, for dragging it away again: its own box as picked up, and those of what
+      // was open in the middle, which go to the sides.
+      const restore = snapped && { self: (({ restore: _, ...box }) => box)(from), others: Object.fromEntries(Object.entries(layout.boxes).filter(([other, box]) => other !== id && !other.startsWith('comment:') && !isCard(box)).map(([other, box]) => [other, (({ restore: _, ...kept }) => kept)(box)])) };
+      if (snapped) {
+        showSnap(false);
+        layout = bringToMiddle(layout, id, size(), { alone: true });
+      } else if (inMiddle(layout).includes(id)) {
+        // Something else let go in the middle: it's no longer the snapped item's own.
+        layout = forgetSnap(layout);
+      }
       // Let go first, so that springing back inside the window glides there: taken off it in the
       // same moment it's moved, the browser moved it without a transition.
       element.classList.remove('held');
@@ -443,8 +524,10 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       for (const [other, at] of Object.entries(shownAt)) {
         if (boxes[other] && zoneAtEdge(at.ex) !== 'middle' && (other !== id || cardnessAtEdge(at.ex) === 1)) boxes[other] = { ...boxes[other], ex: at.ex, cx: at.cx, cy: at.cy };
       }
+      if (restore) boxes[id] = { ...boxes[id], restore };
       layout = { boxes };
       changed();
+      if (snapped) onBring(id);
     };
     board.addEventListener('pointermove', onMove);
     board.addEventListener('pointerup', onEnd);
@@ -469,7 +552,8 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     settleFilling();
     const { width, height } = size();
     // One drawn smaller in a cascade is resized from what shows, which becomes its size.
-    const box = { ...layout.boxes[id], ...staggered[id] };
+    let box = { ...layout.boxes[id], ...staggered[id] };
+    let begun = false;
     resizing = id;
     delete staggered[id];
     // Anything open can be resized, in the middle or scaled down at the side. It keeps its scale
@@ -487,6 +571,15 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const onMove = (move) => {
       const dx = move.clientX - start.x;
       const dy = move.clientY - start.y;
+      // Resized after being dragged to the top: what it sent to the sides comes back (see unsnap).
+      if (!begun) {
+        begun = true;
+        if (box.restore) {
+          unsnap(id);
+          const { restore: _, ...kept } = box;
+          box = kept;
+        }
+      }
       const next = { ...from };
       if (edge.includes('w')) next.left = clamp(from.left + dx, MARGIN / 2, from.right - least.width);
       if (edge.includes('e')) next.right = clamp(from.right + dx, from.left + least.width, width - MARGIN / 2);

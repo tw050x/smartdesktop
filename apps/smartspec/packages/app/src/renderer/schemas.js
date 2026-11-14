@@ -59,6 +59,7 @@ function kindIcon(kind, label) {
 
 const ARROW_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';
 const OPEN_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5,21q-0.83,0-1.41-0.59T3,19V5Q3,4.17 3.59,3.59T5,3h7V5H5V19H19V12h2v7q0,0.82-0.59,1.41T19,21H5Zm4.7-5.3L8.3,14.3L17.6,5H14V3h7v7H19V6.4L9.7,15.7Z"/></svg>';
+const NEW_TAB_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M12 12v5M9.5 14.5h5"/></svg>';
 const FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"/></svg>';
 const LEAVE_FULL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M22 3.41 16.71 8.7 20 12h-8V4l3.29 3.29L20.59 2zM3.41 22l5.29-5.29L12 20v-8H4l3.29 3.29L2 20.59z"/></svg>';
 // SmartDoc's folder icons: a folder on home's list, and New folder.
@@ -923,10 +924,17 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // What the proposal removes can still be opened while reviewing it, to see what goes.
     const known = (id) => id === CONTRACT || uses.has(id) || shown.items.some((item) => item.id === id) || Boolean(shown.changes?.removed.some((item) => item.id === id));
     if (!known(here.item)) here.item = CONTRACT;
+    // An embedded schematic isn't shown full screen (see fullView).
+    if (here.full && uses.has(here.item)) here.full = false;
 
-    // Going into an embedded schema, from its overview here. `item` is where to land, if not its contract.
+    // Opening an embedded schema, from its card here: in a tab of its own, at the draft used here
+    // (the user's choice: going into it within this tab, and on into what it embeds, left a tab
+    // named after one schematic showing another, and the user lost). `item` is where to land, if
+    // not its contract. The website's demo has no tabs, so it still goes into it there.
     const openUse = (use, item) => {
-      if (!use.missing) go([...path, level(use.schemaId, { draftId: use.draftId, label: use.name, item })]);
+      if (use.missing) return;
+      if (api.openSchematicTab) api.openSchematicTab({ path: [{ schemaId: use.schemaId, draftId: use.draftId, label: use.name, item }] });
+      else go([...path, level(use.schemaId, { draftId: use.draftId, label: use.name, item })]);
     };
     // A link followed brings what it goes to into the middle. `from` is the item it's in.
     const follow = (link, from = here.item) => {
@@ -1589,7 +1597,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const change = here.proposal && !use ? mark(id) : null;
     if (change && actionsOf(middle)) foot.push(approveButton(here, shown, id, change, item?.title));
     if (foot.length || reason) middle.append(full ? floatingCard(middle, foot, reason) : cardDrawer(here, id, middle, foot, reason));
-    actionsOf(middle).append(fullButton(here, id));
+    // An embedded schematic has no full screen (the user's choice: its overview there was only to
+    // look at): it opens in a tab of its own instead (see useOverview).
+    if (!use) actionsOf(middle).append(fullButton(here, id));
 
     // A diagram is a canvas, writing is a page, and a table or image sits on a surface of its own.
     const canvas = body.querySelector(':scope > .diagram-canvas');
@@ -1913,9 +1923,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const inner = await api.getSchema(use.schemaId, use.draftId).catch(() => null);
     const head = paneHead(use.name, `Draft ${use.number}`, null, pill('Embedded schematic', 'kind-pill schema-pill'));
     head.querySelector('.title-row').append(...[statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))].filter(Boolean));
-    const open = h('button', { className: 'icon-button', type: 'button', id: 'use-open', title: 'Open schematic', 'aria-label': 'Open schematic', onclick: () => openUse(use) });
-    open.innerHTML = OPEN_ICON;
-    actionsOf(head).append(open);
+    // Opened on its own, in a tab of its own (the user's choice: in place of full screen, and of
+    // going into it within this tab; see openUse).
+    const tab = h('button', { className: 'icon-button', type: 'button', id: 'use-open', title: api.openSchematicTab ? 'Open in New Tab' : 'Open schematic', 'aria-label': api.openSchematicTab ? 'Open in New Tab' : 'Open schematic', onclick: () => openUse(use) });
+    tab.innerHTML = api.openSchematicTab ? NEW_TAB_ICON : OPEN_ICON;
+    actionsOf(head).append(tab);
     middle.append(head);
 
     // Its overview, still in this schematic: every item in it, laid out as on its own overview and
@@ -1955,7 +1967,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return item;
     };
     const ids = [CONTRACT, ...inner.items.map((one) => one.id), ...inner.uses.map((one) => one.id)];
-    const drawing = drawOverview(await Promise.all(ids.map(element)), connectedPairs(inner.links), { width: 1600, height: 1000 });
+    const drawing = drawOverview(await Promise.all(ids.map(element)), connectedPairs(inner.links), { width: 1600, height: 1000 }, [], { kind: 'embed-overview' });
     drawing.classList.add('embed-overview');
     canvas = makeCanvas(drawing, {
       drawing: drawing.world,
@@ -2055,7 +2067,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       });
       return element;
     };
-    // An embedded schematic stays a card here: going into it is Open schematic, in Focus.
+    // An embedded schematic stays a card here: it opens in a tab of its own from Focus (Open in New Tab).
     const useCard = (use) => {
       const settings = Object.entries(use.with ?? {});
       return h('button', { className: 'overview-card embedded', type: 'button', 'data-item': use.id, onclick: open(use.id) },

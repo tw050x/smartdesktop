@@ -652,11 +652,12 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .diagram-key dd span { color: var(--text-2); }
 .key-swatch { overflow: visible; }
 .diagram-label-bg { fill: color-mix(in srgb, var(--text) 11%, var(--bg)); }
-.part-link { cursor: pointer; outline: none; }
+/* A part that links somewhere: outlined in blue, followed only by its arrow (see linkPart). */
 .part-link .diagram-box { stroke: var(--accent); }
-.part-link:hover .diagram-box, .part-link:focus-visible .diagram-box { fill: color-mix(in srgb, var(--accent) 16%, var(--bg)); }
-.part-link:hover .diagram-line, .part-link:focus-visible .diagram-line { stroke: var(--accent); }
-tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.item-table .row-link { width: 1px; padding: 4px 8px 0 0; vertical-align: top; }
+.row-link-button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; }
+.row-link-button:hover, .row-link-button:focus-visible { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.row-link-button .diagram-link-arrow { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .part-focus { animation: part-focus 2s ease-out; }
 @keyframes part-focus { 0%, 60% { filter: drop-shadow(0 0 6px var(--accent)); background: color-mix(in srgb, var(--accent) 22%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .part-focus { animation: none; outline: 2px solid var(--accent); } }
@@ -758,6 +759,9 @@ tr.part-link:hover, tr.part-link:focus-visible { background: color-mix(in srgb, 
 .board-full > .focus-body.sheet-body { padding: 16px 16px 56px; background: var(--window-bg); }
 .page-controls { z-index: 2; }
 .board.dragging, .board.dragging * { cursor: grabbing !important; user-select: none !important; }
+/* An item dragged to the board's top: the middle it would fill (see showSnap in board-view.js). */
+.board-snap { position: absolute; z-index: 9999; border: 2px solid var(--accent); border-radius: var(--card-radius); background: color-mix(in srgb, var(--accent) 12%, transparent); opacity: 0; transform: scale(0.97); pointer-events: none; transition: opacity 0.15s ease, transform 0.15s ease; }
+.board-snap.shown { opacity: 1; transform: none; }
 .board.resizing, .board.resizing * { user-select: none !important; }
 /* Filling the middle, or about to: no shadow jumps as it settles. */
 .board-item.filling { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
@@ -1047,10 +1051,16 @@ button.overview-card.removed:hover { border-color: var(--removed); }
 .diagram-svg .box-switch-option.chosen .box-switch-hit { fill: var(--button-active); }
 .diagram-svg .box-switch-word { font-size: 11px; fill: var(--muted); }
 .diagram-svg .box-switch-option.chosen .box-switch-word { fill: var(--text); font-weight: 600; }
+.diagram-svg .diagram-toggle { outline: none; }
 .diagram-svg .diagram-toggle-hit { fill: transparent; }
-.diagram-svg .diagram-toggle:hover .diagram-toggle-hit { fill: var(--button-hover); }
+.diagram-svg .diagram-node:not(.open) .diagram-toggle:is(:hover, :focus-visible) .diagram-toggle-hit { fill: var(--button-hover); }
+.diagram-svg .diagram-node.open .diagram-toggle:is(:hover, :focus-visible) .diagram-toggle-hit { fill: color-mix(in srgb, var(--button-hover) 60%, transparent); }
 .diagram-svg .diagram-toggle-arrow { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.diagram-svg .diagram-toggle:hover .diagram-toggle-arrow { stroke: var(--text); }
+.diagram-svg .diagram-toggle:is(:hover, :focus-visible) .diagram-toggle-arrow { stroke: var(--text); }
+.diagram-svg .diagram-link-icon { cursor: pointer; outline: none; }
+.diagram-svg .diagram-link-hit { fill: transparent; }
+.diagram-svg .diagram-link-icon:is(:hover, :focus-visible) .diagram-link-hit { fill: color-mix(in srgb, var(--accent) 18%, transparent); }
+.diagram-svg .diagram-link-arrow { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .canvas-amount { min-width: 42px; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; }
 .sheet-body { display: flex; flex-direction: column; padding: 0 0 16px; }
 .focus-full .sheet-body { padding: 20px 24px 24px; }

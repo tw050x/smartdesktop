@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('smartspec', {
   onTabLines: on('tab-lines'),
   onToggleStatus: on('toggle-status'),
   openInTab: (request) => call('open-in-tab', request),
+  openSchematicTab: (request) => call('open-schematic-tab', request),
   onOpenLevel: on('open-level'),
   goHome: () => call('go-home'),
   onAiControl: on('ai-control'),

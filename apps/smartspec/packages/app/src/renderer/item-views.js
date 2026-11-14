@@ -6,7 +6,7 @@ import { inlineMarkdown, renderMarkdown } from './markdown.js';
 import { diffText } from './word-diff.js';
 
 // Each kind of item's way of rendering. Whatever the kind, a part that can be linked to has
-// data-part, and one that links elsewhere calls `onLink`. Labels are drawn as plain text, so a
+// data-part, and one that links elsewhere has an arrow that calls `onLink` (see linkPart). Labels are drawn as plain text, so a
 // diagram can't carry a script; images go in an <img>, where an SVG's scripts don't run.
 //
 // Under review, a diagram or table can be drawn as both versions together (see item-diffs.js):
@@ -38,23 +38,23 @@ const LINE = 18;
 const WRAP = 32; // characters on a label's line before it wraps: roomy, as the user wanted the diagrams
 const context = document.createElement('canvas').getContext('2d');
 
-// A label broken over a few lines, at the words.
-function linesOf(label) {
+// A label broken over a few lines, at the words, about `wrap` characters each.
+function linesOf(label, wrap = WRAP) {
   const lines = [];
   for (const word of String(label).split(/\s+/)) {
-    if (lines.length && `${lines.at(-1)} ${word}`.length <= WRAP) lines[lines.length - 1] += ` ${word}`;
+    if (lines.length && `${lines.at(-1)} ${word}`.length <= wrap) lines[lines.length - 1] += ` ${word}`;
     else lines.push(word);
   }
   return lines;
 }
-function measure(label, { oneLine = false } = {}) {
+function measure(label, { oneLine = false, wrap = WRAP } = {}) {
   context.font = FONT;
-  const lines = oneLine ? [String(label)] : linesOf(label);
+  const lines = oneLine ? [String(label)] : linesOf(label, wrap);
   return { width: Math.ceil(Math.max(...lines.map((line) => context.measureText(line).width))), height: lines.length * LINE };
 }
-function text(label, x, y, className) {
-  const lines = linesOf(label);
-  const element = svg('text', { x, y: y - ((lines.length - 1) * LINE) / 2, class: className, 'text-anchor': 'middle', 'dominant-baseline': 'central' });
+function text(label, x, y, className, wrap = WRAP, anchor = 'middle') {
+  const lines = linesOf(label, wrap);
+  const element = svg('text', { x, y: y - ((lines.length - 1) * LINE) / 2, class: className, 'text-anchor': anchor, 'dominant-baseline': 'central' });
   lines.forEach((line, index) => {
     const span = svg('tspan', { x, dy: index ? LINE : 0 });
     span.textContent = line;
@@ -63,15 +63,11 @@ function text(label, x, y, className) {
   return element;
 }
 
-function linkPart(element, target, onLink) {
-  if (!target) return;
-  element.classList.add('part-link');
-  element.setAttribute('role', 'link');
-  element.setAttribute('tabindex', '0');
-  element.addEventListener('click', () => onLink(target));
-  element.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') onLink(target);
-  });
+// A part that links somewhere is outlined in blue; only its arrow (`linkIcon`) follows the link, the
+// one way to follow a link in any diagram or table (the user's choice: clicking a whole linked box
+// and clicking an arrow beside another were two ways, and confusing).
+function linkPart(element, target) {
+  if (target) element.classList.add('part-link');
 }
 
 let arrows = 0;
@@ -103,26 +99,33 @@ export function route(points) {
 // A connection's label on a grey card, centred on (x, y), or with its left end there if `from` is
 // 'left'. Its lines are left-aligned on the card.
 const LABEL_PAD = 6;
-function edgeLabel(label, x, y, from = 'middle') {
-  const size = measure(label);
+// A link (`follow`) puts its arrow at the card's right.
+function edgeLabel(label, x, y, from = 'middle', follow = null) {
+  const words = measure(label);
+  const size = { ...words, width: words.width + (follow ? (words.width ? LINK_ROOM : 12) : 0) };
   const left = from === 'left' ? x : x - size.width / 2;
   const lines = linesOf(label);
-  const words = svg('text', { x: left, y: y - ((lines.length - 1) * LINE) / 2, class: 'diagram-label', 'text-anchor': 'start', 'dominant-baseline': 'central' });
+  const texts = svg('text', { x: left, y: y - ((lines.length - 1) * LINE) / 2, class: 'diagram-label', 'text-anchor': 'start', 'dominant-baseline': 'central' });
   lines.forEach((line, index) => {
     const span = svg('tspan', { x: left, dy: index ? LINE : 0 });
     span.textContent = line;
-    words.append(span);
+    texts.append(span);
   });
   return [
     svg('rect', { x: left - LABEL_PAD, y: y - size.height / 2 - 3, width: size.width + 2 * LABEL_PAD, height: size.height + 6, rx: 4, class: 'diagram-label-bg' }),
-    words,
+    texts,
+    ...(follow ? [linkIcon(left + size.width - 6, y - (size.height - LINE) / 2, follow)] : []),
   ];
 }
 
-// A flow diagram: its boxes and the connections between them, each box by its label. A box's
-// description shows under its label with Details on (`details`, the button beside the zoom), or
-// for a box opened on its own (`opened`, by the small arrow beside its label, `onToggle`), and a
-// connection's under its label with Details on. Under review the descriptions carry their changes:
+// A flow diagram: its boxes and the connections between them, each box by its label, on one line
+// unless it's long (the user's choice: `NODE_WRAP`), left-aligned, so opening a box never moves it
+// (the user's choice: centred, it moved as the box widened). A box's description shows under its label with
+// Details on (`details`, the button beside the zoom), or for a box opened on its own (`opened`,
+// `onToggle`): a click anywhere on its header, its label's row with the arrow before it, opens or
+// closes it (the user's choice: only the arrow did, and a click elsewhere followed its link). A box's
+// link is an icon at its header's right (`linkIcon`); a box with no arrow follows it on a click
+// anywhere, as before. A connection's description shows under its label with Details on. Under review the descriptions carry their changes:
 // words removed struck through in red, words added in green, and a label that changed its old one,
 // struck through, above (the user's choice: one way to read what changed, in place).
 const DESC_FONT = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
@@ -130,6 +133,10 @@ const DESC_LINE = 16;
 const DESC_WRAP = 44; // characters on a description's line
 const DESC_GAP = 8; // between a label and what's under it
 const TOGGLE = 20; // room for the arrow that opens a box
+const LINK_ROOM = 22; // room for a box's link icon
+const NODE_PADDING_X = 16; // a box's room either side of its content (NODE_PADDING in layout.js)
+const NODE_WRAP = 60; // characters on a box's label's line: one line unless it's long
+const nodeMeasure = (label) => measure(label, { wrap: NODE_WRAP });
 // A changed box, open, has its own switch along its bottom (the user's choice: the marked words can
 // be hard to read): its version before, its changes marked, or its version after, for it alone.
 const BOX_VIEWS = [['before', 'Before'], ['changes', 'Changed'], ['after', 'After']];
@@ -186,47 +193,56 @@ function flowView(item, onLink, diff = null, { details = false, opened = new Set
     return { width: Math.ceil(Math.max(0, ...lines.map((line) => context.measureText(line.map((piece) => piece.text).join('')).width))), height: lines.length * DESC_LINE };
   };
   const nodeSize = (node) => {
-    const label = measure(labelOf(node));
-    const width = label.width + (toggles && (extras.has(node.id) || switchable(node.id)) ? TOGGLE : 0);
+    const label = nodeMeasure(labelOf(node));
+    const width = label.width + (toggles && (extras.has(node.id) || switchable(node.id)) ? TOGGLE : 0) + (node.link ? LINK_ROOM : 0);
     if (!isOpen(node.id)) return { width, height: label.height };
     const more = extraSize(extras.get(node.id) ?? []);
     const room = hasSwitch(node.id) ? DESC_GAP + SWITCH_HEIGHT : 0;
     return { width: Math.max(width, more.width, hasSwitch(node.id) ? switchWidth : 0), height: label.height + (more.height ? DESC_GAP + more.height : 0) + room };
   };
+  // A linked connection's card has its arrow at its right (see edgeLabel).
   const edgeSize = (edge) => {
-    const label = edge.label ? measure(edge.label) : { width: 0, height: 0 };
+    const words = edge.label ? measure(edge.label) : { width: 0, height: edge.link ? LINE : 0 };
+    const label = { ...words, width: words.width + (edge.link ? (words.width ? LINK_ROOM : 12) : 0) };
     const lines = edgeExtras.get(edgeId(edge));
     if (!lines) return label;
     const more = extraSize(lines);
     return { width: Math.max(label.width, more.width), height: label.height + (label.height ? DESC_GAP : 0) + more.height };
   };
 
-  const layout = layoutFlow(item, measure, { nodeSize, edgeSize });
+  const layout = layoutFlow(item, nodeMeasure, { nodeSize, edgeSize });
   const { root, arrow } = canvas(layout.width, layout.height);
   for (const edge of layout.edges) {
     const id = edgeId(edge);
     const group = svg('g', { class: `diagram-edge${diffClass(diff, id)}`, 'data-part': id }, svg('path', { d: route(edge.points), class: 'diagram-line', 'marker-end': arrow }), svg('path', { d: route(edge.points), class: 'diagram-hit' }));
     const lines = edgeExtras.get(id);
-    if (lines) group.append(...edgeDetails(edge.label, lines, edge.labelX, edge.labelY, edgeSize(edge)));
-    else if (edge.label) group.append(...edgeLabel(edge.label, edge.labelX, edge.labelY));
-    linkPart(group, edge.link, onLink);
+    const follow = edge.link ? () => onLink(edge.link) : null;
+    if (lines) group.append(...edgeDetails(edge.label, lines, edge.labelX, edge.labelY, edgeSize(edge), follow));
+    else if (edge.label || follow) group.append(...edgeLabel(edge.label ?? '', edge.labelX, edge.labelY, 'middle', follow));
+    linkPart(group, edge.link);
     root.append(wasTitle(diff, id, group));
   }
   for (const node of layout.nodes) {
     const open = isOpen(node.id);
     const shownLabel = labelOf(node);
-    const label = measure(shownLabel);
+    const label = nodeMeasure(shownLabel);
     const top = node.y - node.height / 2;
+    const left = node.x - node.width / 2;
     const labelY = open ? top + 12 + label.height / 2 : node.y;
-    const openable = extras.has(node.id) || switchable(node.id);
-    const labelX = toggles && openable ? node.x - TOGGLE / 2 : node.x;
+    const firstLine = labelY - (label.height - LINE) / 2; // the icons sit beside the label's first line
+    const toggleable = toggles && (extras.has(node.id) || switchable(node.id));
+    const labelX = left + NODE_PADDING_X + (toggleable ? TOGGLE : 0);
     const group = svg('g', { class: `diagram-node${diffClass(diff, node.id)}${open ? ' open' : ''}`, 'data-part': node.id },
-      svg('rect', { x: node.x - node.width / 2, y: top, width: node.width, height: node.height, rx: 8, class: 'diagram-box' }),
-      text(shownLabel, labelX, labelY, 'diagram-text'));
-    if (open && extras.get(node.id)?.length) group.append(piecesText(extras.get(node.id), node.x - node.width / 2 + 12, labelY + label.height / 2 + DESC_GAP + DESC_LINE / 2));
+      svg('rect', { x: left, y: top, width: node.width, height: node.height, rx: 8, class: 'diagram-box' }));
+    const words = text(shownLabel, labelX, labelY, 'diagram-text', NODE_WRAP, 'start');
+    if (toggleable) {
+      const headHeight = open ? 12 + label.height + DESC_GAP / 2 : node.height;
+      group.append(boxHead(left, top, node.width, headHeight, words, left + 18, firstLine, open, () => onToggle(node.id)));
+    } else group.append(words);
+    if (open && extras.get(node.id)?.length) group.append(piecesText(extras.get(node.id), left + 12, labelY + label.height / 2 + DESC_GAP + DESC_LINE / 2));
     if (hasSwitch(node.id)) group.append(boxSwitch(segments, node.x, top + node.height - 8 - SWITCH_HEIGHT / 2, switchWidth, viewOf(node.id), (view) => onBoxView(node.id, view)));
-    if (toggles && openable) group.append(toggleArrow(node, labelY, open, () => onToggle(node.id)));
-    linkPart(group, node.link, onLink);
+    if (node.link) group.append(linkIcon(node.x + node.width / 2 - 16, firstLine, () => onLink(node.link)));
+    linkPart(group, node.link);
     root.append(open ? group : wasTitle(diff, node.id, group));
   }
   return root;
@@ -260,13 +276,15 @@ function boxSwitch(segments, x, y, width, showing, onChoose) {
   return element;
 }
 
-// The small arrow beside a box's label that opens it to its description, or closes it. Clicking it
-// never follows the box's link.
-function toggleArrow(node, y, open, onClick) {
-  const x = node.x + node.width / 2 - 14;
+// A box's header, the `width` × `height` from (left, top): its label, with the arrow before it at
+// (x, y), pointing right shut and down open. A click anywhere on it opens the box to its description,
+// or closes it. Dragging from it still moves the canvas, and a long press there still comments on the
+// box (neither is a click).
+function boxHead(left, top, width, height, words, x, y, open, onClick) {
   const shape = open ? `M${x - 4} ${y - 2}L${x} ${y + 2}L${x + 4} ${y - 2}` : `M${x - 2} ${y - 4}L${x + 2} ${y}L${x - 2} ${y + 4}`;
-  const element = svg('g', { class: 'diagram-toggle', role: 'button', tabindex: '0', 'aria-label': open ? 'Close this box' : 'Open this box to its description' },
-    svg('rect', { x: x - 9, y: y - 9, width: 18, height: 18, rx: 4, class: 'diagram-toggle-hit' }),
+  const element = svg('g', { class: 'diagram-toggle', role: 'button', tabindex: '0', 'aria-expanded': String(open), 'aria-label': open ? 'Close this box' : 'Open this box to its description' },
+    svg('rect', { x: left, y: top, width, height, rx: 8, class: 'diagram-toggle-hit' }),
+    words,
     svg('path', { d: shape, class: 'diagram-toggle-arrow' }));
   const toggle = (event) => {
     event.stopPropagation();
@@ -274,9 +292,27 @@ function toggleArrow(node, y, open, onClick) {
     onClick();
   };
   element.addEventListener('click', toggle);
-  element.addEventListener('pointerdown', (event) => event.stopPropagation());
   element.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') toggle(event);
+  });
+  return element;
+}
+
+// A box's link, an icon (an arrow out of a corner) centred on (x, y): it brings what the box links to
+// into view, as following any link does. Clicking it never opens or closes the box.
+function linkIcon(x, y, onClick) {
+  const element = svg('g', { class: 'diagram-link-icon', role: 'link', tabindex: '0', 'aria-label': 'Go to what this links to' },
+    svg('rect', { x: x - 9, y: y - 9, width: 18, height: 18, rx: 4, class: 'diagram-link-hit' }),
+    svg('path', { d: `M${x - 3.5} ${y + 3.5}L${x + 3.5} ${y - 3.5}M${x - 1.5} ${y - 3.5}H${x + 3.5}V${y + 1.5}`, class: 'diagram-link-arrow' }));
+  const follow = (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    onClick();
+  };
+  element.addEventListener('click', follow);
+  element.addEventListener('pointerdown', (event) => event.stopPropagation());
+  element.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') follow(event);
   });
   return element;
 }
@@ -296,7 +332,7 @@ function piecesText(lines, x, y) {
 }
 
 // A connection's label and its description (Details on), on one grey card centred on (x, y).
-function edgeDetails(label, lines, x, y, size) {
+function edgeDetails(label, lines, x, y, size, follow = null) {
   const left = x - size.width / 2;
   const top = y - size.height / 2;
   const elements = [svg('rect', { x: left - LABEL_PAD, y: top - 3, width: size.width + 2 * LABEL_PAD, height: size.height + 6, rx: 4, class: 'diagram-label-bg' })];
@@ -312,6 +348,7 @@ function edgeDetails(label, lines, x, y, size) {
     below = top + measure(label).height + DESC_GAP;
   }
   elements.push(piecesText(lines, left, below + DESC_LINE / 2));
+  if (follow) elements.push(linkIcon(left + size.width - 6, top + LINE / 2, follow));
   return elements;
 }
 
@@ -446,13 +483,14 @@ function watchSequenceHover(root, about) {
     const found = partAt(event);
     if (!found || event.buttons || root.closest('.panning')) return hideHoverCard();
     showHoverCard(found.element, (card) => {
-      const { kind, title, text: meaning, description } = found.info;
+      const { kind, title, text: meaning, description, link } = found.info;
       const line = (className, words) => Object.assign(document.createElement('div'), { className, textContent: words });
       card.replaceChildren(...[
         line('part-card-kind', kind),
         title && line('part-card-title', title),
         meaning && line('part-card-text', meaning),
         description && line('part-card-note', description),
+        link && line('part-card-text', 'It links to another part of this schematic: its arrow goes there.'),
       ].filter(Boolean));
     }, { x: event.clientX, y: event.clientY }, 'part-card');
   });
@@ -471,6 +509,8 @@ function sequenceKeyParts(item) {
   for (const kind of Object.keys(GROUP_WORDS)) if ((item.groups ?? []).some((group) => group.kind === kind)) parts.push(`group:${kind}`);
   if ((item.groups ?? []).some((group) => group.sections?.length)) parts.push('section');
   parts.push('end');
+  const linked = [item.participants, item.messages, item.activations, item.groups, item.boxes].some((list) => (list ?? []).some((part) => part.link));
+  if (linked) parts.push('link');
   return parts;
 }
 
@@ -502,6 +542,7 @@ export function sequenceKey(parts) {
     box: ['Box', 'Participants that belong together, such as the parts of one system.', () => [svg('rect', { x: 2, y: 2, width: W - 4, height: H - 4, rx: 6, class: 'diagram-participants-box' })]],
     section: ['Section', 'Divides a box into its sections, each with its condition in brackets.', () => [svg('rect', { x: 2, y: 2, width: W - 4, height: H - 4, rx: 3, class: 'diagram-group-frame' }), svg('line', { x1: 2, x2: W - 2, y1: H / 2, y2: H / 2, class: 'diagram-group-divider' })]],
     end: ['End of sequence', 'Where the sequence ends: the lifelines stop here.', () => [svg('rect', { x: 2, y: 6, width: W - 4, height: H - 12, rx: 4, class: 'diagram-end-box' })]],
+    link: ['Link', 'Outlined in blue, with this arrow: it links to another part of this schematic. The arrow goes there.', () => [svg('g', { class: 'part-link' }, svg('rect', { x: 6, y: 4, width: W - 12, height: H - 8, rx: 6, class: 'diagram-box' })), svg('path', { d: `M${W - 22.5} ${H / 2 + 3.5}L${W - 15.5} ${H / 2 - 3.5}M${W - 20.5} ${H / 2 - 3.5}H${W - 15.5}V${H / 2 + 1.5}`, class: 'diagram-link-arrow' })]],
   };
   for (const [kind, word] of Object.entries(GROUP_WORDS)) ROWS[`group:${kind}`] = [`${word[0].toUpperCase()}${word.slice(1)} box`, `${GROUP_MEANINGS[kind]} Its condition is in its header.`, frame(word)];
   const list = document.createElement('dl');
@@ -544,30 +585,36 @@ function sequenceView(item, onLink, diff = null) {
     const group = svg('g', { class: `diagram-box-group${diffClass(diff, box.id)}`, 'data-part': box.id },
       svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: layout.end.top - 6, rx: 8, class: 'diagram-participants-box' }), svg('rect', { x: box.left, y: 2, width: box.right - box.left, height: 22, rx: 8, class: 'diagram-box-hit' }));
     if (box.label) heads.append(text(box.label, (box.left + box.right) / 2, 13, 'diagram-label'));
-    linkPart(group, box.link, onLink);
+    if (box.link) heads.append(linkIcon(box.right - 14, 13, () => onLink(box.link)));
+    linkPart(group, box.link);
     root.append(group);
   }
   for (const one of layout.participants) {
     const size = measure(one.label);
-    const width = size.width + 24;
+    // A linked participant has the link's icon at its right, as a flow diagram's box has (the user's
+    // choice: the blue ring alone didn't say what it was).
+    const width = size.width + 24 + (one.link ? LINK_ROOM : 0);
+    const middle = layout.headTop + 4 + HEAD_BOX / 2;
     const line = svg('g', { class: `diagram-life${diffClass(diff, one.id)}`, 'data-about': one.id }, svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-lifeline' }), svg('line', { x1: one.x, x2: one.x, y1: layout.head, y2: layout.end.top, class: 'diagram-hit' }));
     const head = svg('g', { class: `diagram-node${diffClass(diff, one.id)}`, 'data-part': one.id },
-      svg('g', {}, svg('rect', { x: one.x - width / 2, y: layout.headTop + 4, width, height: HEAD_BOX, rx: 8, class: 'diagram-box' }), text(one.label, one.x, layout.headTop + 4 + HEAD_BOX / 2, 'diagram-text')));
-    linkPart(line, one.link, onLink);
-    linkPart(head, one.link, onLink);
+      svg('g', {}, svg('rect', { x: one.x - width / 2, y: layout.headTop + 4, width, height: HEAD_BOX, rx: 8, class: 'diagram-box' }), text(one.label, one.x - (one.link ? LINK_ROOM / 2 : 0), middle, 'diagram-text')));
+    if (one.link) head.append(linkIcon(one.x + width / 2 - 16, middle - (size.height - LINE) / 2, () => onLink(one.link)));
+    linkPart(head, one.link);
     root.append(line);
     heads.append(wasTitle(diff, one.id, head));
   }
   for (const bar of layout.activations) {
     const element = svg('rect', { x: bar.x - 5, y: bar.top, width: 10, height: bar.bottom - bar.top, rx: 2, class: `diagram-activation${diffClass(diff, bar.id)}`, 'data-part': bar.id });
-    linkPart(element, bar.link, onLink);
+    linkPart(element, bar.link);
     root.append(element);
+    if (bar.link) root.append(linkIcon(bar.x + 16, bar.top + 9, () => onLink(bar.link)));
   }
   for (const group of layout.groups) {
     const element = groupView(group);
     if (diff?.status.get(group.id)) element.classList.add(`change-${diff.status.get(group.id)}`);
     if (banded(group.id)) element.prepend(band(group.id, group.top - 4, group.bottom + 4));
-    linkPart(element, group.link, onLink);
+    if (group.link) element.append(linkIcon(group.right - 14, group.top + 11, () => onLink(group.link)));
+    linkPart(element, group.link);
     root.append(wasTitle(diff, group.id, element));
   }
   // Each banded message's row, from above its label to below its line; rows of the same kind one
@@ -603,12 +650,13 @@ function sequenceView(item, onLink, diff = null) {
     // has its label beside its loop, clear of the lifeline.
     const above = message.y - 12 - (measure(message.label).height - LINE) / 2;
     const row = rows.get(message.id);
+    const follow = message.link ? () => onLink(message.link) : null;
     const group = svg('g', { class: `diagram-edge${diffClass(diff, message.id)}`, 'data-part': message.id },
       ...(row ? [band(message.id, row.top, row.bottom, row.inBox)] : []),
       svg('path', { d: path, class: `diagram-line${message.reply ? ' reply' : ''}`, 'marker-end': arrow }),
       svg('path', { d: path, class: 'diagram-hit' }),
-      ...(self ? edgeLabel(message.label, message.x1 + 44, message.y + 2, 'left') : edgeLabel(message.label, (message.x1 + message.x2) / 2, above)));
-    linkPart(group, message.link, onLink);
+      ...(self ? edgeLabel(message.label, message.x1 + 44, message.y + 2, 'left', follow) : edgeLabel(message.label, (message.x1 + message.x2) / 2, above, 'middle', follow)));
+    linkPart(group, message.link);
     root.append(wasTitle(diff, message.id, group));
   }
   // Where the sequence ends: a box across the lifelines, which stop at it.
@@ -643,6 +691,9 @@ function sequenceView(item, onLink, diff = null) {
   for (const group of layout.groups) about.set(group.id, { kind: GROUP_WORDS[group.kind], title: group.label, text: GROUP_MEANINGS[group.kind], description: group.description });
   for (const box of layout.boxes) about.set(box.id, { kind: 'Box', title: box.label, text: `Groups ${box.participants.map((id) => names.get(id)).join(', ')}, which belong together.`, description: box.description });
   about.set('end', { kind: 'End of sequence', text: 'Nothing happens after this.' });
+  for (const part of [...layout.participants, ...layout.messages, ...layout.activations, ...layout.groups, ...layout.boxes]) {
+    if (part.link && about.has(part.id)) about.get(part.id).link = true;
+  }
   watchSequenceHover(root, about);
   root.keyParts = sequenceKeyParts(item);
 
@@ -688,6 +739,9 @@ function tableView(item, onLink, diff = null) {
     if (diff?.was.has(column.id)) cell.title = `Was: ${diff.was.get(column.id)}`;
     head.append(cell);
   }
+  // Rows that link somewhere have their arrow in a narrow last column.
+  const linked = item.rows.some((row) => row.link);
+  if (linked) head.append(Object.assign(document.createElement('th'), { className: 'row-link' }));
   const body = table.createTBody();
   for (const row of item.rows) {
     const line = body.insertRow();
@@ -711,12 +765,30 @@ function tableView(item, onLink, diff = null) {
         cell.prepend(old, ' ');
       }
     }
-    linkPart(line, row.link, onLink);
+    if (linked) {
+      const cell = line.insertCell();
+      cell.className = 'row-link';
+      if (row.link) cell.append(rowLinkButton(() => onLink(row.link)));
+    }
+    linkPart(line, row.link);
   }
   const holder = document.createElement('div');
   holder.className = 'item-table-holder';
   holder.append(table);
   return holder;
+}
+
+// A table row's link, as a diagram's (see linkIcon).
+function rowLinkButton(onClick) {
+  const button = Object.assign(document.createElement('button'), { type: 'button', className: 'row-link-button' });
+  button.setAttribute('aria-label', 'Go to what this links to');
+  button.innerHTML = '<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path d="M5.5 12.5L12.5 5.5M7.5 5.5H12.5V10.5" class="diagram-link-arrow"/></svg>';
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onClick();
+  });
+  button.addEventListener('pointerdown', (event) => event.stopPropagation());
+  return button;
 }
 
 function imageView(item) {

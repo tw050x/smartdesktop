@@ -1107,6 +1107,18 @@ handle('open-in-tab', (ctx, request) => {
   openInTab(homeOf(ctx), schemaId, 'open-level', request);
   return null;
 });
+// A schematic embedded in the one showing, opened in a tab of its own (the one already showing it,
+// if there is one), from its card's Open in New Tab: `request` is { path } with that schematic alone.
+// Nothing else moves with it (an AI working in this tab stays here).
+handle('open-schematic-tab', async (ctx, request) => {
+  const schemaId = request?.path?.[0]?.schemaId;
+  if (!schemaId || !ctx?.host) return null;
+  const tab = tabShowing(ctx.host, schemaId) || createTab(ctx.host);
+  await tab.ready;
+  tab.contents.send('open-level', request);
+  activateTab(tab);
+  return null;
+});
 // Opens SmartDesktop's page, to download it.
 handle('get-desktop', () => shell.openExternal('https://github.com/tw050x/smartdesktop/releases/latest'));
 handle('get-appearance', () => nativeTheme.themeSource);

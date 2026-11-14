@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, filling, fillMiddle, fills, layoutToSave, placeNew, scaleAtEdge, separate, SMALLEST_SCALE, settleFilling, settleSize, stagger, STAGGER, toFront, zoneAt, zoneAtEdge, zoneOf } from '../packages/app/src/renderer/board.js';
+import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, filling, fillMiddle, fills, forgetSnap, layoutToSave, leastScale, LEAST_SCALE, placeNew, scaleAtEdge, separate, SMALLEST_SCALE, settleFilling, settleSize, stagger, STAGGER, toFront, zoneAt, zoneAtEdge, zoneOf } from '../packages/app/src/renderer/board.js';
 
 const board = { width: 1400, height: 900 };
 
@@ -17,7 +17,7 @@ test('where an item sits says how it shows', () => {
 test('open, it shrinks steadily as its outer edge nears the side, down to its smallest', () => {
   assert.equal(scaleAtEdge(0.3), 1);
   assert.equal(scaleAtEdge(0.15), 1);
-  const out = [0.14, 0.12, 0.1, 0.07, 0.031].map(scaleAtEdge);
+  const out = [0.14, 0.12, 0.1, 0.07, 0.031].map((e) => scaleAtEdge(e));
   for (let i = 1; i < out.length; i++) assert.ok(out[i] < out[i - 1]);
   assert.ok(Math.abs(scaleAtEdge(0.03) - SMALLEST_SCALE) < 1e-9);
   assert.ok(Math.abs(scaleAtEdge(-0.1) - SMALLEST_SCALE) < 1e-9);
@@ -262,4 +262,29 @@ test('three that hide one another cascade in order, back to front', () => {
   const left = (id) => (drawn[id].cx - drawn[id].w / 2) * 1000;
   assert.ok(left('a') < left('b') && left('b') < left('c'));
   assert.ok(Math.abs(left('c') - left('a') - 2 * STAGGER) < 1e-6);
+});
+
+test('an item dragged to the top forgets what it pushed aside once anything else comes into the middle', () => {
+  const restore = { self: { cx: 0.4, cy: 0.5, w: 0.3, h: 0.4, z: 1 }, others: { b: { cx: 0.6, cy: 0.5, w: 0.3, h: 0.4, z: 2 } } };
+  const layout = { boxes: { a: { cx: 0.5, cy: 0.5, w: 0.5, h: 0.6, z: 3, restore }, b: { cx: 0.05, cy: 0.5, w: 0.3, h: 0.4, z: 2, ex: 0 }, c: { cx: 0.95, cy: 0.5, w: 0.3, h: 0.4, z: 0, ex: 0 } } };
+  // Brought in from the side, or another made to fill the middle: no longer the snapped item's own.
+  assert.equal(bringToMiddle(layout, 'c').boxes.a.restore, undefined);
+  assert.equal(fillMiddle(layout, 'a', { width: 1200, height: 800 }).boxes.a.restore, undefined);
+  assert.equal(forgetSnap(layout).boxes.a.restore, undefined);
+  assert.deepEqual(forgetSnap(layout).boxes.b, layout.boxes.b);
+  // Nothing to forget: the same layout.
+  const plain = forgetSnap(layout);
+  assert.equal(forgetSnap(plain), plain);
+});
+
+test('a card with less to show gets smaller at the side, always within the limits', () => {
+  const full = { width: 576, height: 560 };
+  const measure = (text, px) => text.length * px * 0.55; // about the width of a sans-serif title
+  const short = leastScale({ title: 'Contract', icon: false, full, measure });
+  const tagged = leastScale({ title: 'Pages', rows: 1, full, measure });
+  const long = leastScale({ title: "Restoring an account's backup", rows: 1, full, measure });
+  assert.ok(short < tagged && tagged < long, `${short} < ${tagged} < ${long}`);
+  for (const scale of [short, tagged, long]) assert.ok(scale >= LEAST_SCALE[0] && scale <= LEAST_SCALE[1]);
+  // A title that can't fit even at the largest keeps the largest.
+  assert.equal(leastScale({ title: 'Averyveryveryverylongwordthatnevercanfit', full, measure }), LEAST_SCALE[1]);
 });
