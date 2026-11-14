@@ -673,6 +673,9 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .item-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 13px; user-select: text; }
 /* Every cell's content starts at the top of its row, however many lines a cell beside it wraps to. */
 .item-table th, .item-table td { max-width: 320px; padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+/* What's in a cell stays in it: a long word with nothing to break at (a path, an identifier) breaks
+   anywhere rather than running into the next column (the user's choice). */
+.item-table th, .item-table td, .item-table td :is(code, a) { overflow-wrap: anywhere; }
 /* The last row has a line under it while the table ends inside its card; when the card scrolls down,
    its edge is the line (scrolls-down, from scroll-shade.js). */
 .item-table-holder.scrolls-down .item-table tbody tr:last-child td { border-bottom: 0; }
