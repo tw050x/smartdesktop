@@ -1585,10 +1585,32 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       body.append(canvas);
     } else if (id === CONTRACT) {
       middle.append(paneHead('Contract', shown.summary, mark(CONTRACT), null, approvals.has(CONTRACT)));
-      const contract = h('div', {});
-      if (shown.contract) renderMarkdown(contract, shown.contract);
-      else contract.append(h('p', { className: 'muted' }, 'No contract yet.'));
+      // Changed by the proposal, its writing shows what changed as an item's writing does (the user
+      // found Changed on it and nothing marked): Before, Changes or After, and Side by side.
+      const earlier = here.proposal && shown.basedOn && mark(CONTRACT) === 'changed'
+        ? await api.getSchema(here.schemaId, shown.basedOn).catch(() => null) : null;
+      const was = typeof earlier?.contract === 'string' ? earlier.contract : null;
+      const showing = was !== null ? here.diffs?.[CONTRACT] ?? (approvals.has(CONTRACT) ? 'after' : 'changes') : 'after';
+      const written = (markdown) => {
+        const element = h('div', {});
+        if (markdown) renderMarkdown(element, markdown);
+        else element.append(h('p', { className: 'muted' }, 'No contract yet.'));
+        return element;
+      };
+      let contract = written(shown.contract);
+      if (was !== null && showing === 'changes') markInline(contract, readText((element) => renderMarkdown(element, was)));
+      else if (was !== null) {
+        const before = written(was);
+        markSides(before, contract);
+        if (showing === 'before') contract = before;
+        contract.classList.add('side-marks');
+      }
       body.append(contract);
+      if (was !== null) {
+        foot.push(diffSwitch(here, CONTRACT, showing));
+        foot.push(h('button', { type: 'button', className: 'side-by-side', title: 'Open it beside the draft it changes, across the window', onclick: () => openCompareOf(here, shown, { id: CONTRACT, title: 'Contract', markdown: shown.contract ?? '' }, was) }, 'Side by side'));
+        if (full) here.fullDiff = { showing, basedOn: shown.line.indexOf(shown.basedOn) + 1 };
+      }
       if (shown.parameters.length) {
         body.append(h('h3', { className: 'pane-subhead' }, 'Parameters'), h('dl', { className: 'parameters' }, ...shown.parameters.flatMap((parameter) => [
           h('dt', {}, parameter.name),
@@ -1926,8 +1948,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   const changedWriting = (here, shown, item, mark) => Boolean(here.proposal && shown.basedOn && item?.kind === 'document' && mark(item.id) === 'changed');
 
   // Opens the writing beside the draft it changes, across the window (see compare-view.js).
-  async function openCompareOf(here, shown, item) {
-    const earlier = await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null);
+  // `was`, the writing it changes, if it isn't an item's (the contract's).
+  async function openCompareOf(here, shown, item, was = null) {
+    const earlier = was !== null ? { markdown: was } : await api.getItem(here.schemaId, item.id, { draftId: shown.basedOn }).catch(() => null);
     // Its Approve, as in its card's drawer, kept up to date as it's clicked.
     const approve = h('span', { className: 'compare-approve' });
     const draw = () => approve.replaceChildren(approveButton(here, shown, item.id, 'changed', item.title, { onChange: draw }));
