@@ -57,6 +57,8 @@ function render() {
     parts.push(columnEl(column, index, widths[index]));
   });
   gridEl.replaceChildren(...parts);
+  // Taken out and put back, each conversation lost its scroll: it goes back where it was.
+  for (const panel of panels.values()) panel.restoreScroll();
   for (const [chatId, panel] of panels) panel.setState({ ...(state.chats[chatId] ?? {}), connected: state.connected });
 }
 
