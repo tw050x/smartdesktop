@@ -31,6 +31,8 @@ test('steps are named by the app whose tool it is, however the AI names it', () 
   assert.equal(describeStep('mcp__smartdoc__find_text', { query: 'Python' }), 'Looking for “Python”');
   assert.equal(describeStep('mcp__smartdoc__get_document', { preview: true }), 'Reading the draft preview');
   assert.equal(describeStep('mcp__smartdoc__write_draft', { title: 'One page' }), 'Writing the next draft: “One page”');
+  assert.equal(describeStep('mcp__smartdoc__view_pages', { pages: '2-3', draft: 4 }), 'Looking at pages 2-3 of draft 4');
+  assert.equal(describeStep('mcp__smartdoc__view_pages', { preview: true }), 'Looking at the first page of the draft preview');
   assert.equal(describeStep('get_schematic', {}, 'smartspec'), 'Reading the schematic');
   assert.equal(describeStep('some_new_tool', {}, 'elsewhere'), 'Some new tool');
 });

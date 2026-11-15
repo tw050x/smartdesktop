@@ -10,6 +10,11 @@ export function describeStep(name, input = {}) {
     case 'get_document':
       if (input.preview) return input.pages ? `Reading pages ${input.pages} of the draft preview` : 'Reading the draft preview';
       return input.pages ? `Reading pages ${input.pages}` : 'Reading the document';
+    case 'view_pages': {
+      const which = input.preview ? 'the draft preview' : input.draft === 0 ? 'the original' : input.draft != null ? `draft ${input.draft}` : null;
+      const pages = input.pages ? `page${/[-,]/.test(input.pages) ? 's' : ''} ${input.pages}` : 'the first page';
+      return `Looking at ${pages}${which ? ` of ${which}` : ''}`;
+    }
     case 'find_text':
       if (input.preview) return input.query ? `Looking for ${quoted(input.query)} in the draft preview` : 'Searching the draft preview';
       return input.query ? `Looking for ${quoted(input.query)}` : 'Searching the document';
