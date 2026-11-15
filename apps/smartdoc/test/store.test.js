@@ -217,6 +217,49 @@ describe('previews', () => {
   });
 });
 
+describe('deleting variations', () => {
+  test('a variation goes with the drafts only it has; those it shares stay', async () => {
+    const { doc, one, two } = await documentWithDrafts();
+    const job = await store.createVariation(doc, { name: 'Job', purpose: 'A job', fromVariationId: ORIGINAL, fromDraftId: one });
+    const own = await nextDraft(doc, 'job');
+    assert.equal(doc.variationId, job.id);
+    assert.deepEqual(store.ownDrafts(doc, job.id), [own]);
+
+    await store.deleteVariation(doc, job.id);
+    assert.equal(doc.variationId, ORIGINAL, 'a view showing it moves to the one it came from');
+    const loaded = await store.loadDocument(doc.id);
+    assert.deepEqual(loaded.variations.map((v) => v.id), [ORIGINAL]);
+    assert.deepEqual(loaded.line, [ORIGINAL, one, two]);
+    await assert.rejects(access(store.draftPdfPath(doc.id, own)));
+    await access(store.draftPdfPath(doc.id, one));
+  });
+
+  test('a variation started from it keeps the drafts it started from, as its own', async () => {
+    const { doc, one } = await documentWithDrafts();
+    const job = await store.createVariation(doc, { name: 'Job', purpose: 'A job', fromVariationId: ORIGINAL, fromDraftId: one });
+    const jobDraft = await nextDraft(doc, 'job');
+    const later = await nextDraft(doc, 'job, later');
+    const role = await store.createVariation(doc, { name: 'Role', purpose: 'One role', fromVariationId: job.id, fromDraftId: jobDraft });
+    store.selectVariation(doc, ORIGINAL);
+
+    assert.deepEqual(store.ownDrafts(doc, job.id), [later]);
+    await store.deleteVariation(doc, job.id);
+    const kept = doc.variations.find((v) => v.id === role.id);
+    assert.equal(kept.fromVariationId, ORIGINAL);
+    assert.equal(kept.fromDraftId, one);
+    assert.deepEqual(kept.line, [ORIGINAL, one, jobDraft]);
+    await access(store.draftPdfPath(doc.id, jobDraft));
+    await assert.rejects(access(store.draftPdfPath(doc.id, later)));
+    // Its drafts after the one it now comes from are its own, to delete.
+    assert.equal(store.whyDraftKept(doc, role.id, jobDraft), null);
+  });
+
+  test('Original can\'t be deleted', async () => {
+    const { doc } = await documentWithDrafts();
+    await assert.rejects(store.deleteVariation(doc, ORIGINAL), /can’t be deleted/);
+  });
+});
+
 describe('deleting drafts', () => {
   test('a draft goes for good; later drafts stay and the current draft moves back', async () => {
     const { doc, one, two } = await documentWithDrafts();

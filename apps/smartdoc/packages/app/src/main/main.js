@@ -1323,8 +1323,33 @@ handle('variation-menu', async ({ docId, variationId }) => {
     ...(variationId === 'original' ? [] : [{ label: 'Rename', click: () => send('rename-variation', { docId, variationId }) }]),
     { label: 'New Variation from Latest Draft…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
     { label: 'Add Label…', click: () => send('label-requested', [docId, variationId]) },
+    ...(variationId === 'original' ? [] : [{ type: 'separator' }, { label: 'Delete Variation…', click: () => deleteVariation(docId, variationId) }]),
   ]).popup({ window: win() });
 });
+// Asks first, since a deleted variation can't be got back. Not while a tab shows it (an AI may
+// be working there), as a draft isn't deleted while another window shows it.
+async function deleteVariation(docId, variationId) {
+  const showing = [...windows.values()].some((c) => c.workspace.document?.id === docId && c.workspace.document.variationId === variationId);
+  if (showing) {
+    dialog.showErrorBox('This variation is open in a tab', 'Close that tab, or move it to another variation, then delete this one.');
+    return;
+  }
+  const about = await workspace.variationToDelete(docId, variationId);
+  if (!about) return;
+  const drafts = about.drafts === 0 ? 'It has no drafts of its own, so only the variation goes.'
+    : `Its ${about.drafts === 1 ? 'draft' : `${about.drafts} drafts`} and ${about.drafts === 1 ? 'its' : 'their'} reviews are deleted, and can’t be got back.`;
+  const names = about.keeping.map((name) => `“${name}”`);
+  const kept = !names.length ? '' : ` The drafts it shares with ${names.length < 2 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`} stay.`;
+  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+    type: 'warning',
+    message: `Delete “${about.name}”?`,
+    detail: `${drafts}${kept}`,
+    buttons: ['Cancel', 'Delete'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) await workspace.deleteVariation(docId, variationId);
+}
 // Back to the home screen: the document closes (everything is already saved).
 // Home is a tab of its own: going home shows it.
 handle('go-home', () => {

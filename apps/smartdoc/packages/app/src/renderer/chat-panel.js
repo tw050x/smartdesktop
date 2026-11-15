@@ -61,6 +61,19 @@ export function createChatPanel({ el, api, chatId }) {
   aiMenu.hidden = true;
   let menuFor = null; // the picker whose menu is open
   const body = div('chat-body');
+  // Where the conversation is scrolled to, kept as the user scrolls: the window takes a panel out
+  // and puts it back as it draws its columns (and a chat's tab is switched to), and an element
+  // taken out of the page loses its scroll, so it came back at the top. Put back on attaching
+  // (`restoreScroll`), and at the end again as the panel changes size while it was there.
+  let scrolled = { top: 0, atEnd: true };
+  const shown = () => body.isConnected && body.clientHeight > 0;
+  const atTheEnd = () => body.scrollTop + body.clientHeight >= body.scrollHeight - 24;
+  body.addEventListener('scroll', () => {
+    if (shown()) scrolled = { top: body.scrollTop, atEnd: atTheEnd() };
+  });
+  new ResizeObserver(() => {
+    if (shown() && scrolled.atEnd) body.scrollTop = body.scrollHeight;
+  }).observe(body);
   const foot = div('chat-foot');
   const chips = div('chat-chips');
   const form = document.createElement('form');
@@ -313,8 +326,9 @@ export function createChatPanel({ el, api, chatId }) {
     if (!force && key === drawnKey) return;
     // The conversation is read from its end: it opens at the bottom and stays there as things
     // arrive, unless the user has scrolled up to read, when it stays where they are.
-    const atEnd = body.scrollTop + body.clientHeight >= body.scrollHeight - 24;
-    const keepScroll = !toEnd && drawnKey && !atEnd ? body.scrollTop : null;
+    // Detached (a tab not showing), where it was is what was kept.
+    const atEnd = shown() ? atTheEnd() : scrolled.atEnd;
+    const keepScroll = !toEnd && drawnKey && !atEnd ? (shown() ? body.scrollTop : scrolled.top) : null;
     toEnd = false;
     drawnKey = key;
 
@@ -334,6 +348,8 @@ export function createChatPanel({ el, api, chatId }) {
     if (working()) body.append(div('chat-working', 'Working'));
     if (keepScroll === null) body.scrollTop = body.scrollHeight;
     else body.scrollTop = keepScroll;
+    if (shown()) scrolled = { top: body.scrollTop, atEnd: keepScroll === null };
+    else if (keepScroll === null) scrolled = { top: 0, atEnd: true };
   }
 
   // Its tabs in the apps, quietly, at the top of the conversation ("Working in SmartDoc · CV and
@@ -482,6 +498,10 @@ export function createChatPanel({ el, api, chatId }) {
       if (document.activeElement === input) return;
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
+    },
+    // Back where it was, once it's in the page again (see `scrolled`).
+    restoreScroll() {
+      if (shown()) body.scrollTop = scrolled.atEnd ? body.scrollHeight : scrolled.top;
     },
     // What its tabs in the apps say changed.
     setState(next) {

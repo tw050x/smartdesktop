@@ -315,6 +315,36 @@ export function createStore(root, { onReview = () => {}, onDocument = () => {} }
       await rm(draftDir(doc.id, draftId), { recursive: true, force: true });
     },
 
+    // The drafts only a variation has, which deleting it deletes: those of its line no other
+    // variation's line has (a variation started from it keeps the drafts it started from).
+    ownDrafts(doc, variationId) {
+      const variation = doc.variations.find((v) => v.id === variationId);
+      if (!variation) throw new Error(`No variation ${variationId}.`);
+      const elsewhere = new Set(doc.variations.filter((v) => v.id !== variationId).flatMap((v) => lineOf(doc, v)));
+      return lineOf(doc, variation).filter((id) => !elsewhere.has(id));
+    },
+
+    // Deletes a variation for good, with the drafts only it has (see ownDrafts) and their reviews;
+    // the drafts it shares with others stay. A variation started from it comes from the one it
+    // came from instead, from the last draft they share, its drafts after that its own. A view
+    // showing it moves to the one it came from (Original, failing that).
+    async deleteVariation(doc, variationId) {
+      if (variationId === ORIGINAL) throw new Error('Original is the document’s own line of drafts, so it can’t be deleted.');
+      const variation = doc.variations.find((v) => v.id === variationId);
+      if (!variation) throw new Error(`No variation ${variationId}.`);
+      const parent = doc.variations.find((v) => v.id === variation.fromVariationId && v.id !== variationId) ?? doc.variations.find((v) => v.id === ORIGINAL);
+      if (doc.variationId === variationId) selectVariation(doc, parent.id);
+      for (const child of doc.variations.filter((v) => v.fromVariationId === variationId)) {
+        const theirs = new Set(lineOf(doc, parent));
+        child.fromVariationId = parent.id;
+        child.fromDraftId = lineOf(doc, child).filter((id) => theirs.has(id)).at(-1) ?? ORIGINAL;
+      }
+      // Newest first, so each draft deleted is the tip of what's left.
+      for (const draftId of this.ownDrafts(doc, variationId).reverse()) await this.deleteDraft(doc, variationId, draftId);
+      doc.variations.splice(doc.variations.indexOf(variation), 1);
+      await saveDocument(doc);
+    },
+
     // Applies a review: stores the new draft as a child of the review's draft, makes it the tip
     // of the active line (abandoning any drafts after the review's draft, unless another
     // variation's line has them) and the current draft.

@@ -1393,6 +1393,27 @@ export function createWorkspace(shared) {
       shared.events.emit('recent'); // the home screen lists drafts
     },
 
+    // What deleting a variation deletes, to ask first: its name, how many drafts only it has, and
+    // the variations that keep drafts it shares (those it came from, or that came from it).
+    async variationToDelete(docId, variationId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = d.variations.find((v) => v.id === variationId);
+      if (!variation || variationId === store.ORIGINAL) return null;
+      const own = store.ownDrafts(d, variationId);
+      const line = variation.id === d.variationId ? d.line : variation.line;
+      const keeping = d.variations.filter((v) => v.id !== variationId && (v.id === d.variationId ? d.line : v.line).some((id) => line.includes(id) && !own.includes(id)));
+      return { name: variation.name, drafts: own.length, keeping: keeping.map((v) => v.name) };
+    },
+
+    // Deletes a variation for good, on the user's say only: the AI has no tool for it.
+    async deleteVariation(docId, variationId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      await store.deleteVariation(d, variationId);
+      await changeLabels(labels.removeItem(shared.labels, [docId, variationId]));
+      if (doc?.id === docId) await showDraft(doc.currentDraftId);
+      shared.events.emit('recent'); // the home screen lists variations
+    },
+
     async saveDraftAs(target) {
       requireDoc();
       await writeFile(target, await readFile(store.draftPdfPath(doc.id, doc.currentDraftId)));
