@@ -120,6 +120,14 @@ export const APP_MARKUP = `
     <button class="icon-button" id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg>
     </button>
+    <!-- How the pages are laid out: two side by side, or as a printed book (see app-shell.js). -->
+    <span class="zoom-divider" id="layout-divider" aria-hidden="true" hidden></span>
+    <button class="icon-button" id="layout-two" type="button" aria-pressed="false" aria-label="Two pages side by side" title="Two pages side by side" hidden>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="7.5" height="14" rx="1.5"/><rect x="13.5" y="5" width="7.5" height="14" rx="1.5"/></svg>
+    </button>
+    <button class="icon-button" id="layout-book" type="button" aria-pressed="false" aria-label="Book: facing pages, as printed" title="Book: facing pages, as printed" hidden>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v13"/><path d="M3 18a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
+    </button>
   </div>
   <footer class="review-bar" id="review-bar" aria-label="Review"></footer>
 </main>

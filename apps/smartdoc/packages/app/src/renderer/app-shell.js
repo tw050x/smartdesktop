@@ -149,10 +149,13 @@ export function startApp(appApi) {
     pagesEl.replaceChildren();
     clearPages();
     setHasDocument(true);
+    pagesTotal = pdf.numPages;
+    placePages();
 
     for (let n = 1; n <= pdf.numPages; n++) {
       const { items, textDivs, contentEl, textLayerEl } = await drawPage(await pdf.getPage(n), (pageEl) => {
         pagesEl.append(pageEl);
+        placePages();
         fitPage(pageEl);
       });
       if (ticket !== loading) return;
@@ -276,12 +279,79 @@ export function startApp(appApi) {
     const docked = classList.contains('find-docked');
     const room = documentEl.clientWidth - (docked ? parseFloat(getComputedStyle(documentEl).paddingRight) : 0);
     const besideFind = classList.contains('find-docked') ? room - 2 * FIND_GUTTER : Infinity;
+    let width = Math.min(room * pageShare, besideFind);
+    // Side by side, each page as wide as one alone, or narrower to leave the cards their gutters.
+    const shown = layoutShown();
+    if (shown !== 'single') width = Math.min(width, (Math.min(room, besideFind) - 2 * SPREAD_GUTTER - (shown === 'two' ? SPREAD_GAP : 0)) / 2);
     // Zoomed, the fitted size times the zoom: in, a page can grow past the size it was drawn at.
-    fitPageTo(pageEl, Math.min(room * pageShare, besideFind) * zoom, Math.max(1, zoom));
+    fitPageTo(pageEl, Math.max(1, width) * zoom, Math.max(1, zoom));
     if (pageEl.scale > 1) sharpenSoon();
     // The page resizers sit at the pages' edges.
     documentEl.parentElement.style.setProperty('--page-width', pageEl.style.width);
   }
+
+  // --- Page layout ---------------------------------------------------------------------------
+  // One page under another (as it was), two side by side (1 and 2, 3 and 4…), or as a printed book
+  // (the user's choice, for documents printed across facing pages, to see what's printed across
+  // the two line up in the middle): the first page alone, centred, then each left-hand page facing
+  // its right-hand one with nothing between them, and a last left-hand page alone, centred. Chosen
+  // by the buttons beside the zoom, pressed again to go back to one under another; two pages need
+  // a document of two or more, a book three or more. Kept for every document, as the pages' size is.
+  const LAYOUT_KEY = 'page-layout';
+  const LAYOUTS = ['single', 'two', 'book'];
+  const SPREAD_GAP = 16; // between two pages side by side (a book's touch)
+  let layout = (() => {
+    try {
+      const kept = localStorage.getItem(LAYOUT_KEY);
+      return LAYOUTS.includes(kept) ? kept : 'single';
+    } catch {
+      return 'single';
+    }
+  })();
+  let pagesTotal = 0; // the document's pages, as it starts loading
+  function layoutShown() {
+    if (layout === 'two' && pagesTotal >= 2) return 'two';
+    if (layout === 'book' && pagesTotal >= 3) return 'book';
+    return 'single';
+  }
+  const layoutButtons = { two: document.getElementById('layout-two'), book: document.getElementById('layout-book') };
+  // Each page's place: in two columns, against the middle from the left or the right, or alone.
+  function placePages() {
+    const shown = layoutShown();
+    document.body.classList.toggle('two-up', shown === 'two');
+    document.body.classList.toggle('book', shown === 'book');
+    [...pagesEl.children].forEach((pageEl, i) => {
+      const n = i + 1;
+      let at = null;
+      if (shown === 'two') at = n % 2 ? 'left' : 'right';
+      if (shown === 'book') at = n === 1 || (n % 2 === 0 && n === pagesTotal) ? 'solo' : n % 2 ? 'right' : 'left';
+      pageEl.classList.toggle('at-left', at === 'left');
+      pageEl.classList.toggle('at-right', at === 'right');
+      pageEl.classList.toggle('solo', at === 'solo');
+    });
+    layoutButtons.two.hidden = pagesTotal < 2;
+    layoutButtons.book.hidden = pagesTotal < 3;
+    document.getElementById('layout-divider').hidden = pagesTotal < 2;
+    for (const [name, button] of Object.entries(layoutButtons)) button.setAttribute('aria-pressed', String(shown === name));
+  }
+  // Another layout, keeping the page at the top of the view where it was.
+  function setLayout(next) {
+    const pages = [...pagesEl.children];
+    const { scrollTop } = documentEl;
+    const at = pages.find((p) => p.offsetTop + p.offsetHeight > scrollTop);
+    const within = at ? (scrollTop - at.offsetTop) / at.offsetHeight : 0;
+    layout = next;
+    try {
+      if (next === 'single') localStorage.removeItem(LAYOUT_KEY);
+      else localStorage.setItem(LAYOUT_KEY, next);
+    } catch {}
+    placePages();
+    pages.forEach(fitPage);
+    if (at) documentEl.scrollTop = at.offsetTop + within * at.offsetHeight;
+    relayout();
+  }
+  layoutButtons.two.addEventListener('click', () => setLayout(layoutShown() === 'two' ? 'single' : 'two'));
+  layoutButtons.book.addEventListener('click', () => setLayout(layoutShown() === 'book' ? 'single' : 'book'));
 
   // --- Page resizers -------------------------------------------------------------------------
   // A handle in each gutter, at the page's edge. Dragging either resizes the pages from both sides
@@ -289,6 +359,7 @@ export function startApp(appApi) {
   // goes back to the usual size. The size is kept for every document.
   const MIN_PAGE_WIDTH = 300;
   const MIN_GUTTER = MIN_CARD_WIDTH + CARD_INSET + PAGE_SPACE;
+  const SPREAD_GUTTER = MIN_GUTTER + 4; // the least room either side of pages side by side: the cards' icons
   const NEAR_PAGE_EDGE = 48; // px either side of a page edge that bring up its resize handle
   const MAX_PAGE_WIDTH = A4_WIDTH * RENDER_SCALE;
   const firstPage = () => pagesEl.querySelector('.page');

@@ -277,7 +277,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       else {
         // Beside its tab, over the page, its top level with the tab's.
         const tab = layer.querySelector(`.margin-slot[data-key="${CSS.escape(decks.find((d) => d.order.some((i) => i.id === item.id))?.key ?? '')}"]`)?.getBoundingClientRect();
-        const right = item.side === 'r';
+        const right = (item.deckSide ?? item.side) === 'r';
         const w = panel.offsetWidth;
         if (tab) placePanel(right ? tab.right - w : tab.left, tab.top);
         else placePanel((doc.documentElement.clientWidth - w) / 2, 120);
@@ -327,11 +327,28 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
 
   // --- Where everything goes ------------------------------------------------------------------
 
-  // The page geometry the margins hang off: the first page's edges and top, in layer coordinates.
+  // The page geometry the margins hang off: the pages' outer edges (two side by side, or as a book,
+  // their spread's) and the first one's top, in layer coordinates.
   function geometry() {
-    const first = pagesEl.querySelector('.page');
-    if (!first) return null;
-    return { left: first.offsetLeft, right: first.offsetLeft + first.offsetWidth, top: first.offsetTop, width: layer.clientWidth };
+    const pages = pagesEl.querySelectorAll('.page');
+    if (!pages.length) return null;
+    let left = Infinity;
+    let right = -Infinity;
+    for (const page of pages) {
+      left = Math.min(left, page.offsetLeft);
+      right = Math.max(right, page.offsetLeft + page.offsetWidth);
+    }
+    return { left, right, top: pages[0].offsetTop, width: layer.clientWidth };
+  }
+
+  // Pages side by side (see placePages in app-shell.js): an item's card goes in the gutter beside
+  // its own page, left or right; one alone keeps its kind's side.
+  function pageSide(anchors) {
+    const first = [...anchors].sort((a, b) => a.page - b.page || a.start - b.start)[0];
+    const pageEl = first && pageContent(first.page)?.parentElement;
+    if (pageEl?.classList.contains('at-left')) return 'l';
+    if (pageEl?.classList.contains('at-right')) return 'r';
+    return null;
   }
 
   const gutter = (geo) => Math.min(geo.left, geo.width - geo.right) - CARD_INSET - PAGE_SPACE;
@@ -352,7 +369,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     for (const item of shown) {
       if (item.anchors.length) {
         item.y = lineTop(item.anchors);
-        item.deckSide = item.side;
+        item.deckSide = pageSide(item.anchors) ?? item.side;
       } else {
         item.y = geo.top + LIFT;
         item.deckSide = 'l';

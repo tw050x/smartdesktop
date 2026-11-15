@@ -524,6 +524,22 @@ body:not(.has-document) .zoom-controls, .comparing .zoom-controls, .list-view-op
 .zoom-controls .icon-button:disabled { color: var(--faint); background: transparent; cursor: default; }
 .zoom-level { min-width: 48px; height: 28px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .zoom-level:hover { background: var(--button-hover); }
+.zoom-divider { width: 1px; height: 18px; margin: 0 3px; background: var(--border); }
+.zoom-controls [hidden] { display: none; }
+.zoom-controls .icon-button[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* Pages two side by side, or as a printed book (see app-shell.js): two columns, each page against
+   the middle; a page alone (a book's first, and a last left-hand page) centred across both. A
+   book's facing pages touch, their inner corners square, so what's printed across them meets. */
+body.two-up #pages, body.book #pages { grid-template-columns: auto auto; }
+body.book #pages { column-gap: 0; }
+#pages .page.at-left { grid-column: 1; justify-self: end; }
+#pages .page.at-right { grid-column: 2; justify-self: start; }
+#pages .page.solo { grid-column: 1 / -1; justify-self: center; }
+body.book #pages .page.at-left { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+body.book #pages .page.at-right { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+/* Side by side, the pages aren't at the size the edge handles set, so the handles step aside. */
+.two-up .page-resizer, .book .page-resizer { display: none; }
 /* Zoomed, the pages aren't at the size the edge handles set, so the handles step aside. */
 .zoomed .page-resizer { display: none; }
 
