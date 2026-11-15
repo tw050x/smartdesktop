@@ -28,6 +28,9 @@ test('Codex gets every connected app; a resumed session is told only where thing
 
 test('steps are named by the app whose tool it is, however the AI names it', () => {
   assert.equal(describeStep('mcp__smartdoc__get_review'), 'Reading the review');
+  assert.equal(describeStep('mcp__smartdoc__find_text', { query: 'Python' }), 'Looking for “Python”');
+  assert.equal(describeStep('mcp__smartdoc__get_document', { preview: true }), 'Reading the draft preview');
+  assert.equal(describeStep('mcp__smartdoc__write_draft', { title: 'One page' }), 'Writing the next draft: “One page”');
   assert.equal(describeStep('get_schematic', {}, 'smartspec'), 'Reading the schematic');
   assert.equal(describeStep('some_new_tool', {}, 'elsewhere'), 'Some new tool');
 });
