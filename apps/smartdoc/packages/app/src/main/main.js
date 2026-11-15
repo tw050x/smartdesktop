@@ -388,6 +388,11 @@ function moveTab(ctx, to, index) {
   if (from !== to) to.win.focus();
 }
 
+// The tab already showing a document's variation that no chat owns, which the user opening it
+// again goes to: each variation is a tab of its own (the user found one variation opening in
+// another's tab, or a tab switched to the one they hadn't clicked).
+const tabShowing = (host, docId, variationId) => host.tabs.find((t) => !t.home && !t.chat && t.workspace.document?.id === docId && t.workspace.document.variationId === variationId);
+
 // A document opened in Home goes to its own tab (the one already showing it, if one is), and Home
 // goes back to home. An AI working in Home goes with it.
 async function moveToTab(home) {
@@ -395,12 +400,12 @@ async function moveToTab(home) {
   const doc = home.workspace.document;
   if (!doc) return;
   home.moving = (async () => {
-    const at = { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: home.workspace.tool, preview: home.workspace.previewing || Boolean(home.openPreviewNext) };
+    const at = { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: home.workspace.tool, preview: home.workspace.previewing };
     const { session } = home;
     // A chat's AI gets a tab of its own, even with the document open in another (the same document
     // can be open in several tabs, each a different chat's); the user, the tab showing it that no
     // chat owns, if there is one.
-    const reuse = !fromDesktop(session) && home.host.tabs.find((t) => !t.home && !t.chat && t.workspace.document?.id === at.docId);
+    const reuse = !fromDesktop(session) && tabShowing(home.host, at.docId, at.variationId);
     const tab = reuse || createTab(home.host);
     await tab.ready;
     await context.run(tab, async () => {
@@ -1297,13 +1302,18 @@ handle('open-draft', async (docId, variationId, draftId, tool, { preview = false
     if (preview) await workspace.openPreview();
     return;
   }
+  // From Home, straight into the tab showing that variation, or a new one. (Opened in Home first,
+  // as a document is, it went to a tab as soon as Home had the document, on the variation it was
+  // last on, before Home had moved to the one asked for.)
   const home = here.home ? here : homeOf();
-  home.openPreviewNext = Boolean(preview);
-  try {
-    await context.run(home, () => home.workspace.openDraft(docId, variationId, draftId, tool));
-  } finally {
-    home.openPreviewNext = false;
-  }
+  if (!home) return;
+  const tab = tabShowing(home.host, docId, variationId) || createTab(home.host);
+  await tab.ready;
+  await context.run(tab, async () => {
+    await tab.workspace.openDraft(docId, variationId, draftId, tool);
+    if (preview) await tab.workspace.openPreview().catch(() => {});
+  });
+  activateTab(tab);
 });
 // A draft's right-click menu on the home screen: a new variation from it (the window's variation
 // card), a new document from it, or deleting it (not the original, or a draft another variation

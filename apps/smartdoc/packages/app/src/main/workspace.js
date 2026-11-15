@@ -587,7 +587,9 @@ export function createWorkspace(shared) {
     // Opens a document on one of its variations' drafts (from the home screen), in the given tool
     // or the one it was last used in.
     async openDraft(docId, variationId, draftId, nextTool) {
-      if (doc?.id !== docId) await this.openDocument(docId);
+      // A document not open yet opens straight on what's asked for, not first on where it was
+      // last left (which showed for a moment, and was what a tab took over).
+      if (doc?.id !== docId) return this.openDocument(docId, { variationId, draftId, tool: nextTool });
       if (variationId !== doc.variationId) store.selectVariation(doc, variationId);
       if (!doc.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
       if (REVIEW_TYPES.includes(nextTool) && nextTool !== tool) {
@@ -645,16 +647,21 @@ export function createWorkspace(shared) {
       return { ...made, from: `${draftLabel(number)} of ${from.name}` };
     },
 
-    async openDocument(docId) {
-      doc = await store.loadDocument(docId);
-      // A document opens in the tool it was last used with; older ones in the kind of their newest
-      // review.
-      if (REVIEW_TYPES.includes(doc.tool)) tool = doc.tool;
+    // Opens a document where it was last left, or on the variation, draft and tool asked for.
+    async openDocument(docId, { variationId = null, draftId = null, tool: nextTool = null } = {}) {
+      const opened = await store.loadDocument(docId);
+      if (variationId && variationId !== opened.variationId) store.selectVariation(opened, variationId);
+      if (draftId && !opened.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      doc = opened;
+      // A document opens in the tool asked for, else the one it was last used with; older ones in
+      // the kind of their newest review.
+      if (REVIEW_TYPES.includes(nextTool)) tool = doc.tool = nextTool;
+      else if (REVIEW_TYPES.includes(doc.tool)) tool = doc.tool;
       else tool = typeOf((await store.listReviews(doc.id, doc.currentDraftId)).at(-1) ?? {});
       events.emit('tool', tool);
       shared.recent = [{ id: doc.id, name: doc.name, importedAt: doc.importedAt }, ...shared.recent.filter((r) => r.id !== doc.id)];
       await saveRecent();
-      await showDraft(doc.currentDraftId);
+      await showDraft(draftId ?? doc.currentDraftId);
     },
 
     close() {
