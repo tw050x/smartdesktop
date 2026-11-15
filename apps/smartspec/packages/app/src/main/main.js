@@ -578,7 +578,8 @@ const schemasFor = (session, tab) => ({
       ...made,
       status: 'waiting_for_user',
       wait: waitCommand('proposal', '--id', made.proposal),
-      message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schematic later. The wait also ends if the user sends you their comments to deal with first: answer them, revise if they need it, and wait again.',
+      message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schematic later. The wait also ends if the user sends you their comments to deal with first: answer them, revise if they need it, and wait again.'
+        + (made.usedBy ? ` Once accepted, this also changes what embeds it following its latest draft (usedBy).${made.usedBy.some((one) => one.undeclared) ? ' Some of those uses set parameters this no longer declares (undeclared): tell the user, and offer to propose the changes to those schematics.' : ''}` : ''),
     };
   },
 });
@@ -773,7 +774,7 @@ async function acceptProposal(ctx, schemaId) {
   const proposal = await store.getProposal(schemaId);
   if (!proposal) return 'cancel';
   const what = proposal.total ? `these changes to ${proposal.name}` : proposal.name;
-  const becomes = proposal.total ? `They become draft ${proposal.total + 1} of ${proposal.name}.` : `It becomes ${proposal.name}’s first draft.`;
+  const draftLine = proposal.total ? `They become draft ${proposal.total + 1} of ${proposal.name}.` : `It becomes ${proposal.name}’s first draft.`;
   const { waiting, sent } = proposal.forTheAi ?? { waiting: 0, sent: 0 };
   const open = waiting ? (await store.listComments(schemaId, { proposal: true })).filter((comment) => !comment.noFurtherAction && !comment.replies?.length) : [];
   const quoted = open.slice(0, MOST_LISTED).map((comment) => {
@@ -794,6 +795,15 @@ async function acceptProposal(ctx, schemaId) {
   const named = unapproved.slice(0, MOST_LISTED).map((key) => `“${titleOf(key)}”`.replace('“the contract”', 'the contract'));
   if (unapproved.length > MOST_LISTED) named.push(`${unapproved.length - MOST_LISTED} more`);
   const list = (words) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`);
+  // What embeds it following its latest draft changes with it (uses follow the latest unless
+  // pinned), so accepting says so, and where a parameter a use sets would no longer be declared.
+  const usedBy = proposal.usedBy ?? [];
+  const followers = usedBy.slice(0, MOST_LISTED).map((one) => `“${one.name}”`);
+  if (usedBy.length > MOST_LISTED) followers.push(`${usedBy.length - MOST_LISTED} more`);
+  const unset = usedBy.filter((one) => one.undeclared).map((one) => `“${one.name}” sets ${list(one.undeclared.map((name) => `“${name}”`))}, which this no longer declares.`);
+  const alsoChanges = !usedBy.length ? ''
+    : ` ${list(followers)} ${usedBy.length === 1 ? 'embeds' : 'embed'} its latest draft, so ${usedBy.length === 1 ? 'it changes' : 'they change'} with it.${unset.length ? ` ${unset.join(' ')}` : ''}`;
+  const becomes = `${draftLine}${alsoChanges}`;
   const notApproved = !unapproved.length ? ''
     : unapproved.length === keys.length ? `You haven’t approved any of the ${keys.length === 1 ? 'change' : `${keys.length} changes`}: ${unapproved.length === 1 ? 'it is' : 'they are'} accepted as proposed. `
       : `You haven’t approved ${unapproved.length === 1 ? 'the change to' : `${unapproved.length} of the ${keys.length} changes:`} ${list(named)}${unapproved.length === 1 ? ', which is' : ', which are'} accepted as proposed. `;
@@ -813,7 +823,7 @@ async function acceptProposal(ctx, schemaId) {
           title: `Accept ${what}?`,
           message: `You have ${many(waiting)} the AI hasn’t answered. Send ${waiting === 1 ? 'it' : 'them'} to the AI, to deal with before you accept?`,
           points: quoted,
-          after: notApproved.trim() || null,
+          after: `${notApproved}${alsoChanges}`.trim() || null,
           buttons: [{ label: 'Cancel', choice: 'cancel', apart: true }, { label: 'Accept anyway', choice: 'accept' }, { label: 'Send to AI', choice: 'send', kind: 'primary' }],
         }
         // No AI in another app is waiting to be sent them: the chat's AI is asked.

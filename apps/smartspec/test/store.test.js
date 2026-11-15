@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -244,13 +244,15 @@ describe('links across a schema', () => {
 });
 
 describe('embedding', () => {
-  test('a use is pinned to the latest draft, collapsed, and says when a newer one exists', async () => {
+  test('a use follows the latest draft, collapsed', async () => {
     const store = newStore();
     const auth = await accepted(store, { contract: 'Gives tokens.', items: [doc('secret')], parameters: [{ name: 'issuer' }] });
     const billing = await accepted(store, { name: 'Billing', uses: [{ id: 'ledger-auth', schemaId: auth.schema, with: { issuer: 'auth0' } }] });
 
     let [use] = (await store.getSchema(billing.schema)).uses;
     assert.equal(use.draftId, auth.draft);
+    assert.equal(use.pinned, false);
+    assert.equal(use.latest, true);
     assert.equal(use.name, 'M2M auth');
     assert.equal(use.contract, 'Gives tokens.');
     assert.deepEqual(use.with, { issuer: 'auth0' });
@@ -260,9 +262,84 @@ describe('embedding', () => {
     await store.propose({ schemaId: auth.schema, summary: 'Newer.', note: 'n' });
     const { draft: newer } = await store.accept(auth.schema);
     [use] = (await store.getSchema(billing.schema)).uses;
+    assert.equal(use.draftId, newer);
+    assert.equal(use.number, 2);
+    assert.equal(use.summary, 'Newer.');
+    assert.equal(use.newerDraftId, null);
+  });
+
+  test('a pinned use stays on its draft, and says when a newer one exists', async () => {
+    const store = newStore();
+    const auth = await accepted(store);
+    const billing = await accepted(store, { name: 'Billing', uses: [{ id: 'auth', schemaId: auth.schema, draftId: auth.draft }] });
+    await store.propose({ schemaId: auth.schema, summary: 'Newer.', note: 'n' });
+    const { draft: newer } = await store.accept(auth.schema);
+    const [use] = (await store.getSchema(billing.schema)).uses;
     assert.equal(use.draftId, auth.draft);
+    assert.equal(use.pinned, true);
     assert.equal(use.summary, 'Tokens between services.');
     assert.equal(use.newerDraftId, newer);
+  });
+
+  test('an earlier draft shows what it embedded then', async () => {
+    const store = newStore();
+    const auth = await accepted(store);
+    const billing = await accepted(store, { name: 'Billing', uses: [{ id: 'auth', schemaId: auth.schema }] });
+    await store.propose({ schemaId: auth.schema, summary: 'Newer.', note: 'n' });
+    await store.accept(auth.schema);
+    await store.propose({ schemaId: billing.schema, summary: 'Billing, again.', note: 'n' });
+    await store.accept(billing.schema);
+
+    const [then] = (await store.getSchema(billing.schema, { draftId: billing.draft })).uses;
+    assert.equal(then.draftId, auth.draft);
+    assert.equal(then.latest, false);
+    assert.equal(then.summary, 'Tokens between services.');
+    const [now] = (await store.getSchema(billing.schema)).uses;
+    assert.equal(now.summary, 'Newer.');
+  });
+
+  test('a use from before uses followed the latest follows it, and its earlier drafts keep what they named', async () => {
+    const root = path.join(temp, `store-${n++}`);
+    const store = createStore(root);
+    const auth = await accepted(store);
+    const billing = await accepted(store, { name: 'Billing', uses: [{ id: 'auth', schemaId: auth.schema }] });
+    await store.propose({ schemaId: billing.schema, summary: 'Billing, again.', note: 'n' });
+    const { draft: second } = await store.accept(billing.schema);
+    // As every use was kept then: pinned, by draftId.
+    for (const draftId of [billing.draft, second]) {
+      const file = path.join(root, 'schemas', billing.schema, 'drafts', `${draftId}.json`);
+      const record = JSON.parse(readFileSync(file, 'utf8'));
+      record.uses = record.uses.map(({ pin, ...use }) => ({ ...use, draftId: auth.draft }));
+      writeFileSync(file, JSON.stringify(record));
+    }
+    await store.propose({ schemaId: auth.schema, summary: 'Newer.', note: 'n' });
+    await store.accept(auth.schema);
+    assert.equal((await store.getSchema(billing.schema)).uses[0].summary, 'Newer.');
+    assert.equal((await store.getSchema(billing.schema, { draftId: billing.draft })).uses[0].draftId, auth.draft);
+  });
+
+  test('a change to an embedded schematic says what embeds it, and what it would leave undeclared', async () => {
+    const store = newStore();
+    const auth = await accepted(store, { parameters: [{ name: 'issuer' }] });
+    const billing = await accepted(store, { name: 'Billing', uses: [{ id: 'auth', schemaId: auth.schema, with: { issuer: 'auth0' } }] });
+    await accepted(store, { name: 'Pinned', uses: [{ id: 'auth', schemaId: auth.schema, draftId: auth.draft, with: { issuer: 'x' } }] });
+
+    const made = await store.propose({ schemaId: auth.schema, parameters: [], note: 'n' });
+    assert.deepEqual(made.usedBy, [{ id: billing.schema, name: 'Billing', uses: ['auth'], undeclared: ['issuer'] }]);
+    assert.deepEqual((await store.getProposal(auth.schema)).usedBy, made.usedBy);
+    await store.accept(auth.schema);
+    const [use] = (await store.getSchema(billing.schema)).uses;
+    assert.deepEqual(use.undeclared, ['issuer']);
+  });
+
+  test('accepting refuses a loop made by another schematic accepted since', async () => {
+    const store = newStore();
+    const a = await accepted(store, { name: 'A' });
+    const b = await accepted(store, { name: 'B' });
+    await store.propose({ schemaId: a.schema, uses: [{ id: 'b', schemaId: b.schema }], note: 'n' });
+    await store.propose({ schemaId: b.schema, uses: [{ id: 'a', schemaId: a.schema }], note: 'n' });
+    await store.accept(a.schema);
+    await assert.rejects(store.accept(b.schema), /can't embed itself/);
   });
 
   test('levels open only as far as asked', async () => {

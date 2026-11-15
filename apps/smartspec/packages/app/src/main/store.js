@@ -163,7 +163,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
 
   // What a schema shows for a record (a draft or a proposal): its items listed but not their
   // content, the links between them, and each use collapsed, or with `depth` levels opened.
-  async function describe(record, depth) {
+  // `earlier` is for a draft that's no longer its schema's latest (see draftOfUse).
+  async function describe(record, depth, earlier = false) {
     return {
       name: record.name,
       summary: record.summary,
@@ -175,46 +176,72 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       status: STATUS,
       items: record.items.map(itemBrief),
       links: linkGraph(record),
-      uses: await Promise.all(record.uses.map((use) => describeUse(use, depth))),
+      uses: await Promise.all(record.uses.map((use) => describeUse(use, depth, earlier))),
     };
   }
 
-  async function describeUse(use, depth) {
+  // The draft a use shows. A use follows the latest draft of what it embeds unless it's pinned to
+  // one (`pin`; the user's choice: reuse is the point of embedding, so most uses want the latest).
+  // An earlier draft shows what it embedded when it was accepted (`draftId`, kept on accepting; a
+  // use from before uses followed the latest was pinned by it, so shows the same).
+  async function draftOfUse(use, schema, earlier) {
+    if (use.pin) return schema.line.includes(use.pin) ? use.pin : null;
+    if (earlier && schema.line.includes(use.draftId)) return use.draftId;
+    return schema.line.at(-1) ?? null;
+  }
+
+  // Whether a draft is no longer its schema's latest.
+  const isEarlier = (schema, draft) => schema.line.at(-1) !== draft.id;
+
+  async function describeUse(use, depth, earlier = false) {
     const schema = await readSchema(use.schemaId);
-    const draft = schema && await readDraft(use.schemaId, use.draftId);
-    if (!draft) return { id: use.id, schemaId: use.schemaId, draftId: use.draftId, with: use.with, missing: true };
+    const draftId = schema && await draftOfUse(use, schema, earlier);
+    const draft = draftId && await readDraft(use.schemaId, draftId);
+    if (!draft) return { id: use.id, schemaId: use.schemaId, ...(use.pin && { draftId: use.pin, pinned: true }), with: use.with, missing: true };
     const latest = schema.line.at(-1);
+    const declared = new Set(draft.parameters.map((parameter) => parameter.name));
+    const undeclared = Object.keys(use.with ?? {}).filter((key) => !declared.has(key));
     const collapsed = {
       id: use.id,
       schemaId: use.schemaId,
-      draftId: use.draftId,
-      number: schema.line.indexOf(use.draftId) + 1,
+      draftId,
+      number: schema.line.indexOf(draftId) + 1,
+      // Following the latest draft, or pinned to this one.
+      pinned: Boolean(use.pin),
+      latest: draftId === latest,
       with: use.with,
+      // Values for parameters the draft no longer declares (one that followed its latest draft).
+      ...(undeclared.length && { undeclared }),
       name: draft.name,
       summary: draft.summary,
       contract: draft.contract,
       status: STATUS,
-      newerDraftId: latest === use.draftId ? null : latest,
+      newerDraftId: use.pin && latest !== draftId ? latest : null,
     };
     if (depth <= 0) return collapsed;
-    const { parameters, items, links, uses } = await describe(draft, depth - 1);
+    const { parameters, items, links, uses } = await describe(draft, depth - 1, earlier || isEarlier(schema, draft));
     return { ...collapsed, parameters, items, links, uses };
   }
 
-  // Whether a record embeds a schema, at any depth.
-  async function embeds(record, schemaId) {
+  // Whether a record embeds a schema, at any depth, as its uses are now.
+  async function embeds(record, schemaId, seen = new Set()) {
     for (const use of record.uses) {
       if (use.schemaId === schemaId) return true;
-      const draft = await readDraft(use.schemaId, use.draftId);
-      if (draft && await embeds(draft, schemaId)) return true;
+      if (seen.has(use.schemaId)) continue;
+      seen.add(use.schemaId);
+      const schema = await readSchema(use.schemaId);
+      const draftId = schema && await draftOfUse(use, schema, false);
+      const draft = draftId && await readDraft(use.schemaId, draftId);
+      if (draft && await embeds(draft, schemaId, seen)) return true;
     }
     return false;
   }
 
-  // Each use, checked and pinned: to the draft it names, else the target's latest draft.
+  // Each use, checked: following its schema's latest draft, or pinned to the draft it names. Its
+  // values are checked against the draft it shows now.
   async function pinUses(uses) {
     const seen = new Set();
-    const pinned = [];
+    const checked = [];
     for (const use of uses) {
       if (!USE_ID.test(use.id)) throw new Error(`"${use.id}" can't be a use's id: use letters, numbers, - and _.`);
       if (seen.has(use.id)) throw new Error(`Two uses are called ${use.id}.`);
@@ -228,9 +255,29 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       for (const key of Object.keys(use.with ?? {})) {
         if (!declared.has(key)) throw new Error(`${draft.name} has no parameter "${key}". A use can only set the parameters its schematic declares: ${[...declared].join(', ') || 'it has none'}.`);
       }
-      pinned.push({ id: use.id, schemaId: use.schemaId, draftId, with: use.with ?? {} });
+      checked.push({ id: use.id, schemaId: use.schemaId, ...(use.draftId && { pin: use.draftId }), with: use.with ?? {} });
     }
-    return pinned;
+    return checked;
+  }
+
+  // The schemas whose latest draft or proposal embeds `schemaId` following its latest draft, so a
+  // new draft of it changes them too, with any values they set for parameters `parameters` (the
+  // new draft's) doesn't declare: [{ id, name, uses: [use ids], undeclared: [names] }].
+  async function followersOf(schemaId, parameters) {
+    const declared = new Set(parameters.map((parameter) => parameter.name));
+    const out = [];
+    const names = await readdir(path.join(root, 'schemas')).catch(() => []);
+    for (const id of names) {
+      if (id === schemaId) continue;
+      const schema = await readSchema(id);
+      if (!schema) continue;
+      const records = [await latestRecord(schema), await readProposal(id)].filter(Boolean);
+      const following = records.flatMap((record) => record.uses.filter((use) => use.schemaId === schemaId && !use.pin));
+      if (!following.length) continue;
+      const undeclared = [...new Set(following.flatMap((use) => Object.keys(use.with ?? {}).filter((key) => !declared.has(key))))];
+      out.push({ id, name: records.at(-1).name, uses: [...new Set(following.map((use) => use.id))], ...(undeclared.length && { undeclared }) });
+    }
+    return out;
   }
 
   // A complete record: `base` with `change` applied, and checked. What a change leaves out stays as
@@ -573,7 +620,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         number: schema.line.indexOf(which) + 1,
         total: schema.line.length,
         line: schema.line,
-        ...(await describe(record, depth)),
+        ...(await describe(record, depth, isEarlier(schema, record))),
         comments: await openCount(id, which),
         proposal: brief(proposal),
       };
@@ -600,6 +647,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         reasons: Object.fromEntries(Object.entries(proposal.reasons ?? {}).filter(([itemId]) => (itemId === CONTRACT ? changes.contract || !schema.line.length : changes.items[itemId] || changes.removed.some((one) => one.id === itemId)))),
         // The changes the user has approved (see approveChange), of those there are.
         approved: (proposal.approved ?? []).filter((key) => changeKeys(changes).includes(key)),
+        // The schematics that embed this one following its latest draft, which accepting changes too.
+        usedBy: schema.line.length ? await followersOf(id, proposal.parameters) : [],
       };
     },
 
@@ -625,7 +674,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       const schema = await requireSchema(schemaId);
       const record = proposal ? await readProposal(schemaId) : await readDraft(schemaId, draftId ?? schema.line.at(-1) ?? 'none');
       if (!record) throw new Error(proposal ? `Schematic ${schemaId} has no proposal waiting.` : `Schematic ${schemaId} has no such draft.`);
-      const uses = await Promise.all(record.uses.map((use) => describeUse(use, 0)));
+      const uses = await Promise.all(record.uses.map((use) => describeUse(use, 0, !proposal && isEarlier(schema, record))));
       return connectionDetails({ items: record.items, uses, links: linkGraph(record) });
     },
 
@@ -659,7 +708,10 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         await writeJson(proposalFile(id), proposal);
         if (existing) await writeSchema(existing);
         finished(id, replaced?.id);
-        return { schema: id, proposal: proposal.id, ...(replaced && { replaced: replaced.id }) };
+        // What embeds it following its latest draft changes with it once accepted: said, so the AI
+        // knows, above all where a parameter a use sets would no longer be declared.
+        const usedBy = existing ? await followersOf(id, record.parameters) : [];
+        return { schema: id, proposal: proposal.id, ...(replaced && { replaced: replaced.id }), ...(usedBy.length && { usedBy }) };
       });
     },
 
@@ -670,6 +722,15 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const proposal = await readProposal(schemaId);
         if (!proposal) throw new Error('There is no proposed change to accept.');
         const { id: proposalId, basedOn, commentsSent, reasons, approved, ...record } = proposal; // (why each item changed, and what the user approved, were for the review)
+        // Uses follow the latest drafts, so another schematic accepted since it was proposed may have
+        // come to embed this one.
+        if (await embeds(record, schemaId)) throw new Error(`${record.name} can't embed itself, directly or through another schematic: a schematic it embeds has come to embed it since this was proposed.`);
+        // Each use following the latest keeps the draft it shows as it's accepted, for when this is
+        // an earlier draft (see draftOfUse).
+        record.uses = await Promise.all(record.uses.map(async ({ draftId: _, ...use }) => {
+          const shown = !use.pin && (await readSchema(use.schemaId))?.line.at(-1);
+          return shown ? { ...use, draftId: shown } : use;
+        }));
         const draftId = newId();
         await writeJson(draftFile(schemaId, draftId), { ...record, id: draftId, parentId: schema.line.at(-1) ?? null, createdAt: now() });
         await writeSchema({ ...schema, line: [...schema.line, draftId] });

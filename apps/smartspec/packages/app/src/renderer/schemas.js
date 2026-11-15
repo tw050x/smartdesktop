@@ -200,6 +200,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     if (event.key === '[') travel(-1);
     else if (event.key === ']') travel(1);
   });
+  // Which draft an embedded schematic shows: it follows the latest unless it's pinned to one, and
+  // on an earlier draft shows the one that was latest then.
+  const useDraft = (use) => (use.pinned ? `Pinned to draft ${use.number}` : use.latest ? 'Latest draft' : `Draft ${use.number}`);
   const level = (schemaId, { draftId = null, proposal = false, label = '', item = CONTRACT } = {}) => ({ schemaId, draftId, proposal, label, item, full: false, focus: null });
 
   let showingPlace = null;
@@ -931,10 +934,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // (the user's choice: going into it within this tab, and on into what it embeds, left a tab
     // named after one schematic showing another, and the user lost). `item` is where to land, if
     // not its contract. The website's demo has no tabs, so it still goes into it there.
+    // A use following the latest draft opens on the latest, so the tab follows it as it changes.
     const openUse = (use, item) => {
       if (use.missing) return;
-      if (api.openSchematicTab) api.openSchematicTab({ path: [{ schemaId: use.schemaId, draftId: use.draftId, label: use.name, item }] });
-      else go([...path, level(use.schemaId, { draftId: use.draftId, label: use.name, item })]);
+      const draftId = use.latest && !use.pinned ? null : use.draftId;
+      if (api.openSchematicTab) api.openSchematicTab({ path: [{ schemaId: use.schemaId, draftId, label: use.name, item }] });
+      else go([...path, level(use.schemaId, { draftId, label: use.name, item })]);
     };
     // A link followed brings what it goes to into the middle. `from` is the item it's in.
     const follow = (link, from = here.item) => {
@@ -1680,7 +1685,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const settings = Object.entries(use.with ?? {});
       return h('div', { className: 'focus-neighbour board-card embedded' },
         kindIcon('schematic', 'Embedded schematic'),
-        h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, `Draft ${use.number}`), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
+        h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
         h('span', { className: 'focus-meta' }, use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
         use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)));
@@ -1996,7 +2001,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return;
     }
     const inner = await api.getSchema(use.schemaId, use.draftId).catch(() => null);
-    const head = paneHead(use.name, `Draft ${use.number}`, null, pill('Embedded schematic', 'kind-pill schema-pill'));
+    const head = paneHead(use.name, useDraft(use), null, pill('Embedded schematic', 'kind-pill schema-pill'));
     head.querySelector('.title-row').append(...[statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))].filter(Boolean));
     // Opened on its own, in a tab of its own (the user's choice: in place of full screen, and of
     // going into it within this tab; see openUse).
@@ -2147,7 +2152,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const settings = Object.entries(use.with ?? {});
       return h('button', { className: 'overview-card embedded', type: 'button', 'data-item': use.id, onclick: open(use.id) },
         pill('Embedded schematic', 'kind-pill schema-pill'),
-        h('span', { className: 'title-row' }, h('strong', {}, use.name ?? use.id), !use.missing && h('span', { className: 'card-meta' }, `Draft ${use.number}`), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
+        h('span', { className: 'title-row' }, h('strong', {}, use.name ?? use.id), !use.missing && h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
         h('span', { className: 'focus-meta' }, use.missing ? 'This schematic is no longer available.' : use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
         use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)),
