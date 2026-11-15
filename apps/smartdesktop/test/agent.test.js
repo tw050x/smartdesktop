@@ -8,12 +8,13 @@ const servers = [
   { name: 'smartspec', url: 'http://127.0.0.1:47825/mcp', headers: { Authorization: 'Bearer b' } },
 ];
 
-test('Claude gets every connected app, and only their tools', () => {
+test('Claude gets every connected app\'s tools, and of its own only the web ones', () => {
   const args = PROVIDERS.claude.args({ prompt: 'Hi', systemPrompt: 'Rules', where: 'Where', servers, resume: null, model: null });
   const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]);
   assert.deepEqual(Object.keys(config.mcpServers), ['smartdoc', 'smartspec']);
   assert.equal(config.mcpServers.smartdoc.headers['x-smartdoc-window'], 'w-1');
-  assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__smartdoc,mcp__smartspec');
+  assert.equal(args[args.indexOf('--tools') + 1], 'WebFetch,WebSearch');
+  assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__smartdoc,mcp__smartspec,WebFetch,WebSearch');
   assert.equal(args[args.indexOf('--append-system-prompt') + 1], 'Rules\n\nWhere');
 });
 
@@ -21,6 +22,8 @@ test('Codex gets every connected app; a resumed session is told only where thing
   const fresh = PROVIDERS.codex.args({ prompt: 'Hi', systemPrompt: 'Rules', where: 'Where', servers, resume: null, model: null });
   assert.ok(fresh.includes('mcp_servers.smartdoc.url="http://127.0.0.1:47815/mcp"'));
   assert.ok(fresh.includes('mcp_servers.smartspec.url="http://127.0.0.1:47825/mcp"'));
+  assert.equal(fresh[fresh.indexOf('web_search="live"') - 1], '-c');
+  assert.ok(fresh.includes('read-only'));
   assert.equal(fresh.at(-1), 'Rules\n\nWhere\n\nHi');
   const resumed = PROVIDERS.codex.args({ prompt: 'Hi', systemPrompt: 'Rules', where: 'Where', servers, resume: 'thread-1', model: null });
   assert.deepEqual(resumed.slice(-3), ['resume', 'thread-1', '[Where]\n\nHi']);
@@ -35,6 +38,11 @@ test('steps are named by the app whose tool it is, however the AI names it', () 
   assert.equal(describeStep('mcp__smartdoc__view_pages', { preview: true }), 'Looking at the first page of the draft preview');
   assert.equal(describeStep('get_schematic', {}, 'smartspec'), 'Reading the schematic');
   assert.equal(describeStep('some_new_tool', {}, 'elsewhere'), 'Some new tool');
+  assert.equal(describeStep('WebFetch', { url: 'https://www.example.com/jobs/1' }), 'Reading example.com');
+  assert.equal(describeStep('WebSearch', { query: 'ICO fee' }), 'Searching the web for “ICO fee”');
+  const codexWeb = (item) => PROVIDERS.codex.read({ type: 'item.completed', item: { type: 'web_search', ...item } }).messages;
+  assert.deepEqual(codexWeb({ query: 'ICO fee', action: { type: 'search', query: 'ICO fee' } }), [{ role: 'step', text: 'Searching the web for “ICO fee”' }]);
+  assert.deepEqual(codexWeb({ query: 'https://example.com', action: { type: 'open_page', url: 'https://example.com' } }), [{ role: 'step', text: 'Reading example.com' }]);
 });
 
 test('what the user did since their last message goes with the next one', () => {

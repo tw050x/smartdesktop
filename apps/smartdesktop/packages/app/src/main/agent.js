@@ -19,6 +19,10 @@ const home = os.homedir();
 
 const toml = (value) => JSON.stringify(value); // a JSON string is a TOML basic string
 
+// Claude Code's own tools the chat gets besides the apps': reading a web page, and searching the web.
+// Nothing else of its own, so it can't run commands or touch files on the Mac.
+const WEB_TOOLS = ['WebFetch', 'WebSearch'];
+
 // An Apple silicon Mac, even with the app running under Rosetta (the installers check the same).
 const appleSilicon = () => process.arch === 'arm64' || /Apple/.test(os.cpus()[0]?.model ?? '');
 const getJson = async (url) => {
@@ -76,7 +80,7 @@ export const PROVIDERS = {
       const mcpServers = Object.fromEntries(servers.map((s) => [s.name, { type: 'http', url: s.url, headers: s.headers }]));
       const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose',
         '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers }),
-        '--tools', '', '--allowedTools', servers.map((s) => `mcp__${s.name}`).join(','), '--setting-sources', 'project',
+        '--tools', WEB_TOOLS.join(','), '--allowedTools', [...servers.map((s) => `mcp__${s.name}`), ...WEB_TOOLS].join(','), '--setting-sources', 'project',
         '--append-system-prompt', `${systemPrompt}\n\n${where}`];
       if (model) args.push('--model', model);
       if (resume) args.push('--resume', resume);
@@ -127,7 +131,8 @@ export const PROVIDERS = {
     },
     installHelp: 'https://developers.openai.com/codex/cli',
     // Its own config is left out: it can name a model a ChatGPT account isn't allowed, and SmartDesktop
-    // gives it only the apps' tools. Read-only, it can't change anything on the Mac.
+    // gives it only the apps' tools and live web search, which also opens pages. Read-only, it can't
+    // change anything on the Mac.
     // The models to choose from: those Codex's own catalogue lists for the account (the
     // models_cache.json it keeps in its home), in its order.
     models: (environment) => {
@@ -140,7 +145,7 @@ export const PROVIDERS = {
       }
     },
     args({ prompt, systemPrompt, where, servers, resume, model }) {
-      const args = ['exec', '--json', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules', '-s', 'read-only'];
+      const args = ['exec', '--json', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules', '-s', 'read-only', '-c', 'web_search="live"'];
       for (const s of servers) {
         const headers = Object.entries(s.headers).map(([k, v]) => `${toml(k)} = ${toml(v)}`).join(', ');
         args.push('-c', `mcp_servers.${s.name}.url=${toml(s.url)}`, '-c', `mcp_servers.${s.name}.http_headers={ ${headers} }`);
@@ -157,6 +162,11 @@ export const PROVIDERS = {
       if (event.type === 'thread.started' && event.thread_id) out.sessionId = event.thread_id;
       const item = event.item ?? {};
       if (event.type === 'item.started' && item.type === 'mcp_tool_call') out.messages.push({ role: 'step', text: describeStep(item.tool, item.arguments, item.server) });
+      // Its web search says what it did only once it's done: opened a page, or searched.
+      if (event.type === 'item.completed' && item.type === 'web_search') {
+        const url = item.action?.url;
+        out.messages.push({ role: 'step', text: url ? describeStep('WebFetch', { url }) : describeStep('WebSearch', { query: item.action?.query ?? item.query }) });
+      }
       if (event.type === 'item.completed' && item.type === 'agent_message' && item.text?.trim()) out.messages.push({ role: 'assistant', text: item.text.trim() });
       if (event.type === 'turn.failed') out.error = event.error?.message || 'ChatGPT stopped with an error.';
       if (event.type === 'error' && !out.error) out.error = event.message;

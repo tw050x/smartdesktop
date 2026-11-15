@@ -30,7 +30,8 @@ It's in beta, so it may change significantly from one version to the next.
   what the chat asks of it.
 - `packages/app/src/main/agent.js`: the chats (`chats/<id>.json` in the data folder), each running
   its own AI (`claude -p` or `codex exec`) with every connected app's MCP server, acting on that
-  chat's own tabs in the apps.
+  chat's own tabs in the apps. Of the AI's own tools it gets only the web: reading pages and
+  searching (Claude Code's WebFetch and WebSearch, Codex's live web search).
 - `packages/app/src/main/chat-layout.js`: the chat window's columns and the chats' tabs in them.
 - `packages/app/src/main/main.js`: the Dock icon and its menu, the chat's window, and the setup and settings
   windows.
