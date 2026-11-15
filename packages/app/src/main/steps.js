@@ -5,7 +5,15 @@ import { describeStep as smartspec } from './smartspec-steps.js';
 // `mcp__<app>__<tool>`, Codex gives the tool and its server apart.
 const BY_APP = { smartdoc, smartspec };
 
+// The AI's own web tools (Claude Code's names; Codex's search is passed in as WebSearch).
+const host = (url) => { try { return new URL(url).host.replace(/^www\./, ''); } catch { return null; } };
+const WEB = {
+  WebFetch: ({ url }) => (host(url) ? `Reading ${host(url)}` : 'Reading a web page'),
+  WebSearch: ({ query }) => (query ? `Searching the web for “${query}”` : 'Searching the web'),
+};
+
 export function describeStep(name, input = {}, server = null) {
+  if (WEB[name]) return WEB[name](input ?? {});
   const named = /^mcp__([a-z]+)__(.+)$/.exec(name ?? '');
   const app = named?.[1] ?? server;
   const tool = named?.[2] ?? name ?? '';
