@@ -647,11 +647,12 @@ export function createWorkspace(shared) {
       return { ...made, from: `${draftLabel(number)} of ${from.name}` };
     },
 
-    // Opens a document where it was last left, or on the variation, draft and tool asked for.
+    // Opens a document where it was last left, or on the variation, draft and tool asked for: one
+    // that has gone since (deleted, say) leaves it where it was left, as it always opens.
     async openDocument(docId, { variationId = null, draftId = null, tool: nextTool = null } = {}) {
       const opened = await store.loadDocument(docId);
-      if (variationId && variationId !== opened.variationId) store.selectVariation(opened, variationId);
-      if (draftId && !opened.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      if (variationId && variationId !== opened.variationId && opened.variations.some((v) => v.id === variationId)) store.selectVariation(opened, variationId);
+      if (draftId && !opened.line.includes(draftId)) draftId = null;
       doc = opened;
       // A document opens in the tool asked for, else the one it was last used with; older ones in
       // the kind of their newest review.

@@ -27,6 +27,7 @@ export function createSessions({ now = Date.now } = {}) {
       return session;
     },
     get: (id) => sessions.get(id),
+    all: () => [...sessions.values()],
     alive,
 
     // Claims `key` for a session. Gives back the live session holding it instead, if another does.

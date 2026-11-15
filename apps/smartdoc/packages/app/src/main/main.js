@@ -17,6 +17,7 @@ import { readPdfText } from './pdf-text.js';
 import { createTabDrag } from './tab-drag.js';
 import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
+import { describeStep } from './describe-step.js';
 import { buildMenu } from './menu.js';
 import { createUpdates } from './updates.js';
 import { WaitRefused, createWaits } from './waits.js';
@@ -262,7 +263,7 @@ function createWindow({ focus = true, bounds = null } = {}) {
 }
 const strips = new Map(); // the top bar's webContents id → its window
 
-function createTab(host, { home = false } = {}) {
+function createTab(host, { home = false, workspace: given = null } = {}) {
   const id = `w-${randomUUID().slice(0, 4)}`;
   const view = new WebContentsView({
     webPreferences: {
@@ -274,7 +275,7 @@ function createTab(host, { home = false } = {}) {
     },
   });
   view.setBackgroundColor(windowColours().background);
-  const ctx = { id, host, home, view, contents: view.webContents, get win() { return this.host.win; }, workspace: createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true, hadDocument: false, history: { back: false, forward: false } };
+  const ctx = { id, host, home, view, contents: view.webContents, get win() { return this.host.win; }, workspace: given ?? createWorkspace(shared), ready: null, session: null, aiOpen: null, untouched: true, hadDocument: Boolean(given?.document), history: { back: false, forward: false } };
   windows.set(view.webContents.id, ctx);
   if (home) host.tabs.unshift(ctx);
   else host.tabs.push(ctx);
@@ -334,6 +335,7 @@ function activateTab(ctx) {
 
 // Closes a tab: a document's (Home only closes with its window). The tab beside it shows instead.
 function closeTab(ctx) {
+  if (ctx.headless) return;
   const { host } = ctx;
   if (ctx.home) return host.win.close();
   const at = host.tabs.indexOf(ctx);
@@ -734,8 +736,10 @@ const AI_OPEN_WAIT_MS = 45 * 1000;
 
 async function bringToFront() {
   await ensureWindow();
-  if (win().isMinimized()) win().restore();
-  win().show();
+  // An AI working without a tab asks in the window last used.
+  const front = win() ?? lastFocused?.win ?? createWindow().host.win;
+  if (front.isMinimized()) front.restore();
+  front.show();
   app.focus({ steal: true });
 }
 
@@ -756,7 +760,11 @@ function waitOnUser(name, task) {
   request.done = task().then(
     (opened) => { request.state = opened ? 'opened' : 'cancelled'; },
     (error) => { request.state = 'failed'; request.error = error.message; },
-  );
+  ).then(() => {
+    // A tab opened for the user to pick or confirm a file, left with nothing in it, closes.
+    const { owner } = request;
+    if (request.state !== 'opened' && owner && !owner.home && !owner.headless && !owner.workspace.document) closeTab(owner);
+  });
   current().aiOpen = request;
   return { request_id: request.id, wait: waitCommand('open', '--request', request.id) };
 }
@@ -953,6 +961,43 @@ const sessions = createSessions();
 
 // A chat's AI in SmartDesktop (its session `smartdesktop-<chat id>`, its client `smartdesktop-<AI>`).
 const fromDesktop = (session) => Boolean(session?.client?.startsWith('smartdesktop-'));
+const chatOf = (session) => (fromDesktop(session) ? /^smartdesktop-(.+)$/.exec(session.id)?.[1] ?? null : null);
+
+// Who's working on what a tab shows, now (the user's choice: a tab on a document an AI is working
+// on, with or without a tab of its own, follows its progress in the bar): each AI with that
+// variation open that's been busy in the last few seconds, and what it's doing, from its last call
+// ("Raising “…”"). Busy is a call, or SmartDesktop saying its AI is still thinking (it says so only
+// while it is); not an AI app's connection saying it's still there (`smartdoc mcp` does every 20 s,
+// working or not). Sent to each tab as it changes (`ai-at-work`), looked at again every few seconds
+// while anyone's at work.
+const AT_WORK_MS = 20 * 1000;
+// The sessions with what a tab shows open, the busiest first.
+function sessionsOn(ctx) {
+  const doc = ctx?.workspace.document;
+  if (!doc || ctx.home) return [];
+  return sessions.all()
+    .filter((s) => s.ctx && sessions.alive(s) && s.ctx.workspace.document?.id === doc.id && s.ctx.workspace.document.variationId === doc.variationId)
+    .sort((a, b) => (b.busyAt ?? 0) - (a.busyAt ?? 0));
+}
+function aiAtWork(ctx) {
+  const t = Date.now();
+  return sessionsOn(ctx)
+    .filter((s) => t - (s.busyAt ?? 0) < AT_WORK_MS)
+    .map((s) => ({ who: clientLabel(s.client), step: s.step && t - s.step.at < AT_WORK_MS ? describeStep(s.step.name, s.step.args) : null, chat: chatOf(s), here: s.ctx === ctx }));
+}
+function sendAtWork() {
+  let anyone = false;
+  for (const ctx of windows.values()) {
+    const work = aiAtWork(ctx);
+    if (work.length) anyone = true;
+    const next = JSON.stringify(work);
+    if (next === ctx.sentAtWork) continue;
+    ctx.sentAtWork = next;
+    ctx.contents.send('ai-at-work', work);
+  }
+  clearTimeout(sendAtWork.timer);
+  if (anyone) sendAtWork.timer = setTimeout(sendAtWork, 3000);
+}
 
 function setSessionWindow(session, ctx) {
   session.ctx = ctx;
@@ -960,6 +1005,7 @@ function setSessionWindow(session, ctx) {
   ctx.session = session;
   ctx.untouched = false;
   session.docId = ctx.workspace.document?.id ?? null;
+  if (ctx.headless) return;
   ctx.ready.then(() => ctx.contents.send('ai-control', clientLabel(session.client)));
   // A chat's AI taking a tab makes it that chat's (SmartDesktop says so back: `owners`).
   if (fromDesktop(session) && !ctx.home) desktop.sessionTab(ctx.id, session.id);
@@ -973,6 +1019,17 @@ function releaseWindow(session) {
   session.ctx = null;
   session.restore = null;
   session.docId = null;
+  if (ctx?.headless) {
+    // Work with no tab: nothing to give back, only the document it had open to let go. A session
+    // that went quiet (a chat's AI between the user's messages) takes it up again when it's back.
+    const doc = ctx.workspace.document;
+    if (doc) taken.set(session.id, { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: ctx.workspace.tool });
+    headless.delete(ctx);
+    ctx.session = null;
+    ctx.workspace.dispose();
+    ctx.workspace.close();
+    return;
+  }
   if (ctx) {
     ctx.session = null;
     ctx.contents.send('ai-control', null);
@@ -982,22 +1039,66 @@ function releaseWindow(session) {
   }
 }
 
-// An AI session's first call opens a tab of its own, in the window last used (or a new window), behind
-// the one showing unless the AI started SmartDoc. It shows nothing until the AI opens a document.
+// An AI session works without a tab (the user's choice: a tab is for the user, to review or
+// approve something, not for every call): its document is open in a workspace of its own, read
+// and changed as a tab's is, with no window (`headless`). A tab opens for it, showing that same
+// workspace, once there's something for the user (see showSession). Its first call makes the
+// workspace, taking up the document a tab of its that the user closed had open.
+const headless = new Set(); // the sessions' workspaces with no tab
+const taken = new Map(); // a session id → where its workspace was when the session went quiet
 async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
-  const launched = startedApp && !session.restore && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched);
-  const host = launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
-  const ctx = createTab(host);
-  // A chat's AI gets a tab of its own, shown: the user is working with it.
-  if (launched || fromDesktop(session)) activateTab(ctx);
-  await ctx.ready;
+  if (!session.restore && taken.has(session.id)) session.restore = taken.get(session.id);
+  taken.delete(session.id);
+  session.startedApp ||= Boolean(startedApp);
+  const ctx = { id: `h-${randomUUID().slice(0, 4)}`, headless: true, host: null, home: false, view: null, contents: null, win: null, workspace: createWorkspace(shared), ready: Promise.resolve(), session: null, aiOpen: null, untouched: false, hadDocument: false, history: { back: false, forward: false } };
+  headless.add(ctx);
   const { restore } = session;
   setSessionWindow(session, ctx);
   if (restore?.docId) {
-    await ctx.workspace.openDraft(restore.docId, restore.variationId, restore.draftId, restore.tool).catch(() => {});
+    await context.run(ctx, () => ctx.workspace.openDraft(restore.docId, restore.variationId, restore.draftId, restore.tool)).catch(() => {});
     session.docId = ctx.workspace.document?.id ?? null; // it may have been deleted since
   }
+  return ctx;
+}
+
+// The calls whose result is the user's to look at, review or approve: then the session's work
+// shows in a tab (a review to decide or read, a draft preview to accept), and open_document with
+// show (the user asked to see it), or picking or confirming a file, which happens in a window.
+const SHOWS_USER = new Set(['commit_review', 'apply_review', 'write_draft']);
+const showsUser = (name, args = {}) => SHOWS_USER.has(name) || (name === 'open_document' && (Boolean(args.show) || !args.document_id));
+
+// A session's work comes into a tab of its own, in the window last used (or a new one, or the one
+// SmartDoc opened as the AI started it), shown for a chat's AI, which the user is working with,
+// and behind the tab showing otherwise.
+async function showSession(session) {
+  const from = session.ctx;
+  if (from && !from.headless) return from;
+  // A tab of the user's already showing that draft (they opened it to follow the work) takes it.
+  const doc = from?.workspace.document;
+  const theirs = doc && [...windows.values()].find((t) => !t.home && !t.session && (!t.chat || t.chat.id === chatOf(session)) && t.workspace.document?.id === doc.id && t.workspace.document.variationId === doc.variationId && t.workspace.document.currentDraftId === doc.currentDraftId);
+  if (theirs) {
+    headless.delete(from);
+    from.session = null;
+    from.workspace.dispose();
+    setSessionWindow(session, theirs);
+    await context.run(theirs, async () => {
+      if (theirs.workspace.tool !== from.workspace.tool) await theirs.workspace.setTool(from.workspace.tool);
+      if (from.workspace.previewing) await theirs.workspace.openPreview();
+    }).catch(() => {});
+    return theirs;
+  }
+  const launched = session.startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched);
+  const host = launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
+  const ctx = createTab(host, { workspace: from?.workspace ?? null });
+  if (from) {
+    headless.delete(from);
+    ctx.aiOpen = from.aiOpen;
+    from.session = null;
+  }
+  if (launched || fromDesktop(session)) activateTab(ctx);
+  await ctx.ready;
+  setSessionWindow(session, ctx);
   if (!ctx.win.isVisible()) ctx.win.showInactive();
   sendTabs(ctx.host);
   return ctx;
@@ -1031,6 +1132,10 @@ const aiForServer = {
   // its messages starts (`turn`), and keeps the session alive while the AI thinks.
   alive: ({ session, client, window, turn }) => {
     const touched = sessions.touch(session, client);
+    if (fromDesktop(touched)) {
+      touched.busyAt = Date.now();
+      setTimeout(sendAtWork);
+    }
     // Only as a message starts (`turn`), or with no window yet: within a message the AI stays where
     // it went (into a tab of its own, say), though the window it was sent from is still named.
     if (window && (turn || !touched.ctx)) bindWindow(touched, window, { turn });
@@ -1048,6 +1153,9 @@ const aiForServer = {
   },
   async call({ session: id, client, startedApp, window }, name, args, run) {
     const session = sessions.touch(id, client);
+    session.step = { name, args, at: Date.now() };
+    session.busyAt = Date.now();
+    setTimeout(sendAtWork);
     if (window && !session.ctx) bindWindow(session, window, { strict: true });
     // Taking a window over is the one call that mustn't open one of its own.
     if (name === 'use_window') {
@@ -1061,7 +1169,9 @@ const aiForServer = {
       const home = lastFocused?.host?.tabs[0] ?? [...hosts][0]?.tabs[0];
       if (home) return context.run(home, () => run(home.workspace, documentsForAi));
     }
-    const ctx = await windowForSession(session, startedApp);
+    let ctx = await windowForSession(session, startedApp);
+    // Picking or confirming a file happens in a window, so the tab comes first.
+    if (ctx.headless && name === 'open_document' && !args?.document_id) ctx = await showSession(session);
     return context.run(ctx, async () => {
       if (!READ_ONLY.has(name)) {
         // The user can take the window anywhere, but the AI's changes stay with its document.
@@ -1076,6 +1186,8 @@ const aiForServer = {
       }
       const before = ctx.workspace.document?.id;
       const result = await run(ctx.workspace, documentsForAi);
+      // Something for the user: the work comes into a tab.
+      if (ctx.headless && showsUser(name, args) && ctx.workspace.document) await showSession(session);
       // A document opened in Home goes to a tab of its own, and the AI with it (see moveToTab).
       if (ctx.home && ctx.workspace.document) {
         await moveToTab(ctx);
@@ -1097,6 +1209,8 @@ const aiForServer = {
 const pictureRequests = new Map(); // id → its answer
 let pictureCount = 0;
 async function drawPictures(ctx, pdfPath, pages, width) {
+  // An AI working without a tab has them drawn by the tab last used (any tab can draw them).
+  if (!ctx?.contents || ctx.contents.isDestroyed()) ctx = lastFocused ?? [...windows.values()][0] ?? createWindow({ focus: false });
   if (!ctx?.contents || ctx.contents.isDestroyed()) throw new Error('SmartDoc has no window to draw the pages in.');
   await ctx.ready;
   const pdf = new Uint8Array(await fs.promises.readFile(pdfPath));
@@ -1160,14 +1274,14 @@ async function takeOverWindow(session, windowId) {
   if (old && old !== ctx) {
     releaseWindow(session);
     // A window the session had only just opened, with nothing in it, isn't worth leaving behind.
-    if (!old.workspace.document && !old.home) closeTab(old);
+    if (!old.headless && !old.workspace.document && !old.home) closeTab(old);
   }
   setSessionWindow(session, ctx);
   return { window: windowId, document: ctx.workspace.document?.name ?? null };
 }
 
 function sweepSessions() {
-  for (const ctx of windows.values()) {
+  for (const ctx of [...windows.values(), ...headless]) {
     if (ctx.session && !sessions.alive(ctx.session)) releaseWindow(ctx.session);
   }
   sessions.sweep();
@@ -1309,10 +1423,16 @@ handle('open-draft', async (docId, variationId, draftId, tool, { preview = false
   if (!home) return;
   const tab = tabShowing(home.host, docId, variationId) || createTab(home.host);
   await tab.ready;
-  await context.run(tab, async () => {
-    await tab.workspace.openDraft(docId, variationId, draftId, tool);
-    if (preview) await tab.workspace.openPreview().catch(() => {});
-  });
+  try {
+    await context.run(tab, async () => {
+      await tab.workspace.openDraft(docId, variationId, draftId, tool);
+      if (preview) await tab.workspace.openPreview().catch(() => {});
+    });
+  } catch (error) {
+    // A new tab left with nothing in it would only say "Opening a document…".
+    if (!tab.workspace.document) closeTab(tab);
+    throw error;
+  }
   activateTab(tab);
 });
 // A draft's right-click menu on the home screen: a new variation from it (the window's variation
@@ -1422,7 +1542,7 @@ handle('delete-folder', (id) => workspace.deleteFolder(id));
 handle('move-folder', (id, parentId) => workspace.moveFolder(id, parentId));
 handle('move-document', (docId, folderId) => workspace.moveDocument(docId, folderId));
 // Whether a window other than this one is showing a document.
-const openElsewhere = (docId) => [...windows.values()].some((c) => c !== current() && c.workspace.document?.id === docId);
+const openElsewhere = (docId) => [...windows.values(), ...headless].some((c) => c !== current() && c.workspace.document?.id === docId);
 
 // The one question before a document is deleted, by the user or at an AI's request. Cancel is the
 // default, and there's no way to stop it asking.
@@ -1581,6 +1701,32 @@ handle('tab-menu', (id, box) => {
     ...(tab.home ? [] : [{ type: 'separator' }, { label: 'Close Tab', click: () => closeTab(tab) }]),
   ]).popup({ window: host.win });
 });
+// The bottom bar's menu of what to ask the AI (see margin-review.js): the menu, by its labels, gives
+// back the one chosen; and the request goes to the AI working on what the tab shows, a chat's in
+// SmartDesktop (or the chat owning the tab, or a new one).
+handle('ai-actions-menu', (labels) => new Promise((resolve) => {
+  const host = current()?.host;
+  Menu.buildFromTemplate(labels.map((label, i) => (label === '-' ? { type: 'separator' } : { label, click: () => resolve(i) })))
+    .popup({ window: host?.win, callback: () => setTimeout(() => resolve(null), 100) });
+}));
+// An AI connected by hand (Claude Code, Claude Desktop) can't be sent a message: the request is
+// copied for the user to paste to it, as it is with no SmartDesktop to send it.
+handle('ask-ai', async (text) => {
+  const ctx = current();
+  const on = sessionsOn(ctx);
+  const chatAi = on.find(fromDesktop);
+  const other = on.find((s) => !fromDesktop(s));
+  if (chatAi || (!other && desktop.installed())) {
+    await desktop.ask(ctx.id, text, chatOf(chatAi) ?? chatOf(ctx.session));
+    return { sent: true };
+  }
+  clipboard.writeText(text);
+  return { copied: true, to: other ? clientLabel(other.client) : null };
+});
+handle('desktop-installed', () => desktop.installed());
+handle('ai-at-work', () => aiAtWork(current()));
+handle('open-chat', () => desktop.chat(current().id, true));
+
 // A tab's chat button: shows that tab, and its chat in SmartDesktop, brought forward ready to type in.
 function openChatFor(tab) {
   activateTab(tab);

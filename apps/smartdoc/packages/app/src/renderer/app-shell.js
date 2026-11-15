@@ -837,6 +837,9 @@ export function startApp(appApi) {
 
   api.onReview(showReview);
   api.onAiWaiting?.((aiWaiting) => marginReview.update({ aiWaiting }));
+  // Who's working on what this tab shows, and what they're doing (see aiAtWork in main.js).
+  api.onAiAtWork?.((aiAtWork) => marginReview.update({ aiAtWork }));
+  api.aiAtWork?.().then((aiAtWork) => marginReview.update({ aiAtWork }));
   api.aiWaiting?.().then((aiWaiting) => marginReview.update({ aiWaiting }));
   // The active tool, switched by the user or the AI.
   api.onTool((tool) => {

@@ -149,6 +149,14 @@ contextBridge.exposeInMainWorld('smartdoc', {
   onChatAction: on('chat-action'),
   chatNote: (note) => call('chat-note', note),
   chatAsk: (text) => call('chat-ask', text),
+  // The bottom bar's menu of requests for the AI, the request sent to the AI working on what the
+  // tab shows, and who's working on it now (`onAiAtWork`: [{ who, step, chat, here }]).
+  aiActionsMenu: (labels) => call('ai-actions-menu', labels),
+  askAi: (text) => call('ask-ai', text),
+  aiAtWork: () => call('ai-at-work'),
+  openChat: () => call('open-chat'),
+  desktopInstalled: () => call('desktop-installed'),
+  onAiAtWork: on('ai-at-work'),
   desktopStatus: () => call('desktop-status'),
   onDesktopStatus: on('desktop-status'),
   getDesktop: () => call('get-desktop'),

@@ -1423,6 +1423,13 @@ body.chat-window-body { display: flex; background: var(--bg); }
 /* Under a title, its buttons sit at the bar's bottom, beside its last line, not centred. */
 .review-bar:has(.review-bar-title:not([hidden])) { align-items: flex-end; }
 .review-bar-end:empty { display: none; }
+/* An AI working on what's showing: a dot breathing before the sentence that says so. */
+.review-bar.ai-at-work .review-bar-text::before {
+  content: ''; display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 1px; border-radius: 50%;
+  background: var(--accent); vertical-align: middle; animation: at-work 1.4s ease-in-out infinite;
+}
+@keyframes at-work { 50% { opacity: 0.3; transform: scale(0.75); } }
+.ask-ai-button { display: inline-flex; align-items: center; gap: 6px; }
 .copy-prompt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; } /* at the bar's right end */
 /* Document | List, a two-part switch. The two parts are the same width, and the white thumb
    behind them slides to the chosen one. */

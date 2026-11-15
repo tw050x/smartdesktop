@@ -214,9 +214,11 @@ export function createDesktop({ appData, packaged, version, mcp, onEvent = () =>
       if (open !== false && !(await start())) return { chatOpen: false };
       return post({ type: 'chat', windowId, open });
     },
-    async ask(windowId, text) {
+    // `chat`: the chat to ask, the one whose AI is working on what the tab shows, if it isn't the
+    // tab's own.
+    async ask(windowId, text, chat = null) {
       if (!(await start())) return null;
-      return post({ type: 'ask', windowId, text });
+      return post({ type: 'ask', windowId, text, ...(chat && { chat }) });
     },
   };
 }

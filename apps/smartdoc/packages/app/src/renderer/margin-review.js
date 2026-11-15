@@ -65,7 +65,7 @@ export const isHighlights = (review) => review?.type === 'highlights';
 // layer coordinates, bright while one still needs answering (a finding not decided, a comment the
 // AI hasn't answered), faded once it has been or needs nothing.
 export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompare, pagesResized, onReveal, onNote = () => {}, onTrack = () => {}, onSuggestion, onChange, onClearFilter }) {
-  let state = { document: null, review: null, earlier: [], tool: 'improve', view: 'document', filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [] };
+  let state = { document: null, review: null, earlier: [], tool: 'improve', view: 'document', filter: null, preview: null, comparing: false, commentable: false, aiWaiting: [], aiAtWork: [] };
   let focused = null; // the id of the item open beside the pages: it stands out on the page
   let iconOnly = false; // the gutters are too narrow for more than the kinds' icons
   let suggestion = null; // what to ask the AI next, for the chat (see renderBar)
@@ -798,8 +798,92 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   // focus, or the draft preview) over a sentence on where it stands, on the left, and what to do
   // about it on the right; with nothing being worked on, the sentence alone.
   function renderBar() {
+    renderBarBody();
+    if (!state.document || state.filter) return;
+    showAtWork();
+    addAskButton();
+  }
+
+  // An AI working on what's showing (here, or in a tab of its own, or with none: see aiAtWork in
+  // main.js): the bar says so, and what it's doing now, before where things stand (the user's
+  // choice: to follow its progress).
+  function showAtWork() {
+    const working = state.aiAtWork?.[0];
+    if (!working) return;
+    const text = bar.querySelector('.review-bar-text');
+    if (!text) return;
+    const step = working.step ? `: ${working.step.charAt(0).toLowerCase()}${working.step.slice(1)}` : '';
+    const now = `${working.who} is working on this now${step}.`;
+    const before = text.textContent;
+    text.textContent = before ? `${now} ${before}` : now;
+    text.title = text.textContent;
+    bar.classList.add('ai-at-work');
+  }
+
+  // What the user can ask the AI to do next, here (the user's choice: a menu in the bar, as well as
+  // the chat's shortcut): each { label, prompt } sent to the AI working on this (or the chat's), or
+  // { what } to tell an AI waiting in another app to go ahead, or the chat opened.
+  function aiActions() {
+    const review = state.review;
+    const doc = documentName();
+    const actions = [];
+    const comments = items.filter((i) => i.type === 'comment' && !i.done).length;
+    const working = Boolean(state.aiAtWork?.length);
+    const go = (what, label, prompt) => (aiIsWaiting(what) ? { what, label: what === 'preview' ? 'Send my comments to the waiting AI' : 'Send my decisions to the waiting AI' } : { label, prompt });
+    if (state.preview) {
+      if (comments) actions.push(go('preview', 'Update the preview from my comments', `I’ve commented on the draft preview of ${doc}. Update it to do what my comments ask.`));
+      return actions;
+    }
+    if (!review) {
+      actions.push(state.tool === 'highlights'
+        ? { label: 'Find the key information', prompt: `Find the key information in ${doc} for me. Ask me what I’m looking for first.` }
+        : { label: 'Review this draft', prompt: `Review ${doc} and suggest improvements.` });
+      return actions;
+    }
+    const isOpen = review.status === 'open';
+    if (isOpen && review.items?.length + (review.highlights?.length ?? 0) && !working) {
+      actions.push({ label: 'Finish the review', prompt: `Finish your ${isHighlights(review) ? 'highlights review' : 'review'} of ${doc} in SmartDoc: respond to any comments of mine you haven’t, then commit it.` });
+    }
+    if (comments) actions.push({ label: 'Answer my comments', prompt: `I’ve added comments in SmartDoc to ${doc}. Respond to each one.` });
+    if (!isOpen && !isHighlights(review) && !review.direct) {
+      const decided = review.items.filter((i) => i.decision.status !== 'pending').length;
+      if (decided || review.changes?.length) actions.push(go('decisions', review.preview ? 'Write the draft preview again from my decisions' : 'Write the next draft from my decisions', defaultPrompt()));
+    }
+    return actions;
+  }
+
+  function addAskButton() {
+    const end = bar.querySelector('.review-bar-end');
+    if (!end || !api.aiActionsMenu) return;
+    const button = el('button', 'secondary-button ask-ai-button');
+    button.type = 'button';
+    button.append('Ask your AI');
+    button.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
+    button.addEventListener('click', async () => {
+      const actions = aiActions();
+      // The chat is SmartDesktop's: with it not installed, there's none to open.
+      const chat = (await api.desktopInstalled?.()) ? ['Open the chat'] : [];
+      const labels = [...actions.map((a) => a.label), ...(actions.length && chat.length ? ['-'] : []), ...chat];
+      if (!labels.length) return;
+      const chosen = await api.aiActionsMenu(labels);
+      if (chosen == null) return;
+      const action = actions[chosen];
+      if (!action) return api.openChat?.();
+      if (action.what && !action.prompt) return api.sendToAi(action.what);
+      const result = await api.askAi(action.prompt);
+      // Copied for an AI it can't send to (one connected by hand): the button says where to paste it.
+      if (result?.copied) {
+        button.firstChild.textContent = `Copied: paste it to ${result.to ?? 'your AI'}`;
+        setTimeout(() => button.isConnected && (button.firstChild.textContent = 'Ask your AI'), 4000);
+      }
+    });
+    end.prepend(button);
+  }
+
+  function renderBarBody() {
     const review = state.review;
     suggestion = null;
+    bar.classList.remove('ai-at-work');
     bar.replaceChildren();
     const card = el('div', 'review-bar-card');
     const heading = el('div', 'review-bar-title');
