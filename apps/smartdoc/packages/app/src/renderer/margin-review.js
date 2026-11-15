@@ -806,7 +806,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     }
     if (review && !state.filter) {
       const focus = review.title ?? review.goal ?? null;
-      title(isHighlights(review) ? `Key information${focus ? `: ${focus}` : ''}` : `Review${focus ? `: ${focus}` : ''}`);
+      title(isHighlights(review) ? `Key information${focus ? `: ${focus}` : ''}` : `${review.direct ? 'Next draft' : 'Review'}${focus ? `: ${focus}` : ''}`);
     }
     const comments = items.filter((i) => i.type === 'comment' && !i.done).length;
     const yourComments = comments === 1 ? 'your comment' : `your ${comments} comments`;
@@ -846,6 +846,15 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       else say(items.length ? `Your AI has raised ${findings(items.length)} so far.` : 'Your AI is reviewing this draft.');
     } else if (isHighlights(review)) {
       say(items.length ? `Your AI picked out ${highlights(items.length)}.` : 'Your AI found nothing to highlight.');
+    } else if (review.direct && !decidable.length) {
+      // Written straight from what the user asked, without a review (write_draft): its preview is
+      // all there is to look at.
+      if (review.preview) {
+        say('Your AI wrote the next draft from what you asked, without a review.');
+        end.append(viewPreviewButton('primary-button'));
+      } else if (review.applications?.length) say('Your AI wrote the next draft from what you asked, without a review, and you accepted it.');
+      else say('You discarded the draft your AI wrote. Ask it in the chat to write another, or to review this draft.');
+      return;
     } else if (!decidable.length && comments) {
       say(nextStep('decisions', {
         sent: 'Your AI is writing the next draft from your comments.',
@@ -907,11 +916,12 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     } else if (undecided) say(`You haven’t decided on ${undecided === 1 ? '1 finding' : `${undecided} findings`} in this review.`);
     else if (state.review?.preview?.outdated) say('You’ve changed your decisions since your AI wrote this preview.');
     else if (setsAside) say(`Accepting this preview sets aside the ${setsAside === 1 ? 'draft' : `${setsAside} drafts`} after this one.`);
+    else if (state.review?.direct) say(`Your AI wrote this from what you asked, without a review. Accept it to make it Draft ${number}, or discard it.`);
     else say(`This is your AI’s draft preview of Draft ${number}.`);
     if (comments) appendPrompt(end, `I’ve commented on the draft preview of ${documentName()}. Update it to do what my comments ask.`, 'Update the preview from my comments');
     for (const [label, className, action] of [
       [state.comparing ? 'Hide the comparison' : `Compare with ${comparesWith}`, 'secondary-button', onCompare],
-      ['Back to the review', 'secondary-button', api.closePreview],
+      [state.review?.direct ? `Back to ${comparesWith}` : 'Back to the review', 'secondary-button', api.closePreview],
       ['Discard', 'secondary-button', api.discardPreview],
       [`Accept as Draft ${number}`, comments ? 'secondary-button' : 'primary-button', api.acceptPreview],
     ]) {

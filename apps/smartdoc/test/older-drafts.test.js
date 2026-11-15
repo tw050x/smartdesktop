@@ -24,3 +24,9 @@ test('an older draft can be read and highlighted, but no AI can improve it', () 
   assert.equal(olderDraftRefusal(on('d1'), 'improve', 'get_document'), null);
   assert.equal(olderDraftRefusal(on('d1'), 'improve', 'reply_to_comment'), null);
 });
+
+test('a draft written without a review is an improvement too: refused on an older draft, whatever review shows', () => {
+  assert.equal(olderDraftRefusal(on('d2'), null, 'write_draft'), null);
+  assert.ok(olderDraftRefusal(on('d1'), null, 'write_draft'));
+  assert.ok(olderDraftRefusal(on('d1'), 'highlights', 'write_draft'));
+});

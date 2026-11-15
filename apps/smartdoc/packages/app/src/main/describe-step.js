@@ -7,8 +7,12 @@ export function describeStep(name, input = {}) {
   const quoted = (text) => `“${String(text).length > 60 ? `${String(text).slice(0, 57)}…` : text}”`;
   switch (tool) {
     case 'get_document_info': return 'Looking over the document';
-    case 'get_document': return input.pages ? `Reading pages ${input.pages}` : 'Reading the document';
-    case 'find_text': return input.text ? `Looking for ${quoted(input.text)}` : 'Searching the document';
+    case 'get_document':
+      if (input.preview) return input.pages ? `Reading pages ${input.pages} of the draft preview` : 'Reading the draft preview';
+      return input.pages ? `Reading pages ${input.pages}` : 'Reading the document';
+    case 'find_text':
+      if (input.preview) return input.query ? `Looking for ${quoted(input.query)} in the draft preview` : 'Searching the draft preview';
+      return input.query ? `Looking for ${quoted(input.query)}` : 'Searching the document';
     case 'get_review': return 'Reading the review';
     case 'get_history': return 'Looking at earlier reviews';
     case 'list_focuses': return 'Checking the focuses';
@@ -22,6 +26,7 @@ export function describeStep(name, input = {}) {
     case 'reply_to_comment': return 'Answering your comment';
     case 'get_draft_preview': return 'Reading the draft preview';
     case 'apply_review': return 'Writing the next draft';
+    case 'write_draft': return input.title ? `Writing the next draft: ${quoted(input.title)}` : 'Writing the next draft';
     case 'switch_draft': return 'Switching draft';
     case 'open_document': return 'Opening a document';
     case 'use_window': return 'Joining this window';

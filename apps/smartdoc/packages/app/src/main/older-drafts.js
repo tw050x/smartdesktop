@@ -3,14 +3,14 @@
 // new document, which it can do once they agree. Reading it, highlights reviews (which don't change
 // the document) and answering comments are fine.
 
-const IMPROVING = ['start_review', 'add_annotation', 'add_finding', 'remove_item', 'revise_finding', 'commit_review', 'apply_review'];
+const IMPROVING = ['start_review', 'add_annotation', 'add_finding', 'remove_item', 'revise_finding', 'commit_review', 'apply_review', 'write_draft'];
 const label = (number) => (number === 0 ? 'Original' : `Draft ${number}`);
 
 // Why the AI tool `name` can't run on the draft showing, or null if it can. `reviewType` is the
 // open review's kind ('improve' or 'highlights'), if there is one.
 export function olderDraftRefusal({ line, currentDraftId, variationName }, reviewType, name, args = {}) {
   if (!IMPROVING.includes(name)) return null;
-  const type = name === 'start_review' ? args.type ?? 'improve' : reviewType;
+  const type = name === 'start_review' ? args.type ?? 'improve' : name === 'write_draft' ? 'improve' : reviewType;
   if (type !== 'improve') return null;
   const number = line.indexOf(currentDraftId);
   const newest = line.length - 1;

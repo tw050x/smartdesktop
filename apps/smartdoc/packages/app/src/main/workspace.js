@@ -28,7 +28,7 @@ const typeOf = (r) => r.type ?? 'improve'; // reviews from before types existed 
 const draftLabel = (number) => (number === 0 ? 'Original' : `Draft ${number}`);
 // A variation's name from its purpose, when the AI doesn't give one.
 const shortName = (purpose) => (purpose.length > 40 ? `${purpose.slice(0, 39).trimEnd()}…` : purpose);
-const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.slice(0, 47).trimEnd()}…` : r.goal) ?? (typeOf(r) === 'improve' ? 'General review' : 'Highlights');
+const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.slice(0, 47).trimEnd()}…` : r.goal) ?? (typeOf(r) === 'improve' ? (r.direct ? 'Next draft' : 'General review') : 'Highlights');
 
 // The open document, its current draft and that draft's current review, plus the list of recent
 // documents. The window, the menu and the MCP server all act through this, and it emits:
@@ -125,6 +125,23 @@ export function createWorkspace(shared) {
     delete doc.workingDraftId;
     await store.saveDocument(doc);
   };
+
+  // A new draft preview of the review showing, written by the AI here or from another window: it
+  // shows straight away, or reloads in place of the one showing, so the user sees at once what the
+  // AI added or removed (the user's choice). Only a user still deciding findings, not looking at
+  // the preview, is left where they are: the bar offers it. Each preview is followed once
+  // (`previewSeen`, its time), so a later save of the review doesn't pull the user back into it.
+  let previewSeen = null;
+  const seePreview = () => {
+    if (review?.preview) previewSeen = review.preview.at;
+  };
+  function followPreview(r) {
+    if (!r?.preview || r.id !== review?.id || r.preview.at === previewSeen) return;
+    previewSeen = r.preview.at;
+    if (!previewing && r.items.some((i) => i.decision.status === 'pending')) return;
+    previewing = true;
+    events.emit('draft');
+  }
 
   // Back from a preview to the draft, when what's showing has moved on from it.
   const leavePreview = () => {
@@ -285,6 +302,31 @@ export function createWorkspace(shared) {
     if (!pageTexts) throw new Error('The document is still loading in the app. Try again in a moment.');
   }
 
+  // The improvement review whose draft preview is waiting on the current draft, whichever tool
+  // shows: the AI can read the preview before the user accepts it (the user's choice).
+  async function previewReview() {
+    requireDoc();
+    if (review?.preview && typeOf(review) === 'improve') return review;
+    const reviews = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === 'improve' && inVariation(r));
+    const newest = reviews.at(-1);
+    return newest?.preview ? newest : null;
+  }
+  const previewLabel = () => `Draft ${doc.line.indexOf(doc.currentDraftId) + 1} preview`;
+  // The waiting preview's page texts, read from its PDF as the draft's are (pdf-text.js), kept
+  // until another preview replaces it.
+  let previewText = null; // { key, texts }
+  async function previewPages() {
+    const r = await previewReview();
+    if (!r) throw new Error('No draft preview is waiting on this draft. get_document without preview reads the draft itself.');
+    const key = `${doc.id}:${r.id}:${r.preview.at}`;
+    if (previewText?.key !== key) {
+      if (!readText) throw new Error('The draft preview can’t be read as text here: get_draft_preview gives its HTML.');
+      const { texts } = await readText(store.previewPdfPath(doc.id, r));
+      previewText = { key, texts };
+    }
+    return { r, texts: previewText.texts };
+  }
+
   const activeVariation = () => doc.variations.find((v) => v.id === doc.variationId);
   const identity = () => {
     const number = doc.line.indexOf(doc.currentDraftId);
@@ -309,6 +351,7 @@ export function createWorkspace(shared) {
     if (!doc) return;
     if (review?.id === saved.id) {
       if (previewing && !saved.preview) leavePreview();
+      else followPreview(saved);
       events.emit('review', saved);
     } else if (saved.draftId === doc.currentDraftId && typeOf(saved) === tool && inVariation(saved) && (!review || tool === 'improve')) {
       const next = await newestReview();
@@ -367,8 +410,8 @@ export function createWorkspace(shared) {
     // and per goal in Review and highlight. Null for a change that needs no claim.
     claimKey(name, args = {}) {
       if (!doc) return null;
-      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'revise_finding', 'commit_review', 'apply_review', 'reply_to_comment'].includes(name)) return null;
-      const type = name === 'start_review' ? args.type ?? 'improve' : review ? typeOf(review) : null;
+      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'revise_finding', 'commit_review', 'apply_review', 'write_draft', 'reply_to_comment'].includes(name)) return null;
+      const type = name === 'start_review' ? args.type ?? 'improve' : name === 'write_draft' ? 'improve' : review ? typeOf(review) : null;
       if (!type) return null;
       if (type === 'improve') return `${doc.id}:improve:${doc.variationId}`;
       const goal = args.goal?.trim() || review?.goal;
@@ -689,6 +732,7 @@ export function createWorkspace(shared) {
     // What the window needs to show the current draft.
     async draftView() {
       if (!doc) return null;
+      seePreview(); // what's waiting as this shows is news no more
       const number = doc.line.indexOf(doc.currentDraftId);
       const shared = {
         document: { id: doc.id, name: doc.name, importedAt: doc.importedAt },
@@ -779,30 +823,50 @@ export function createWorkspace(shared) {
         pdf: pdfDetails?.info ?? {},
         outline: pdfDetails?.outline ?? [],
         perPage: brief ? pages.map(({ firstLine: _, ...p }) => p) : pages,
+        // A draft preview waiting for the user, which get_document and find_text read with preview.
+        preview: await previewReview().then((r) => r && {
+          name: previewLabel(),
+          summary: r.preview.summary ?? null,
+          writtenAt: r.preview.at,
+          ...(r.preview.outdated && { outdated: 'The user has changed their decisions since it was written.' }),
+          read: 'Read it with get_document or find_text and preview: true, or its HTML and the user\'s comments on it with get_draft_preview. It isn\'t a draft until the user accepts it.',
+        }),
       };
     },
 
     // The text of the whole document, or of the pages asked for ("3", "5-9", "1-3, 12"), up to
     // MAX_READ_CHARS at a time.
-    async getDocument({ pages: spec } = {}) {
-      await loadedPages();
-      const numbers = spec ? parsePages(spec, pageTexts.length) : pageTexts.map((_, i) => i + 1);
-      const size = numbers.reduce((n, p) => n + pageTexts[p - 1].length, 0);
+    // With `preview`, the draft preview waiting for the user instead of the draft.
+    async getDocument({ pages: spec, preview = false } = {}) {
+      let texts;
+      if (preview) texts = (await previewPages()).texts;
+      else {
+        await loadedPages();
+        texts = pageTexts;
+      }
+      const numbers = spec ? parsePages(spec, texts.length) : texts.map((_, i) => i + 1);
+      const size = numbers.reduce((n, p) => n + texts[p - 1].length, 0);
       if (size > MAX_READ_CHARS) {
         throw new Error(spec
           ? `Pages ${spec} hold about ${estimateTokens(size).toLocaleString('en')} tokens of text, more than can be read at once (about ${estimateTokens(MAX_READ_CHARS).toLocaleString('en')}). Ask for fewer pages; get_document_info shows each page's size.`
-          : `This document has ${pageTexts.length} pages and about ${estimateTokens(size).toLocaleString('en')} tokens of text, more than can be read at once. Read it a range of pages at a time with pages, using get_document_info for its size and outline and find_text to find what matters.`);
+          : `This document has ${texts.length} pages and about ${estimateTokens(size).toLocaleString('en')} tokens of text, more than can be read at once. Read it a range of pages at a time with pages, using get_document_info for its size and outline and find_text to find what matters.`);
       }
       return {
         ...identity(),
-        totalPages: pageTexts.length,
-        pages: numbers.map((page) => ({ page, text: pageTexts[page - 1] })),
+        ...(preview && { showing: `${previewLabel()}: the next draft, waiting for the user to accept or discard it` }),
+        totalPages: texts.length,
+        pages: numbers.map((page) => ({ page, text: texts[page - 1] })),
       };
     },
 
-    async findText({ query, limit = FIND_LIMIT }) {
-      await loadedPages();
-      return findText(pageTexts, query, Math.min(Math.max(1, limit), FIND_LIMIT));
+    async findText({ query, limit = FIND_LIMIT, preview = false }) {
+      let texts;
+      if (preview) texts = (await previewPages()).texts;
+      else {
+        await loadedPages();
+        texts = pageTexts;
+      }
+      return findText(texts, query, Math.min(Math.max(1, limit), FIND_LIMIT));
     },
 
     // The user's comments marked "No further action required" are left out unless all_comments.
@@ -850,6 +914,7 @@ export function createWorkspace(shared) {
           reviews.push({
             review: r.id,
             type: 'improve',
+            ...(r.direct && { writtenWithoutReview: true }),
             of: draftName(draft.id, draft.abandoned),
             startedAt: r.createdAt,
             committedAt: r.committedAt ?? null,
@@ -894,6 +959,7 @@ export function createWorkspace(shared) {
       doc.tool = next;
       await store.saveDocument(doc);
       review = await newestReview();
+      seePreview();
       leavePreview();
       events.emit('tool', tool);
       events.emit('review', review);
@@ -1298,8 +1364,7 @@ export function createWorkspace(shared) {
       await store.saveReview(doc.id, r);
       const undecided = r.items.filter((i) => i.decision.status === 'pending').length;
       if (r === review) {
-        previewing = undecided === 0;
-        if (previewing) events.emit('draft');
+        followPreview(r);
         events.emit('review', r);
       }
       return {
@@ -1319,12 +1384,41 @@ export function createWorkspace(shared) {
     },
     closePreview: () => leavePreview(),
 
-    // The waiting draft preview's source and the user's comments on it, for the AI to change it.
+    // The waiting draft preview's source and the user's comments on it, for the AI to read it or
+    // change it, whichever tool shows.
     async getDraftPreview() {
-      const r = requireType(requireReview(), 'improve');
-      if (!r.preview) throw new Error('This review has no draft preview waiting.');
+      const r = await previewReview();
+      if (!r) throw new Error('No draft preview is waiting on this draft.');
       const { html } = await store.loadPreview(doc.id, r);
-      return { html: html.toString(), summary: r.preview.summary, outdated: Boolean(r.preview.outdated), comments: previewComments(r) };
+      return { name: previewLabel(), html: html.toString(), summary: r.preview.summary, outdated: Boolean(r.preview.outdated), comments: previewComments(r) };
+    },
+
+    // The next draft written straight away, without a review (the user's choice: sometimes they
+    // just want the AI to do what they asked). It's kept as an improvement review of its own, its
+    // goal what they asked, committed with no findings (`direct`), so its preview is accepted,
+    // discarded, commented on and waited for as any other, and only the user makes it a draft. The
+    // draft's improvement review is used if it has no findings (one holding the user's comments, or
+    // one written this way already, whose preview this replaces); else a new one is started.
+    async writeDraft({ html, summary, goal, title }) {
+      requireDoc();
+      if (tool !== 'improve') await this.setTool('improve');
+      const clean = (text) => (typeof text === 'string' && text.trim() ? text.trim() : null);
+      let r = review && typeOf(review) === 'improve' && !review.items.length ? review : null;
+      if (!r) {
+        r = review = await store.createReview(doc.id, doc.currentDraftId, 'ai', { type: 'improve', goal: clean(goal), title: clean(title), variationId: doc.variationId });
+        await settleOnDraft();
+      } else {
+        if (clean(goal) && !r.goal) r.goal = clean(goal);
+        if (clean(title) && !r.title) r.title = clean(title);
+      }
+      if (r.status === 'open') {
+        r.status = 'committed';
+        r.committedAt = new Date().toISOString();
+        r.direct = true;
+        logTo(r, 'ai', 'wrote the next draft without a review');
+        await store.saveReview(doc.id, r);
+      }
+      return this.applyReview({ html, summary, appliedItemIds: [] });
     },
 
     // The preview and the draft it was written from, to show side by side.

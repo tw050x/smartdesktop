@@ -676,6 +676,10 @@ export function startApp(appApi) {
 
   api.onDraftOpened(async ({ document: doc, variation, draft, pdf, review, tool }) => {
     if (dropping) dropping.opened = true;
+    // A new draft preview in place of the one showing (the AI wrote it again): it stays where the
+    // user was in it, compared still if it was.
+    const again = Boolean(current.preview && draft.isPreview && current.doc?.id === doc.id);
+    const keep = again ? { scroll: documentEl.scrollTop, comparing } : null;
     toolSwitcher.update(tool);
     showDraftLabel({ doc, variation, draft });
     requestAnimationFrame(placeDraftNav);
@@ -694,6 +698,10 @@ export function startApp(appApi) {
     documentEl.scrollTop = 0;
     findBar.draftOpened({ docId: doc.id, draftId: draft.id });
     await showPdf(pdf, { docId: doc.id, draftId: draft.id });
+    if (keep) {
+      documentEl.scrollTop = keep.scroll;
+      if (keep.comparing) setComparing(true);
+    }
     updateScrollUi();
   });
 
