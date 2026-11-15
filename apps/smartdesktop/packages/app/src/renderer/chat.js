@@ -3,15 +3,18 @@ import { trackAiProgress } from './ai-progress.js';
 import { installTooltips } from './tooltips.js';
 import { createUpdateToast } from './update-toast.js';
 
-// The chat window (see main.js): under its top bar (the traffic lights), chats in tabs, in a row of
-// columns side by side, each with its own row of tabs and the chat it shows below (the user's
-// choice, after openp41ge code's tab grid). The layout lives in the main process (chat-layout.js),
-// which sends it with the chats in it (`onChatState`); this draws it, and asks it to change:
+// A chat window (see main.js; there can be several, each with chats of its own, the user's choice):
+// under its top bar (the traffic lights), chats in tabs, in a row of columns side by side, each with
+// its own row of tabs and the chat it shows below (the user's choice, after openp41ge code's tab
+// grid). The layout lives in the main process (chat-layout.js, chat-windows.js), which sends it
+// with the chats in it (`onChatState`); this draws it, and asks it to change:
 //   - a tab clicked shows its chat; `+` starts a new chat in its column; its × (or ⌘W) closes it,
 //     keeping the chat; right-click: Rename… (in the tab) or Close;
 //   - a tab dragged along its row reorders it, onto another column's row or the middle of its chat
 //     moves it there, onto a column's left or right edge (its outer 15%) splits it off into a new
-//     column on that side; the drop shows in blue as it's dragged over;
+//     column on that side; the drop shows in blue as it's dragged over. Dragged out of the window,
+//     its picture follows the pointer (main.js), into another chat window, which shows where it
+//     would land in the same way, or anywhere else to make a new window of it;
 //   - the line between two columns resizes them (each at least MIN_COLUMN wide); double-clicking it
 //     evens them.
 // The chat with the focus (the one last used) has a blue line under its tab, as the apps' tabs do.
@@ -193,8 +196,9 @@ function divider(index) {
 // --- Dragging a tab ----------------------------------------------------------------------------
 // A press that moves more than DRAG_START is a drag: the tab follows the pointer (a ghost), and
 // what's under it says where it would land (dropTarget), shown in blue (an insertion line on a row;
-// a wash with a ring over the column, or the half of it a split would take). A press that doesn't
-// move is a click, showing the chat.
+// a wash with a ring over the column, or the half of it a split would take). Out of the window, the
+// main process has its picture follow the pointer, and the window it's over shows where it would
+// land (onChatDragOver). A press that doesn't move is a click, showing the chat.
 function startDrag(event, tab, chatId, column) {
   if (event.button !== 0 || event.target.closest('.chat-tab-close')) return;
   const startX = event.clientX;
@@ -202,17 +206,39 @@ function startDrag(event, tab, chatId, column) {
   try {
     tab.setPointerCapture(event.pointerId);
   } catch {}
+  let last = null; // the pointer's last move
+  const follow = () => {
+    if (!dragging?.ghost || !last) return;
+    const outside = last.clientX < 0 || last.clientY < 0 || last.clientX >= innerWidth || last.clientY >= innerHeight;
+    dragging.outside = outside;
+    dragging.ghost.style.visibility = outside ? 'hidden' : '';
+    dragging.ghost.style.transform = `translate(${last.clientX - 20}px, ${last.clientY - 14}px)`;
+    showTarget((dragging.target = outside ? null : dropTarget(last.clientX, last.clientY)));
+    api.chatDragMove({ x: last.screenX, y: last.screenY }, !outside);
+  };
   const move = (m) => {
+    last = m;
     if (!dragging) {
       if (Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_START) return;
-      dragging = { chatId, from: column, ghost: ghostOf(tab), target: null };
-      tab.classList.add('dragged');
+      const r = tab.getBoundingClientRect();
+      const drag = { chatId, from: column, ghost: null, target: null, outside: false };
+      dragging = drag;
+      // Its picture is taken first, so the tab is in it as it was, not faded nor under its ghost.
+      api.chatDragStart(chatId, {
+        box: { x: r.left, y: r.top, width: r.width, height: r.height },
+        offset: { x: startX - r.left, y: startY - r.top },
+        point: { x: m.screenX, y: m.screenY },
+      }).catch(() => {}).finally(() => {
+        if (dragging !== drag) return;
+        drag.ghost = ghostOf(tab);
+        tab.classList.add('dragged');
+        follow();
+      });
     }
-    dragging.ghost.style.transform = `translate(${m.clientX - 20}px, ${m.clientY - 14}px)`;
-    showTarget((dragging.target = dropTarget(m.clientX, m.clientY)));
+    follow();
   };
   let ended = false;
-  const end = () => {
+  const end = (up) => {
     if (ended) return;
     ended = true;
     removeEventListener('pointermove', move);
@@ -222,12 +248,15 @@ function startDrag(event, tab, chatId, column) {
       api.chatShow(chatId);
       return;
     }
-    const { target } = dragging;
-    dragging.ghost.remove();
+    const { target, outside } = dragging;
+    dragging.ghost?.remove();
     tab.classList.remove('dragged');
     showTarget(null);
     dragging = null;
-    drop(chatId, target);
+    // Let go outside the window, the main process puts it where it landed; inside, it's here.
+    const point = up && Number.isFinite(up.screenX) ? { x: up.screenX, y: up.screenY } : { x: last?.screenX, y: last?.screenY };
+    api.chatDragEnd(outside ? point : null);
+    if (!outside) drop(chatId, target);
   };
   // The pointer is followed wherever it goes, and the drag ends however it's let go.
   addEventListener('pointermove', move);
@@ -259,6 +288,8 @@ function dropTarget(x, y) {
     if (index < 0) index = tabs.length;
     return { kind: 'row', column, index, tabs };
   }
+  // A window with no chats takes one anywhere (dragged in from another window).
+  if (under?.closest('.chat-empty-window')) return { kind: 'empty', column: 0 };
   const body = under?.closest('.chat-column-body');
   if (!body) return null;
   const column = Number(body.dataset.column);
@@ -295,7 +326,7 @@ function showTarget(target) {
     insertLine.hidden = false;
     return;
   }
-  const body = gridEl.querySelector(`.chat-column-body[data-column="${target.column}"]`);
+  const body = target.kind === 'empty' ? gridEl : gridEl.querySelector(`.chat-column-body[data-column="${target.column}"]`);
   const r = body.getBoundingClientRect();
   const half = target.kind === 'split' ? r.width / 2 : r.width;
   const left = target.kind === 'split' && target.side === 'right' ? r.left + r.width / 2 : r.left;
@@ -351,6 +382,14 @@ api.onChatAsk(({ chatId, text }) => {
   const send = () => panelFor(chatId).ask(text);
   if (panels.has(chatId)) send();
   else setTimeout(send);
+});
+// A tab from another window dragged over this one (see startDrag): where it would land shows here,
+// and the main process is told, to put it there if it's let go.
+api.onChatDragOver((point) => {
+  if (dragging) return; // (one of this window's own)
+  const target = point ? dropTarget(point.x, point.y) : null;
+  showTarget(target);
+  api.chatDragTarget(target && { kind: target.kind, column: target.column, index: target.index ?? null, side: target.side ?? null });
 });
 api.chatReady().then(setState);
 
