@@ -395,7 +395,8 @@ export function createChatPanel({ el, api, chatId }) {
   function renderChips() {
     const all = chipsNow();
     for (const key of [...dismissed]) if (!all.some((chip) => chip.key === key)) dismissed.delete(key);
-    chipsShown = all.filter((chip) => !dismissed.has(chip.key));
+    // None while the AI is working (the user's choice): they come back, as they were, once it's done.
+    chipsShown = isRunning() ? [] : all.filter((chip) => !dismissed.has(chip.key));
     chips.replaceChildren(...chipsShown.map((chip) => {
       const press = button(`chat-chip${chip.kind ? ` ${chip.kind}` : ''}`, chip.label, () => {
         dismissed.add(chip.key);
