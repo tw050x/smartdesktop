@@ -16,7 +16,8 @@ import { installTooltips } from './tooltips.js';
 import { customScrollbar } from './scrollbar.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
 import { RENDER_SCALE, drawPage, fitPageTo, sharpenPage } from './pdf-page.js';
-import { getDocument, useOwnReader, usingOwnReader } from './pdf-engine.js';
+import { getDocument, getDocumentForPictures, useOwnReader, usingOwnReader } from './pdf-engine.js';
+import { parsePages } from '../main/text-stats.js';
 import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
@@ -784,6 +785,37 @@ export function startApp(appApi) {
     if (Boolean(on) !== was && shownPdf) showPdf(shownPdf.data, shownPdf).then(updateScrollUi);
   };
   api.getExperimental?.().then((e) => switchReader(e?.reader));
+
+  // Pictures of a PDF's pages for the AI, to look at a draft's design (view_pages, see main.js):
+  // `pages` as get_document takes them, `width` in pixels. Drawn by SmartDoc's own reader, in its
+  // worker, whichever reader shows the document: this tab may not be showing.
+  const MOST_PICTURES = 4;
+  api.onDrawPictures?.(async ({ id, pdf, pages, width }) => {
+    let task = null;
+    try {
+      task = getDocumentForPictures({ data: pdf });
+      const doc = await task.promise;
+      const numbers = parsePages(pages ?? '1', doc.numPages);
+      if (numbers.length > MOST_PICTURES) throw new Error(`That's ${numbers.length} pages: ask for ${MOST_PICTURES} at most at a time.`);
+      const pictures = [];
+      for (const n of numbers) {
+        const page = await doc.getPage(n);
+        const viewport = page.getViewport({ scale: width / page.getViewport({ scale: 1 }).width });
+        const canvas = new OffscreenCanvas(Math.round(viewport.width), Math.round(viewport.height));
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const blob = await canvas.convertToBlob({ type: 'image/png' });
+        pictures.push({ page: n, width: canvas.width, height: canvas.height, png: new Uint8Array(await blob.arrayBuffer()) });
+      }
+      api.picturesDrawn(id, { total: doc.numPages, pictures });
+    } catch (error) {
+      api.picturesDrawn(id, { error: error?.message ?? String(error) });
+    } finally {
+      task?.destroy?.();
+    }
+  });
   api.onExperimental?.((e) => switchReader(e?.reader));
 
   api.onDocumentClosed(() => {

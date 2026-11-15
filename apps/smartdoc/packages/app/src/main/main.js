@@ -818,6 +818,8 @@ const DELETE_ANSWERS = {
 const documentsForAi = {
   // Filled in below: it depends on the session.
   useWindow: null,
+  // Pictures of a PDF's pages (view_pages), drawn by the session's tab.
+  pagePictures: (pdfPath, pages, width) => drawPictures(current(), pdfPath, pages, width),
   list: () => workspace.recent.map((r) => {
     const folder = workspace.folderPath(r.id);
     return { id: r.id, name: r.name, importedAt: r.importedAt, ...(folder && { folder }), icon: itemIcons.get(r.id)?.icon ?? null, open: workspace.document?.id === r.id };
@@ -1083,6 +1085,31 @@ const aiForServer = {
     });
   },
 };
+
+// Pictures of a PDF's pages for the AI, to look at a draft's design (view_pages): drawn by a tab
+// (`draw-pictures`, see app-shell.js), as the main process has no canvas, which answers with PNGs
+// (`pictures-drawn`).
+const pictureRequests = new Map(); // id → its answer
+let pictureCount = 0;
+async function drawPictures(ctx, pdfPath, pages, width) {
+  if (!ctx?.contents || ctx.contents.isDestroyed()) throw new Error('SmartDoc has no window to draw the pages in.');
+  await ctx.ready;
+  const pdf = new Uint8Array(await fs.promises.readFile(pdfPath));
+  const id = ++pictureCount;
+  const result = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pictureRequests.delete(id);
+      resolve({ error: 'Drawing the pages took too long. Try fewer pages, or smaller.' });
+    }, 60 * 1000);
+    pictureRequests.set(id, (answer) => {
+      clearTimeout(timer);
+      resolve(answer ?? { error: 'Nothing was drawn.' });
+    });
+    ctx.contents.send('draw-pictures', { id, pdf, pages, width });
+  });
+  if (result.error) throw new Error(result.error);
+  return result;
+}
 
 // --- The chat, in SmartDesktop (see desktop.js) -----------------------------------------------
 // The AI chat is SmartDesktop's, an app of its own, for SmartDoc and SmartSpec both: one chat
@@ -1559,6 +1586,11 @@ handle('history-state', (state) => {
   const ctx = current();
   ctx.history = { back: Boolean(state?.back), forward: Boolean(state?.forward) };
   if (ctx.host.active === ctx) sendTabs(ctx.host);
+});
+handle('pictures-drawn', (id, result) => {
+  const answer = pictureRequests.get(id);
+  pictureRequests.delete(id);
+  answer?.(result);
 });
 handle('show-status', () => current()?.contents.send('toggle-status'));
 // A tooltip of the top bar's, drawn by the tab showing (the top bar's page is behind it there), its

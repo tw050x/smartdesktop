@@ -101,6 +101,10 @@ contextBridge.exposeInMainWorld('smartdoc', {
   moveDocument: (docId, folderId) => call('move-document', docId, folderId),
   deleteDocument: (docId) => call('delete-document', docId),
   reportPageTexts: (docId, draftId, texts, details) => call('page-texts', docId, draftId, texts, details),
+  // Pictures of a PDF's pages for the AI (view_pages): asked for by the main process, answered
+  // with PNGs or an error.
+  onDrawPictures: on('draw-pictures'),
+  picturesDrawn: (id, result) => call('pictures-drawn', id, result),
   addRequest: (request) => call('add-request', request),
   updateRequest: (id, changes) => call('update-request', id, changes),
   setNoFurtherAction: (id, on) => call('set-no-further-action', id, on),

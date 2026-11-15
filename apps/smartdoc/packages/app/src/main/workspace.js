@@ -1384,6 +1384,22 @@ export function createWorkspace(shared) {
     },
     closePreview: () => leavePreview(),
 
+    // The PDF of one of the variation's drafts (its number, 0 for Original; by default the one
+    // showing), or of the draft preview waiting, with its name: for the AI to look at its pages
+    // (view_pages) without the window moving.
+    async draftPdfFor({ draft = null, preview = false } = {}) {
+      requireDoc();
+      if (preview) {
+        const r = await previewReview();
+        if (!r) throw new Error('No draft preview is waiting on this draft.');
+        return { path: store.previewPdfPath(doc.id, r), name: previewLabel() };
+      }
+      const number = draft ?? doc.line.indexOf(doc.currentDraftId);
+      const draftId = doc.line[number];
+      if (!draftId) throw new Error(`${activeVariation().name} has no draft ${number}: its drafts are 0 (Original) to ${doc.line.length - 1}.`);
+      return { path: store.draftPdfPath(doc.id, draftId), name: number === 0 ? 'Original' : `Draft ${number}` };
+    },
+
     // The waiting draft preview's source and the user's comments on it, for the AI to read it or
     // change it, whichever tool shows.
     async getDraftPreview() {

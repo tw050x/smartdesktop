@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user, in one of two kinds of review, and the app shows the current review beside the document. The app has a tool for each kind: "Review and draft" (improve) and "Review and highlight" (highlights). Only the active tool's review shows, and get_review returns it; start_review switches to its kind's tool, and switch_tool switches without starting one (for example to show the user an earlier review of the other kind). A draft can have several highlights reviews, one per goal, called focuses (e.g. "Recruiter skim", "The career gap"): list_focuses shows them, with earlier drafts' goals not yet run on this draft, and switch_focus shows one. A new draft starts with none. An improvement review can have a focus too: a goal, and a short name for it (title); the user may send one from the app ("…suggest improvements, focusing on: …"). Without one it's a general review. A document with no icon of its own (get_document_info's icon is null) gets one from you with set_icon, once you know what it is. A document can have variations, one per purpose (such as a CV tailored to a job): "Original" is its own line of drafts, and each variation has its own drafts from the draft it started at. Reviews and drafts belong to the variation showing (get_document_info names it, with its purpose, which every review in it should serve); list_variations, switch_variation and create_variation manage them.
 Open: get_document_info and get_document read the document open in the app. If none is open, or the user means a different one (the user may name it with its document id), open it with open_document: by document_id from list_documents (documents the user has opened before), by path (a PDF on the user's computer, which the user confirms in the app; if they've turned on Open Word, Excel and PowerPoint files in Settings › Experimental, a Word, Excel or PowerPoint file, Markdown, text or a picture too, which SmartDoc turns into a PDF, and get_document_info then says what it was converted from and anything that didn't come out as it is), or with neither so the user picks the file in the app. When open_document reports waiting_for_user, tell the user straight away to switch to the SmartDoc app and answer there, then call get_document_info, which waits for them.
-Read: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything. The document opens on the draft last worked on, which may not be the newest: get_document_info then says notNewest. Reading it is fine, and so is a highlights review, but an older draft can't be improved (no improvement review, findings or apply_review): the drafts after it follow on from it. Tell the user, and ask whether they want the newest draft (switch_draft) or to fork this one, into a new variation (create_variation) or a new document (create_document_from_draft); fork it only once they agree.
+Read: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. To see how it looks (its design and layout, rather than its words), view_pages gives pictures of its pages, of any draft or the draft preview. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything. The document opens on the draft last worked on, which may not be the newest: get_document_info then says notNewest. Reading it is fine, and so is a highlights review, but an older draft can't be improved (no improvement review, findings or apply_review): the drafts after it follow on from it. Tell the user, and ask whether they want the newest draft (switch_draft) or to fork this one, into a new variation (create_variation) or a new document (create_document_from_draft); fork it only once they agree.
 Settle the goal first: read the document, get_review and get_history, then decide with the user what the review is for before calling start_review. But when the user just wants you to make a change or do a piece of work in the document ("rewrite the summary", "cut it to one page", "just do it"), with no review or decisions of theirs needed, skip the review: write the next draft straight away with write_draft, passing what they asked as goal. It's a draft preview like any other, which they accept or discard in the app. Either they want the document improved (type "improve"), or they want to understand it: the key information in it for their purpose (type "highlights"). If it isn't clear which, or what they're after, ask. Pass the agreed goal to start_review in their terms.
 Windows: each AI session has a SmartDoc window of its own, opened by its first tool call, and every call goes to it; opening another document reuses it. If the user's prompt names a window, call use_window with it first, so that window becomes yours instead. Another AI may be working on the same document in its own window: reading is always fine, but a change it has claimed (the same variation in an improvement review, the same goal in a highlights review) is refused, so tell the user. If the user moves your window to another document, your next change is refused: open_document brings it back.
 An improvement review, in rounds:
@@ -30,11 +30,12 @@ const quote = z.object({
   occurrence: z.number().int().min(1).optional().describe('Which match, if the text appears more than once (default 1)'),
 });
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
+const CONTENT = Symbol('content');
 
 // Each tool's safety label, for the AI app to show the user and decide when to ask them: the
 // tools that only read, and the ones that change or remove something the user can't get back (the
 // rest change something, without loss). Every tool works only with the app, on this computer.
-export const READ_ONLY = new Set(['list_documents', 'list_folders', 'list_variations', 'get_document_info', 'get_document', 'find_text', 'list_focuses', 'get_review', 'get_history', 'get_draft_preview']);
+export const READ_ONLY = new Set(['list_documents', 'list_folders', 'list_variations', 'get_document_info', 'get_document', 'view_pages', 'find_text', 'list_focuses', 'get_review', 'get_history', 'get_draft_preview']);
 const NAME = z.string().trim().min(1).max(200);
 const DESTRUCTIVE = new Set(['remove_item', 'delete_document']);
 const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
@@ -46,11 +47,13 @@ export function buildServer(call, { version, waitCommand }) {
   const server = new McpServer({ name: 'smartdoc', version }, { instructions: INSTRUCTIONS });
   const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema, annotations: annotations(name) }, async (args) => {
     try {
-      return json(await call(name, args ?? {}, (forWorkspace, forDocuments) => {
+      const result = await call(name, args ?? {}, (forWorkspace, forDocuments) => {
         workspace = forWorkspace;
         documents = forDocuments;
         return run(args ?? {});
-      }));
+      });
+      // A tool that answers with more than text (view_pages' pictures) gives its own content.
+      return result?.[CONTENT] ? { content: result[CONTENT] } : json(result);
     } catch (error) {
       return { isError: true, content: [{ type: 'text', text: error.message }] };
     }
@@ -135,6 +138,26 @@ export function buildServer(call, { version, waitCommand }) {
   }, async (a) => {
     await documents.settle();
     return workspace.getDocument(a);
+  });
+
+  tool('view_pages', 'Pictures of pages of the open document, as the user sees them, to look at its design: layout, type, spacing, alignment, colour, images, and what\'s printed across facing pages. Any draft of the variation showing (draft: its number, 0 for Original; by default the one showing), or the draft preview waiting (preview), without the window moving. Up to 4 pages at a time. To read or quote the text, use get_document: it\'s exact, and cheaper.', {
+    pages: z.string().optional().describe('Pages to look at, e.g. "1", "2-3" or "1, 4" (4 at most). Default: page 1.'),
+    draft: z.number().int().min(0).optional().describe('The draft\'s number, 0 for Original. Default: the draft showing.'),
+    preview: z.boolean().optional().describe('The draft preview waiting for the user instead of a draft'),
+    width: z.number().int().min(400).max(1600).optional().describe('Each picture\'s width in pixels (default 1000): wider for fine detail, narrower to save room.'),
+  }, async ({ pages = '1', draft, preview = false, width = 1000 }) => {
+    await documents.settle();
+    const pdf = await workspace.draftPdfFor({ draft, preview });
+    const { total, pictures } = await documents.pagePictures(pdf.path, pages, width);
+    return {
+      [CONTENT]: [
+        { type: 'text', text: `${pdf.name} of “${workspace.document.name}”, ${pictures.length === 1 ? `page ${pictures[0].page}` : `pages ${pictures.map((p) => p.page).join(', ')}`} of ${total}.` },
+        ...pictures.flatMap((p) => [
+          { type: 'text', text: `Page ${p.page}:` },
+          { type: 'image', data: Buffer.from(p.png).toString('base64'), mimeType: 'image/png' },
+        ]),
+      ],
+    };
   });
 
   tool('find_text', 'Finds a word or phrase in the open document (case and spacing ignored): each match with its page, the exact text matched (quotable as it is) and the text around it. With preview, in the draft preview waiting for the user instead.', {

@@ -23,6 +23,11 @@ const fontBytes = (file) => {
   return fonts.get(file);
 };
 
+// A loading task for the PDF in `data` by SmartDoc's own reader, whichever is chosen: it draws in
+// a worker, so pictures of pages (for the AI) are drawn even in a tab not showing, which pdf.js,
+// drawing on animation frames, never finishes.
+export const getDocumentForPictures = ({ data }) => ourGetDocument({ data, fonts: fontBytes });
+
 // A loading task ({ promise, destroy }) for the PDF in `data`, by the reader chosen.
 export function getDocument({ data }) {
   return ours ? ourGetDocument({ data, fonts: fontBytes }) : pdfjsGetDocument({ data });
