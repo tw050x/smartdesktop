@@ -34,6 +34,13 @@ if (!app.isPackaged) {
 // The chat window's name, as Mission Control and the Window menu show it: a development build's says
 // so, as the apps' windows do ("SmartDoc Development").
 const CHAT_TITLE = app.isPackaged ? 'SmartDesktop' : 'SmartDesktop Development';
+
+// Joining and leaving Spaces without Electron making SmartDesktop a menu bar app: by default
+// (and always with visibleOnFullScreen) it hides the app's Dock icon to float a window over
+// full-screen apps, which left the app with no Dock icon and menus that couldn't be clicked once
+// the chat had shown (SmartDesktop 0.1.4 and 0.1.5). An app in the Dock can't float over another's
+// full screen, so the chat doesn't.
+const SPACES = { skipTransformProcessType: true };
 const HUB_PORT = app.isPackaged ? 47830 : Number(process.env.SMARTDESKTOP_PORT) || 47831;
 const NAME = app.isPackaged ? 'SmartDesktop' : 'SmartDesktop Development';
 
@@ -354,7 +361,7 @@ function makeChat() {
   // Only on the Space it shows on, not every one (the user's choice). It's an ordinary window, not a
   // panel, as a panel is on every Space whatever it's told; so clicking into it makes SmartDesktop
   // the active app (its own Edit menu, see below), and the app's menus come back with the app.
-  chat.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
+  chat.setVisibleOnAllWorkspaces(false, SPACES);
   // It shows in Mission Control like any window, to be picked from there (the user's choice: the
   // apps' own chats were left out of it, but this one is shared by them all).
   let saving = null;
@@ -426,9 +433,9 @@ function fadeIn(win) {
   win.setOpacity(0);
   // On the Space the user is on: joining every Space for a moment as it shows brings it there,
   // rather than macOS switching to the Space it was last on; then it leaves the others.
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setVisibleOnAllWorkspaces(true, SPACES);
   win.showInactive();
-  setTimeout(() => !win.isDestroyed() && win.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true }), 50);
+  setTimeout(() => !win.isDestroyed() && win.setVisibleOnAllWorkspaces(false, SPACES), 50);
   const step = setInterval(() => {
     if (win.isDestroyed()) return clearInterval(step);
     const t = Math.min(1, (Date.now() - start) / FADE_MS);
