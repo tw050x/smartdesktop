@@ -11,7 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { PROVIDERS, createAgent } from './agent.js';
 import { firstPlace } from './chat-anchor.js';
 import * as grid from './chat-layout.js';
+import * as wins from './chat-windows.js';
 import { startHub } from './hub.js';
+import { windowNumber, windowsOnThisSpace } from './spaces.js';
+import { createDragPicture } from './drag-picture.js';
 import { createUpdates } from './updates.js';
 
 // A macOS symbol for a menu item of the app's own (the standard ones get theirs from macOS), so
@@ -126,7 +129,8 @@ function sendOwners(appName) {
 const sendAllOwners = () => Object.keys(LABEL).forEach(sendOwners);
 
 // The chat for a request from an app tab (Show the Chat, or a shortcut): the chat owning it, or a
-// new chat owning it; from Home (or no tab), the chat last used, or a new one.
+// new chat owning it; from Home (or no tab), the chat last used in the chat window on this Space
+// (see windowHere), or of them all, or a new one.
 async function chatForTab(client, windowId) {
   const win = windowId ? appOf(client.id)?.windows.get(windowId) : null;
   if (win && !win.home) {
@@ -136,6 +140,8 @@ async function chatForTab(client, windowId) {
     own(chat.id, client.app, windowId);
     return chat.id;
   }
+  const here = await windowHere();
+  if (here?.focused) return here.focused;
   const last = readSettings().focusedChat;
   if (last && (await agent.load(last))) return last;
   return (await newChat()).id;
@@ -224,15 +230,15 @@ async function onMessage(client, message) {
         setChatOpen(false);
         break;
       }
-      showChat(chatId);
+      await showChat(chatId);
       break;
     }
     // A request for the AI from the app (a shortcut in it: Answer my comments, say): the tab's chat
     // sends it, or puts it in its message box if it can't go now.
     case 'ask': {
       const chatId = await chatForTab(client, id);
-      showChat(chatId);
-      askInChat(chatId, message.text);
+      const entry = await showChat(chatId);
+      askInChat(entry, chatId, message.text);
       break;
     }
     default:
@@ -254,7 +260,7 @@ const agent = createAgent({
       sendAllOwners();
       sendChatState();
     }
-    chatWin()?.webContents.send('agent-event', event);
+    for (const win of chatWindowsLive()) win.webContents.send('agent-event', event);
   },
 });
 const agentProgress = (progress) => {
@@ -315,37 +321,48 @@ async function chatSend(chatId, providerId, text, { model = null } = {}) {
     }
     first = false;
   };
-  focusChat(chatId);
+  const entry = holding(chatId);
+  if (entry) focusChat(entry, chatId);
   agent.send(chatId, { provider: provider.id, text, systemPrompt: SYSTEM, where: where(chatId), servers, model, turn })
-    .catch((error) => chatWin()?.webContents.send('agent-event', { chatId, type: 'error', error: error.message }));
+    .catch((error) => { for (const win of chatWindowsLive()) win.webContents.send('agent-event', { chatId, type: 'error', error: error.message }); });
   return true;
 }
 
-// --- The chat's window -----------------------------------------------------------------------
-// A window of its own, on the Space the user is on (not every Space: the user's choice, so it isn't a
-// panel, which would be; see makeChat). It shows when it's asked for (the chat button on an app's
-// tab, Show the Chat, a shortcut in an app, the Dock icon), brought forward with the typing in
-// its focused chat, and stays until it's closed, an ordinary window among the others (the user's
-// choice: it came forward with the apps, floating over them, and hid when another app did). It
-// shows in Mission Control, to be picked from there. The user can put it anywhere; it opens again
-// where it was.
+// --- The chat windows ------------------------------------------------------------------------
+// The chat is in windows of its own (chat-windows.js: the user's choice, more than one, each with
+// its chats in tabs of its own, so each Space, or each piece of work on one, has a chat window
+// organised for it). Window › New Chat Window (⌘N) opens one, and a chat's tab is dragged into
+// another, or out of them all to make a new one. Each is on the Space it's opened on (not every
+// Space: the user's choice, so it isn't a panel, which would be; see makeWindow). They show when
+// the chat is asked for (the chat button on an app's tab, Show the Chat, a shortcut in an app, the
+// Dock icon), the one asked for brought forward with the typing in its focused chat, and stay until
+// closed, ordinary windows among the others (the user's choice: the chat came forward with the
+// apps, floating over them, and hid when another app did). They show in Mission Control, to be
+// picked from there. The user can put them anywhere; they open again where they were. Closing one
+// closes it, its chats kept (as a closed tab's are), unless it's the last, which hides, kept as it
+// was, as Hide the Chat hides them all.
 const FADE_MS = 160;
-let chat = null;
 let chatOpen = Boolean(readSettings().chatOpen);
-let chatFocused = false;
-let chatReady = false;
-const chatWin = () => (chat && !chat.isDestroyed() ? chat : null);
+// Each { id, layout, bounds, focused, focusedAt } (chat-windows.js) and, while it's made, `win`
+// (its BrowserWindow), `ready` (its page has asked for its state), `sentState` and `asked`
+// (requests for its chats' AIs, waiting for it to be ready).
+const chatWindows = wins.restore(readSettings());
+const live = (entry) => (entry?.win && !entry.win.isDestroyed() ? entry.win : null);
+const chatWindowsLive = () => chatWindows.map(live).filter(Boolean);
+const entryOf = (contents) => chatWindows.find((e) => live(e)?.webContents === contents) ?? null;
+const holding = (chatId) => wins.holding(chatWindows, chatId);
+const lastUsed = () => wins.byUse(chatWindows)[0] ?? null;
+const saveWindows = () => writeSettings({ chatWindows: chatWindows.map(wins.saved) });
 
-function makeChat() {
-  const saved = readSettings().chatBounds;
+function makeWindow(entry) {
   const near = windowOf(lastFront)?.bounds ?? screen.getPrimaryDisplay().workArea;
-  const bounds = saved && screen.getAllDisplays().some((d) => overlaps(d.workArea, saved)) ? saved : firstPlace(near);
-  chat = new BrowserWindow({
+  const bounds = entry.bounds && screen.getAllDisplays().some((d) => overlaps(d.workArea, entry.bounds)) ? entry.bounds : firstPlace(near);
+  const win = new BrowserWindow({
     ...bounds,
     minWidth: 320,
     minHeight: 300,
     // A top bar like the apps' windows, with the traffic lights in it (see styles.css). Closing it
-    // closes the chat (see below); it can't be minimised or zoomed.
+    // closes the window (see closeWindow); it can't be minimised or zoomed.
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 16, y: 11 },
     minimizable: false,
@@ -356,67 +373,98 @@ function makeChat() {
     fullscreenable: false,
     webPreferences: { preload: path.join(dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
-  chat.on('page-title-updated', (event) => event.preventDefault()); // keeps CHAT_TITLE, not chat.html's
-  chatReady = false;
+  Object.assign(entry, { win, bounds, ready: false, sentState: null, asked: entry.asked ?? [] });
+  win.on('page-title-updated', (event) => event.preventDefault()); // keeps CHAT_TITLE, not chat.html's
   // Only on the Space it shows on, not every one (the user's choice). It's an ordinary window, not a
   // panel, as a panel is on every Space whatever it's told; so clicking into it makes SmartDesktop
   // the active app (its own Edit menu, see below), and the app's menus come back with the app.
-  chat.setVisibleOnAllWorkspaces(false, SPACES);
+  win.setVisibleOnAllWorkspaces(false, SPACES);
   // It shows in Mission Control like any window, to be picked from there (the user's choice: the
   // apps' own chats were left out of it, but this one is shared by them all).
   let saving = null;
   const remember = () => {
     clearTimeout(saving);
-    saving = setTimeout(() => chatWin() && writeSettings({ chatBounds: chat.getBounds() }), 300);
+    saving = setTimeout(() => {
+      if (!live(entry) || !chatWindows.includes(entry)) return;
+      entry.bounds = win.getBounds();
+      saveWindows();
+    }, 300);
   };
-  chat.on('move', remember);
-  chat.on('resize', remember);
-  chat.on('focus', () => {
-    chatFocused = true;
+  win.on('move', remember);
+  win.on('resize', remember);
+  // The window last used is the one the chat shows in when nothing says which, and its focused chat
+  // the one Show the Chat brings back from Home.
+  win.on('focus', () => {
+    entry.focusedAt = Date.now();
+    saveWindows();
+    if (entry.focused) focusChat(entry, entry.focused);
     arrange();
   });
-  chat.on('blur', () => {
-    chatFocused = false;
-    setTimeout(arrange, 150);
-  });
-  // Its close button closes the chat, as the apps' chat buttons do: the window is kept, hidden.
-  chat.on('close', (event) => {
-    if (quitting) return;
+  win.on('blur', () => setTimeout(arrange, 150));
+  win.on('close', (event) => {
+    if (quitting || entry.closing) return;
     event.preventDefault();
-    setChatOpen(false);
+    closeWindow(entry);
   });
-  chat.on('closed', () => {
-    chat = null;
-    chatFocused = false;
+  win.on('closed', () => {
+    if (entry.win === win) entry.win = null;
   });
-  chat.loadFile(page('chat.html'));
-  widenForColumns();
-  return chat;
+  win.loadFile(page('chat.html'));
+  widenForColumns(entry);
+  return win;
 }
 const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
-// Opens the chat, brought forward with the focus in it (`now`: the user asked for it), or closes it.
-function setChatOpen(open, { now = false } = {}) {
+// A window's close button: it closes, its chats kept (they leave its tabs, as a closed tab's chat
+// does), unless it's the only one, which hides, as Hide the Chat does, kept as it was.
+function closeWindow(entry) {
+  if (!chatWindows.includes(entry)) return;
+  if (chatWindows.length < 2) return setChatOpen(false);
+  chatWindows.splice(chatWindows.indexOf(entry), 1);
+  saveWindows();
+  const win = live(entry);
+  if (win) {
+    entry.closing = true;
+    win.destroy();
+  }
+  if (wins.chatsIn(entry).includes(readSettings().focusedChat)) {
+    const next = lastUsed();
+    if (next?.focused) focusChat(next, next.focused);
+  }
+  updateDock();
+}
+
+// A window whose last chat has gone (its tab closed, or moved to another window) closes, unless
+// it's the only one, which says it has none (see chat.js).
+function leftBehind(entry) {
+  if (!wins.chatsIn(entry).length && chatWindows.length > 1) closeWindow(entry);
+  else sendChatState();
+}
+
+// Opens the chat, the window `target` (or the one last used) brought forward with the focus in it
+// (`now`: the user asked for it), or hides every window.
+function setChatOpen(open, { now = false, target = null } = {}) {
   chatOpen = open;
   writeSettings({ chatOpen });
   hub?.broadcast({ type: 'chat-open', open });
   updateDock();
-  arrange({ now });
+  arrange({ now, target });
   if (open && now) {
-    // SmartDesktop comes forward (it's in the background while the app is used), and the chat with
-    // it, its focused chat's message box taking the typing (see chat.js).
+    // SmartDesktop comes forward (it's in the background while the app is used), and the window
+    // with it, its focused chat's message box taking the typing (see chat.js).
     app.focus({ steal: true });
-    chatWin()?.focus();
+    live(target ?? lastUsed())?.focus();
   }
 }
 
-// Shows the chat when it's asked for (`now`), and hides it once it's closed. It's an ordinary window
-// otherwise: it doesn't come and go with the apps (the user's choice: it showed whenever an app came
-// forward, floating over it, and hid when another app did).
-function arrange({ now = false } = {}) {
-  const win = chatWin();
+// Shows the chat's windows when it's asked for (`now`), and hides them once it's closed. They're
+// ordinary windows otherwise: they don't come and go with the apps (the user's choice: the chat
+// showed whenever an app came forward, floating over it, and hid when another app did). The one
+// asked for comes to the Space the user is on; the rest go back to their own.
+function arrange({ now = false, target = null } = {}) {
   if (!chatOpen) {
-    if (win?.isVisible()) {
+    for (const win of chatWindowsLive()) {
+      if (!win.isVisible()) continue;
       clearInterval(win.fading);
       win.hide();
       win.setOpacity(1);
@@ -424,18 +472,25 @@ function arrange({ now = false } = {}) {
     return;
   }
   sendChatState();
-  if (now && !win?.isVisible()) fadeIn(win ?? makeChat());
+  if (!now) return;
+  const shown = target ?? lastUsed();
+  for (const entry of chatWindows) {
+    const win = live(entry) ?? makeWindow(entry);
+    if (!win.isVisible()) fadeIn(win, { here: entry === shown });
+  }
 }
 
-function fadeIn(win) {
+function fadeIn(win, { here = true } = {}) {
   const start = Date.now();
   clearInterval(win.fading);
   win.setOpacity(0);
   // On the Space the user is on: joining every Space for a moment as it shows brings it there,
   // rather than macOS switching to the Space it was last on; then it leaves the others.
-  win.setVisibleOnAllWorkspaces(true, SPACES);
-  win.showInactive();
-  setTimeout(() => !win.isDestroyed() && win.setVisibleOnAllWorkspaces(false, SPACES), 50);
+  if (here) {
+    win.setVisibleOnAllWorkspaces(true, SPACES);
+    win.showInactive();
+    setTimeout(() => !win.isDestroyed() && win.setVisibleOnAllWorkspaces(false, SPACES), 50);
+  } else win.showInactive();
   const step = setInterval(() => {
     if (win.isDestroyed()) return clearInterval(step);
     const t = Math.min(1, (Date.now() - start) / FADE_MS);
@@ -445,81 +500,130 @@ function fadeIn(win) {
   win.fading = step;
 }
 
-// The chat window's layout (chat-layout.js): its columns of chat tabs, kept in settings.json, and
-// the chat with the focus (the one last used: Show the Chat from Home brings it back).
-let layout = grid.normalize(readSettings().chatLayout);
-function setLayout(next) {
-  const before = layout.columns.length;
-  layout = grid.normalize(next);
-  writeSettings({ chatLayout: layout });
-  if (layout.columns.length > before) widenForColumns();
+// The chat window for a chat when nothing says which: the one on the Space the user is on (the one
+// used last there, if there are several: the user's choice, a chat window for each Space), else the
+// one used last, wherever it is.
+async function windowHere() {
+  const visible = chatWindows.filter((e) => live(e)?.isVisible());
+  if (visible.length) {
+    const here = await windowsOnThisSpace();
+    const there = wins.byUse(visible).find((e) => here.has(windowNumber(e.win)));
+    if (there) return there;
+  }
+  return lastUsed();
+}
+// Show the Chat with no chat in mind (the Dock icon, the menus): the window here comes forward.
+async function showHere() {
+  const target = await windowHere();
+  setChatOpen(true, { now: true, target });
+  return target;
+}
+
+// A window's layout (chat-layout.js): its columns of chat tabs, kept in settings.json.
+function setLayout(entry, next) {
+  const before = entry.layout.columns.length;
+  entry.layout = grid.normalize(next);
+  wins.tidy(entry);
+  saveWindows();
+  if (entry.layout.columns.length > before) widenForColumns(entry);
   sendChatState();
 }
-// More columns than the chat window has room for (each at least COLUMN_WIDTH): it widens, as far as
-// its screen allows, keeping on it.
+// A chat put in a window, in `layout`: out of any other it was in, which closes if that was its last.
+function putIn(entry, chatId, layout) {
+  const left = wins.takeOut(chatWindows, chatId, entry);
+  setLayout(entry, layout);
+  left.forEach(leftBehind);
+}
+// A new window with a chat in it, a little below and to the right of the one used last (or at
+// `bounds`), shown with the focus.
+function newWindow(chatId, bounds = null) {
+  const from = lastUsed();
+  const fromBounds = live(from)?.getBounds() ?? from?.bounds ?? null;
+  const area = fromBounds ? screen.getDisplayMatching(fromBounds).workArea : null;
+  const left = wins.takeOut(chatWindows, chatId);
+  const entry = wins.create({ chatId, bounds: bounds ?? wins.cascade(fromBounds, area) });
+  entry.focusedAt = Date.now();
+  chatWindows.push(entry);
+  saveWindows();
+  left.forEach(leftBehind);
+  focusChat(entry, chatId);
+  setChatOpen(true, { now: true, target: entry });
+  return entry;
+}
+// More columns than a window has room for (each at least COLUMN_WIDTH): it widens, as far as its
+// screen allows, keeping on it.
 const COLUMN_WIDTH = 340;
-function widenForColumns() {
-  const win = chatWin();
+function widenForColumns(entry) {
+  const win = live(entry);
   if (!win) return;
   const bounds = win.getBounds();
-  const need = layout.columns.length * COLUMN_WIDTH;
+  const need = entry.layout.columns.length * COLUMN_WIDTH;
   if (bounds.width >= need) return;
   const area = screen.getDisplayMatching(bounds).workArea;
   const width = Math.min(need, area.width);
   const x = Math.max(area.x, Math.min(bounds.x, area.x + area.width - width));
   win.setBounds({ ...bounds, x, width }, true);
 }
-function focusChat(chatId) {
-  if (readSettings().focusedChat === chatId) return;
-  writeSettings({ focusedChat: chatId });
+// The chat with the focus in its window (the one last used there), and of them all (the one last
+// used: Show the Chat from Home brings it back when there's no window on this Space).
+function focusChat(entry, chatId) {
+  if (entry.focused !== chatId) {
+    entry.focused = chatId;
+    saveWindows();
+  }
+  if (readSettings().focusedChat !== chatId) writeSettings({ focusedChat: chatId });
   sendChatState();
 }
-// A chat shown in the chat window, given the focus: in its column if it's in one, else in the
-// column with the focus (or the first), and the window opened.
-function showChat(chatId) {
-  if (grid.columnOf(layout, chatId) < 0) {
-    const focused = grid.columnOf(layout, readSettings().focusedChat);
-    setLayout(grid.place(layout, chatId, Math.max(0, focused)));
-  } else setLayout(grid.show(layout, chatId));
-  focusChat(chatId);
-  setChatOpen(true, { now: true });
+// A chat shown, given the focus: in its window if it's in one, else in the column with the focus
+// of the window on this Space (see windowHere); and the windows opened, its own in front.
+async function showChat(chatId) {
+  let entry = holding(chatId);
+  if (entry) setLayout(entry, grid.show(entry.layout, chatId));
+  else {
+    entry = await windowHere();
+    const column = Math.max(0, grid.columnOf(entry.layout, entry.focused));
+    putIn(entry, chatId, grid.place(entry.layout, chatId, column));
+  }
+  focusChat(entry, chatId);
+  setChatOpen(true, { now: true, target: entry });
+  return entry;
 }
 
-// What the chat window shows: its layout and the chat with the focus; each chat in it by name, with
-// its own tabs in the apps (by app and what they show), and the hint and shortcuts its tabs offer;
-// and which apps are connected.
-function chatState() {
+// What a chat window shows: its layout and the chat in it with the focus; each chat in it by name,
+// with its own tabs in the apps (by app and what they show), and the hint and shortcuts its tabs
+// offer; and which apps are connected.
+function chatState(entry) {
   const chats = {};
-  for (const column of layout.columns) {
-    for (const chatId of column.chats) {
-      const tabs = [];
-      let hint = null;
-      const shortcuts = [];
-      for (const entry of apps.values()) {
-        const tabId = tabOf(chatId, entry);
-        const win = tabId && entry.windows.get(tabId);
-        if (!win) continue;
-        tabs.push({ app: entry.client.app, name: entry.client.name, title: win.title ?? null });
-        hint ??= win.hint;
-        shortcuts.push(...(win.shortcuts ?? []).map((sc) => ({ ...sc, at: { clientId: entry.client.id, windowId: tabId } })));
-      }
-      chats[chatId] = { title: titles.get(chatId) ?? 'New chat', tabs, hint, shortcuts };
+  for (const chatId of wins.chatsIn(entry)) {
+    const tabs = [];
+    let hint = null;
+    const shortcuts = [];
+    for (const connected of apps.values()) {
+      const tabId = tabOf(chatId, connected);
+      const win = tabId && connected.windows.get(tabId);
+      if (!win) continue;
+      tabs.push({ app: connected.client.app, name: connected.client.name, title: win.title ?? null });
+      hint ??= win.hint;
+      shortcuts.push(...(win.shortcuts ?? []).map((sc) => ({ ...sc, at: { clientId: connected.client.id, windowId: tabId } })));
     }
+    chats[chatId] = { title: titles.get(chatId) ?? 'New chat', tabs, hint, shortcuts };
   }
-  return { layout, focused: readSettings().focusedChat ?? null, chats, connected: [...apps.values()].map((a) => a.client.name) };
+  return { layout: entry.layout, focused: entry.focused ?? null, chats, connected: [...apps.values()].map((a) => a.client.name) };
 }
-let sentState = null;
 function sendChatState() {
-  const state = JSON.stringify(chatState());
-  if (state === sentState || !chatReady) return;
-  sentState = state;
-  chatWin()?.webContents.send('chat-state', JSON.parse(state));
+  for (const entry of chatWindows) {
+    const win = live(entry);
+    if (!win || !entry.ready) continue;
+    const state = JSON.stringify(chatState(entry));
+    if (state === entry.sentState) continue;
+    entry.sentState = state;
+    win.webContents.send('chat-state', JSON.parse(state));
+  }
 }
-// A request for a chat's AI (see ask), once the chat window is ready.
-const asked = [];
-function askInChat(chatId, text) {
-  if (chatReady) chatWin()?.webContents.send('chat-ask', { chatId, text });
-  else asked.push({ chatId, text });
+// A request for a chat's AI (see ask), once its window is ready.
+function askInChat(entry, chatId, text) {
+  if (entry.ready) live(entry)?.webContents.send('chat-ask', { chatId, text });
+  else entry.asked.push({ chatId, text });
 }
 
 // --- The setup and settings windows ------------------------------------------------------------
@@ -569,7 +673,8 @@ function updateDock() {
   if (!app.dock) return;
   const connected = [...apps.values()].map((a) => a.client.name);
   app.dock.setMenu(Menu.buildFromTemplate([
-    { label: chatOpen ? 'Hide the Chat' : 'Show the Chat', click: () => setChatOpen(!chatOpen, { now: true }) },
+    { label: chatOpen ? 'Hide the Chat' : 'Show the Chat', click: () => (chatOpen ? setChatOpen(false) : showHere()) },
+    { label: 'New Chat Window', click: newChatWindow },
     { type: 'separator' },
     { label: 'Set Up AI…', click: openSetup },
     { label: 'Settings…', click: openSettings },
@@ -582,8 +687,12 @@ function updateDock() {
 }
 // Clicked in the Dock (or opened again from Finder): the chat.
 app.on('activate', () => {
-  if (app.isReady()) setChatOpen(true, { now: true });
+  if (app.isReady()) showHere();
 });
+// Window › New Chat Window (⌘N), and the Dock menu's: a window of its own with a new chat in it.
+async function newChatWindow() {
+  newWindow((await newChat()).id);
+}
 
 // --- Requests from SmartDesktop's own windows ----------------------------------------------------
 const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
@@ -604,51 +713,148 @@ handle('chat-load', async (chatId) => {
 handle('agent-send', (chatId, provider, text, options) => chatSend(chatId, provider, text, options));
 handle('agent-stop', (chatId) => agent.stop(chatId));
 handle('agent-new-session', (chatId, provider) => agent.newSession(chatId, provider));
-handle('chat-ready', () => {
-  chatReady = true;
-  sentState = null;
+// A chat window's own requests, given the window they come from.
+const handleIn = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+  try {
+    const entry = entryOf(event.sender);
+    if (!entry) throw new Error('Not a chat window.');
+    return { ok: true, value: await fn(entry, ...args) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+handleIn('chat-ready', (entry) => {
+  entry.ready = true;
+  entry.sentState = null;
   setTimeout(() => {
     sendChatState();
-    for (const request of asked.splice(0)) chatWin()?.webContents.send('chat-ask', request);
+    for (const request of entry.asked.splice(0)) live(entry)?.webContents.send('chat-ask', request);
   });
-  return chatState();
+  return chatState(entry);
 });
-// The chat window's tabs (see chat-layout.js): a new chat (in a column), choosing, moving,
-// splitting off and closing a chat's tab, the columns' widths, and the chat with the focus.
-handle('chat-new', async (column = 0) => {
+// A window's tabs (see chat-layout.js): a new chat (in a column), choosing, moving, splitting off
+// and closing a chat's tab, the columns' widths, and the chat with the focus.
+handleIn('chat-new', async (entry, column = 0) => {
   const chat = await newChat();
-  setLayout(grid.place(layout, chat.id, column));
-  focusChat(chat.id);
+  setLayout(entry, grid.place(entry.layout, chat.id, column));
+  focusChat(entry, chat.id);
   return chat.id;
 });
-handle('chat-show', (chatId) => {
-  setLayout(grid.show(layout, chatId));
-  focusChat(chatId);
+handleIn('chat-show', (entry, chatId) => {
+  setLayout(entry, grid.show(entry.layout, chatId));
+  focusChat(entry, chatId);
 });
-handle('chat-move', (chatId, column, index) => {
-  setLayout(grid.place(layout, chatId, column, index));
-  focusChat(chatId);
+handleIn('chat-move', (entry, chatId, column, index) => {
+  putIn(entry, chatId, grid.place(entry.layout, chatId, column, index));
+  focusChat(entry, chatId);
 });
-handle('chat-split', (chatId, column, side) => {
-  setLayout(grid.split(layout, chatId, column, side));
-  focusChat(chatId);
+handleIn('chat-split', (entry, chatId, column, side) => {
+  putIn(entry, chatId, grid.split(entry.layout, chatId, column, side));
+  focusChat(entry, chatId);
 });
-handle('chat-close-tab', (chatId) => {
-  setLayout(grid.close(layout, chatId));
-  if (readSettings().focusedChat === chatId) focusChat(layout.columns[0]?.active ?? null);
+handleIn('chat-close-tab', (entry, chatId) => {
+  setLayout(entry, grid.close(entry.layout, chatId));
+  if (readSettings().focusedChat === chatId && entry.focused) focusChat(entry, entry.focused);
+  leftBehind(entry);
 });
-handle('chat-widths', (widths) => setLayout(grid.resize(layout, widths)));
-handle('chat-even', () => setLayout(grid.even(layout)));
-handle('chat-focus', (chatId) => focusChat(chatId));
+handleIn('chat-widths', (entry, widths) => setLayout(entry, grid.resize(entry.layout, widths)));
+handleIn('chat-even', (entry) => setLayout(entry, grid.even(entry.layout)));
+handleIn('chat-focus', (entry, chatId) => focusChat(entry, chatId));
 handle('chat-rename', (chatId, title) => agent.rename(chatId, title));
-// A chat tab's right-click menu: Rename… (done in the tab: the answer goes back) and Close.
-handle('chat-tab-menu', (chatId) => new Promise((resolve) => {
+// A chat tab's right-click menu: Rename… (done in the tab: the answer goes back), Move to New
+// Window (unless it's the window's only chat) and Close.
+handleIn('chat-tab-menu', (entry, chatId) => new Promise((resolve) => {
   Menu.buildFromTemplate([
     { label: 'Rename…', click: () => resolve('rename') },
+    { label: 'Move to New Window', enabled: wins.chatsIn(entry).length > 1, click: () => {
+      resolve(null);
+      newWindow(chatId);
+    } },
+    { type: 'separator' },
     { label: 'Close', click: () => resolve('close') },
-  ]).popup({ window: chatWin() ?? undefined, callback: () => setTimeout(() => resolve(null), 100) });
+  ]).popup({ window: live(entry) ?? undefined, callback: () => setTimeout(() => resolve(null), 100) });
 }));
-handle('chat-close', () => setChatOpen(false));
+handleIn('chat-close', (entry) => closeWindow(entry));
+
+// Dragging a chat's tab out of its window (chat.js): into another chat window, where it would land
+// shown there as that window's own drags show it (`chat-drag-over`, a point in it, or null; it
+// says where: `chat-drag-target`), or anywhere else to make a new window of it, its tab under the
+// pointer. Inside its own window chat.js does it all; outside, a picture of the tab follows the
+// pointer (drag-picture.js). Only windows on this Space take it (see spaces.js), in the order they
+// were last used (Electron can't say which is in front).
+const dragPicture = createDragPicture();
+let tabDrag = null; // { from, chatId, box, offset, here, over, target }
+handleIn('chat-drag-start', async (entry, chatId, { box, offset, point } = {}) => {
+  if (!box || !offset || !point || !wins.chatsIn(entry).includes(chatId)) return false;
+  const drag = { from: entry, chatId, box, offset, here: new Set(), over: null, target: null };
+  tabDrag = drag;
+  const rect = { x: Math.round(box.x), y: Math.round(box.y), width: Math.max(1, Math.round(box.width)), height: Math.max(1, Math.round(box.height)) };
+  const [image, here] = await Promise.all([live(entry).webContents.capturePage(rect), windowsOnThisSpace()]);
+  if (tabDrag !== drag) return false; // let go meanwhile
+  drag.here = here;
+  await dragPicture.show({ image, size: rect, offset, point });
+  return true;
+});
+function chatWindowAt(point, except) {
+  for (const entry of wins.byUse(chatWindows)) {
+    const win = live(entry);
+    // (If macOS's list couldn't be had, every window showing.)
+    if (!win || entry === except || !win.isVisible() || (tabDrag.here.size && !tabDrag.here.has(windowNumber(win)))) continue;
+    const b = win.getContentBounds();
+    if (point.x >= b.x && point.x < b.x + b.width && point.y >= b.y && point.y < b.y + b.height) return { entry, x: point.x - b.x, y: point.y - b.y };
+  }
+  return null;
+}
+// The pointer, on the screen; `inside` its own window, where chat.js shows the drag itself.
+handleIn('chat-drag-move', (_entry, point, inside) => {
+  if (!tabDrag || !point) return;
+  const at = inside ? null : chatWindowAt(point, tabDrag.from);
+  if (tabDrag.over && tabDrag.over !== at?.entry) {
+    live(tabDrag.over)?.webContents.send('chat-drag-over', null);
+    tabDrag.target = null;
+  }
+  tabDrag.over = at?.entry ?? null;
+  if (at) live(at.entry)?.webContents.send('chat-drag-over', { x: at.x, y: at.y });
+  dragPicture.move(point, !inside);
+});
+handleIn('chat-drag-target', (entry, target) => {
+  if (tabDrag && entry === tabDrag.over) tabDrag.target = target ?? null;
+});
+// Let go: `point` outside its window (inside, chat.js has dropped it already).
+handleIn('chat-drag-end', (_entry, point) => {
+  const drag = tabDrag;
+  tabDrag = null;
+  dragPicture.hide();
+  if (!drag) return;
+  if (drag.over) live(drag.over)?.webContents.send('chat-drag-over', null);
+  if (!point || !holding(drag.chatId)) return;
+  if (drag.over) {
+    const { target } = drag;
+    if (!target) return;
+    const { layout } = drag.over;
+    const next = target.kind === 'split'
+      ? grid.split(layout, drag.chatId, target.column, target.side)
+      : grid.place(layout, drag.chatId, target.column, target.kind === 'row' ? target.index : null);
+    putIn(drag.over, drag.chatId, next);
+    focusChat(drag.over, drag.chatId);
+    live(drag.over)?.focus();
+    return;
+  }
+  // Over no chat window: a new window, the size of the one it came from, its tab under the pointer
+  // (kept on the screen, its top bar at least), or, if it was that window's only chat, that window
+  // moved there.
+  const fromBounds = live(drag.from)?.getBounds() ?? drag.from.bounds;
+  const area = screen.getDisplayNearestPoint({ x: Math.round(point.x), y: Math.round(point.y) }).workArea;
+  const KEEP = 160; // of the window, kept on the screen across
+  const bounds = {
+    x: Math.round(Math.min(Math.max(point.x - drag.box.x - drag.offset.x, area.x + KEEP - fromBounds.width), area.x + area.width - KEEP)),
+    y: Math.round(Math.min(Math.max(point.y - drag.box.y - drag.offset.y, area.y), area.y + area.height - 80)),
+    width: fromBounds.width,
+    height: fromBounds.height,
+  };
+  if (wins.chatsIn(drag.from).length === 1) return live(drag.from)?.setBounds(bounds);
+  newWindow(drag.chatId, bounds);
+});
 // A shortcut that's an action in the app (the go-ahead to an AI waiting in another app, say): the
 // app window it's about does it.
 handle('chat-action', (chip) => {
@@ -677,16 +883,21 @@ function installUpdate() {
 
 // --- Updates ---------------------------------------------------------------------------------
 const updates = createUpdates({
+  // A check the user asked for shows how it goes in the chat window in front only (each window has
+  // the toast); a version downloading or ready shows in all of them.
   report: (status) => {
-    for (const win of BrowserWindow.getAllWindows()) win.webContents.send('updates', status);
+    const shown = live(lastUsed());
+    const chats = chatWindowsLive();
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('updates', chats.includes(win) && win !== shown ? { ...status, asked: false } : status);
+    }
     updateDock(); // its Dock menu offers Restart to Update once one is ready
   },
 });
 // The app menu's and the Dock menu's Check for Updates…: its answer shows in the update toast,
-// in the chat's window (update-toast.js), which comes forward for it.
+// in the chat window here (update-toast.js), which comes forward for it.
 async function checkForUpdates() {
-  setChatOpen(true, { now: true });
-  const win = chatWin();
+  const win = live(await showHere());
   if (win?.webContents.isLoading()) await new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
   updates.check({ byUser: true });
 }
@@ -716,7 +927,8 @@ app.whenReady().then(async () => {
     ] },
     { role: 'editMenu' },
     { label: 'Window', role: 'windowMenu', submenu: [
-      { label: 'Show the Chat', accelerator: 'Shift+CmdOrCtrl+C', click: () => setChatOpen(true, { now: true }) },
+      { label: 'New Chat Window', accelerator: 'CmdOrCtrl+N', click: newChatWindow },
+      { label: 'Show the Chat', accelerator: 'Shift+CmdOrCtrl+C', click: showHere },
       { type: 'separator' },
       { role: 'minimize' },
       { role: 'zoom' },
@@ -759,13 +971,19 @@ app.whenReady().then(async () => {
     problem = `Couldn’t start: port ${HUB_PORT} is taken by another program`;
     updateDock();
   }
-  // The names of the chats in the chat window's tabs; a chat no longer there leaves its tab.
-  for (const chatId of layout.columns.flatMap((c) => c.chats)) {
-    const chat = await agent.load(chatId);
-    if (chat) titles.set(chatId, chat.title);
-    else layout = grid.close(layout, chatId);
+  // The names of the chats in the chat windows' tabs; a chat no longer there leaves its tab, and a
+  // window left with none goes (one always stays).
+  for (const entry of chatWindows) {
+    for (const chatId of wins.chatsIn(entry)) {
+      const chat = await agent.load(chatId);
+      if (chat) titles.set(chatId, chat.title);
+      else entry.layout = grid.close(entry.layout, chatId);
+    }
+    wins.tidy(entry);
   }
-  setLayout(layout);
+  for (const entry of [...chatWindows]) if (!wins.chatsIn(entry).length && chatWindows.length > 1) chatWindows.splice(chatWindows.indexOf(entry), 1);
+  saveWindows();
+  sendChatState();
   updates.start();
   // The first time, the setup: which AI to use, installed and signed in to.
   if (!readSettings().setupSeen) openSetup();

@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('smartdesktop', {
   agentStop: (chatId) => call('agent-stop', chatId),
   agentNewSession: (chatId, provider) => call('agent-new-session', chatId, provider),
   onAgentEvent: on('agent-event'),
-  // The chat window: its layout, the chats in it, and the one with the focus (`onChatState`); a
+  // A chat window: its layout, the chats in it, and the one with the focus (`onChatState`); a
   // shortcut that's an action in an app (`chatAction`); a request for a chat's AI from an app
   // (`onChatAsk`: { chatId, text }); and its tabs: a new chat in a column, showing, moving,
   // splitting off and closing a chat's tab, the columns' widths, the focus, a chat's name, and a
@@ -43,6 +43,15 @@ contextBridge.exposeInMainWorld('smartdesktop', {
   chatFocus: (chatId) => call('chat-focus', chatId),
   chatRename: (chatId, title) => call('chat-rename', chatId, title),
   chatTabMenu: (chatId) => call('chat-tab-menu', chatId),
+  // A tab dragged out of its window (see main.js): its picture taken as it starts (`box`, its place
+  // in the page; `offset`, where the pointer has it), then the pointer on the screen and whether
+  // it's inside its own window, and where it was let go outside it (or null inside). The window it's
+  // over is told where (`onChatDragOver`: a point in it, or null), and says where it would land.
+  chatDragStart: (chatId, drag) => call('chat-drag-start', chatId, drag),
+  chatDragMove: (point, inside) => call('chat-drag-move', point, inside),
+  chatDragEnd: (point) => call('chat-drag-end', point),
+  chatDragTarget: (target) => call('chat-drag-target', target),
+  onChatDragOver: on('chat-drag-over'),
   openSetup: () => call('open-setup'),
   openSettings: () => call('open-settings'),
   // Settings: light, dark or as the system is; and updates.
