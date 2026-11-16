@@ -1,0 +1,20 @@
+{
+  "name": "smartprep",
+  "version": "0.1.0",
+  "description": "Prepare for interviews, and learn anything unfamiliar, with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @smartprep/app",
+    "start": "npm start -w @smartprep/app",
+    "dist": "npm run dist -w @smartprep/app",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs",
+    "server-snapshot": "node scripts/server-snapshot.mjs",
+    "share-image": "node scripts/share-image.mjs"
+  }
+}

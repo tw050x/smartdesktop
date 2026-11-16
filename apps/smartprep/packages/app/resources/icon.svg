@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- SmartPrep's app icon: a card of notes, its lines of text grey but for one blue line, the
+       words asked about, joined by a link to a smaller card beside it, the card written to answer
+       them (asking about a line gives a linked card). SmartDoc's, SmartSpec's and SmartAd's icon
+       shape, white cards, shadows and three colours; the bars as high as SmartDoc's lines, the link
+       drawn as SmartSpec's are, behind the cards, and the brown mark on the card it leads to.
+       The source of icon.icns and icon.png (see scripts/make-icons.mjs). -->
+  <defs>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/></filter>
+    <filter id="paper" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/></filter>
+    <linearGradient id="light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f7f9"/><stop offset="1" stop-color="#dcdce3"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)" filter="url(#lift)"/>
+  <!-- The link, from the blue line out of the card's edge and down into the smaller card. -->
+  <path d="M560 432 H720 Q760 432 760 472 V560" fill="none" stroke="#9a9aa8" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <g filter="url(#paper)" fill="#fff">
+    <rect x="168" y="214" width="432" height="596" rx="56"/>
+    <rect x="652" y="560" width="216" height="186" rx="44"/>
+  </g>
+  <g fill="#c7c7cf">
+    <rect x="236" y="319" width="296" height="40" rx="20"/>
+    <rect x="236" y="505" width="296" height="40" rx="20"/>
+    <rect x="236" y="585" width="236" height="40" rx="20"/>
+    <rect x="236" y="665" width="272" height="40" rx="20"/>
+  </g>
+  <rect x="236" y="399" width="252" height="66" rx="33" fill="#2f6fde"/>
+  <rect x="700" y="620" width="120" height="66" rx="33" fill="#b45309"/>
+</svg>
