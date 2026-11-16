@@ -4,25 +4,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SmartPrep</title>
-  <meta name="description" content="Prepare for an interview, or learn something new, with your own AI. SmartPrep keeps a topic as a board of linked cards, each answering one question; pick words in a card and ask, and your AI answers with a new card.">
+  <meta name="description" content="Prepare for an interview, a talk or an essay with your own AI. SmartPrep keeps a topic as a board of linked cards, each answering one question; pick words in a card and ask, and your AI answers with a new card.">
   <!-- What other apps show for a link to this page (LinkedIn, Slack, Messages…): share.png is made by scripts/share-image.mjs. -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="SmartPrep">
-  <meta property="og:title" content="SmartPrep: your interview, prepared with your own AI">
-  <meta property="og:description" content="Prepare for an interview, or learn something new, with your own AI. SmartPrep keeps a topic as a board of linked cards, each answering one question; pick words in a card and ask, and your AI answers with a new card.">
+  <meta property="og:title" content="SmartPrep: whatever’s next, prepared with your own AI">
+  <meta property="og:description" content="Prepare for an interview, a talk or an essay with your own AI. SmartPrep keeps a topic as a board of linked cards, each answering one question; pick words in a card and ask, and your AI answers with a new card.">
   <meta property="og:url" content="https://smartprep.tw050x.net/">
   <meta property="og:image" content="https://smartprep.tw050x.net/share.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="SmartPrep beside the words “Your interview, prepared with your own AI”: a board of cards preparing for a backend engineer interview, two cards side by side in the middle.">
+  <meta property="og:image:alt" content="SmartPrep beside the words “Whatever’s next, prepared with your own AI”: a board of cards preparing for a backend engineer interview, two cards side by side in the middle.">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M17 12.6h5q1.6 0 1.6 1.6V18' fill='none' stroke='%23c7c7cf' stroke-width='1.6' stroke-linecap='round'/%3E%3Crect x='3.5' y='4' width='13.5' height='24' rx='2.4' fill='%23fff' stroke='%23c7c7cf' stroke-width='1.2'/%3E%3Crect x='19.5' y='18' width='9' height='7.5' rx='2' fill='%23fff' stroke='%23c7c7cf' stroke-width='1.2'/%3E%3Crect x='6' y='7.2' width='8.5' height='1.6' rx='0.8' fill='%23c7c7cf'/%3E%3Crect x='6' y='11.5' width='7.5' height='2.2' rx='1.1' fill='%232f6fde'/%3E%3Crect x='6' y='16.4' width='8.5' height='1.6' rx='0.8' fill='%23c7c7cf'/%3E%3Crect x='6' y='19.8' width='6.5' height='1.6' rx='0.8' fill='%23c7c7cf'/%3E%3Crect x='6' y='23.2' width='7.5' height='1.6' rx='0.8' fill='%23c7c7cf'/%3E%3Crect x='21.5' y='20.6' width='5' height='2.3' rx='1.15' fill='%23b45309'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="site.css">
   <style>
-    /* This page's own: the still of the app's window under the hero, and the points beside it. */
-    .still { margin: 8px auto 0; max-width: 1000px; padding: 0 16px; }
+    /* This page's own: the stills of the app's window under the hero, one for each kind of user the
+       hero's pills show, one over another, the one showing faded in; and the points below. */
+    .stills { display: grid; margin: 8px auto 0; max-width: 1000px; padding: 0 16px; }
+    .still { grid-area: 1 / 1; margin: 0; opacity: 0; visibility: hidden; transition: opacity 0.6s ease, visibility 0s 0.6s; }
+    .still.shown { opacity: 1; visibility: visible; transition: opacity 0.6s ease, visibility 0s; }
     .still img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--window-border); box-shadow: var(--shadow); }
     .still figcaption { margin: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
+    /* The hero's pills, one for each kind of user, in the icon's two colours by turns; on a phone
+       they wrap onto two rows rather than stacking four high. */
+    .hero-tool:nth-child(even) { --tool: var(--brown); --tool-soft: var(--brown-soft); }
+    .hero-tools { flex-wrap: wrap; justify-content: center; }
+    @media (max-width: 600px) { .hero-tools { flex-direction: row; } }
+    .ledes .lede[aria-hidden="true"] { pointer-events: none; }
+    /* The headline in even lines, never "AI." alone on the last. */
+    /* Wider than the shared 16ch, so the headline is two lines on a desktop; "own AI." never parts. */
+    h1 { text-wrap: balance; max-width: 24ch; }
+    .nowrap { white-space: nowrap; }
+    @media (prefers-reduced-motion: reduce) { .still, .still.shown { transition: none; } }
     /* Four points: two by two, not three and one left over. */
     #what .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
     .brand .card-shape { fill: var(--card); stroke: var(--line); }
@@ -47,8 +61,21 @@
     <div class="hero">
       <div class="wrap">
         <p class="eyebrow"><span class="beta">Beta</span>Use with SmartDesktop or your own AI agent</p>
-        <h1>Your interview, <span class="blue">prepared</span> with your own <span class="brown">AI</span>.</h1>
-        <p class="lede">Tell your AI what you’re preparing for, or what you want to learn, and it writes a board of short, linked cards, each answering one question. Pick any words in a card and ask about them: the answer comes back as a new card.</p>
+        <h1>Whatever’s next, <span class="blue">prepared</span> with your <span class="nowrap">own <span class="brown">AI</span>.</span></h1>
+        <!-- One pill for each kind of user: the one showing fills up, and once it's full the next takes
+             over, changing the lede and the still below (see the script at the foot). -->
+        <div class="hero-tools" id="hero-tools" role="group" aria-label="Who it’s for">
+          <button class="hero-tool" type="button" data-tool="engineer" aria-pressed="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg>Engineering interview</button>
+          <button class="hero-tool" type="button" data-tool="product" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg>Product interview</button>
+          <button class="hero-tool" type="button" data-tool="talk" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>Presentation</button>
+          <button class="hero-tool" type="button" data-tool="essay" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg>Student essay</button>
+        </div>
+        <div class="ledes" aria-live="polite">
+          <p class="lede shown" data-tool="engineer">Preparing for an engineering interview? Tell your AI the role, and it writes a board of short, linked cards, each answering one question. Pick any words in a card and ask: the answer comes back as a new card.</p>
+          <p class="lede" data-tool="product" aria-hidden="true">Moving into product management? Your AI writes cards on what product interviews ask, from product sense to metrics, starting from what you already know. Ask about anything you don’t follow.</p>
+          <p class="lede" data-tool="talk" aria-hidden="true">Giving a talk on something new to you? Start from what your audience already knows, and build up each idea you’ll explain, one card for each question, linked together.</p>
+          <p class="lede" data-tool="essay" aria-hidden="true">Writing an essay? Your AI sets out the question, the sources to look for and the ideas you’ll need, as linked cards. Ask about any term you’re unsure of, and the board grows as you read.</p>
+        </div>
         <div class="actions">
           <a class="button" href="https://github.com/tw050x/smartprep/releases/latest/download/SmartPrep-mac-arm64.dmg">Download for Apple silicon</a>
           <a class="button secondary" href="https://github.com/tw050x/smartprep/releases/latest/download/SmartPrep-mac-x64.dmg">Download for Intel Mac</a>
@@ -57,25 +84,49 @@
       </div>
     </div>
 
-    <figure class="still">
-      <picture>
-        <source srcset="shots/board-dark.webp" media="(prefers-color-scheme: dark)">
-        <img src="shots/board-light.webp" width="1120" height="700" alt="SmartPrep’s window preparing for a made-up backend engineer interview: two cards side by side in the middle of the board, one written to answer a question asked about words in the other, and smaller cards down both sides.">
-      </picture>
-      <figcaption>A made-up interview at Larder, a grocery delivery company: two cards side by side, the rest to hand at the sides.</figcaption>
-    </figure>
+    <!-- A still for each pill above, the one showing faded in. Every example is made up. -->
+    <div class="stills">
+      <figure class="still shown" data-tool="engineer">
+        <picture>
+          <source srcset="shots/board-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/board-light.webp" width="1120" height="700" alt="SmartPrep’s window preparing for a made-up backend engineer interview: two cards side by side in the middle of the board, one written to answer a question asked about words in the other, and smaller cards down both sides.">
+        </picture>
+        <figcaption>A made-up backend interview at Larder, a grocery delivery company: two cards side by side, the rest to hand at the sides.</figcaption>
+      </figure>
+      <figure class="still" data-tool="product" aria-hidden="true">
+        <picture>
+          <source srcset="shots/product-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/product-light.webp" width="1120" height="700" loading="lazy" alt="SmartPrep’s window preparing for a made-up product manager interview: a card on north-star metrics beside a card on leading and lagging indicators, written to answer a question about the words “leading indicator”.">
+        </picture>
+        <figcaption>A made-up product manager interview at Fernway, a travel app: asking about “leading indicator” gave the card beside it.</figcaption>
+      </figure>
+      <figure class="still" data-tool="talk" aria-hidden="true">
+        <picture>
+          <source srcset="shots/talk-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/talk-light.webp" width="1120" height="700" loading="lazy" alt="SmartPrep’s window preparing a talk on heat pumps: one card fills the middle, answering how a refrigerant can boil below freezing, asked about words in the card on how a heat pump works.">
+        </picture>
+        <figcaption>A made-up talk at work on heat pumps: one card filling the middle, the answer to a question asked on the card about how they work.</figcaption>
+      </figure>
+      <figure class="still" data-tool="essay" aria-hidden="true">
+        <picture>
+          <source srcset="shots/paper-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/paper-light.webp" width="1120" height="700" loading="lazy" alt="SmartPrep’s window for a made-up student essay on the 2008 financial crisis: a card explaining tranches beside the card on securitisation it was asked about.">
+        </picture>
+        <figcaption>A made-up economics essay on the 2008 financial crisis: “tranches” asked about in the card on securitisation.</figcaption>
+      </figure>
+    </div>
 
     <section id="what">
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">What it does</p>
-          <h2>Study notes that grow as you ask.</h2>
-          <p>Your AI writes the cards; you read, arrange and ask. Every question you ask becomes part of the board.</p>
+          <h2>Notes that grow as you ask.</h2>
+          <p>For an interview, a talk, an essay or anything you want to learn: your AI writes the cards, and you read, arrange and ask. Every question you ask becomes part of the board.</p>
         </div>
         <div class="grid">
           <article class="card">
             <h3>A topic is a board of cards</h3>
-            <p>An interview, a technology, a subject: each is a board. Cards link to one another, and following a link brings its card into the middle. Drag cards anywhere; those at the sides shrink out of the way.</p>
+            <p>An interview, a talk, an essay, a subject: each is a board. Cards link to one another, and following a link brings its card into the middle. Drag cards anywhere; those at the sides shrink out of the way.</p>
           </article>
           <article class="card">
             <h3>Every card answers one question</h3>
@@ -212,12 +263,51 @@
         <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M17 12.6h5q1.6 0 1.6 1.6V18" fill="none" stroke="var(--line)" stroke-width="1.6" stroke-linecap="round"/><rect class="card-shape" x="3.5" y="4" width="13.5" height="24" rx="2.4" stroke-width="1.2"/><rect class="card-shape" x="19.5" y="18" width="9" height="7.5" rx="2" stroke-width="1.2"/><rect x="6" y="7.2" width="8.5" height="1.6" rx="0.8" fill="var(--line)"/><rect x="6" y="11.5" width="7.5" height="2.2" rx="1.1" fill="var(--blue)"/><rect x="6" y="16.4" width="8.5" height="1.6" rx="0.8" fill="var(--line)"/><rect x="6" y="19.8" width="6.5" height="1.6" rx="0.8" fill="var(--line)"/><rect x="6" y="23.2" width="7.5" height="1.6" rx="0.8" fill="var(--line)"/><rect x="21.5" y="20.6" width="5" height="2.3" rx="1.15" fill="var(--brown)"/></svg>
         SmartPrep
       </a>
-      <span>Prepare for interviews, and learn anything, with your own AI.</span>
+      <span>Prepare for interviews, talks and essays, and learn anything, with your own AI.</span>
       <a class="end" href="https://github.com/tw050x/smartprep">Source on GitHub</a>
     </div>
   </footer>
 
   <script type="module">
+    // The hero's pills, one for each kind of user (as SmartDoc's hero has for its tools): the pill
+    // showing fills up (site.css's hero-fill), and once it's full the next takes over, round and round,
+    // changing the lede and the still below. A click shows that one at once and starts its fill from
+    // empty. The fill waits while the page is hidden or the hero and its still are out of view; with
+    // reduced motion there's no fill, so nothing changes by itself.
+    const heroToolsEl = document.getElementById('hero-tools');
+    const heroTools = [...heroToolsEl.querySelectorAll('.hero-tool')];
+    const shown = (el, on) => {
+      el.classList.toggle('shown', on);
+      if (on) el.removeAttribute('aria-hidden');
+      else el.setAttribute('aria-hidden', 'true');
+    };
+    let heroTool = heroTools[0].dataset.tool;
+    function setHeroTool(tool) {
+      heroTool = tool;
+      for (const b of heroTools) b.setAttribute('aria-pressed', 'false');
+      heroToolsEl.getBoundingClientRect(); // so the fill starts again, even on the same pill
+      for (const b of heroTools) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
+      for (const el of document.querySelectorAll('.ledes .lede, .stills .still')) shown(el, el.dataset.tool === tool);
+    }
+    heroToolsEl.addEventListener('animationend', (e) => {
+      if (e.animationName !== 'hero-fill') return;
+      const at = heroTools.findIndex((b) => b.dataset.tool === heroTool);
+      setHeroTool(heroTools[(at + 1) % heroTools.length].dataset.tool);
+    });
+    for (const b of heroTools) b.addEventListener('click', () => setHeroTool(b.dataset.tool));
+    const seen = new Set([heroToolsEl]); // the pills and the stills, while any of them is in view
+    const pauseFill = () => heroToolsEl.classList.toggle('paused', document.hidden || !seen.size);
+    document.addEventListener('visibilitychange', pauseFill);
+    const watching = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) seen.add(entry.target);
+        else seen.delete(entry.target);
+      }
+      pauseFill();
+    });
+    watching.observe(heroToolsEl);
+    watching.observe(document.querySelector('.stills'));
+
     // The install tabs: clicking one shows its panel; the arrow keys (and Home and End) move between
     // them, as tabs do.
     const tabs = [...document.querySelectorAll('[role="tab"]')];

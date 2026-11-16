@@ -32,9 +32,10 @@ AI. It's one of a family with [SmartDoc](https://github.com/tw050x/smartdoc),
 
 `site/` is smartprep.tw050x.net, one page, published to GitHub Pages by the Website workflow
 (`.github/workflows/pages.yml`) when it changes. It uses the family's `site.css` (keep it the same
-as SmartDoc's, SmartSpec's and SmartDesktop's). Its still of the app's window
-(`site/shots/board-light.webp`, `-dark.webp`) is made by hand from a test copy of the app with the
-made-up Larder interview (`SMARTPREP_USER_DATA`, `SMARTPREP_PORT`), and its share picture
+as SmartDoc's, SmartSpec's and SmartDesktop's). Its hero's pills show four made-up kinds of user
+(as SmartDoc's hero shows its tools), each with a still of the app's window (`site/shots/board-*.webp`
+for the Larder backend interview, `product-*`, `talk-*` and `paper-*`, light and dark), made by hand
+from a test copy of the app (`SMARTPREP_USER_DATA`, `SMARTPREP_PORT`), and its share picture
 (`site/share.png`) by `npm run share-image`.
 
 ## Licence
