@@ -16,6 +16,7 @@
     "dist": "npm run dist -w @smartdoc/app",
     "demo": "npm run demo -w @smartdoc/app",
     "shots": "node scripts/shots.mjs",
+    "share-image": "node scripts/share-image.mjs",
     "site": "npm run demo && npm run shots && node scripts/serve-site.mjs",
     "test": "node --test",
     "icons": "node scripts/make-icons.mjs",
