@@ -1,0 +1,22 @@
+import { defineConfig } from 'vite';
+
+// Builds the windows' interfaces (src/renderer) into build/renderer, loaded from disk by Electron.
+export default defineConfig({
+  root: 'src/renderer',
+  base: './',
+  build: {
+    outDir: '../../build/renderer',
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: 'src/renderer/index.html',
+        // A question asked in a window of its own (main/confirm.js).
+        confirm: 'src/renderer/confirm.html',
+        // The window's top bar, above its tabs (main.js, tab-strip.js).
+        tabs: 'src/renderer/tabs.html',
+        // An ad drawn at its real size, never shown, for pictures of it (main.js, drawFrames).
+        frames: 'src/renderer/frames.html',
+      },
+    },
+  },
+});

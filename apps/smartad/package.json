@@ -9,6 +9,11 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "node --test"
+    "build": "npm run build -w @smartad/app",
+    "start": "npm start -w @smartad/app",
+    "dist": "npm run dist -w @smartad/app",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs",
+    "server-snapshot": "node scripts/server-snapshot.mjs"
   }
 }

@@ -1,0 +1,421 @@
+{
+  "protocolVersions": [
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+    "2024-10-07"
+  ],
+  "capabilities": {
+    "tools": {
+      "listChanged": true
+    }
+  },
+  "instructions": "This server is SmartAd: a desktop app for designing adverts for the web with the user. You design the ad and make every change to it; the user directs you, and accepts or discards what you propose in the app. They never edit the ad themselves: the app has no editing tools, so anything they want changed, they ask you for.\nAn ad is data the app draws: its layers (background, images, logo, text, the call to action, shapes), each with its content, style and placement rules, and its animation as tracks of keyframes. It's one design laid out at every size it's made for (standard display sizes such as 300×250, 728×90, 160×600, 300×600, 320×50 and 970×250, and social shapes such as 1:1, 4:5 and 9:16), so write placement as rules that hold at every size, not positions for one.\nRead before you change: list_ads shows the user's ads, get_ad reads an ad's draft (the latest unless you name one) and says whether a proposal is waiting on it, and get_proposal reads that proposal.\nOnly the user accepts what you propose: propose_ad creates a proposal holding the whole ad as you propose it, replacing any proposal already waiting (so build on that one, from get_proposal, if there is one), and it becomes a draft once they accept it in the app. A new ad is made by its first proposal, and has no draft until the user accepts it. Say why each part changes in reasons. Tell the user straight away to switch to SmartAd and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_ad later to see where it stands.\nThe user points at moments of the animation: a moment, a span of time, or a layer at a moment. Look at what's there at that moment before changing it, and leave the rest of the timeline as it was unless they ask.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_ad as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nEach ad has an icon, shown on its tab and on the user's home screen so they can tell it apart at a glance: one with no icon of its own (get_ad's and list_ads' icon is null) gets one from you, with propose_ad's icon for a new ad or set_icon for one there is.",
+  "tools": [
+    {
+      "name": "use_window",
+      "description": "Takes over a SmartAd window, when the user's prompt names one: this session then works in it. Call it first, before any other tool, or SmartAd opens a new window for this session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "window_id": {
+            "type": "string",
+            "description": "The window named in the prompt, such as w-7f3a"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "Every ad, most recently changed first: its id, name, icon (null if it has none of its own), number of accepted drafts, and any proposal waiting for the user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_ad",
+      "description": "One of an ad's accepted drafts, the latest unless you name one: its name, icon, the draft's number of how many there are, its note and goal, and its content (layers, sizes and animation). proposal says if a proposal is waiting for the user; get_proposal reads it. An ad whose first proposal hasn't been accepted yet has no draft: read it with get_proposal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ad_id": {
+            "type": "string"
+          },
+          "draft_id": {
+            "description": "The draft to read (default: the latest)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ad_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_proposal",
+      "description": "The proposal waiting for the user on an ad: its content, as get_ad gives a draft's, the draft it's based on (null for a new ad), its note, goal and reasons. Null if nothing is waiting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ad_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ad_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "propose_ad",
+      "description": "Proposes a new ad, or with ad_id a change to one, and shows it in the app for the user to accept or discard. content is the whole ad as proposed: it replaces any proposal already waiting, so build on that one if there is one. The content is checked, and the proposal is refused, saying why, if it isn't a valid ad.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ad_id": {
+            "description": "The ad to change (leave out to propose a new one)",
+            "type": "string"
+          },
+          "name": {
+            "description": "Needed for a new ad: what the user will know it by. To rename an ad there is, use rename_ad.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The whole ad as you propose it, as an object (or its JSON text): its sizes, layers and animation. It replaces the ad's content entirely: send all of it, not only what changes. Its format:\n{\n  duration: seconds it runs, 0 for a still ad, at most 60 (display networks allow 30 in all,\n    loops included: checkSize warns past that).\n  loops: how many times it plays, 1 to 10 (display networks allow 3: checkSize warns). Default 1.\n    A still ignores it.\n  background: a CSS colour, or a linear-, radial- or conic-gradient(…). Default white.\n  sizes: the formats it's made in, at least one: a preset's id (\"300x250\", \"story\": SIZE_PRESETS),\n    any \"WIDTHxHEIGHT\", or { id?, width, height, name?, kind? } (kind 'display' or 'social';\n    id defaults to \"WIDTHxHEIGHT\", and must be lower-case letters, digits and hyphens).\n  assets?: [ { id, name?, type?, width?, height? } ], the images the user gave (the files are the\n    app's); type a MIME type or png, jpeg, webp, svg, gif.\n  layers: [ layer… ], drawn in order, the first at the back.\n  fonts: filled in by validateAd: the fonts the layers use (for exports to bring with them).\n}\n\nlayer = {\n  id: unique, lower-case letters, digits and hyphens (\"headline\", \"call-to-action\").\n  name?: what to call it, for people.\n  kind: 'text' | 'image' | 'shape' | 'button'.\n  text: the words (text and button; \"\\n\" breaks a line).\n  asset: an asset's id (image).\n  shape: 'rect' (default) | 'ellipse' | 'line' (shape). A line runs through the middle of its\n    frame along its longer side, style.thickness thick.\n  frame: { x, y, w, h }, fractions of the size's width (x, w) and height (y, h): 0.5 is half.\n    It may go past 0–1, to start off the edge. Default the whole ad.\n  style?: see below; what isn't given is filled in for its kind.\n  from?, until?: seconds; it shows only from `from` until (not at) `until`, default the whole ad.\n  animation?: tracks of keyframes, as [ { property, keyframes: [ { t, value, ease? } ] } ] or,\n    shorter, { property: [ { t, value, ease? } ] }. Properties:\n      opacity  0–1, multiplied with style.opacity\n      x, y     an offset from the frame, in fractions of the size's width and height\n      scale    a factor, about the frame's centre (1 is as it is)\n      rotate   degrees, clockwise, about the frame's centre\n      reveal   0–1: how much of it shows, as style.reveal says (text: word by word)\n    t is seconds from the start, within 0–duration. Before the first keyframe the value is the\n    first's, after the last the last's. Keyframes are sorted by t; two at the same t jump.\n    ease is how the value moves from the keyframe before to this one: 'linear', 'in' (starts\n    slowly), 'out' (ends slowly), 'in-out' (both; the default), 'back-out' (overshoots a little\n    and settles: a pop), 'bounce' (bounces to a stop) or 'step' (holds, then jumps at this\n    keyframe). All but bounce are cubic Béziers, as CSS's (EASES has each one's CSS).\n  sizes?: { [size id]: { hidden?, frame?, style?, text?, asset?, from?, until?, animation? } },\n    overrides for one size, merged over the layer there: frame and style key by key, the rest\n    replaced. hidden: true leaves the layer out of that size.\n}\n\nstyle (lengths are a number, a fraction of the size's unit u = √(width × height), so one design\nreads alike at every size, or a string in pixels at every size, \"2px\"; u is 274 at 300x250, 256\nat 728x90 and 1440 at 1080x1920):\n  color          text's colour (text, button)\n  background     a colour or gradient: behind text, a button's fill, a shape's fill (for a shape,\n                 color is taken as background), an image's backdrop\n  radius         corner rounding, a fraction of the layer's smaller side (0.5 is fully round) or\n                 \"px\"\n  font           a font on every Mac (FONTS; default \"SF Pro\"), or a generic family\n  weight         100–900 (or 'normal', 'bold')\n  italic         true or false\n  size           the font's size, a length (default 0.08 for text, 0.055 for a button)\n  fit            text and button: 'shrink' (default: made smaller until it fits its frame) or\n                 'none'; image: 'cover' (default: fills the frame, cropped) or 'contain'\n  align          'left' | 'center' | 'right' (text default left, button center)\n  valign         'top' | 'middle' | 'bottom' (text default top, button middle)\n  lineHeight     a multiple of the font's size (default 1.15)\n  letterSpacing  in ems, a fraction of the font's size (default 0)\n  padding        a length, inside the frame round the text\n  opacity        0–1\n  border         { width: length, color }\n  shadow         { x, y, blur: lengths, color }, or true for a soft one; it follows what's drawn\n  reveal         how reveal shows it: 'words' (text's default: word by word), 'lines', or a wipe\n                 from 'left' (the default for the rest), 'right', 'top', 'bottom' or 'center'\n  thickness      a line's thickness, a length (default 0.006, at least 1 px)"
+          },
+          "goal": {
+            "description": "The focus the user gave you for this work, in their words. Kept when you propose again without one.",
+            "type": "string",
+            "minLength": 1
+          },
+          "goal_title": {
+            "description": "A short name for that focus",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What this proposes and why, for the user reviewing it, in a plain sentence or two. The app already says it is a proposal, so no label such as \"Proposed change:\""
+          },
+          "reasons": {
+            "description": "Why each part changes, keyed by what it's about (a layer's id, say): one short sentence for each thing you add, change or remove, shown to the user while they review. Kept when you propose again; send one again to replace it.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "icon": {
+            "description": "For a new ad: its icon, shown on its tab and on home (see set_icon for the list)",
+            "type": "string",
+            "enum": [
+              "file-text",
+              "contact",
+              "briefcase",
+              "graduation-cap",
+              "scale",
+              "receipt",
+              "landmark",
+              "presentation",
+              "book-open",
+              "newspaper",
+              "mail",
+              "clipboard-list",
+              "notebook-pen",
+              "server",
+              "database",
+              "cloud",
+              "network",
+              "workflow",
+              "blocks",
+              "layers",
+              "shield",
+              "key-round",
+              "lock",
+              "user",
+              "users",
+              "credit-card",
+              "shopping-cart",
+              "store",
+              "package",
+              "truck",
+              "bell",
+              "message-square",
+              "globe",
+              "smartphone",
+              "monitor",
+              "search",
+              "chart-line",
+              "calendar",
+              "clock",
+              "map-pin",
+              "settings",
+              "plug",
+              "git-branch",
+              "terminal",
+              "cpu",
+              "mail-check",
+              "building-2",
+              "heart-pulse",
+              "wallet",
+              "ticket",
+              "rocket",
+              "sparkles",
+              "flag",
+              "star",
+              "zap",
+              "file"
+            ]
+          }
+        },
+        "required": [
+          "content",
+          "note"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rename_ad",
+      "description": "Renames an ad, straight away. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ad_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "ad_id",
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "set_icon",
+      "description": "Gives an ad an icon, shown on its tab and on the user's home screen, so they can tell it apart at a glance (a tab too narrow for its name shows only its icon). Call it once, when the ad has no icon of its own yet (get_ad and list_ads give its icon, null when it has none): choose the one that best fits what it advertises. The user's own choice is never replaced.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ad_id": {
+            "description": "The ad (default: the one the window shows)",
+            "type": "string"
+          },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "file-text",
+              "contact",
+              "briefcase",
+              "graduation-cap",
+              "scale",
+              "receipt",
+              "landmark",
+              "presentation",
+              "book-open",
+              "newspaper",
+              "mail",
+              "clipboard-list",
+              "notebook-pen",
+              "server",
+              "database",
+              "cloud",
+              "network",
+              "workflow",
+              "blocks",
+              "layers",
+              "shield",
+              "key-round",
+              "lock",
+              "user",
+              "users",
+              "credit-card",
+              "shopping-cart",
+              "store",
+              "package",
+              "truck",
+              "bell",
+              "message-square",
+              "globe",
+              "smartphone",
+              "monitor",
+              "search",
+              "chart-line",
+              "calendar",
+              "clock",
+              "map-pin",
+              "settings",
+              "plug",
+              "git-branch",
+              "terminal",
+              "cpu",
+              "mail-check",
+              "building-2",
+              "heart-pulse",
+              "wallet",
+              "ticket",
+              "rocket",
+              "sparkles",
+              "flag",
+              "star",
+              "zap",
+              "file"
+            ],
+            "description": "One of: file-text (Document), contact (CV), briefcase (Work), graduation-cap (Education), scale (Legal), receipt (Invoice), landmark (Finance), presentation (Presentation), book-open (Book), newspaper (Article), mail (Letter), clipboard-list (Plan), notebook-pen (Notes), server (Service), database (Data), cloud (Cloud), network (Network), workflow (Process), blocks (Module), layers (Platform), shield (Security), key-round (Auth), lock (Privacy), user (Person), users (Team), credit-card (Payments), shopping-cart (Checkout), store (Store), package (Inventory), truck (Delivery), bell (Notifications), message-square (Messaging), globe (Web), smartphone (Mobile), monitor (Desktop), search (Search), chart-line (Analytics), calendar (Schedule), clock (Time), map-pin (Location), settings (Settings), plug (Integration), git-branch (Code), terminal (Tool), cpu (Compute), mail-check (Email), building-2 (Business), heart-pulse (Health), wallet (Wallet), ticket (Ticket), rocket (Launch), sparkles (Idea), flag (Goal), star (Favourite), zap (Events), file (File)"
+          }
+        },
+        "required": [
+          "icon"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "view_frames",
+      "description": "Pictures of an ad as the app draws it, at chosen sizes and moments, so you can see what you made: check every size after proposing, and look at the moment the user points at before changing it. Of its latest draft unless you name one, or of the proposal waiting (proposal: true). By default every size (at most 4), for an animated ad halfway through and at its end, for a still ad as it is. At most 8 pictures at once. The text is read from the content with get_ad, which is exact; these are for how it looks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ad_id": {
+            "description": "The ad (default: the one the window shows)",
+            "type": "string"
+          },
+          "draft_id": {
+            "description": "A draft to look at (default: the latest)",
+            "type": "string"
+          },
+          "proposal": {
+            "description": "Look at the proposal waiting instead of a draft",
+            "type": "boolean"
+          },
+          "sizes": {
+            "description": "Size ids from the ad's sizes, such as \"300x250\" or \"story\"",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "times": {
+            "description": "Moments, in seconds from the start",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "width": {
+            "description": "The widest a picture may be, in pixels (default 800; never enlarged)",
+            "type": "integer",
+            "minimum": 200,
+            "maximum": 1600
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ],
+  "prompts": []
+}
