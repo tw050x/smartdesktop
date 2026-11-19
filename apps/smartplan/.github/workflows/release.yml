@@ -1,6 +1,6 @@
 name: Release
 
-# Run by hand (Actions → Release → Run workflow) on the branch to release. The release only
+# Run by hand (Actions → Release → Run workflow, or `gh workflow run release.yml`) on the branch to release. The release only
 # goes ahead once the Prerequisites workflow has passed on the same commit; if it's still
 # running, this waits.
 #
