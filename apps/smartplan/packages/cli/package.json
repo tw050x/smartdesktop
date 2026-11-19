@@ -1,6 +1,6 @@
 {
   "name": "@smartplan/cli",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "The smartplan command: installs the SmartPlan app, sets up Claude Desktop and Claude Code to use it, checks the connection, and runs SmartPlan's MCP connection for agents set up with npx.",
   "license": "MIT",
   "type": "module",

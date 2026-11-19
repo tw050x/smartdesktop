@@ -1,7 +1,7 @@
 {
   "name": "@smartplan/app",
   "productName": "SmartPlan",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Plan work on boards of lists and cards, with your own AI.",
   "license": "MIT",
   "private": true,
