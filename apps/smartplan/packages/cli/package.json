@@ -1,0 +1,31 @@
+{
+  "name": "@smartplan/cli",
+  "version": "0.0.1",
+  "description": "The smartplan command: installs the SmartPlan app, sets up Claude Desktop and Claude Code to use it, checks the connection, and runs SmartPlan's MCP connection for agents set up with npx.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "smartplan": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "mcp.js",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tw050x/smartplan.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/tw050x/smartplan",
+  "keywords": [
+    "mcp",
+    "kanban",
+    "planning",
+    "boards",
+    "claude"
+  ]
+}

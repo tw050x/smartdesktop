@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartPlan</title>
+  <meta name="description" content="Plan work with your own AI. SmartPlan keeps boards of lists and cards, as Trello does, without the rest: your AI writes and updates the cards, and you drag them along as the work moves.">
+  <!-- What other apps show for a link to this page (LinkedIn, Slack, Messages…): share.png is made by scripts/share-image.mjs. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SmartPlan">
+  <meta property="og:title" content="SmartPlan: plan the work with your own AI">
+  <meta property="og:description" content="Plan work with your own AI. SmartPlan keeps boards of lists and cards, as Trello does, without the rest: your AI writes and updates the cards, and you drag them along as the work moves.">
+  <meta property="og:url" content="https://smartplan.tw050x.net/">
+  <meta property="og:image" content="https://smartplan.tw050x.net/share.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="SmartPlan beside the words “Plan the work with your own AI”: a board of lists and cards for relaunching a website, with labels, due dates and checklists.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2.5' y='4' width='8' height='24' rx='2.2' fill='%23d6d6dc'/%3E%3Crect x='12' y='4' width='8' height='18' rx='2.2' fill='%23d6d6dc'/%3E%3Crect x='21.5' y='4' width='8' height='12' rx='2.2' fill='%23d6d6dc'/%3E%3Crect x='3.7' y='5.2' width='5.6' height='6.2' rx='1.3' fill='%23fff' stroke='%23c7c7cf' stroke-width='0.8'/%3E%3Crect x='3.7' y='12.6' width='5.6' height='6.2' rx='1.3' fill='%23fff' stroke='%23c7c7cf' stroke-width='0.8'/%3E%3Crect x='3.7' y='20' width='5.6' height='6.2' rx='1.3' fill='%23fff' stroke='%23c7c7cf' stroke-width='0.8'/%3E%3Crect x='13.2' y='5.2' width='5.6' height='6.2' rx='1.3' fill='%23fff' stroke='%23c7c7cf' stroke-width='0.8'/%3E%3Crect x='13.2' y='12.6' width='5.6' height='6.2' rx='1.3' fill='%23fff' stroke='%23c7c7cf' stroke-width='0.8'/%3E%3Crect x='22.7' y='5.2' width='5.6' height='6.2' rx='1.3' fill='%23fff' stroke='%23c7c7cf' stroke-width='0.8'/%3E%3Crect x='4.8' y='7.4' width='3.4' height='1.8' rx='0.9' fill='%232f6fde'/%3E%3Crect x='23.8' y='8.6' width='2.6' height='1.8' rx='0.9' fill='%23b45309'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="site.css">
+  <style>
+    /* This page's own: the stills of the app's window under the hero, one for each kind of plan the
+       hero's pills show, one over another, the one showing faded in; and the points below. */
+    .stills { display: grid; margin: 8px auto 0; max-width: 1000px; padding: 0 16px; }
+    .still { grid-area: 1 / 1; margin: 0; opacity: 0; visibility: hidden; transition: opacity 0.6s ease, visibility 0s 0.6s; }
+    .still.shown { opacity: 1; visibility: visible; transition: opacity 0.6s ease, visibility 0s; }
+    .still img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--window-border); box-shadow: var(--shadow); }
+    .still figcaption { margin: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
+    /* The hero's pills, one for each kind of plan, in the icon's two colours by turns; on a phone
+       they wrap onto two rows rather than stacking four high. */
+    .hero-tool:nth-child(even) { --tool: var(--brown); --tool-soft: var(--brown-soft); }
+    .hero-tools { flex-wrap: wrap; justify-content: center; }
+    @media (max-width: 600px) { .hero-tools { flex-direction: row; } }
+    .ledes .lede[aria-hidden="true"] { pointer-events: none; }
+    /* The headline in even lines; "own AI." never parts. */
+    h1 { text-wrap: balance; }
+    .nowrap { white-space: nowrap; }
+    @media (prefers-reduced-motion: reduce) { .still, .still.shown { transition: none; } }
+    /* Four points: two by two, not three and one left over. */
+    #what .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+    .brand .card-shape { fill: var(--card); stroke: var(--line); }
+    .brand .list-shape { fill: var(--border); }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect x="2.5" y="4" width="8" height="24" rx="2.2" class="list-shape"/><rect x="12" y="4" width="8" height="18" rx="2.2" class="list-shape"/><rect x="21.5" y="4" width="8" height="12" rx="2.2" class="list-shape"/><rect x="3.7" y="5.2" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="3.7" y="12.6" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="3.7" y="20" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="13.2" y="5.2" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="13.2" y="12.6" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="22.7" y="5.2" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="4.8" y="7.4" width="3.4" height="1.8" rx="0.9" fill="var(--blue)"/><rect x="23.8" y="8.6" width="2.6" height="1.8" rx="0.9" fill="var(--brown)"/></svg>
+        SmartPlan
+      </a>
+      <nav aria-label="Sections">
+        <a href="#what">What it does</a>
+        <a class="keep" href="#install">Install</a>
+        <a class="keep" href="https://github.com/tw050x/smartplan">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow"><span class="beta">Beta</span>Use with SmartDesktop or your own AI agent</p>
+        <h1><span class="blue">Plan</span> the work with your <span class="nowrap">own <span class="brown">AI</span>.</span></h1>
+        <!-- One pill for each kind of plan: the one showing fills up, and once it's full the next takes
+             over, changing the lede and the still below (see the script at the foot). -->
+        <div class="hero-tools" id="hero-tools" role="group" aria-label="What it plans">
+          <button class="hero-tool" type="button" data-tool="launch" aria-pressed="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>A project</button>
+          <button class="hero-tool" type="button" data-tool="hiring" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Hiring</button>
+          <button class="hero-tool" type="button" data-tool="moving" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>Moving house</button>
+          <button class="hero-tool" type="button" data-tool="offsite" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>An event</button>
+        </div>
+        <div class="ledes" aria-live="polite">
+          <p class="lede shown" data-tool="launch">Running a project? Tell your AI what it is and when it’s due, and it sets out a board: lists for each stage, and a card for each piece of work, with labels, due dates and checklists. Drag cards along as the work moves.</p>
+          <p class="lede" data-tool="hiring" aria-hidden="true">Hiring? Your AI makes a list for each stage of the process and a card for each candidate, with what to ask and what’s due. Drag a card on when someone moves to the next round.</p>
+          <p class="lede" data-tool="moving" aria-hidden="true">Moving house? Your AI turns everything there is to do into cards: what to book, who to tell, what to pack, each with its date. Ask it to add what you think of as you go.</p>
+          <p class="lede" data-tool="offsite" aria-hidden="true">Planning an event? Your AI writes the agenda, the bookings and the things you’re waiting on as cards, with the details inside. Open a card to read it all; ask your AI to change anything.</p>
+        </div>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartplan/releases/latest/download/SmartPlan-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartplan/releases/latest/download/SmartPlan-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+        <p class="beta-note">SmartPlan is in beta, so it may change significantly from one version to the next.</p>
+      </div>
+    </div>
+
+    <!-- A still for each pill above, the one showing faded in. Every example is made up. -->
+    <div class="stills">
+      <figure class="still shown" data-tool="launch">
+        <picture>
+          <source srcset="shots/launch-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/launch-light.webp" width="1120" height="700" alt="SmartPlan’s window with a made-up board for relaunching a website: lists for Backlog, This week, Doing and Review, their cards labelled Copy, Design, Build and SEO, with due dates, checklists, and New and Updated marks on the cards the AI added or changed.">
+        </picture>
+        <figcaption>A made-up website relaunch at Fernway, a travel app: cards the AI added or changed are marked until you open them.</figcaption>
+      </figure>
+      <figure class="still" data-tool="hiring" aria-hidden="true">
+        <picture>
+          <source srcset="shots/hiring-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/hiring-light.webp" width="1120" height="700" loading="lazy" alt="SmartPlan’s window with a made-up board for hiring a product designer: a card for each candidate in lists for Applied, Phone screen, Design task and Final interview, with due dates for the next step.">
+        </picture>
+        <figcaption>A made-up hire: a card for each candidate, dragged on from round to round.</figcaption>
+      </figure>
+      <figure class="still" data-tool="moving" aria-hidden="true">
+        <picture>
+          <source srcset="shots/moving-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/moving-light.webp" width="1120" height="700" loading="lazy" alt="SmartPlan’s window with a made-up board for moving house: lists for To book, To tell, Packing and Done, with cards such as Removal van, due 22 November, and Bank, GP and dentist, one of four ticked off.">
+        </picture>
+        <figcaption>A made-up move to Bristol: what to book, who to tell and what to pack.</figcaption>
+      </figure>
+      <figure class="still" data-tool="offsite" aria-hidden="true">
+        <picture>
+          <source srcset="shots/offsite-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="shots/offsite-light.webp" width="1120" height="700" loading="lazy" alt="SmartPlan’s window with a made-up board for a team offsite in Lisbon, one card open: Agenda for the three days, due 1 December, with a description listing each day and a checklist, one of three done.">
+        </picture>
+        <figcaption>A made-up team offsite in Lisbon: a card opened to read its description and checklist.</figcaption>
+      </figure>
+    </div>
+
+    <section id="what">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">What it does</p>
+          <h2>Boards, lists and cards. Nothing else.</h2>
+          <p>Trello’s way of planning, without the rest of Atlassian: no workspaces to set up, no power-ups, no account. Your AI does the writing, and you keep the work moving.</p>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <h3>A board for each plan</h3>
+            <p>A project, a hire, a move, an event: each is a board of lists in order, such as To do, Doing and Done, or the stages of the work. Each board opens in a tab of its own.</p>
+          </article>
+          <article class="card">
+            <h3>Cards say what’s to do</h3>
+            <p>A card is a piece of work: a short title, and if it needs them, a description, coloured labels, a due date and a checklist. Dates coming up and overdue stand out.</p>
+          </article>
+          <article class="card">
+            <h3>Your AI writes them</h3>
+            <p>Say what you’re planning, and your AI sets out the board. Ask it to add cards, split one up, tick things off or plan next week. Cards it adds or changes are marked until you’ve opened them.</p>
+          </article>
+          <article class="card">
+            <h3>You move them on</h3>
+            <p>Drag a card to another list as the work moves, or up and down to reorder. Your AI hears what you moved, and leaves your moves as they are.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="install">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Install</p>
+          <h2>Use it with SmartDesktop, or bring your own AI agent.</h2>
+          <p>Two ways to work with your AI, and you can use both.</p>
+        </div>
+        <!-- The way most people set up: SmartPlan, SmartDesktop (which runs the chat), then their AI from the chat. -->
+        <div class="install-way">
+          <h3>With SmartDesktop</h3>
+          <p>SmartDesktop is the chat for the family’s apps: your own Claude or ChatGPT, signed in with your own account, in one conversation across them. Three steps, and nothing to type in Terminal. <a href="https://smartdesktop.tw050x.net">More about SmartDesktop</a></p>
+        </div>
+        <ol class="install-steps grid">
+          <li class="card">
+            <span class="install-number" aria-hidden="true">1</span>
+            <h3>Download SmartPlan</h3>
+            <p>Open the download and drag SmartPlan into your <strong>Applications</strong> folder.</p>
+            <div class="actions">
+              <a class="button" href="https://github.com/tw050x/smartplan/releases/latest/download/SmartPlan-mac-arm64.dmg">Apple silicon</a>
+              <a class="button secondary" href="https://github.com/tw050x/smartplan/releases/latest/download/SmartPlan-mac-x64.dmg">Intel Mac</a>
+            </div>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">2</span>
+            <h3>Download SmartDesktop</h3>
+            <p>SmartDesktop, the chat with your AI, is an app of its own, shared by the family’s apps. Drag it into <strong>Applications</strong> too.</p>
+            <div class="actions">
+              <a class="button" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-arm64.dmg">Apple silicon</a>
+              <a class="button secondary" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-x64.dmg">Intel Mac</a>
+            </div>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">3</span>
+            <h3>Open the chat</h3>
+            <p>Open SmartPlan, and choose <strong>Window › Show the Chat</strong> (⇧⌘C). Choose Claude or ChatGPT: if it isn’t set up yet, SmartDesktop installs it with its maker’s own installer and opens their sign-in page. SmartDesktop never sees your sign-in.</p>
+          </li>
+        </ol>
+        <!-- Connecting an AI agent by hand, for anyone who'd rather use their own. -->
+        <div class="install-way install-other">
+          <h3>Bring your own AI agent</h3>
+          <p>Claude Desktop, Claude Code and any AI agent that runs MCP servers can work in SmartPlan directly, without SmartDesktop. Connect yours below. After that, it opens SmartPlan by itself whenever it needs it.</p>
+          <!-- One tab per AI app, for connecting one by hand (see the tabs script below). -->
+          <div class="tabs" role="tablist" aria-label="Another AI app">
+            <button type="button" role="tab" id="tab-desktop" aria-controls="install-desktop" aria-selected="true">Claude Desktop</button>
+            <button type="button" role="tab" id="tab-code" aria-controls="install-code" aria-selected="false" tabindex="-1">Claude Code</button>
+            <button type="button" role="tab" id="tab-other" aria-controls="install-other" aria-selected="false" tabindex="-1">Other AI apps</button>
+          </div>
+          <article class="card tab-panel" role="tabpanel" id="install-desktop" aria-labelledby="tab-desktop">
+            <h3>Claude Desktop</h3>
+            <p>SmartPlan adds itself.</p>
+            <ol>
+              <li>Open SmartPlan and click its status at the top right, with the coloured dot. It usually says <strong>Ready</strong>.</li>
+              <li>Open <strong>Connect another AI app yourself</strong> and choose <strong>Add to Claude Desktop</strong>.</li>
+              <li>Quit Claude Desktop and open it again. Then start a new chat and ask Claude to start a board in SmartPlan: say what you’re planning.</li>
+            </ol>
+            <p class="small">If the status says <strong>Not running</strong>, another copy of SmartPlan is probably open: quit SmartPlan everywhere, then open it again. Or add it yourself: in Claude Desktop, open Settings → Developer → Edit Config, and add the entry from the <a href="#install-other">Other AI apps</a> tab.</p>
+          </article>
+          <article class="card tab-panel" role="tabpanel" id="install-code" aria-labelledby="tab-code" hidden>
+            <h3>Claude Code</h3>
+            <p>Add it with one command.</p>
+            <ol>
+              <li>Run this in a terminal:
+                <div class="command">
+                  <pre><code id="claude-code-command">claude mcp add --scope user smartplan -e ELECTRON_RUN_AS_NODE=1 -- /Applications/SmartPlan.app/Contents/MacOS/SmartPlan /Applications/SmartPlan.app/Contents/Resources/cli/mcp.js</code></pre>
+                  <button class="copy" type="button" data-copy="claude-code-command">Copy</button>
+                </div>
+              </li>
+              <li>Start a new Claude Code session and ask Claude to start a board in SmartPlan: say what you’re planning.</li>
+            </ol>
+            <p class="small">Or, with Node.js, run <code>npx @smartplan/cli setup</code>, which sets up Claude Code and Claude Desktop for you.</p>
+          </article>
+          <article class="card tab-panel" role="tabpanel" id="install-other" aria-labelledby="tab-other" hidden>
+            <h3>Other AI apps</h3>
+            <p>Any AI app that runs MCP servers can use SmartPlan.</p>
+            <ol>
+              <li>Add SmartPlan as an MCP server. Most AI apps take a config entry like this:
+                <div class="command">
+                  <pre><code id="mcp-config">{
+    "mcpServers": {
+      "smartplan": {
+        "command": "/Applications/SmartPlan.app/Contents/MacOS/SmartPlan",
+        "args": [
+          "/Applications/SmartPlan.app/Contents/Resources/cli/mcp.js"
+        ],
+        "env": {
+          "ELECTRON_RUN_AS_NODE": "1"
+        }
+      }
+    }
+  }</code></pre>
+                  <button class="copy" type="button" data-copy="mcp-config">Copy</button>
+                </div>
+              </li>
+              <li>Restart your AI app and ask it to start a board in SmartPlan.</li>
+            </ol>
+            <p class="small">SmartPlan runs its connection itself, so there’s nothing else to install.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <div class="closing">
+      <div class="wrap">
+        <h2>Free, and open source.</h2>
+        <p>No account, no trial, no paid plan: SmartPlan is released under the MIT licence. In beta, and still changing significantly.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartplan/releases/latest/download/SmartPlan-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartplan/releases/latest/download/SmartPlan-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><rect x="2.5" y="4" width="8" height="24" rx="2.2" class="list-shape"/><rect x="12" y="4" width="8" height="18" rx="2.2" class="list-shape"/><rect x="21.5" y="4" width="8" height="12" rx="2.2" class="list-shape"/><rect x="3.7" y="5.2" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="3.7" y="12.6" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="3.7" y="20" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="13.2" y="5.2" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="13.2" y="12.6" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="22.7" y="5.2" width="5.6" height="6.2" rx="1.3" class="card-shape" stroke-width="0.8"/><rect x="4.8" y="7.4" width="3.4" height="1.8" rx="0.9" fill="var(--blue)"/><rect x="23.8" y="8.6" width="2.6" height="1.8" rx="0.9" fill="var(--brown)"/></svg>
+        SmartPlan
+      </a>
+      <span>Plan work on boards of lists and cards, with your own AI.</span>
+      <a class="end" href="https://github.com/tw050x/smartplan">Source on GitHub</a>
+    </div>
+  </footer>
+
+  <script type="module">
+    // The hero's pills, one for each kind of plan (as SmartDoc's hero has for its tools): the pill
+    // showing fills up (site.css's hero-fill), and once it's full the next takes over, round and round,
+    // changing the lede and the still below. A click shows that one at once and starts its fill from
+    // empty. The fill waits while the page is hidden or the hero and its still are out of view; with
+    // reduced motion there's no fill, so nothing changes by itself.
+    const heroToolsEl = document.getElementById('hero-tools');
+    const heroTools = [...heroToolsEl.querySelectorAll('.hero-tool')];
+    const shown = (el, on) => {
+      el.classList.toggle('shown', on);
+      if (on) el.removeAttribute('aria-hidden');
+      else el.setAttribute('aria-hidden', 'true');
+    };
+    let heroTool = heroTools[0].dataset.tool;
+    function setHeroTool(tool) {
+      heroTool = tool;
+      for (const b of heroTools) b.setAttribute('aria-pressed', 'false');
+      heroToolsEl.getBoundingClientRect(); // so the fill starts again, even on the same pill
+      for (const b of heroTools) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
+      for (const el of document.querySelectorAll('.ledes .lede, .stills .still')) shown(el, el.dataset.tool === tool);
+    }
+    heroToolsEl.addEventListener('animationend', (e) => {
+      if (e.animationName !== 'hero-fill') return;
+      const at = heroTools.findIndex((b) => b.dataset.tool === heroTool);
+      setHeroTool(heroTools[(at + 1) % heroTools.length].dataset.tool);
+    });
+    for (const b of heroTools) b.addEventListener('click', () => setHeroTool(b.dataset.tool));
+    const seen = new Set([heroToolsEl]); // the pills and the stills, while any of them is in view
+    const pauseFill = () => heroToolsEl.classList.toggle('paused', document.hidden || !seen.size);
+    document.addEventListener('visibilitychange', pauseFill);
+    const watching = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) seen.add(entry.target);
+        else seen.delete(entry.target);
+      }
+      pauseFill();
+    });
+    watching.observe(heroToolsEl);
+    watching.observe(document.querySelector('.stills'));
+
+    // The install tabs: clicking one shows its panel; the arrow keys (and Home and End) move between
+    // them, as tabs do.
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    function selectTab(tab, focus) {
+      for (const t of tabs) {
+        const on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      }
+      if (focus) tab.focus();
+    }
+    // A link to a tab's panel (#install-code) opens that tab, with the section in view.
+    function openLinkedTab() {
+      const tab = tabs.find((t) => `#${t.getAttribute('aria-controls')}` === location.hash);
+      if (!tab) return;
+      selectTab(tab);
+      document.getElementById('install').scrollIntoView();
+    }
+    addEventListener('hashchange', openLinkedTab);
+    // On arriving, after the browser's own jump to the panel, so the section's heading is in view.
+    if (document.readyState === 'complete') openLinkedTab();
+    else addEventListener('load', () => requestAnimationFrame(openLinkedTab));
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => selectTab(tab));
+      tab.addEventListener('keydown', (e) => {
+        const i = tabs.indexOf(tab);
+        const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+        if (to === undefined) return;
+        e.preventDefault();
+        selectTab(tabs[(to + tabs.length) % tabs.length], true);
+      });
+    }
+
+    for (const button of document.querySelectorAll('[data-copy]')) {
+      button.addEventListener('click', async () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = 'Copied';
+        } catch {
+          button.textContent = 'Select and copy';
+        }
+        setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>

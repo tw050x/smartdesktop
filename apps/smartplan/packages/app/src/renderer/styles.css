@@ -1,0 +1,585 @@
+:root {
+  /* Light or dark, as the app's Appearance setting has it (nativeTheme in main.js), or as the
+     system does; each colour below is light-dark(its light value, its dark value). */
+  color-scheme: light dark;
+  --top-bar-height: 44px;
+
+  --bg: light-dark(#ffffff, #232326); /* cards and panels */
+  --border: light-dark(#e2e2e7, #3a3a3f);
+  --border-strong: light-dark(#c4c4cb, #4a4a50);
+  --text: light-dark(#1d1d1f, #f2f2f4);
+  --text-2: light-dark(#3c3c43, #d1d1d6); /* body text on cards, a step softer than --text */
+  --muted: light-dark(#6e6e73, #a1a1a8);
+  --faint: light-dark(#aeaeb4, #5a5a60);
+  --del-bg: light-dark(#fdecec, #3a2224); /* an error in the chat */
+  --del-text: light-dark(#8a1f1f, #f19a9a);
+  --decided-text: light-dark(#1f7a45, #5cc98a); /* an AI that's ready */
+  --thumb: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.28));
+  --thumb-active: light-dark(rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.42));
+  --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
+  --hover-tint: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  --skeleton: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
+  --button-hover: light-dark(#e6e6ea, #2e2e33);
+  --button-active: light-dark(#dadadf, #38383e);
+  --window-bg: light-dark(#ebebef, #161618);
+  --top-bar-bg: light-dark(#dcdce1, #1f1f22); /* a shade apart from the background below it (and main.js's title bar overlay) */
+  --accent: light-dark(#2f6fde, #4a86ee);
+  --comment: light-dark(#c98a00, #e3b341); /* the user's comments, and what they're on */
+  --removed: light-dark(#c43c3c, #e05a5a); /* what a proposal removes */
+  --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
+  --card-radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  /* The window's top bar (only the website's demo draws it here: see tab-strip.js), the board's
+     toolbar, what's open, and the actions bar. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  /* One column, never wider than the window, whatever a row's content would like. */
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--window-bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+/* --- Top bar ---------------------------------------------------------------------------
+   The whole bar drags the window; buttons opt out. Windows and Linux reserve room on the right
+   for the system window controls (the env() values come from Electron's title bar overlay). */
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px; /* the same between everything in the bar: see .history-nav, .breadcrumb and .top-bar-end */
+  padding: 0 8px;
+  background: var(--top-bar-bg);
+  -webkit-app-region: drag;
+  /* Hover and press shades darker than the bar itself. */
+  --button-hover: light-dark(#cdcdd3, #2c2c31);
+  --button-active: light-dark(#c2c2c8, #36363c);
+}
+.platform-darwin:not(.full-screen) .tab-strip { padding-left: 84px; } /* the traffic lights */
+/* The window's top bar (tab-strip.js, as SmartDoc's): back and forward, the tabs, and the app's
+   status at its end. In the app it's the window's own page (tabs.html); the website's demo draws it
+   in its page. */
+.tab-strip { grid-row: 1; height: var(--top-bar-height); }
+.tab-strip[hidden] { display: none; }
+.tab-strip-body { display: block; background: var(--top-bar-bg); }
+.tab-strip-body .tab-strip { height: var(--top-bar-height); }
+.tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 4px; overflow: hidden; }
+/* A tab: Home's icon, or a board's name and a close button, shown while it's pointed at or
+   showing. The tab showing stands out on the bar, as the page below it does. */
+.tab {
+  flex: 0 1 200px; min-width: 40px; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 4px 0 10px;
+  border-radius: 8px; color: var(--text-2); cursor: default; -webkit-app-region: no-drag;
+}
+.tab.tab-home { flex: none; min-width: 0; width: 34px; padding: 0; justify-content: center; }
+/* Each tab has a background of its own, so it doesn't get lost in the bar (the user's choice): a
+   shade darker than the bar, darker again while pointed at; the tab showing has the page's. */
+.tab { background: var(--button-hover); }
+.tab:hover { background: var(--button-active); }
+.tab[aria-selected="true"] { background: var(--window-bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.tab-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+/* The tab showing, and a tab pointed at: a blue pill under it, centred on the line between the top
+   bar and the page below (in place of a tooltip: the user's choice). The top bar draws it at its foot; in the app, the tab's
+   page draws the half below the line (.below), as the top bar's page ends there. */
+.tab-hover-pill { position: absolute; z-index: 45; top: calc(var(--top-bar-height) - 2px); height: 4px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-hover-pill[hidden] { display: none; }
+.tab-hover-pill.below { position: fixed; top: -2px; }
+.tab-strip { position: relative; }
+/* Its board's icon, before its name. As tabs narrow, the name gives way and the
+   icon stays (the user's choice): too narrow for a name, a tab is its icon, its close button
+   showing only while it's pointed at. */
+.tab { container-type: inline-size; }
+.tab-icon { flex: none; display: grid; place-items: center; color: var(--text-2); }
+.tab[aria-selected="true"] .tab-icon { color: var(--accent); }
+@container (max-width: 72px) {
+  .tab-title, .tab-ai-mark, .tab-chat-button { display: none; }
+  .tab-icon { flex: 1; }
+  .tab:not(:hover) .tab-close { display: none; }
+}
+/* A chat in SmartDesktop owning the tab: a muted speech bubble beside the close button (the sparkle
+   takes its place while the chat's AI works). */
+/* The chat owning the tab: a button bringing it forward in SmartDesktop (the sparkle while its AI works). */
+.tab-chat-button { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-chat-button:hover { background: var(--button-active); color: var(--accent); }
+.tab-chat-button.working { color: var(--accent); }
+/* An AI working in the tab: a sparkle in the accent colour, beside the close button. */
+.tab-ai-mark { flex: none; display: grid; place-items: center; width: 18px; height: 20px; color: var(--accent); }
+/* Always there (the user's choice: it showed only while the tab was pointed at or showing). */
+.tab-close { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-close:hover { background: var(--button-active); color: var(--text); }
+/* A board's toolbar, across the top of its board, on its background: what the board is for, at its
+   start (the family's toolbar, kept to that: a board has no drafts or modes). Not in Home, nor in a
+   tab waiting for its board. */
+.toolbar { grid-row: 2; height: var(--top-bar-height); padding: 0 16px; background: var(--window-bg); -webkit-app-region: no-drag; }
+body:not(.has-board) .toolbar { display: none; }
+.board-goal { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
+.toolbar .server-pill { display: none; } /* kept for the status panel: the window's top bar shows it */
+.content { grid-row: 3; }
+.review-bar { grid-row: 4; }
+/* A board's tab with no board yet (an AI's, opening one): it never shows home. */
+.tab-waiting { display: none; }
+.document-tab:not(.has-board) .tab-waiting { grid-row: 3; display: grid; place-items: center; color: var(--muted); }
+.document-tab:not(.has-board) .content { display: none; }
+body:not(.platform-darwin) .top-bar {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
+}
+.top-bar-end { display: flex; flex: none; align-items: center; gap: 6px; }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.icon-button:hover { background: var(--button-hover); color: var(--text); }
+.icon-button:active { background: var(--button-active); }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* MCP server status: a button in the top bar, the same height and corners as the others, and the
+   popover it opens. */
+.server-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.server-pill:hover, .server-pill[aria-expanded="true"] { background: var(--subtle-bg); }
+.server-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.server-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0a100; } /* starting */
+.server-pill[data-state="running"] .server-dot { background: #1f9d55; }
+.server-pill[data-state="off"] .server-dot { background: #d64545; }
+
+.server-pill { position: relative; z-index: 33; } /* stays on top of the mask and the MCP panel */
+.server-pill { transition: background-color 0.3s ease, border-color 0.3s ease; }
+/* The two labels share a cell, so the pill is as wide as the longer one whichever is showing. */
+.server-pill-labels { display: grid; justify-items: start; white-space: nowrap; }
+.server-pill-labels > * { grid-area: 1 / 1; transition: opacity 0.3s ease; }
+#server-pill-ai { opacity: 0; }
+.server-pill[data-showing="ai"] #server-pill-ai { opacity: 1; }
+.server-pill[data-showing="ai"] #server-pill-label { opacity: 0; }
+.server-pill[data-showing="ai"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .server-pill, .server-pill-labels > * { transition: none; }
+}
+.ai-release { display: grid; gap: 8px; justify-items: start; margin-bottom: 20px; font-size: 13px; }
+.ai-release[hidden] { display: none; }
+.ai-release p { margin: 0; }
+
+/* The mask dulls the whole window, top bar included; clicking it closes the card. */
+.mcp-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--mask);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
+
+/* A full-height panel on the right, under the window's top bar (whose status pill, at its right,
+   opens it), laid over the content (which stays where it is) rather than pushing it aside. Its own
+   bar holds the close button on the right. Only the content below scrolls. It slides in from past
+   the window's right edge, and hides once it has slid back out. */
+.mcp-card {
+  position: fixed;
+  z-index: 32;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(var(--mcp-width, 380px), 100vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12);
+  transform: translateX(calc(100% + 28px)); /* past the edge, shadow included */
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
+/* Dragging the handle below the minimum slides the panel out (and lifts the mask) while the
+   handle keeps following the pointer; letting go there closes it. */
+.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(100% + 28px)); }
+.mcp-open.mcp-closing .mcp-mask { opacity: 0; }
+.mcp-card-bar { flex: none; display: flex; align-items: center; justify-content: flex-end; height: var(--top-bar-height); padding: 0 8px; }
+/* The panel's titles ("MCP server", "Set up an AI app") are underlined, and a title with content
+   above it has room above it too, so each section reads as separate. */
+.mcp-card .panel h3 { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.mcp-card > .panel > h3:first-child { margin-top: 0; }
+.mcp-card > .panel > section { margin-top: 28px; }
+.mcp-card > .panel > section > h3:first-child { margin-top: 0; }
+.mcp-card > .panel { flex: 1; overflow: hidden auto; padding-top: 4px; }
+
+/* The panel's drag handle sits just outside its right edge, vertically centred on the window,
+   and slides in and out with it. */
+.mcp-resizer {
+  position: fixed;
+  z-index: 32;
+  top: 50%;
+  right: min(var(--mcp-width, 380px), 100vw);
+  width: 14px;
+  height: 128px;
+  margin-top: -64px;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  transform: translateX(calc(min(var(--mcp-width, 380px), 100vw) + 28px));
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-resizer { transform: none; visibility: visible; transition: transform 0.2s ease; }
+.mcp-resizing .mcp-resizer { transition: none; }
+.mcp-resizer::after {
+  content: "";
+  width: 4px;
+  height: 108px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: background-color 0.15s;
+}
+.mcp-resizer:hover::after, .mcp-resizing .mcp-resizer::after { background: var(--accent); }
+.mcp-resizing, .mcp-resizing * { cursor: col-resize !important; user-select: none !important; }
+.server-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 12px; }
+.server-details dt { color: var(--muted); }
+.server-details dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-setup[hidden] { display: none; }
+.panel-hint.server-intro { margin: 0 0 12px; }
+/* The AIs the chat runs, a row each (see server-status.js). */
+.ai-list { display: grid; gap: 8px; margin-top: 10px; }
+.ai-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.ai-row-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.ai-row-text span { color: var(--muted); font-size: 12px; }
+.ai-row .secondary-button { align-self: flex-start; }
+/* Connecting an AI app by hand, folded away. */
+.manual-setup { margin-top: 20px; }
+.manual-setup > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.manual-setup[open] > summary { margin-bottom: 4px; }
+
+/* The AI app to set up: a full-width button with its chevron at the end, opening a menu of the
+   apps below it, as wide as the button. */
+.app-picker { position: relative; display: block; }
+.app-picker-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+.app-picker-button:hover, .app-picker-button[aria-expanded="true"] { background: var(--subtle-bg); }
+.app-picker-button svg { color: var(--muted); }
+.app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app-picker-menu {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  min-width: 100%;
+  padding: 4px;
+  border-radius: 9px;
+  background: var(--bg);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.14);
+}
+.app-picker-menu[hidden] { display: none; }
+.app-picker-menu button { padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; text-align: left; white-space: nowrap; color: var(--text); cursor: pointer; }
+.app-picker-menu button:hover { background: var(--subtle-bg); }
+.app-picker-menu button[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent); font-weight: 600; }
+.tab-panel[hidden] { display: none; }
+.tab-panel { padding-top: 14px; }
+.setup-state { margin: 0 0 12px; font-size: 12px; color: var(--text-2); }
+#setup-claude-desktop > .primary-button { margin-bottom: 4px; }
+#setup-claude-desktop > .primary-button[hidden] { display: none; }
+.setup-manual { margin-top: 16px; font-size: 12px; }
+.setup-manual summary { cursor: pointer; color: var(--text-2); margin-bottom: 10px; }
+.setup-note { margin: 16px 0 0; color: var(--muted); font-size: 11px; }
+.setup-steps { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 12px; }
+.setup-steps li { padding-left: 2px; }
+.code-block { position: relative; margin-top: 6px; }
+.code-block pre {
+  margin: 0;
+  padding: 10px 44px 10px 12px; /* room on the right for the copy button */
+  min-height: 36px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--subtle-bg);
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.setup-steps .code-block code { padding: 0; background: none; font-size: inherit; }
+.code-copy { position: absolute; right: 3px; bottom: 3px; }
+.code-copy:hover { background: var(--button-hover); }
+.setup-steps code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 11px; }
+
+/* The bar along the bottom of the window, in the top bar's shade so it stands out, everywhere but
+   home: what's going on in the view showing on the left, and what to do about it at the right. */
+.review-bar { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 8px 16px; background: var(--top-bar-bg); font-size: 13px; --button-hover: light-dark(#cdcdd3, #2c2c31); }
+.review-bar[hidden] { display: none; }
+/* One short sentence on one line: it never wraps, and is cut short only when the window is too
+   narrow for it (the whole sentence is on hover). The buttons keep their size. */
+.review-bar-text { overflow: hidden; flex: 1; min-width: 0; margin: 0; white-space: nowrap; text-overflow: ellipsis; }
+/* What there is to decide (see showBar in boards.js): what it is, what changed and what deciding
+   does, and the AI's note, then its buttons. */
+.review-bar-card { display: grid; gap: 2px; flex: 1; min-width: 0; padding: 2px 0; }
+/* One title row, and at most two lines under it: what's happening now and what deciding does. The
+   buttons sit at the bar's bottom. */
+.review-bar-title { overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.review-bar-line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--text-2, var(--muted)); }
+.review-bar-actions { display: flex; flex: none; gap: 8px; align-items: center; }
+/* With something to decide, its buttons sit at the bar's bottom, beside its last line, not centred. */
+.review-bar:has(.review-bar-card) { align-items: flex-end; }
+.review-bar > button { flex: none; }
+
+/* --- Home and a board (see boards.js) -------------------------------------------------------- */
+.content { min-height: 0; overflow: auto; scroll-padding-block: 8px; } /* tabbing in scrolls a focus outline wholly into view */
+
+/* Home: the user's boards, one column for now (the user's choice; home screens are to be redesigned
+   across the family), its list scrolling on its own. A row is shaded while it's hovered. */
+.browser { display: grid; grid-template-columns: minmax(0, 1fr); height: 100%; max-width: 720px; margin: 0 auto; padding: 24px; } /* as SmartDoc's home, one column wide */
+/* A board's name being written over its row (see namingRow in boards.js). As every text field in the
+   family: the accent outline, in place of the border. */
+.naming { display: grid; gap: 4px; padding: 6px; }
+.name-input { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; user-select: text; }
+.name-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.name-error { color: var(--removed); font-size: 11.5px; }
+.name-error:empty { display: none; }
+.browser-column { display: flex; flex-direction: column; min-height: 0; }
+/* As home arrives, its column rises in, as SmartDoc's and SmartSpec's do. */
+@keyframes browser-rise {
+  from { transform: translateY(32px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.browser.arriving .browser-column { animation: browser-rise 0.28s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .browser.arriving .browser-column { animation: none; }
+}
+.browser-head { display: flex; align-items: center; gap: 8px; padding: 14px 10px 10px 16px; }
+.browser-head h2 { display: flex; align-items: center; flex: 1; min-width: 0; min-height: 26px; margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+/* A column with nothing to show: placeholder rows, each with a real row's padding and line heights. */
+.browser-skeleton .browser-row { gap: 0; background: var(--hover-tint); cursor: default; }
+.browser-skeleton .browser-row + .browser-row { margin-top: 2px; }
+.browser-skeleton .browser-row:nth-child(2) { opacity: 0.6; }
+.browser-skeleton .browser-row:nth-child(3) { opacity: 0.3; }
+.skeleton-bar { display: block; height: 0.75em; margin: 0.28em 0; border-radius: 4px; background: var(--skeleton); }
+.skeleton-bar:first-child { font-size: 14px; }
+.skeleton-bar:not(:first-child) { font-size: 12.5px; }
+.browser-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 8px 8px; list-style: none; }
+.browser-list li + li { margin-top: 2px; }
+.browser-row { position: relative; display: grid; gap: 2px; justify-items: start; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.browser-row:hover { background: var(--hover-tint); }
+.browser-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.browser-row strong { font-size: 13px; font-weight: 600; }
+/* A title with its status pills: on one row if they all fit, else all of them beneath it. The pills
+   wrap as one item, and only wrap among themselves if they're too wide for a row of their own. */
+.title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; min-width: 0; max-width: 100%; }
+.title-row strong { min-width: 0; overflow-wrap: anywhere; }
+.status-pills { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; max-width: 100%; }
+.browser-row-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-2); font-size: 12px; line-height: 1.35; }
+.browser-row-meta { color: var(--muted); font-size: 11.5px; }
+.pill { flex: none; padding: 1px 8px; border-radius: 10px; background: var(--subtle-bg); color: var(--muted); font-size: 11px; font-weight: 500; }
+.pill.proposed { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+/* Back and forward through where the tab showing has been (see tab-strip.js and boards.js). */
+.history-nav { display: flex; flex: none; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
+.history-nav[hidden] { display: none; }
+.history-nav .icon-button:disabled { opacity: 1; color: light-dark(#aeaeb4, #5a5a60); cursor: default; }
+.history-nav .icon-button:disabled:hover { background: none; }
+/* A new board: what it's for, and the prompt to send (see newBoard in boards.js). */
+.prompt-dialog { width: 480px; padding: 20px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); }
+.prompt-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.prompt-dialog h2 { margin: 0 0 6px; font-size: 15px; }
+.prompt-dialog p { margin: 0 0 12px; color: var(--muted); }
+.prompt-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.prompt-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 12px; field-sizing: content; min-height: calc(2lh + 14px); resize: none; user-select: text; }
+.prompt-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+
+/* --- Panels ------------------------------------------------------------------------------- */
+.panel { padding: 16px 16px 24px; user-select: none; }
+.panel h3 { margin: 20px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.panel-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.panel-hint[hidden], .panel-note[hidden] { display: none; }
+.panel-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--subtle-bg); color: var(--muted); font-size: 12px; }
+.primary-button, .secondary-button {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.primary-button { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.secondary-button { border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.secondary-button:hover { background: var(--subtle-bg); }
+.secondary-button:disabled { color: var(--muted); cursor: default; }
+.secondary-button:disabled:hover { background: var(--bg); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* Settings: a modal in the window, opened from the top bar's gear. */
+.settings-dialog { width: 560px; max-width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; flex-direction: column; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); font-size: 13px; }
+.settings-dialog[open] { display: flex; }
+.settings-dialog:focus { outline: none; }
+.settings-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--border); }
+.settings-head h2 { margin: 0; font-size: 15px; }
+.settings-body { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
+.setting + .setting { margin-top: 24px; }
+.setting-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.setting-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.setting-line { margin: 0 0 10px; color: var(--text-2); font-size: 13px; }
+/* The app is in beta (and says so in its About panel too). */
+.beta-tag { padding: 1px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; }
+/* The update toast (update-toast.js): centred at the bottom of the window, above everything but
+   dialogs. A spinner while a check the user asked for looks, the percentage downloaded, or Restart
+   to Update and Later. The same in SmartDoc, SmartSpec and SmartDesktop. */
+.update-toast[hidden], .update-toast [hidden] { display: none; }
+.update-toast {
+  position: fixed; left: 50%; bottom: 20px; z-index: 50; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; min-height: 48px; box-sizing: border-box; padding: 8px 10px 8px 16px;
+  border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); color: var(--text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); font-size: 13px; white-space: nowrap;
+  animation: update-toast-in 220ms ease-out;
+}
+.update-toast-text { margin-right: 6px; }
+.update-toast-percent { min-width: 36px; margin-right: 6px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.update-toast-spinner { flex: none; width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: update-toast-spin 0.8s linear infinite; }
+@keyframes update-toast-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .update-toast-spinner { animation-duration: 2.4s; } }
+@keyframes update-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+/* A row of choices, the chosen one raised, as macOS draws them. */
+.segmented { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--subtle-bg); border: 1px solid var(--border); }
+.segmented button { padding: 4px 16px; border: 0; border-radius: 6px; background: transparent; font: inherit; color: var(--text-2); cursor: pointer; }
+.segmented button:hover { color: var(--text); }
+.segmented button[aria-checked="true"] { background: light-dark(var(--bg), #46464c); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* The app's own tooltips (tooltips.js): a small dark card, above everything, never in the way. */
+.tooltip {
+  position: fixed; z-index: 100; max-width: 320px; padding: 4px 8px; border-radius: 6px;
+  background: light-dark(#2b2b30, #f2f2f4); color: light-dark(#f2f2f4, #1c1c1f);
+  font-size: 12px; line-height: 1.35; white-space: pre-line; pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+.tooltip[hidden] { display: none; }
+/* Choosing a board's icon (icon-picker.js): a card of every icon. */
+.icon-picker { left: 0; width: 344px; }
+.icon-picker-title { padding: 4px 6px 2px; color: var(--muted); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.icon-picker-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.icon-picker-option { display: grid; place-items: center; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; }
+.icon-picker-option:hover { background: var(--button-hover); color: var(--text); }
+.icon-picker-option.chosen { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+/* A board's icon on home, before its name. */
+.home-doc-icon { display: inline-grid; vertical-align: -3px; margin-right: 6px; color: var(--muted); }
+/* The window's top bar's tooltips: blue (the user's choice), hanging over the content below it. */
+.tooltip.strip-tip { background: var(--accent); color: #fff; }
+
+/* Dragging a tab (tab-strip.js): it fades where it was, and a line shows where it would go in the
+   top bar it's over. */
+.tab.dragging { opacity: 0.4; }
+.tabs.dragging-tab .tab:hover:not([aria-selected="true"]) { background: var(--button-hover); }
+.tab-drop-line { position: absolute; z-index: 46; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-drop-line[hidden] { display: none; }
+
+.muted { color: var(--muted); }
+.markdown { font-size: 14px; line-height: 1.5; user-select: text; overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 1.2em 0 0.4em; line-height: 1.25; }
+.markdown h1 { font-size: 18px; }
+.markdown h2 { font-size: 16px; }
+.markdown h3, .markdown h4 { font-size: 14px; }
+.markdown a { color: var(--accent); }
+.markdown code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown pre { overflow: auto; padding: 10px 12px; border-radius: 8px; background: var(--subtle-bg); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown pre code { padding: 0; background: none; }
+.markdown blockquote { margin: 1em 0; padding-left: 12px; border-left: 3px solid var(--border-strong); color: var(--text-2); }
+.markdown th, .markdown td { padding: 4px 10px; border: 1px solid var(--border); text-align: left; }
+.item-change { font-size: 11.5px; font-weight: 600; }
+.item-change.added, .item-change.changed { color: var(--accent); }
+.markdown table { display: block; overflow-x: auto; width: max-content; max-width: 100%; border-collapse: collapse; font-size: 0.9em; }
+
+/* --- A board: its lists side by side, each a column of cards (see boards.js) ------------------ */
+.kanban { display: flex; align-items: flex-start; gap: 12px; height: 100%; box-sizing: border-box; overflow-x: auto; padding: 16px; }
+.kanban-empty { margin: auto; color: var(--muted); }
+.kanban-list { display: flex; flex: none; flex-direction: column; width: 272px; max-height: 100%; box-sizing: border-box; border-radius: var(--card-radius); background: light-dark(#e1e1e6, #1c1c1f); }
+.kanban-list-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+.kanban-list-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.kanban-count { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.kanban-cards { display: flex; flex-direction: column; gap: 8px; min-height: 36px; overflow-y: auto; padding: 4px 8px 10px; }
+.kanban-card { display: grid; gap: 6px; justify-items: start; width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; text-align: left; box-shadow: 0 1px 1px rgb(0 0 0 / 0.06); cursor: pointer; }
+.kanban-card:hover { border-color: var(--border-strong); }
+.kanban-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kanban-card[data-unread] { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.kanban-card.dragged { opacity: 0.35; }
+.kanban-title { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.kanban-labels { display: flex; flex-wrap: wrap; gap: 4px; }
+.kanban-label { max-width: 100%; overflow: hidden; padding: 1px 7px; border-radius: 4px; color: #fff; font-size: 10.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.kanban-label.green { background: #2f9e5b; }
+.kanban-label.yellow { background: #c99a06; }
+.kanban-label.orange { background: #df7a1e; }
+.kanban-label.red { background: #d04444; }
+.kanban-label.purple { background: #8a5cd0; }
+.kanban-label.blue { background: #2f6fde; }
+.kanban-label.grey { background: #7d7d85; }
+.kanban-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 11.5px; }
+.kanban-badge { display: inline-flex; align-items: center; gap: 3px; }
+.kanban-badge.soon { color: light-dark(#a66b00, #e3b341); }
+.kanban-badge.overdue { color: var(--removed); }
+.kanban-badge.complete { color: var(--decided-text); }
+.kanban-icon { display: inline-flex; line-height: 0; }
+/* Where a dragged card would go. */
+.kanban-drop { flex: none; height: 3px; margin: -2px 2px; border-radius: 2px; background: var(--accent); }
+
+/* A card open: a dialog over the board, to read. */
+.card-dialog { width: min(640px, calc(100vw - 48px)); max-height: calc(100vh - 96px); padding: 0; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); }
+.card-dialog::backdrop { background: rgb(0 0 0 / 0.25); }
+.card-dialog-body { display: grid; gap: 18px; padding: 18px 20px 22px; }
+.card-dialog-head { display: flex; align-items: flex-start; gap: 12px; }
+.card-dialog-title { display: grid; flex: 1; gap: 6px; min-width: 0; }
+.card-dialog-title h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; user-select: text; }
+.card-dialog-title p { margin: 0; font-size: 12px; }
+.card-dialog h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.card-checklist { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.card-checklist li { display: flex; align-items: flex-start; gap: 8px; user-select: text; }
+.card-checklist li.done span { color: var(--muted); text-decoration: line-through; }
+.card-checklist input { margin: 2px 0 0; }

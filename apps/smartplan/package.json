@@ -1,0 +1,20 @@
+{
+  "name": "smartplan",
+  "version": "0.0.1",
+  "description": "Plan work on boards of lists and cards, with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @smartplan/app",
+    "start": "npm start -w @smartplan/app",
+    "dist": "npm run dist -w @smartplan/app",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs",
+    "server-snapshot": "node scripts/server-snapshot.mjs",
+    "share-image": "node scripts/share-image.mjs"
+  }
+}

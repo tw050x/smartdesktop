@@ -1,0 +1,93 @@
+{
+  "name": "@smartplan/app",
+  "productName": "SmartPlan",
+  "version": "0.0.1",
+  "description": "Plan work on boards of lists and cards, with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "dist": "vite build && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "dompurify": "3.4.17",
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0",
+    "marked": "18.1.3",
+    "vite": "8.3.5"
+  },
+  "build": {
+    "appId": "com.tw050x.smartplan",
+    "productName": "SmartPlan",
+    "directories": {
+      "output": "../../dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "src/main/**/*",
+      "build/renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../cli",
+        "to": "cli",
+        "filter": [
+          "cli.js",
+          "mcp.js",
+          "lib/**/*",
+          "package.json"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tw050x",
+        "repo": "smartplan"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "dmg": {
+      "artifactName": "SmartPlan-mac-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    },
+    "artifactName": "smartplan-${version}-${os}-${arch}.${ext}"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "electron-updater": "6.8.11",
+    "zod": "4.6.7"
+  }
+}
