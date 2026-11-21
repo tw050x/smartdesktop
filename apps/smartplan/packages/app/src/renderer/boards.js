@@ -409,8 +409,7 @@ export function createBoards({ el, bottomBar, goal: goalEl, api, onShown = () =>
         h('div', { className: 'card-dialog-title' },
           card.labels?.length > 0 && h('span', { className: 'kanban-labels' }, ...card.labels.map((label) => h('span', { className: `kanban-label ${label.color}` }, label.name))),
           h('h2', { id: 'card-dialog-title' }, card.title),
-          h('p', { className: 'muted' }, `In ${list.name}`, due && ` · Due ${due.text}`)),
-        h('button', { className: 'icon-button', type: 'button', 'aria-label': 'Close', title: 'Close', onclick: closeCard }, svg(ICON_CLOSE, 'icon'))),
+          h('p', { className: 'muted' }, `In ${list.name}`, due && ` · Due ${due.text}`))),
       h('section', {}, h('h3', {}, 'Description'), description),
       card.checklist?.length > 0 && h('section', {},
         h('h3', {}, `Checklist · ${done}/${card.checklist.length}`),
@@ -425,7 +424,9 @@ export function createBoards({ el, bottomBar, goal: goalEl, api, onShown = () =>
       });
       document.body.append(cardDialog);
     }
-    cardDialog.replaceChildren(body);
+    // The close button is the dialog's, outside what scrolls, so it stays in the top right corner.
+    const close = h('button', { className: 'icon-button card-dialog-close', type: 'button', 'aria-label': 'Close', title: 'Close', onclick: closeCard }, svg(ICON_CLOSE, 'icon'));
+    cardDialog.replaceChildren(close, body);
     if (!cardDialog.open) cardDialog.showModal();
   }
 

@@ -573,8 +573,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* A card open: a dialog over the board, to read. */
 .card-dialog { width: min(640px, calc(100vw - 48px)); max-height: calc(100vh - 96px); padding: 0; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); }
 .card-dialog::backdrop { background: rgb(0 0 0 / 0.25); }
-.card-dialog-body { display: grid; gap: 18px; padding: 18px 20px 22px; }
-.card-dialog-head { display: flex; align-items: flex-start; gap: 12px; }
+/* The body scrolls inside the dialog, and the close button stays put over its top right corner. */
+.card-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
+.card-dialog-body { display: grid; gap: 18px; min-height: 0; padding: 18px 20px 22px; overflow-y: auto; }
+.card-dialog-close { position: absolute; top: 14px; right: 16px; background: var(--bg); }
+.card-dialog-head { display: flex; align-items: flex-start; gap: 12px; padding-right: 30px; }
 .card-dialog-title { display: grid; flex: 1; gap: 6px; min-width: 0; }
 .card-dialog-title h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; user-select: text; }
 .card-dialog-title p { margin: 0; font-size: 12px; }
