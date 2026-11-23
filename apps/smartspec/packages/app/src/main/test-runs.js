@@ -51,6 +51,8 @@ function userPath() {
 // `onChange(schemaId, version, state)`, told as a run moves on (at most every SEND_EVERY ms).
 export function createTestRuns({ runner, store, dir = null, workspaces = null, onChange = () => {} }) {
   const runs = new Map();
+  // Those waiting for a run to end (runAndWait), by version.
+  const waiting = new Map();
 
   // Saved results, read once per schematic as it's first asked about.
   const loaded = new Set();
@@ -193,6 +195,8 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, o
         run.phase = null;
         send(run, true);
         try { save(schemaId); } catch { /* kept in memory */ }
+        for (const resolve of waiting.get(key) ?? []) resolve(publicState(run));
+        waiting.delete(key);
       };
       child.on('error', (error) => finish(`The runner couldn't be started: ${error.message}.`));
       child.on('close', (code, by) => finish(`The runner stopped unexpectedly (${by ? `stopped by ${by}` : `exit ${code}`}).`));
@@ -246,6 +250,40 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, o
       for (const one of touched) {
         try { save(one); } catch { /* kept in memory */ }
       }
+    },
+
+    // For the AI (run_checks): runs a draft's checks (the latest unless named) or the proposal's,
+    // all or a branch's or clause's, as the user would from Test mode (their window shows it as it
+    // goes), or joins the run already going; then waits up to `wait` seconds for it to end and gives
+    // its results (resultsFor), still running if it hasn't. A run executes the implementation's
+    // commands on the user's Mac, so the AI may run only an implementation the user has accepted: a
+    // proposal's only while it's the same as the latest draft's.
+    // `onEnd(state, record)` is told once it ends, waited for or not.
+    async runAndWait(schemaId, { draftId, proposal = false, only = null, wait = 60, onEnd = null } = {}) {
+      load(schemaId);
+      const record = proposal ? await store.getProposal(schemaId) : await store.getSchema(schemaId, { draftId });
+      if (!record) throw new Error('There\'s no proposal waiting on that schematic.');
+      if (proposal && record.implementation) {
+        const latest = record.line?.length ? await store.getSchema(schemaId).catch(() => null) : null;
+        if (JSON.stringify(latest?.implementation ?? null) !== JSON.stringify(record.implementation)) {
+          throw new Error('The proposal\'s implementation isn\'t one the user has accepted yet, and running the checks runs its commands on their Mac, so you can\'t run them: ask the user to accept the proposal first, or to run them themselves from Test mode.');
+        }
+      }
+      const version = proposal ? 'proposal' : record.draftId;
+      const key = keyOf(schemaId, version);
+      if (!runs.get(key)?.running) await this.start(schemaId, version, only);
+      const ended = new Promise((resolve) => waiting.set(key, [...(waiting.get(key) ?? []), (state) => {
+        resolve(true);
+        try { onEnd?.(state, record); } catch { /* only a line for the chat */ }
+      }]));
+      const seconds = Math.min(Math.max(Number(wait) || 60, 5), 300);
+      let timer;
+      await Promise.race([ended, new Promise((resolve) => { timer = setTimeout(resolve, seconds * 1000); })]);
+      clearTimeout(timer);
+      const results = await this.resultsFor(schemaId, { draftId: proposal ? undefined : version, proposal });
+      return results.running
+        ? { ...results, message: `Still running after ${seconds} s (fetching, building or starting it can take a while): call get_test_results in a little while for the results.` }
+        : results;
     },
 
     // The latest results of a draft (the latest unless named) or the proposal, for the AI

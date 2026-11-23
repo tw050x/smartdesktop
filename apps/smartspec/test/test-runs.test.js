@@ -238,3 +238,57 @@ describe('a schematic\'s workspace', () => {
     assert.equal(existsSync(spaces.pathFor('s1', 'Thing')), false);
   });
 });
+
+describe('the AI running the checks', () => {
+  const draftStore = () => {
+    const store = fakeStore();
+    store.getSchema = async (_id, { draftId } = {}) => ({ draftId: draftId ?? store.state.line.at(-1), number: store.state.line.length, total: store.state.line.length, line: store.state.line, ...store.state.drafts[draftId ?? store.state.line.at(-1)] });
+    return store;
+  };
+
+  test('runs them, waits, and gives the results, or joins a run already going', { timeout: 30_000 }, async () => {
+    const store = draftStore();
+    const testRuns = createTestRuns({ runner, store });
+    const given = await testRuns.runAndWait('s1');
+    assert.equal(given.outcome, 'failed');
+    assert.deepEqual(given.passed, ['a-works/ok']);
+    assert.equal(given.problems[0].key, 'b-works/ok');
+
+    let told = null;
+    const branch = await testRuns.runAndWait('s1', { only: 'a', onEnd: (state, record) => { told = { state, record }; } });
+    assert.equal(branch.outcome, 'passed');
+    assert.equal(told.state.only, 'a', 'told how it went once it ended, for the chat\'s line');
+    assert.deepEqual(told.state.counts, { passed: 1, failed: 0, error: 0 });
+    assert.equal(told.record.name, 'Thing');
+    assert.equal(branch.last_run_was_only, 'a');
+
+    // The user's run going: the AI's waits for it, starting none of its own.
+    await testRuns.start('s1', 'd1');
+    const joined = await testRuns.runAndWait('s1');
+    assert.equal(joined.running, false);
+    assert.equal(joined.counts.passed + joined.counts.failed, 2);
+  });
+
+  test('says when it\'s still running, to read the results later', { timeout: 30_000 }, async () => {
+    const store = draftStore();
+    const closed = http.createServer();
+    await new Promise((resolve) => closed.listen(0, '127.0.0.1', resolve));
+    const nowhere = `http://127.0.0.1:${closed.address().port}`;
+    await new Promise((resolve) => closed.close(resolve));
+    store.state.drafts.d1.implementation = { source: { kind: 'running', url: nowhere }, ready: { path: '/health', timeout: 8 } };
+    const testRuns = createTestRuns({ runner, store });
+    const given = await testRuns.runAndWait('s1', { wait: 5 });
+    assert.equal(given.running, true);
+    assert.match(given.message, /Still running after 5 s/);
+    testRuns.stopAll();
+  });
+
+  test('runs a proposal\'s only while its implementation is one the user accepted', { timeout: 30_000 }, async () => {
+    const store = draftStore();
+    const testRuns = createTestRuns({ runner, store });
+    store.state.proposal = { name: 'Thing', line: store.state.line, contract: contract(), implementation: { source: { kind: 'running', url } } };
+    assert.equal((await testRuns.runAndWait('s1', { proposal: true })).outcome, 'failed');
+    store.state.proposal = { ...store.state.proposal, implementation: { source: { kind: 'running', url: `${url}/v2` } } };
+    await assert.rejects(testRuns.runAndWait('s1', { proposal: true }), /isn't one the user has accepted/);
+  });
+});

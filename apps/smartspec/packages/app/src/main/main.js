@@ -535,6 +535,18 @@ const schemaClaim = (schemaId) => `schema:${schemaId}`;
 // The session's tab is opened only when a call shows something in it (a proposal): reading and
 // organising schematics need none, and a tab opened for them waited for a schematic that never came,
 // which looked frozen. `tab()` opens it (windowForSession).
+// How a run of the checks went, as a line of context for the chat: "Ran 4 checks of “Orders”: 3
+// passed, 1 failed".
+function runNote(state, record) {
+  const of = `“${record.name}”${state.only ? `, ${contractPartName(record.contract, state.only)}` : ''}`;
+  const { passed = 0, failed = 0, error = 0 } = state.counts ?? {};
+  const ran = passed + failed + error;
+  const text = state.outcome === 'error' && !Object.keys(state.results ?? {}).length
+    ? `Couldn’t run the checks of ${of}`
+    : `Ran ${ran} ${ran === 1 ? 'check' : 'checks'} of ${of}: ${[`${passed} passed`, failed && `${failed} failed`, error && `${error} couldn’t be run`].filter(Boolean).join(', ')}`;
+  return { text, detail: `${text}${state.detail ? ` (${state.detail})` : ''}${state.version === 'proposal' ? ', on the proposal' : ''}` };
+}
+
 const schemasFor = (session, tab) => ({
   list: async () => (await store.list()).map((one) => ({ ...one, icon: itemIcons.get(one.id)?.icon ?? null })),
   getSchema: async (id, options) => {
@@ -558,6 +570,11 @@ const schemasFor = (session, tab) => ({
   getProposal: (id, options) => store.getProposal(id, options),
   listComments: (id, options) => store.listComments(id, options),
   testResults: (id, options) => testRuns.resultsFor(id, options),
+  // The AI running the checks (run_checks); once the run ends, a line in the chat saying how it went.
+  runChecks: (id, options) => testRuns.runAndWait(id, { ...options, onEnd: (state, record) => {
+    const ctx = session.ctx;
+    if (ctx && !ctx.win.isDestroyed()) desktop.note(ctx.id, runNote(state, record));
+  } }),
   listGroups: () => store.listGroups(),
   createGroup: (name, folderId) => store.createGroup(name, folderId),
   renameGroup: (id, name) => store.renameGroup(id, name),
