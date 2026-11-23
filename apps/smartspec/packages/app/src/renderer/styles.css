@@ -1549,3 +1549,22 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .shape { margin-top: 8px; }
 .shape header { display: flex; align-items: baseline; gap: 8px; }
 .shape pre { margin: 4px 0 0; padding: 8px; border-radius: 8px; background: var(--subtle-bg); font-size: 11px; overflow: auto; }
+
+/* Test mode (testView in schemas.js): what the contract is tested against, beside the contract with
+   how each part stands. Two columns, one under the other when narrow. */
+.test-page { max-width: none; height: 100%; overflow: auto; padding: 20px 24px 32px; }
+.test-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 20px; align-items: start; max-width: 1400px; margin: 0 auto; }
+@media (max-width: 900px) { .test-columns { grid-template-columns: minmax(0, 1fr); } }
+.test-card { padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); }
+.test-card > header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.test-card > header h2 { margin: 0; font-size: 15px; }
+.test-card > header > .muted { margin-left: auto; font-size: 12px; }
+.test-card > header > .approve-button { margin-left: auto; }
+.impl-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 13px; user-select: text; }
+.impl-details dt { color: var(--muted); }
+.impl-details dd { margin: 0; overflow-wrap: anywhere; }
+.impl-details code, .test-uses code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.impl-kind { font-weight: 600; }
+.impl-commands, .impl-env { margin: 0; padding-left: 18px; }
+.impl-env { padding-left: 0; list-style: none; }
+.test-uses { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; }

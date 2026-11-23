@@ -10,6 +10,8 @@ import { checkContract, contractChanges, contractLinks, contractParts } from './
 
 export const KINDS = ['document', 'flow', 'sequence', 'table', 'image'];
 export const CONTRACT = 'contract';
+// The implementation's key among a proposal's changes: not an id an item can have.
+export const IMPLEMENTATION = '@implementation';
 export const GROUP_KINDS = ['loop', 'alt', 'opt', 'par', 'critical', 'break', 'group'];
 export const IMAGE_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -343,5 +345,6 @@ export function itemChanges(before, after) {
     contract: Boolean(before) && contractChanges(before.contract, after.contract).changed,
     // Each clause and shape of the contract added, changed or removed, by id.
     contractParts: before ? contractChanges(before.contract, after.contract).parts : {},
+    implementation: Boolean(before) && JSON.stringify(before.implementation ?? null) !== JSON.stringify(after.implementation ?? null),
   };
 }

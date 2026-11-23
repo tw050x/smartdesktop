@@ -1,5 +1,5 @@
 import { iconSvg } from '../main/icons.js';
-import { CONTRACT, connectedPairs, isInternalLink, neighboursOf, parseLink, partName, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
+import { CONTRACT, IMPLEMENTATION, connectedPairs, isInternalLink, neighboursOf, parseLink, partName, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
 import { makeCanvas } from './canvas-view.js';
 import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
 import { watchBoard } from './board-view.js';
@@ -19,6 +19,8 @@ import { arrowKeysIn } from './menu-keys.js';
 import { plainText, renderMarkdown } from './markdown.js';
 import { levelOf } from './home-level.js';
 import { contractPlain, renderContract } from './contract-view.js';
+import { renderImplementation, sourceLine } from './implementation-view.js';
+import { SOURCE_LABELS } from '../main/implementation.js';
 import { contractText } from '../main/contract.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
@@ -957,7 +959,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     here.choices = { shown };
     approvals = new Set(here.proposal ? shown.approved ?? [] : []);
     if (modes.mode() === 'test') {
-      const page = testView(shown);
+      const page = testView(here, shown, uses);
       page.draftNav = draftControls(here, shown);
       page.bottomBar = reviewBar(here, shown);
       return page;
@@ -979,10 +981,40 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return page;
   }
 
-  // Test mode: nothing to test against yet, and it says so rather than pretending.
-  const testView = (shown) => h('div', { className: 'mode-empty' },
-    h('h1', {}, 'Testing isn’t built yet'),
-    h('p', {}, `This is where ${shown.name} will link to its implementation and run its contract tests, and you’ll see what’s passing or failing.`));
+  // Test mode: what the contract is tested against (the schematic's implementation, and what each
+  // schematic it embeds is tested against), and the contract with how each part stands. Nothing is
+  // run yet, and it says so rather than pretending.
+  const testView = (here, shown, uses) => {
+    const change = here.proposal && shown.changes?.implementation ? 'changed' : null;
+    const own = shown.implementation
+      ? renderImplementation(shown.implementation)
+      : h('p', { className: 'muted' }, `${shown.name} has no implementation yet: nothing says where its code is or how to run it. Ask your AI to add it, telling it where the code is.`);
+    const embedded = [...uses.values()].filter((use) => !use.missing);
+    const contract = h('div', {});
+    here.contractFolded ??= new Set();
+    renderContract(contract, shown.contract, {
+      titleOf: (link) => {
+        const { target, part } = parseLink(link);
+        return part ? `${titleOf(target, shown, uses)} › ${part}` : titleOf(target, shown, uses);
+      },
+      folded: here.contractFolded,
+      onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)),
+    });
+    return h('div', { className: 'page test-page' }, h('div', { className: 'test-columns' },
+      h('section', { className: 'test-card' },
+        h('header', {}, h('h2', {}, 'Implementation'), change && statusPills(...marker(change, approvals.has(IMPLEMENTATION))), change && approveButton(here, shown, IMPLEMENTATION, change, 'the implementation')),
+        own,
+        embedded.length > 0 && h('h3', { className: 'pane-subhead' }, 'What it embeds is tested against'),
+        embedded.length > 0 && h('ul', { className: 'test-uses' }, ...embedded.map((use) => h('li', {},
+          h('strong', {}, use.name ?? use.id),
+          h('span', { className: 'muted' }, use.implementation
+            ? ` its implementation here: ${SOURCE_LABELS[use.implementation.source.kind]} `
+            : use.implemented ? ' its own implementation' : ' nothing yet: neither it nor this schematic says where its code is'),
+          use.implementation && h('code', {}, sourceLine(use.implementation.source)))))),
+      h('section', { className: 'test-card test-contract' },
+        h('header', {}, h('h2', {}, 'Contract'), h('span', { className: 'muted' }, 'Not run yet: running the checks comes next')),
+        contract)));
+  };
 
   // In the toolbar, with a schema open: the mode, and the focus: what the AI's work on this draft is
   // for.
@@ -1232,7 +1264,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         actions: [{ id: 'view-proposal', label: 'Review', kind: 'primary', run: () => { here.proposal = true; render(); } }],
       });
     }
-    if (modes.mode() === 'test') return bar(`Contract tests for ${name} aren't built yet.`);
+    if (modes.mode() === 'test') return bar(shown.implementation ? `The checks for ${name} haven't been run: running them isn't built yet.` : `${name} has no implementation yet, so there's nothing to run its checks against.`);
     // An earlier draft, with the way back to the latest.
     if (shown.number < shown.total) {
       return bar(`You're looking at draft ${shown.number} of ${name}. Draft ${shown.total} is the latest.`, {

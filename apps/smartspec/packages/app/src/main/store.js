@@ -4,7 +4,8 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import path from 'node:path';
 import * as folders from './folders.js';
 import { brokenParts, contractPartName, contractParts, contractText } from './contract.js';
-import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGraph, parseLink, partName, partsOf } from './items.js';
+import { checkImplementation } from './implementation.js';
+import { CONTRACT, IMPLEMENTATION, checkItem, checkLinks, connectionDetails, itemChanges, linkGraph, parseLink, partName, partsOf } from './items.js';
 
 // Schemas live in the app's data folder, one folder each:
 //
@@ -170,6 +171,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       name: record.name,
       summary: record.summary,
       contract: record.contract,
+      // Private, as its items are: what embeds it never sees it.
+      implementation: record.implementation ?? null,
       parameters: record.parameters,
       note: record.note,
       focus: record.focus ?? null,
@@ -216,6 +219,10 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       name: draft.name,
       summary: draft.summary,
       contract: draft.contract,
+      // The code this schematic chose to test the use against, or none (then the embedded
+      // schematic's own, if it has one: `implemented` says whether it does).
+      implementation: use.implementation ?? null,
+      implemented: Boolean(draft.implementation),
       status: STATUS,
       newerDraftId: use.pin && latest !== draftId ? latest : null,
     };
@@ -256,7 +263,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       for (const key of Object.keys(use.with ?? {})) {
         if (!declared.has(key)) throw new Error(`${draft.name} has no parameter "${key}". A use can only set the parameters its schematic declares: ${[...declared].join(', ') || 'it has none'}.`);
       }
-      checked.push({ id: use.id, schemaId: use.schemaId, ...(use.draftId && { pin: use.draftId }), with: use.with ?? {} });
+      checkImplementation(use.implementation, `Use ${use.id}'s implementation`);
+      checked.push({ id: use.id, schemaId: use.schemaId, ...(use.draftId && { pin: use.draftId }), with: use.with ?? {}, ...(use.implementation && { implementation: use.implementation }) });
     }
     return checked;
   }
@@ -301,7 +309,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   // A complete record: `base` with `change` applied, and checked. What a change leaves out stays as
   // it was. `items` are added, or replace the item with that id in its place; `removeItems` go; and
   // `itemOrder` puts the items it names first.
-  async function buildRecord(base, { name, summary, contract, parameters, uses, items = [], removeItems = [], itemOrder, note }) {
+  async function buildRecord(base, { name, summary, contract, implementation, parameters, uses, items = [], removeItems = [], itemOrder, note }) {
     const record = {
       name: name?.trim() || base?.name,
       summary: summary?.trim() || base?.summary,
@@ -334,6 +342,11 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       next.sort((a, b) => rank(a) - rank(b));
     }
     record.items = next;
+    // Where its code comes from and how to run it (see implementation.js): what's given, null for
+    // none, or as it was.
+    const implemented = implementation === undefined ? base?.implementation : implementation;
+    checkImplementation(implemented);
+    if (implemented) record.implementation = implemented;
     for (const use of record.uses) {
       if (record.items.some((item) => item.id === use.id)) throw new Error(`An item and an embedded schematic are both called ${use.id}. Give each its own id.`);
     }
@@ -346,10 +359,11 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   });
 
   // Each change a proposal makes, as the user approves it: an item's id, or `contract`.
-  const changeKeys = (changes) => [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? [CONTRACT] : [])];
+  const changeKeys = (changes) => [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? [CONTRACT] : []), ...(changes.implementation ? [IMPLEMENTATION] : [])];
   // Whether a change is as it was in the proposal replaced (an item the same, or still gone).
   const sameChange = (before, after, key) => {
     if (key === CONTRACT) return JSON.stringify(before.contract ?? '') === JSON.stringify(after.contract ?? '');
+    if (key === IMPLEMENTATION) return JSON.stringify(before.implementation ?? null) === JSON.stringify(after.implementation ?? null);
     const was = before.items.find((item) => item.id === key);
     const is = after.items.find((item) => item.id === key);
     return JSON.stringify(was ?? null) === JSON.stringify(is ?? null);

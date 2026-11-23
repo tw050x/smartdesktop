@@ -790,10 +790,10 @@ async function acceptProposal(ctx, schemaId) {
   // Changes the user hasn't approved are accepted as proposed, as a SmartDoc review goes on with
   // sensible defaults: said, never in the way (the user's choice).
   const changes = proposal.changes;
-  const keys = [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? ['contract'] : [])];
+  const keys = [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? ['contract'] : []), ...(changes.implementation ? ['@implementation'] : [])];
   const unapproved = keys.filter((key) => !proposal.approved?.includes(key));
-  const titleOf = (key) => (key === 'contract' ? 'the contract' : proposal.items.find((item) => item.id === key)?.title ?? changes.removed.find((one) => one.id === key)?.title ?? key);
-  const named = unapproved.slice(0, MOST_LISTED).map((key) => `“${titleOf(key)}”`.replace('“the contract”', 'the contract'));
+  const titleOf = (key) => (key === 'contract' ? 'the contract' : key === '@implementation' ? 'the implementation' : proposal.items.find((item) => item.id === key)?.title ?? changes.removed.find((one) => one.id === key)?.title ?? key);
+  const named = unapproved.slice(0, MOST_LISTED).map((key) => `“${titleOf(key)}”`.replace('“the contract”', 'the contract').replace('“the implementation”', 'the implementation'));
   if (unapproved.length > MOST_LISTED) named.push(`${unapproved.length - MOST_LISTED} more`);
   const list = (words) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`);
   // What embeds it following its latest draft changes with it (uses follow the latest unless

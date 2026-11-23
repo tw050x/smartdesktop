@@ -9,6 +9,7 @@ import { ICONS } from './icons.js';
 
 const INSTRUCTIONS = `This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.
 A schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary and its public side: what it promises and what it needs, and the only part of it other schematics can see or link to. Write it as a tree, the contract being its root: each node a part of the interface (/orders, with /orders/:id under it; for HTTP give each its path), with Markdown explaining it, the shapes it talks about (JSON Schema, seen by checks there and below), setup steps run before every check there and below (which keep values from their responses, such as an order's id, for requests below to use as {id}), its clauses and its child nodes. A clause is one promise: a title saying it in a line, Markdown explaining it, and the checks that test it (an HTTP request and what the response should be). Nodes, clauses and shapes each have a public id, unique in the contract and set once (other schematics link to it), so moving one in the tree breaks nothing. A branch can be run again on its own. When a promise is worked out in one of the schematic's own items (a sequence of the exchange, a table of endpoints, a row of one), the clause can be defined by it (defined_by): outsiders still link to the clause, never the item, so the item can change without them knowing. A contract can still be plain Markdown, with no clauses to link to or check.
+A schematic's implementation says where the code that keeps its contract comes from (a Docker image, a Docker Compose file in a git repository, a git repository or an archive built and run on the machine, or something already running) and how to run it: the port it listens on, its environment, the commands that build and start it, a path that answers once it's ready, and labels for any logins it needs (kept on the machine that runs it, never in the schematic). The contract's checks are run against it. It's private, as items are. A use can name its own implementation, when the embedded schematic is a standard each system implements itself; otherwise the embedded schematic's own is used. Ask the user where the code is before writing one.
 A schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.
 Items link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract and its nodes, clauses and shapes (contract#id), and the schematics this one embeds and their contracts' nodes, clauses and shapes (use#id), but never their items. Links that go nowhere are refused.
 Schematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use follows the embedded schematic's latest draft, unless it's pinned to one, and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.
@@ -92,6 +93,28 @@ const CONTRACT_TREE = z.object({
   ...BRANCH,
   children: z.array(NODE).optional().describe('The parts of its interface, each a branch of nodes'),
 }).describe('The contract as a tree, the root being the contract itself');
+
+const IMPLEMENTATION = z.object({
+  source: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('image'), image: z.string().describe('A Docker image, by tag or digest, such as ghcr.io/larder/orders:1.4') }),
+    z.object({ kind: z.literal('compose'), url: z.string().describe('The git repository holding the Compose file'), ref: z.string().optional().describe('A branch, tag or commit'), file: z.string().optional().describe('The Compose file\'s path in the repository (default compose.yaml)'), service: z.string().describe('The service that keeps the contract') }),
+    z.object({ kind: z.literal('git'), url: z.string().describe('The git repository'), ref: z.string().optional().describe('A branch, tag or commit'), dir: z.string().optional().describe('The folder in it to build and run from') }),
+    z.object({ kind: z.literal('archive'), url: z.string().describe('An archive to download'), sha256: z.string().optional() }),
+    z.object({ kind: z.literal('running'), url: z.string().describe('Its base address, to test as it is') }),
+  ]).describe('Where the code comes from'),
+  start: z.object({
+    port: z.number().int().optional().describe('The port it listens on (needed unless it\'s already running)'),
+    env: z.record(z.string(), z.string()).optional().describe('Its environment'),
+    commands: z.array(z.string()).optional().describe('For git or an archive: the shell commands that build and start it, the last left running'),
+  }).optional().describe('How to run it'),
+  ready: z.object({
+    path: z.string().describe('A path that answers once it has started, such as /health'),
+    status: z.number().int().optional().describe('What it answers with when ready (default 200)'),
+    timeout: z.number().int().optional().describe('Seconds to wait for it (default 60)'),
+  }).optional(),
+  stop: z.object({ commands: z.array(z.string()) }).optional().describe('For git or an archive: shell commands that tidy up afterwards'),
+  credentials: z.array(z.string()).optional().describe('Labels for logins it needs to be fetched (a private repository or registry), such as github: kept on the machine that runs it, never here'),
+});
 
 const ITEM_BASE = {
   id: z.string().describe('Its id within this schematic. Sending an id that exists replaces that item.'),
@@ -249,6 +272,7 @@ export function buildServer(call, { version }) {
     name: z.string().trim().min(1).max(200).optional().describe('Needed for a new schematic'),
     summary: z.string().trim().min(1).optional().describe('What this is, in a sentence or two. Shows when it\'s collapsed. Needed for a new schematic.'),
     contract: z.union([CONTRACT_TREE, z.string()]).optional().describe('What it promises and what it needs, its public side: a tree of the parts of its interface, each with its promises and their checks (or plain Markdown). Shows when it\'s collapsed. Replaces the whole contract.'),
+    implementation: IMPLEMENTATION.nullable().optional().describe('Where the code that keeps the contract comes from and how to run it, for its checks. Private, as items are. Replaces it; null for none.'),
     items: z.array(ITEM).optional().describe('Items to add, or to replace by id'),
     remove_items: z.array(z.string()).optional().describe('The ids of items to remove'),
     item_order: z.array(z.string()).optional().describe('Item ids in the order to show them. Any left out follow.'),
@@ -261,6 +285,7 @@ export function buildServer(call, { version }) {
       schematic_id: z.string().describe('The schematic to embed, which must have an accepted draft'),
       draft_id: z.string().optional().describe('Pins it to this draft. Leave it out (as most uses should) to follow the latest draft, so it changes as that schematic does. Pin only when the user wants this use kept on a version; send it again each time you send uses, or the pin goes.'),
       with: z.record(z.string(), z.string()).optional().describe('Values for the parameters it declares'),
+      implementation: IMPLEMENTATION.optional().describe('The code that implements it here, when it isn\'t the embedded schematic\'s own (a standard each system implements itself)'),
     })).optional().describe('The schematics this one embeds. Replaces the list.'),
     domain_id: z.string().optional().describe('For a new schematic: the domain to put it in, from list_domains (default: No domain)'),
     goal: z.string().trim().min(1).optional().describe('The focus the user gave you for this work, in their words'),
