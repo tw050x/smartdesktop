@@ -12,7 +12,11 @@ export function describeStep(name, input = {}) {
     case 'get_proposal': return 'Reading the proposal';
     case 'get_comments': return 'Reading your comments';
     case 'get_test_results': return 'Reading the test results';
-    case 'run_checks': return input.only ? `Running the checks of ${quoted(input.only)}` : input.proposal ? 'Running the proposal’s checks' : 'Running the checks';
+    case 'run_checks': {
+      const code = input.workspace ? ' on the workspace' : input.ref ? ` on ${quoted(input.ref)}` : '';
+      return `${input.only ? `Running the checks of ${quoted(input.only)}` : input.proposal ? 'Running the proposal’s checks' : 'Running the checks'}${code}`;
+    }
+    case 'list_test_runs': return 'Looking through the test runs';
     case 'reply_to_comment': return 'Answering your comment';
     case 'propose_schematic': return input.name ? `Proposing ${quoted(input.name)}` : 'Proposing a change';
     case 'list_domains': return 'Looking at the domains';
