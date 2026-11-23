@@ -11,6 +11,7 @@ export function describeStep(name, input = {}) {
     case 'get_schematic_item': return input.item_id ? `Reading ${quoted(input.item_id)}` : 'Reading an item';
     case 'get_proposal': return 'Reading the proposal';
     case 'get_comments': return 'Reading your comments';
+    case 'get_test_results': return 'Reading the test results';
     case 'reply_to_comment': return 'Answering your comment';
     case 'propose_schematic': return input.name ? `Proposing ${quoted(input.name)}` : 'Proposing a change';
     case 'list_domains': return 'Looking at the domains';
