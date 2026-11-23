@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
@@ -22,6 +22,8 @@ import { pipeline } from 'node:stream/promises';
 // machine's own: git's credential helper, Docker's login.
 
 export class RunError extends Error {}
+
+const SOURCE_WORDS = { image: 'a Docker image', archive: 'an archive', running: 'something already running' };
 
 const STOP_GRACE = 5000;
 
@@ -104,9 +106,34 @@ async function hasDocker(context) {
 
 const quote = (text) => `'${String(text).replace(/'/g, `'\\''`)}'`;
 
+// git's answer, or null: for what the run reports, never for doing anything.
+const NO_PROMPT = { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never' };
+const gitOut = (cwd, args, env = process.env) => new Promise((resolve) => {
+  execFile('git', args, { cwd, env: { ...env, ...NO_PROMPT }, timeout: 20_000, encoding: 'utf8' }, (error, stdout) => resolve(error ? null : stdout.trim()));
+});
+
+// The commit checked out in a folder: { commit, subject }.
+async function headOf(dir, env) {
+  const line = await gitOut(dir, ['log', '-1', '--format=%H%x09%s'], env);
+  if (!line) return {};
+  const [commit, subject] = line.split('\t');
+  return { commit, subject };
+}
+
+// What the code run against is, in words: "main at 1a2b3c4", "the workspace on feature-x at 1a2b3c4,
+// 2 files not committed".
+export function codeLabel(code) {
+  const at = code.commit ? ` at ${code.commit.slice(0, 7)}` : '';
+  if (code.kind === 'workspace') return `the workspace${code.ref ? ` on ${code.ref}` : ''}${at}${code.changes ? `, ${code.changes} ${code.changes === 1 ? 'file' : 'files'} not committed` : ''}`;
+  if (code.kind === 'git') return `${code.ref ?? 'its default branch'}${at}`;
+  return code.label ?? code.kind;
+}
+
 // A git repository at a ref, fetched into the cache (kept between runs, so a build's own caches,
 // such as node_modules, stay); the folder it's in.
-async function fetchGit(source, { cacheDir, ...context }) {
+// `ref` is the branch, tag or commit to fetch; none, the repository's default branch (its name
+// found out, so the run can say which). Gives { dir, code }.
+async function fetchGit(source, { cacheDir, ref, ...context }) {
   const dir = path.join(cacheDir, 'git', hashOf(source.url));
   await mkdir(dir, { recursive: true });
   // Never asks for a login (nobody could answer, and it would wait for good): this machine's own
@@ -119,13 +146,18 @@ async function fetchGit(source, { cacheDir, ...context }) {
   } else {
     await git(`remote set-url origin ${quote(source.url)}`);
   }
+  let name = ref;
+  if (!name) {
+    const head = await gitOut(dir, ['ls-remote', '--symref', 'origin', 'HEAD'], context.env);
+    name = head?.match(/^ref: refs\/heads\/(\S+)\s+HEAD/m)?.[1] ?? null;
+  }
   try {
-    await git(`fetch --depth 1 --quiet origin ${quote(source.ref ?? 'HEAD')}`, `git fetch ${source.url} ${source.ref ?? '(its default branch)'}`);
+    await git(`fetch --depth 1 --quiet origin ${quote(name ?? 'HEAD')}`, `git fetch ${source.url} ${name ?? '(its default branch)'}`);
   } catch {
-    throw new RunError(`${source.url}${source.ref ? ` at ${source.ref}` : ''} couldn't be fetched: the repository or ref may not exist, or it needs a login this machine doesn't have. git's own words are in the log.`);
+    throw new RunError(`${source.url}${name ? ` at ${name}` : ''} couldn't be fetched: ${name ? `there may be no branch, tag or commit called ${name}, or the repository` : 'the repository'} may not exist, or it needs a login this machine doesn't have. git's own words are in the log.`);
   }
   await git('checkout --quiet --force FETCH_HEAD');
-  return dir;
+  return { dir, code: { kind: 'git', ref: name, ...(await headOf(dir, context.env)), ...(ref ? {} : { defaultBranch: true }) } };
 }
 
 // A clone to work in, made once: the whole history, at the ref (a branch, tag or commit). A clone
@@ -136,6 +168,16 @@ async function cloneInto(source, dir, context) {
     context.emit({ type: 'log', stream: 'runner', text: `Using the code in ${dir} as it is` });
     return dir;
   }
+  return cloneFresh(source, dir, context);
+}
+
+// What a workspace holds: its branch, commit and the files not committed.
+async function workspaceCode(dir, env) {
+  const [branch, status] = await Promise.all([gitOut(dir, ['rev-parse', '--abbrev-ref', 'HEAD'], env), gitOut(dir, ['status', '--porcelain'], env)]);
+  return { kind: 'workspace', ref: branch && branch !== 'HEAD' ? branch : null, ...(await headOf(dir, env)), changes: status ? status.split('\n').length : 0 };
+}
+
+async function cloneFresh(source, dir, context) {
   await mkdir(path.dirname(dir), { recursive: true });
   const env = { ...context.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never' };
   try {
@@ -217,7 +259,10 @@ function portOpen(host, port) {
 }
 
 // Starts it and waits until it's ready: { base, stop }, stop() tidying up whatever happened.
-export async function startImplementation(implementation, { jobId, cacheDir = defaultCacheDir(), workdir, emit = () => {}, signal } = {}) {
+// `ref`, the branch, tag or commit of a git repository's (or Compose file's) code to run (none:
+// the source's ref, else the repository's default branch); `workdir`, a workspace to run as it is
+// instead. What was run is told as a `code` event ({ kind, ref, commit, subject, changes, label }).
+export async function startImplementation(implementation, { jobId, cacheDir = defaultCacheDir(), workdir, ref, emit = () => {}, signal } = {}) {
   const { source, start = {}, stop: stopCommands } = implementation;
   const env = { ...process.env, ...(start.env ?? {}) };
   const context = { emit, signal, env };
@@ -230,16 +275,36 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
     tidy.length = 0;
   };
   const name = `smartspec-${String(jobId ?? Date.now()).toLowerCase().replace(/[^a-z0-9_.-]/g, '-')}`.slice(0, 63);
+  let code = null;
+  const told = (what) => {
+    code = { ...what, label: codeLabel(what) };
+    emit({ type: 'code', ...code });
+  };
+  // A git repository's code: the workspace as it is (cloned first if need be), or a ref fetched.
+  const codeFor = async (from, { workdir: space, ref: at, cacheDir: cache, context: ctx }) => {
+    if (space) {
+      const dir = await cloneInto(from, space, ctx);
+      told(await workspaceCode(dir, ctx.env));
+      return dir;
+    }
+    const fetched = await fetchGit(from, { cacheDir: cache, ref: at ?? from.ref, ...ctx });
+    told(fetched.code);
+    return fetched.dir;
+  };
 
   try {
+    if (ref && !['git', 'compose'].includes(source.kind)) throw new RunError(`Only a git repository's code (or a Compose file's) can be run at a branch, tag or commit; this is ${SOURCE_WORDS[source.kind]}.`);
+    if (workdir && ref) throw new RunError('Run the workspace as it is, or a branch, tag or commit: not both.');
     if (workdir && !['git', 'compose'].includes(source.kind)) throw new RunError(`A workdir is for the code of a git repository or Compose file, not ${source.kind === 'running' ? 'something already running' : `${/^[aeiou]/.test(source.kind) ? 'an' : 'a'} ${source.kind}`}.`);
     if (source.kind !== 'running') emit({ type: 'phase', phase: 'fetch' });
     let service;
     switch (source.kind) {
       case 'running':
+        told({ kind: 'running', label: source.url });
         break;
       case 'image': {
         await hasDocker(context);
+        told({ kind: 'image', label: source.image });
         try {
           await runCommand(`docker image inspect ${quote(source.image)}`, { ...context, emit: () => {}, label: 'docker image inspect' });
         } catch {
@@ -255,7 +320,7 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
       }
       case 'compose': {
         await hasDocker(context);
-        const dir = workdir ? await cloneInto(source, workdir, context) : await fetchGit(source, { cacheDir, ...context });
+        const dir = await codeFor(source, { workdir, ref, cacheDir, context });
         emit({ type: 'phase', phase: 'start' });
         const compose = `docker compose -p ${name} ${source.file ? `-f ${quote(source.file)}` : ''}`;
         tidy.push(() => runCommand(`${compose} down --remove-orphans`, { ...context, cwd: dir, signal: undefined, label: 'docker compose down' }));
@@ -264,8 +329,8 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
       }
       case 'git':
       case 'archive': {
-        const fetched = workdir ? await cloneInto(source, workdir, context)
-          : source.kind === 'git' ? await fetchGit(source, { cacheDir, ...context }) : await fetchArchive(source, { cacheDir, ...context });
+        const fetched = source.kind === 'git' ? await codeFor(source, { workdir, ref, cacheDir, context }) : await fetchArchive(source, { cacheDir, ...context });
+        if (source.kind === 'archive') told({ kind: 'archive', label: source.url });
         const dir = source.dir ? path.join(fetched, source.dir) : fetched;
         if (!existsSync(dir)) throw new RunError(`${source.dir} isn't in the repository.`);
         emit({ type: 'phase', phase: 'start' });
@@ -281,7 +346,7 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
     }
     emit({ type: 'phase', phase: 'ready' });
     await waitReady(implementation, base, { signal, service, emit });
-    return { base, stop };
+    return { base, stop, code };
   } catch (error) {
     await stop();
     throw error instanceof RunError ? error : new RunError(error.message);

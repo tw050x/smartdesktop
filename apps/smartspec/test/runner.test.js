@@ -189,7 +189,7 @@ describe('a job', () => {
     server.close();
     const events = out.trim().split('\n').map((line) => JSON.parse(line));
     assert.equal(code, 0);
-    assert.deepEqual(events.map((one) => one.type), ['job', 'phase', 'log', 'phase', 'result', 'phase', 'done']);
+    assert.deepEqual(events.map((one) => one.type), ['job', 'code', 'phase', 'log', 'phase', 'result', 'phase', 'done']);
     assert.equal(events.at(-1).outcome, 'passed');
   });
 });

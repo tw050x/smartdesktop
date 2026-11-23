@@ -535,10 +535,10 @@ const schemaClaim = (schemaId) => `schema:${schemaId}`;
 // The session's tab is opened only when a call shows something in it (a proposal): reading and
 // organising schematics need none, and a tab opened for them waited for a schematic that never came,
 // which looked frozen. `tab()` opens it (windowForSession).
-// How a run of the checks went, as a line of context for the chat: "Ran 4 checks of “Orders”: 3
-// passed, 1 failed".
+// How a run of the checks went, as a line of context for the chat: "Ran 4 checks of “Orders” against
+// main at 1a2b3c4: 3 passed, 1 failed".
 function runNote(state, record) {
-  const of = `“${record.name}”${state.only ? `, ${contractPartName(record.contract, state.only)}` : ''}`;
+  const of = `“${record.name}”${state.only ? `, ${contractPartName(record.contract, state.only)}` : ''}${state.code?.label ? ` against ${state.code.label}` : ''}`;
   const { passed = 0, failed = 0, error = 0 } = state.counts ?? {};
   const ran = passed + failed + error;
   const text = state.outcome === 'error' && !Object.keys(state.results ?? {}).length
@@ -570,6 +570,7 @@ const schemasFor = (session, tab) => ({
   getProposal: (id, options) => store.getProposal(id, options),
   listComments: (id, options) => store.listComments(id, options),
   testResults: (id, options) => testRuns.resultsFor(id, options),
+  listTestRuns: (id, options) => testRuns.listFor(id, options),
   // The AI running the checks (run_checks); once the run ends, a line in the chat saying how it went.
   runChecks: (id, options) => testRuns.runAndWait(id, { ...options, onEnd: (state, record) => {
     const ctx = session.ctx;
@@ -790,11 +791,11 @@ const testRuns = createTestRuns({
     env: { ELECTRON_RUN_AS_NODE: '1' },
   },
   store,
-  onChange: (schemaId, version, state) => broadcast('test-run', { schemaId, version, state }),
+  onChange: (schemaId, run) => broadcast('test-run', { schemaId, run }),
 });
 store.events.on('changed', (schemaId) => testRuns.changed(schemaId));
-handle('test-run', (_ctx, schemaId, version, only) => testRuns.start(schemaId, version, only ?? null));
-handle('test-stop', (_ctx, schemaId, version) => testRuns.stop(schemaId, version));
+handle('test-run', (_ctx, schemaId, version, options) => testRuns.start(schemaId, version, { ...options, by: 'user' }));
+handle('test-stop', (_ctx, schemaId, runId) => testRuns.stop(schemaId, runId));
 handle('test-state', (_ctx, schemaId) => testRuns.stateOf(schemaId));
 // A schematic's workspace: where it is and how it stands, and showing it in the Finder (made
 // first if its first run hasn't cloned it yet, so there's somewhere to show).

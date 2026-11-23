@@ -22,6 +22,7 @@ import { contractPlain, contractStanding, renderContract } from './contract-view
 import { renderImplementation, sourceLine } from './implementation-view.js';
 import { SOURCE_LABELS, WORKSPACE_KINDS } from '../main/implementation.js';
 import { contractPartName, contractText } from '../main/contract.js';
+import { DEFAULT_TARGET, WORKSPACE_TARGET, runLine as historyLine, targetLabel, targetsOf, viewOf } from '../main/test-history.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
 // Where the window is, is a path of levels: the schema opened from home, then each embedded schema
@@ -139,9 +140,25 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   let aiWaiting = []; // the proposals an AI in another app is waiting on (`smartspec wait`)
   // Each schematic's contract check runs (see main/test-runs.js): by schematic, each version's (a
   // draft's id, or 'proposal') latest state, results and all.
+  // Each schematic's test runs (see main/test-history.js): by schematic, every run by its id.
   const testRuns = new Map();
   const versionOf = (here, shown) => (here.proposal ? 'proposal' : shown.draftId);
-  const runOf = (here, shown) => testRuns.get(here.schemaId)?.[versionOf(here, shown)] ?? null;
+  const runsOf = (schemaId) => [...(testRuns.get(schemaId)?.values() ?? [])];
+  // The code a tab's contract shows results for (`here.runTarget`): what the user picked, else for
+  // a proposal the workspace (a draft of the code, tested with the draft of the contract), else the
+  // default branch.
+  const targetFor = (here, shown) => here.runTarget ?? (here.proposal && here.workspace ? WORKSPACE_TARGET : DEFAULT_TARGET);
+  // What the contract shows: a run picked from the history (`here.viewRun`), or what the runs of
+  // this contract against that code add up to.
+  const runOf = (here, shown) => {
+    const runs = runsOf(here.schemaId);
+    if (here.viewRun) {
+      const picked = runs.find((run) => run.id === here.viewRun);
+      if (picked) return { ...picked, pending: picked.running ? picked.pending : [] };
+      here.viewRun = null;
+    }
+    return viewOf(runs, versionOf(here, shown), targetFor(here, shown));
+  };
   const runningKeys = (run) => new Set(run?.running ? run.pending : []);
   let homeShowing = false; // home's columns rise in only as it arrives, not each time it's drawn again
   // A schema shows one item with what links to it, or a list of everything in it. Remembered on this
@@ -964,7 +981,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
     here.choices = { shown };
     approvals = new Set(here.proposal ? shown.approved ?? [] : []);
-    if (!testRuns.has(here.schemaId)) testRuns.set(here.schemaId, (await api.testState?.(here.schemaId).catch(() => null)) ?? {});
+    if (!testRuns.has(here.schemaId)) testRuns.set(here.schemaId, new Map(((await api.testState?.(here.schemaId).catch(() => null)) ?? []).map((run) => [run.id, run])));
     here.runVersion = versionOf(here, shown);
     here.paintRun = null;
     here.workspace = shown.implementation && WORKSPACE_KINDS.includes(shown.implementation.source.kind)
@@ -1006,19 +1023,25 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const version = versionOf(here, shown);
     // Where its code is kept on this Mac to work on, if it's a repository's (see main/workspaces.js).
     const workspace = here.workspace;
-    const run = (only = null) => api.testRun(here.schemaId, version, only).catch((error) => {
-      here.runError = error.message;
-      here.paintRun?.();
-    });
+    const run = (only = null) => {
+      here.viewRun = null;
+      here.runError = null;
+      return api.testRun(here.schemaId, version, { only, target: targetFor(here, shown) }).catch((error) => {
+        here.runError = error.message;
+        here.paintRun?.();
+      });
+    };
+    const nameOf = (id) => contractPartName(shown.contract, id);
 
     const contractCard = () => {
       const state = runOf(here, shown);
+      const viewing = Boolean(here.viewRun);
       const running = runningKeys(state);
       const busy = Boolean(state?.running);
       const overall = contractStanding(shown.contract, state?.results ?? {}, running);
       // A run that never got to its checks (the code didn't start) says so in the header, once.
       if (state && !busy && state.outcome === 'error' && !Object.keys(state.results).length) Object.assign(overall, { status: 'error', label: 'Didn’t run' });
-      const canRun = Boolean(shown.implementation) && overall.total > 0;
+      const canRun = Boolean(shown.implementation) && overall.total > 0 && !viewing;
       const contract = h('div', { className: state?.stale ? 'run-stale' : '' });
       renderContract(contract, shown.contract, {
         titleOf: (link) => {
@@ -1032,15 +1055,17 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         folded: here.contractFolded,
         onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)),
       });
-      const action = busy
-        ? h('button', { type: 'button', className: 'run-all', disabled: state.phase === 'stopping', onclick: () => api.testStop(here.schemaId, version) }, state.phase === 'stopping' ? 'Stopping…' : 'Stop')
-        : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? 'Fetch the code, start it and run every check' : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => { here.runError = null; run(); } }, state ? 'Run again' : 'Run checks');
-      const said = runLine(state, here.runError, (id) => contractPartName(shown.contract, id));
+      const action = viewing ? null : busy
+        ? h('button', { type: 'button', className: 'run-all', disabled: state.phase === 'stopping', onclick: () => api.testStop(here.schemaId, state.id) }, state.phase === 'stopping' ? 'Stopping…' : 'Stop')
+        : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? `Run every check against ${targetLabel(targetFor(here, shown), state?.code)}` : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => run() }, state ? 'Run again' : 'Run checks');
+      const said = runSentence(state, here.runError, nameOf);
       const log = state?.log?.length ? logView(here, state) : null;
       return h('section', { className: 'test-card test-contract' },
         h('header', {}, h('h2', {}, 'Contract'), h('span', { className: `run-standing ${busy ? 'running' : overall.status}` }, busy ? 'Running…' : state ? overall.label : overall.total ? `${overall.total} ${overall.total === 1 ? 'check' : 'checks'}, not run` : 'No checks yet'), action),
+        viewing ? viewingLine(here, shown, state) : codeSwitch(here, shown, version, workspace),
         said && h('p', { className: `run-line${state?.outcome === 'error' || here.runError ? ' trouble' : ''}` }, said),
         log,
+        historyView(here, shown),
         contract);
     };
 
@@ -1094,26 +1119,91 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       h('div', { className: 'impl-local-actions' }, show));
   }
 
-  // What a run is doing, or how the last one went, in a line.
+  // What a run is doing, or how the last one went, in a line, naming the code it's against.
   const PHASES = { starting: 'Starting the runner…', fetch: 'Fetching the code…', start: 'Starting it…', ready: 'Waiting for it to be ready…', stop: 'Tidying up…', stopping: 'Stopping, and tidying up…' };
-  function runLine(state, error, nameOf) {
+  function runSentence(state, error, nameOf) {
     if (error) return error;
     if (!state) return null;
+    const against = state.code?.label ? ` against ${state.code.label}` : '';
     if (state.running) {
       if (state.phase === 'check') {
         const total = Object.keys(state.results).length + state.pending.length;
-        return `Running the checks: ${total - state.pending.length} of ${total} done.`;
+        return `Running the checks${against}: ${total - state.pending.length} of ${total} done.`;
       }
       return PHASES[state.phase] ?? 'Running…';
     }
     const when = new Date(state.endedAt ?? state.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const took = state.endedAt ? ` in ${Math.max(1, Math.round((state.endedAt - state.startedAt) / 1000))} s` : '';
+    const by = state.by === 'ai' ? ' by your AI' : '';
     const stale = state.stale ? ' The proposal has changed since, so these results are out of date.' : '';
-    if (state.outcome === 'error' && state.detail) return `${state.detail} Tried at ${when}.${stale}`;
+    if (state.outcome === 'error' && state.detail) return `At ${when}${by ? `,${by}` : ''}, tried${against}: ${state.detail}${stale}`;
     const { passed = 0, failed = 0, error: unchecked = 0 } = state.counts ?? {};
     const ran = passed + failed + unchecked;
     const parts = [`${passed} passed`, failed && `${failed} failed`, unchecked && `${unchecked} couldn’t be run`].filter(Boolean).join(', ');
-    return `Ran ${ran} ${ran === 1 ? 'check' : 'checks'}${state.only ? ` of ${nameOf(state.only)}` : ''} at ${when}${took}: ${parts}.${stale}`;
+    return `At ${when}${by ? `,${by}` : ''}, ran ${ran} ${ran === 1 ? 'check' : 'checks'}${state.only ? ` of ${nameOf(state.only)}` : ''}${against}${took}: ${parts}.${stale}`;
+  }
+
+  // Which code the contract is run against and shown for (the user's model: any code; the AI picks
+  // any branch, tag or commit, and those it has run show here too): the default branch, the
+  // workspace as it is (code not yet committed, a draft), and any other ref run on this contract.
+  function codeSwitch(here, shown, version, workspace) {
+    if (!shown.implementation) return null;
+    const runs = runsOf(here.schemaId);
+    const current = targetFor(here, shown);
+    const targets = [DEFAULT_TARGET, ...(workspace ? [WORKSPACE_TARGET] : []), ...targetsOf(runs, version).filter((one) => one !== DEFAULT_TARGET && one !== WORKSPACE_TARGET)];
+    if (targets.length < 2) return null;
+    const lastCode = (target) => runs.filter((run) => run.target === target && run.code).sort((a, b) => b.startedAt - a.startedAt)[0]?.code;
+    const label = (target) => (target === DEFAULT_TARGET ? (lastCode(target)?.ref ?? 'Default branch') : target === WORKSPACE_TARGET ? 'Workspace' : targetLabel(target));
+    return h('div', { className: 'code-switch', role: 'group', 'aria-label': 'The code to run against' },
+      h('span', { className: 'muted' }, 'Against'),
+      ...targets.map((target) => {
+        const button = h('button', { type: 'button', 'aria-pressed': String(target === current), title: target === WORKSPACE_TARGET ? 'The workspace as it is, uncommitted changes and all' : target === DEFAULT_TARGET ? 'The default branch, as pushed' : `${targetLabel(target)}, as pushed` }, label(target));
+        button.addEventListener('click', () => {
+          here.runTarget = target;
+          here.runError = null;
+          render();
+        });
+        return button;
+      }));
+  }
+
+  // Looking at a run from the history: what it was of and against, and the way back.
+  function viewingLine(here, shown, run) {
+    const back = h('button', { type: 'button', className: 'side-by-side' }, 'Back to the Latest');
+    back.addEventListener('click', () => {
+      here.viewRun = null;
+      render();
+    });
+    const of = run.version === 'proposal' ? 'the proposal' : run.version === shown.draftId ? 'this draft' : `another draft${shown.line?.includes(run.version) ? ` (draft ${shown.line.indexOf(run.version) + 1})` : ''}`;
+    return h('div', { className: 'run-viewing' },
+      h('span', {}, `A run of ${of} against ${run.code?.label ?? targetLabel(run.target)}${run.version === versionOf(here, shown) ? '' : ', shown on this one’s contract'}, from the history.`),
+      back);
+  }
+
+  // Every run of the schematic (the user's choice: all kept), newest first, folded: when, who, the
+  // contract and the code; one picked shows its results on the contract.
+  function historyView(here, shown) {
+    const runs = runsOf(here.schemaId).sort((a, b) => b.startedAt - a.startedAt);
+    if (!runs.length) return null;
+    const contractOf = (run) => (run.version === 'proposal' ? 'Proposal' : shown.line?.includes(run.version) ? `Draft ${shown.line.indexOf(run.version) + 1}` : 'A draft');
+    const when = (run) => new Date(run.startedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const details = h('details', { className: 'run-history', open: here.historyOpen ? '' : null },
+      h('summary', {}, 'History ', h('span', { className: 'muted' }, `${runs.length} ${runs.length === 1 ? 'run' : 'runs'}`)),
+      h('ol', {}, ...runs.map((run) => {
+        const row = h('button', { type: 'button', className: `run-row ${run.running ? 'running' : run.outcome === 'passed' ? 'passing' : run.outcome === 'failed' ? 'failing' : 'error'}`, 'aria-pressed': String(here.viewRun === run.id) },
+          h('span', { className: 'clause-dot', 'aria-hidden': 'true' }),
+          h('span', { className: 'run-when' }, when(run)),
+          h('span', { className: 'run-who' }, run.by === 'ai' ? 'AI' : 'You'),
+          h('span', { className: 'run-contract' }, `${contractOf(run)}${run.only ? `, ${contractPartName(shown.contract, run.only)}` : ''}${run.stale ? ' (since changed)' : ''}`),
+          h('span', { className: 'run-what' }, historyLine(run)));
+        row.addEventListener('click', () => {
+          here.viewRun = here.viewRun === run.id ? null : run.id;
+          render();
+        });
+        return h('li', {}, row);
+      })));
+    details.addEventListener('toggle', () => { here.historyOpen = details.open; });
+    return details;
   }
 
   // The run's log, folded: what the runner did and what the code wrote, kept at its end while it
@@ -1385,10 +1475,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const state = runOf(here, shown);
       if (!shown.implementation) return bar(`${name} has no implementation yet, so there's nothing to run its checks against.`);
       if (!state) return bar(`Run the checks to fetch the code of ${name}, start it and test it against its contract.`);
-      if (state.running) return bar(`Running the checks of ${name}. Stop tidies up whatever was started.`);
+      if (state.running) return bar(`Running the checks of ${name}${state.code?.label ? ` against ${state.code.label}` : ''}. Stop tidies up whatever was started.`);
       const overall = contractStanding(shown.contract, state.results);
       if (state.outcome === 'error' && !Object.keys(state.results).length) return bar(`The checks for ${name} couldn't be run: the contract card says why.`);
-      return bar(state.outcome === 'error' && state.detail ? `The checks for ${name} couldn't all be run.` : `The contract of ${name}: ${overall.label.toLowerCase()}.${state.stale ? ' The proposal has changed since it was run.' : ''}`);
+      return bar(state.outcome === 'error' && state.detail ? `The checks for ${name} couldn't all be run.` : `The contract of ${name}${state.code?.label ? ` against ${state.code.label}` : ''}: ${overall.label.toLowerCase()}.${state.stale ? ' The proposal has changed since it was run.' : ''}`);
     }
     // An earlier draft, with the way back to the latest.
     if (shown.number < shown.total) {
@@ -2570,19 +2660,20 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // A run moving on: the contract's card drawn again in Test mode; anywhere else showing that
   // version, drawn again once it ends (and now and then while it runs).
   let runRender = null;
-  api.onTestRun?.(({ schemaId, version, state }) => {
-    const runs = { ...(testRuns.get(schemaId) ?? {}) };
-    if (state) runs[version] = state;
-    else delete runs[version];
-    testRuns.set(schemaId, runs);
+  api.onTestRun?.(({ schemaId, run }) => {
+    if (!testRuns.has(schemaId)) testRuns.set(schemaId, new Map());
+    testRuns.get(schemaId).set(run.id, run);
     const here = top();
-    if (!here || here.schemaId !== schemaId || here.runVersion !== version) return;
-    if (state && !state.running) {
+    if (!here || here.schemaId !== schemaId) return;
+    if (modes.mode() === 'test' && here.paintRun) {
+      here.paintRun();
+      // Once it ends, the bottom bar too.
+      if (!run.running) render();
+    } else if (!run.running) {
       clearTimeout(runRender);
       runRender = null;
       render();
-    } else if (modes.mode() === 'test' && here.paintRun) here.paintRun();
-    else runRender ??= setTimeout(() => { runRender = null; render(); }, 600);
+    } else runRender ??= setTimeout(() => { runRender = null; render(); }, 600);
   });
   // While an AI in another app waits on a proposal, the chat offers it the go-ahead.
   const heardWaiting = (list) => {

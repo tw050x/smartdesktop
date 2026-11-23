@@ -4,15 +4,19 @@ import { RunError, defaultCacheDir, startImplementation } from './start.js';
 // A job: one schematic's checks (all of its contract, or a branch run again), with what to run them
 // against. Made by whatever holds the schematic (the app, later a server), so the runner needs
 // nothing else, here or on another machine:
-//   { version: 1, id, schematic?: { id, name, draftId }, implementation, workdir?, shapes, checks }
+//   { version: 1, id, schematic?: { id, name, draftId }, implementation, ref?, workdir?, shapes, checks }
 // `checks`, each { key: 'clause/check', clause, title?, setup, request, expect }, setup being the
 // steps above it in the tree in order (contract.js's checksUnder); `shapes`, the contract's, by id;
 // `workdir`, a folder on this machine to keep a git repository's or Compose file's code in, to be
-// worked on there: cloned into it once, then tested as it is (see start.js).
+// worked on there: cloned into it once, then tested as it is (see start.js); `ref`, else, the
+// branch, tag or commit of its code to run (default: the source's ref, else the default branch).
 //
 // What happens is told as events (the JSON lines the command line writes):
 //   { type: 'job', id, checks }                 started
 //   { type: 'phase', phase }                    fetch, start, ready, check, stop
+//   { type: 'code', kind, ref, commit, label }   the code being run: a branch and the commit it
+//                                               resolved to, the workspace (its branch, commit and
+//                                               files not committed), or an image, archive or URL
 //   { type: 'log', stream, text }               a line from the runner or what it started
 //   { type: 'result', key, outcome, detail?, status?, ms }
 //   { type: 'done', outcome, counts, detail? }  passed, failed (some check did), or error (couldn't
@@ -45,7 +49,7 @@ export async function runJob(job, { emit = () => {}, signal, cacheDir = defaultC
 
   let running;
   try {
-    running = await startImplementation(job.implementation, { jobId: job.id, cacheDir, workdir: job.workdir, emit, signal });
+    running = await startImplementation(job.implementation, { jobId: job.id, cacheDir, workdir: job.workdir, ref: job.ref, emit, signal });
   } catch (error) {
     const stopped = signal?.aborted;
     for (const check of job.checks) {
