@@ -22,7 +22,7 @@ import { contractPlain, contractStanding, renderContract } from './contract-view
 import { renderImplementation, sourceLine } from './implementation-view.js';
 import { SOURCE_LABELS, WORKSPACE_KINDS } from '../main/implementation.js';
 import { contractPartName, contractText } from '../main/contract.js';
-import { DEFAULT_TARGET, WORKSPACE_TARGET, runLine as historyLine, targetLabel, targetsOf, viewOf } from '../main/test-history.js';
+import { DEFAULT_TARGET, WORKSPACE_TARGET, refOf, runLine as historyLine, targetLabel, viewOf } from '../main/test-history.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
 // Where the window is, is a path of levels: the schema opened from home, then each embedded schema
@@ -288,6 +288,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // What scrolls inside each item keeps its place when the same thing is drawn again (a comment
       // flagged or written again redraws the page).
       const scrolled = place === showingPlace ? itemScrolls() : new Map();
+      // Test mode's page scrolls in a box of its own: drawn again (a run ending, the code switched),
+      // it keeps its place.
+      const testScroll = place === showingPlace ? el.querySelector('.test-page')?.scrollTop ?? 0 : 0;
       focusMenu.hidden = true;
       holdDragged();
       // Home arriving (at launch, or back from a schematic): its columns rise in, as SmartDoc's do.
@@ -316,6 +319,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         watchComments(overview?.comments ? overview : null, overview?.comments);
       }
       restoreItemScrolls(scrolled);
+      const testPage = el.querySelector('.test-page');
+      if (testPage && testScroll) testPage.scrollTop = testScroll;
       // A box of comments open before the page was drawn again opens again on the same thing.
       const full = el.querySelector('.focus-full[data-item]');
       if (full?.comments) watchComments(full, full.comments);
@@ -1041,7 +1046,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const overall = contractStanding(shown.contract, state?.results ?? {}, running);
       // A run that never got to its checks (the code didn't start) says so in the header, once.
       if (state && !busy && state.outcome === 'error' && !Object.keys(state.results).length) Object.assign(overall, { status: 'error', label: 'Didn’t run' });
-      const canRun = Boolean(shown.implementation) && overall.total > 0 && !viewing;
+      const canRun = Boolean(shown.implementation) && overall.total > 0 && !viewing && !branchUnknown(here, shown);
       const contract = h('div', { className: state?.stale ? 'run-stale' : '' });
       renderContract(contract, shown.contract, {
         titleOf: (link) => {
@@ -1057,7 +1062,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       });
       const action = viewing ? null : busy
         ? h('button', { type: 'button', className: 'run-all', disabled: state.phase === 'stopping', onclick: () => api.testStop(here.schemaId, state.id) }, state.phase === 'stopping' ? 'Stopping…' : 'Stop')
-        : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? `Run every check against ${targetLabel(targetFor(here, shown), state?.code)}` : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => run() }, state ? 'Run again' : 'Run checks');
+        : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? `Run every check against ${targetLabel(targetFor(here, shown), state?.code)}` : branchUnknown(here, shown) ? 'Pick the branch to run first: its repository doesn’t say which is its default' : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => run() }, state ? 'Run again' : 'Run checks');
       const said = runSentence(state, here.runError, nameOf);
       const log = state?.log?.length ? logView(here, state) : null;
       return h('section', { className: 'test-card test-contract' },
@@ -1143,29 +1148,85 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     return `At ${when}${by ? `,${by}` : ''}, ran ${ran} ${ran === 1 ? 'check' : 'checks'}${state.only ? ` of ${nameOf(state.only)}` : ''}${against}${took}: ${parts}.${stale}`;
   }
 
-  // Which code the contract is run against and shown for (the user's model: any code; the AI picks
-  // any branch, tag or commit, and those it has run show here too): the default branch, the
-  // workspace as it is (code not yet committed, a draft), and any other ref run on this contract.
+  // Which code the contract is run against and shown for (the user's choices: any code, the AI or
+  // the user picking it): a branch of its repository (Branch, its default the one the schematic
+  // names, else the repository's own; none when neither says, and one must be picked), or the
+  // workspace as it is (code not yet committed, a draft). The Branch menu lists the repository's
+  // branches, the default first, then its tags, each with how its last run went here.
   function codeSwitch(here, shown, version, workspace) {
-    if (!shown.implementation) return null;
+    if (!shown.implementation || !WORKSPACE_KINDS.includes(shown.implementation.source.kind)) return null;
+    // Read again for another version or repository.
+    const branchesKey = `${version}|${shown.implementation.source.url}|${shown.implementation.source.ref ?? ''}`;
+    if (here.branchesKey !== branchesKey) {
+      here.branchesKey = branchesKey;
+      here.branches = undefined;
+    }
+    if (here.branches === undefined) {
+      here.branches = { loading: true };
+      api.testBranches?.(here.schemaId, version)
+        .then((found) => { here.branches = found ?? { error: 'It has no repository to read branches from.' }; })
+        .catch((error) => { here.branches = { error: error.message }; })
+        .finally(() => here.paintRun?.());
+    }
+    const branches = here.branches;
     const runs = runsOf(here.schemaId);
     const current = targetFor(here, shown);
-    const targets = [DEFAULT_TARGET, ...(workspace ? [WORKSPACE_TARGET] : []), ...targetsOf(runs, version).filter((one) => one !== DEFAULT_TARGET && one !== WORKSPACE_TARGET)];
-    if (targets.length < 2) return null;
-    const lastCode = (target) => runs.filter((run) => run.target === target && run.code).sort((a, b) => b.startedAt - a.startedAt)[0]?.code;
-    const label = (target) => (target === DEFAULT_TARGET ? (lastCode(target)?.ref ?? 'Default branch') : target === WORKSPACE_TARGET ? 'Workspace' : targetLabel(target));
-    return h('div', { className: 'code-switch', role: 'group', 'aria-label': 'The code to run against' },
-      h('span', { className: 'muted' }, 'Against'),
-      ...targets.map((target) => {
-        const button = h('button', { type: 'button', 'aria-pressed': String(target === current), title: target === WORKSPACE_TARGET ? 'The workspace as it is, uncommitted changes and all' : target === DEFAULT_TARGET ? 'The default branch, as pushed' : `${targetLabel(target)}, as pushed` }, label(target));
-        button.addEventListener('click', () => {
-          here.runTarget = target;
-          here.runError = null;
-          render();
-        });
+    const onBranch = current !== WORKSPACE_TARGET;
+    const defaultName = branches.defaultBranch ?? runs.find((run) => run.target === DEFAULT_TARGET && run.code?.defaultBranch)?.code?.ref ?? null;
+    const picked = current === DEFAULT_TARGET ? defaultName : refOf(current);
+    const pick = (target) => {
+      here.runTarget = target;
+      here.runError = null;
+      render();
+    };
+    const branchButton = h('button', { type: 'button', className: 'branch-pick', 'aria-pressed': String(onBranch), 'aria-haspopup': 'menu', title: 'A branch or tag of its repository, as pushed' },
+      'Branch', h('span', { className: 'branch-name' }, picked ?? (branches.loading ? '…' : 'Choose one')), h('span', { className: 'branch-caret', 'aria-hidden': 'true' }, '▾'));
+    const workspaceButton = workspace && h('button', { type: 'button', 'aria-pressed': String(!onBranch), title: 'The workspace as it is, uncommitted changes and all' }, 'Workspace');
+    workspaceButton?.addEventListener('click', () => pick(WORKSPACE_TARGET));
+    const group = h('div', { className: 'code-switch', role: 'group', 'aria-label': 'The code to run against' },
+      h('span', { className: 'muted' }, 'Against'), branchButton, workspaceButton);
+
+    // The menu: the repository's branches and tags, and any other ref run here (a commit, say).
+    branchButton.addEventListener('click', () => {
+      if (group.querySelector('.branch-menu')) return group.querySelector('.branch-menu').remove();
+      const stood = (target) => viewOf(runs, version, target);
+      const item = (name, target, note) => {
+        const run = stood(target);
+        const status = !run ? '' : run.running ? 'running' : run.outcome === 'passed' ? 'passing' : run.outcome === 'failed' ? 'failing' : 'error';
+        const button = h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': String(target === current || (target === DEFAULT_TARGET && current === `ref:${name}`)), className: status },
+          h('span', { className: 'clause-dot', 'aria-hidden': 'true' }), h('code', {}, name), note && h('span', { className: 'muted' }, note));
+        button.addEventListener('click', () => pick(target));
         return button;
-      }));
+      };
+      const targetOfName = (name) => (name === branches.defaultBranch ? DEFAULT_TARGET : `ref:${name}`);
+      const known = new Set([...(branches.branches ?? []), ...(branches.tags ?? [])]);
+      const others = runs.filter((run) => run.version === version && refOf(run.target) && !known.has(refOf(run.target))).map((run) => refOf(run.target)).filter((one, index, all) => all.indexOf(one) === index);
+      const menu = h('div', { className: 'branch-menu', role: 'menu' },
+        branches.loading && h('p', { className: 'muted' }, 'Reading its branches…'),
+        branches.error && h('p', { className: 'trouble' }, `Its branches couldn’t be read: ${branches.error}`),
+        !branches.loading && !branches.error && !branches.defaultBranch && h('p', { className: 'muted' }, 'Its repository doesn’t say which branch is its default: pick the one to run.'),
+        (branches.branches ?? []).length > 0 && h('h4', {}, 'Branches'),
+        ...(branches.branches ?? []).map((name) => item(name, targetOfName(name), name === branches.defaultBranch ? (branches.named ? 'the schematic’s' : 'default') : null)),
+        (branches.tags ?? []).length > 0 && h('h4', {}, 'Tags'),
+        ...(branches.tags ?? []).map((name) => item(name, `ref:${name}`)),
+        others.length > 0 && h('h4', {}, 'Run here before'),
+        ...others.map((name) => item(name, `ref:${name}`)));
+      group.append(menu);
+      const close = (event) => {
+        if (event.type === 'keydown' && event.key !== 'Escape') return;
+        if (event.type === 'pointerdown' && group.contains(event.target)) return;
+        menu.remove();
+        document.removeEventListener('pointerdown', close, true);
+        document.removeEventListener('keydown', close, true);
+      };
+      document.addEventListener('pointerdown', close, true);
+      document.addEventListener('keydown', close, true);
+    });
+    return group;
   }
+
+  // Whether the code to run is still to be picked: the default branch, when nothing says which it is.
+  const branchUnknown = (here, shown) => targetFor(here, shown) === DEFAULT_TARGET && here.branches && !here.branches.loading && !here.branches.error && !here.branches.defaultBranch;
 
   // Looking at a run from the history: what it was of and against, and the way back.
   function viewingLine(here, shown, run) {
@@ -1870,11 +1931,25 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         contract.classList.add('side-marks');
       }
       body.append(contract);
+      // Under review, the proposal's checks can be run from here (the user's choice): the window
+      // goes to Test mode, where runs are shown, and runs them there, against the workspace for code
+      // that has one (a draft of the code, tested with the draft of the contract).
+      if (here.proposal && shown.implementation && contractStanding(shown.contract).total > 0 && api.testRun) {
+        const runHere = h('button', { type: 'button', className: 'side-by-side run-from-card', title: 'Run its checks in Test mode' }, 'Run Checks');
+        runHere.addEventListener('click', () => {
+          modes.set('test');
+          here.viewRun = null;
+          api.testRun(here.schemaId, 'proposal', { target: targetFor(here, shown) }).catch((error) => { here.runError = error.message; }).finally(() => render());
+          render();
+        });
+        foot.runHere = runHere;
+      }
       if (was !== null) {
         foot.push(diffSwitch(here, CONTRACT, showing));
         foot.push(h('button', { type: 'button', className: 'side-by-side', title: 'Open it beside the draft it changes, across the window', onclick: () => openCompareOf(here, shown, { id: CONTRACT, title: 'Contract', markdown: contractText(shown.contract) }, contractText(was)) }, 'Side by side'));
         if (full) here.fullDiff = { showing, basedOn: shown.line.indexOf(shown.basedOn) + 1 };
       }
+      if (foot.runHere) foot.push(foot.runHere);
       if (shown.parameters.length) {
         body.append(h('h3', { className: 'pane-subhead' }, 'Parameters'), h('dl', { className: 'parameters' }, ...shown.parameters.flatMap((parameter) => [
           h('dt', {}, parameter.name),

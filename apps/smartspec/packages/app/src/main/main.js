@@ -797,6 +797,7 @@ store.events.on('changed', (schemaId) => testRuns.changed(schemaId));
 handle('test-run', (_ctx, schemaId, version, options) => testRuns.start(schemaId, version, { ...options, by: 'user' }));
 handle('test-stop', (_ctx, schemaId, runId) => testRuns.stop(schemaId, runId));
 handle('test-state', (_ctx, schemaId) => testRuns.stateOf(schemaId));
+handle('test-branches', (_ctx, schemaId, version) => testRuns.branchesOf(schemaId, version));
 // A schematic's workspace: where it is and how it stands, and showing it in the Finder (made
 // first if its first run hasn't cloned it yet, so there's somewhere to show).
 handle('workspace', async (_ctx, schemaId, name) => workspaces.info(schemaId, name));
@@ -875,15 +876,27 @@ async function acceptProposal(ctx, schemaId) {
   const notApproved = !unapproved.length ? ''
     : unapproved.length === keys.length ? `You haven’t approved any of the ${keys.length === 1 ? 'change' : `${keys.length} changes`}: ${unapproved.length === 1 ? 'it is' : 'they are'} accepted as proposed. `
       : `You haven’t approved ${unapproved.length === 1 ? 'the change to' : `${unapproved.length} of the ${keys.length} changes:`} ${list(named)}${unapproved.length === 1 ? ', which is' : ', which are'} accepted as proposed. `;
+  // How its checks stand: said, never in the way (the user's choice: a contract can be written
+  // ahead of its code, so failing checks don't stop it being accepted).
+  const standing = await testRuns.proposalStanding(schemaId).catch(() => ({ state: 'none' }));
+  const checks = {
+    none: '',
+    'not-run': `Its checks haven’t been run on this proposal. `,
+    running: `Its checks are running now, against ${standing.code}. `,
+    'didnt-run': `Its checks couldn’t be run against ${standing.code}${standing.detail ? `: ${standing.detail.replace(/\.$/, '')}` : ''}. `,
+    failing: `${[standing.failed && `${standing.failed} of its ${standing.total} checks fail`, standing.unchecked && `${standing.unchecked} couldn’t be run`, standing.missing && `${standing.missing} haven’t been run`].filter(Boolean).join(', ')} against ${standing.code}. `.replace(/^./, (one) => one.toUpperCase()),
+    passing: `All ${standing.total} of its checks pass against ${standing.code}. `,
+  }[standing.state] ?? '';
+  const warned = ['not-run', 'running', 'didnt-run', 'failing'].includes(standing.state);
   const question = !waiting
-    ? { title: `Accept ${what}?`, message: `${notApproved}${becomes}`, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Accept', choice: 'accept', kind: 'primary' }] }
+    ? { title: `Accept ${what}?`, message: `${checks}${notApproved}${becomes}`, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: warned ? 'Accept anyway' : 'Accept', choice: 'accept', kind: 'primary' }] }
     : sent === waiting
       // Sent to an AI in another app, which may be at work on them, or may have stopped.
       ? {
         title: `Accept ${what}?`,
         message: `The AI hasn’t answered the ${many(sent)} you sent it yet. If it isn’t working on ${sent === 1 ? 'it' : 'them'}, ask the AI here.`,
         points: quoted,
-        after: `${notApproved}${becomes}`,
+        after: `${checks}${notApproved}${becomes}`,
         buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, ask, { label: 'Keep waiting', choice: 'cancel', kind: 'primary' }],
       }
       : aiWaits
@@ -891,7 +904,7 @@ async function acceptProposal(ctx, schemaId) {
           title: `Accept ${what}?`,
           message: `You have ${many(waiting)} the AI hasn’t answered. Send ${waiting === 1 ? 'it' : 'them'} to the AI, to deal with before you accept?`,
           points: quoted,
-          after: `${notApproved}${alsoChanges}`.trim() || null,
+          after: `${checks}${notApproved}${alsoChanges}`.trim() || null,
           buttons: [{ label: 'Cancel', choice: 'cancel', apart: true }, { label: 'Accept anyway', choice: 'accept' }, { label: 'Send to AI', choice: 'send', kind: 'primary' }],
         }
         // No AI in another app is waiting to be sent them: the chat's AI is asked.
@@ -899,7 +912,7 @@ async function acceptProposal(ctx, schemaId) {
           title: `Accept ${what}?`,
           message: `You have ${many(waiting)} the AI hasn’t answered.`,
           points: quoted,
-          after: `${notApproved}${becomes}`,
+          after: `${checks}${notApproved}${becomes}`,
           buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, { label: 'Cancel', choice: 'cancel' }, { ...ask, kind: 'primary' }],
         };
   const choice = await confirm(ctx?.win, question);

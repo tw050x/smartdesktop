@@ -146,10 +146,14 @@ async function fetchGit(source, { cacheDir, ref, ...context }) {
   } else {
     await git(`remote set-url origin ${quote(source.url)}`);
   }
+  // The default branch is what the repository's HEAD names: never guessed (the user's choice), so
+  // with nothing named it has to be.
   let name = ref;
   if (!name) {
     const head = await gitOut(dir, ['ls-remote', '--symref', 'origin', 'HEAD'], context.env);
-    name = head?.match(/^ref: refs\/heads\/(\S+)\s+HEAD/m)?.[1] ?? null;
+    if (head === null) throw new RunError(`${source.url} couldn't be read: the repository may not exist, or it needs a login this machine doesn't have.`);
+    name = head.match(/^ref: refs\/heads\/(\S+)\s+HEAD/m)?.[1] ?? null;
+    if (!name) throw new RunError(`${source.url} doesn't say which branch is its default, so there's none to run: name the branch, tag or commit to run.`);
   }
   try {
     await git(`fetch --depth 1 --quiet origin ${quote(name ?? 'HEAD')}`, `git fetch ${source.url} ${name ?? '(its default branch)'}`);

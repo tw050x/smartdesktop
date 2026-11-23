@@ -1649,3 +1649,23 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .run-row.error > .clause-dot { background: #d68c00; }
 .run-row.running > .clause-dot { background: var(--accent); animation: run-breathe 1.2s ease-in-out infinite; }
 .run-row > .run-who { color: var(--muted); }
+
+/* The Branch menu (codeSwitch in schemas.js): the repository's branches, the default first, then its
+   tags, each with how its last run went. */
+.code-switch { position: relative; }
+.code-switch > .branch-pick { display: inline-flex; align-items: center; gap: 6px; }
+.branch-pick > .branch-name { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.branch-pick > .branch-caret { color: var(--muted); font-size: 10px; }
+.branch-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 52px; display: flex; flex-direction: column; min-width: 240px; max-width: 420px; max-height: 320px; padding: 6px; overflow: auto; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22); }
+.branch-menu h4 { margin: 6px 8px 2px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.branch-menu p { margin: 4px 8px; font-size: 12px; }
+.branch-menu p.trouble { color: light-dark(#8a5a00, #e3b341); }
+.branch-menu button { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: default; }
+.branch-menu button:hover { background: var(--button-hover); }
+.branch-menu button[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.branch-menu button code { flex: 1; min-width: 0; overflow: hidden; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.branch-menu button > .clause-dot { transform: none; }
+.branch-menu button.passing > .clause-dot { background: var(--decided-text); }
+.branch-menu button.failing > .clause-dot { background: var(--removed); }
+.branch-menu button.error > .clause-dot { background: #d68c00; }
+.branch-menu button.running > .clause-dot { background: var(--accent); }

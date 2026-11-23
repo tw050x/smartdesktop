@@ -159,6 +159,27 @@ describe('running a schematic\'s checks', () => {
   });
 });
 
+describe('a proposal\'s checks, as accepting it says', () => {
+  test('stand not run, failing or passing, and out of date once it changes', { timeout: 30_000 }, async () => {
+    const store = fakeStore();
+    const { testRuns, next } = runsWith(store);
+    assert.deepEqual(await testRuns.proposalStanding('s1'), { state: 'none' });
+    store.state.proposal = { name: 'Thing', contract: contract(), implementation: { source: { kind: 'running', url } } };
+    assert.deepEqual(await testRuns.proposalStanding('s1'), { state: 'not-run', total: 2 });
+    let done = next();
+    await testRuns.start('s1', 'proposal');
+    await done;
+    assert.deepEqual(await testRuns.proposalStanding('s1'), { state: 'failing', total: 2, failed: 1, unchecked: 0, missing: 0, code: url });
+    store.state.proposal = { ...store.state.proposal, contract: { children: [contract().children[0]] } };
+    await testRuns.changed('s1');
+    assert.equal((await testRuns.proposalStanding('s1')).state, 'not-run', 'a run of it as it was says nothing now');
+    done = next();
+    await testRuns.start('s1', 'proposal');
+    await done;
+    assert.deepEqual(await testRuns.proposalStanding('s1'), { state: 'passing', total: 1, code: url });
+  });
+});
+
 describe('the code a run is against', () => {
   // A repository holding the service in services/thing, as the schematic's dir says: /b is broken
   // on main, fixed on the branch fix.
@@ -323,3 +344,30 @@ describe('the AI running the checks', () => {
     assert.equal(describeStep('list_test_runs', {}), 'Looking through the test runs');
   });
 });
+
+describe('a repository\'s branches', () => {
+  test('are read from it, its default first, whatever it\'s called, and tags newest first', () => refsTest());
+});
+
+async function refsTest() {
+  const { refsOf } = await import('../packages/app/src/main/test-runs.js');
+  const repo = path.join(temp, 'trunk-repo');
+  mkdirSync(repo, { recursive: true });
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: repo });
+  git('init', '--quiet', '--initial-branch=trunk');
+  writeFileSync(path.join(repo, 'a.txt'), 'a');
+  git('add', '.');
+  git('commit', '--quiet', '-m', 'One');
+  git('branch', 'feature-x');
+  for (const tag of ['v1', 'v2', 'v10']) git('tag', tag);
+  const refs = await refsOf(`file://${repo}`);
+  assert.deepEqual(refs, { defaultBranch: 'trunk', branches: ['trunk', 'feature-x'], tags: ['v10', 'v2', 'v1'] });
+
+  // A repository whose HEAD names no branch there is: no default, so none is guessed.
+  const bare = path.join(temp, 'headless.git');
+  execFileSync('git', ['clone', '--quiet', '--bare', repo, bare]);
+  execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/gone'], { cwd: bare });
+  assert.equal((await refsOf(`file://${bare}`)).defaultBranch, null);
+  const { startImplementation } = await import('../packages/runner/lib/start.js');
+  await assert.rejects(startImplementation({ source: { kind: 'git', url: `file://${bare}` }, start: { port: 1, commands: ['true'] } }, { cacheDir: path.join(temp, 'headless-cache') }), /doesn't say which branch is its default/);
+}

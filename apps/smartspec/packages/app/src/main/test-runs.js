@@ -23,7 +23,19 @@ const SAVED_LOG_LINES = 300;
 const SEND_EVERY = 120;
 
 const basisOf = (record) => createHash('sha256').update(JSON.stringify([record.contract ?? '', record.implementation ?? null])).digest('hex');
-const keyOf = (schemaId, version) => `${schemaId}\n${version}`;
+
+// A repository's branches and tags, and its default branch (what its HEAD names), read from it
+// without cloning (`git ls-remote`): { defaultBranch, branches, tags }, defaultBranch null when it
+// doesn't say. Never asks for a login.
+export async function refsOf(url, env = process.env) {
+  const out = await new Promise((resolve, reject) => {
+    execFile('git', ['ls-remote', '--symref', url, 'HEAD', 'refs/heads/*', 'refs/tags/*'], { env: { ...env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never' }, timeout: 20_000, encoding: 'utf8' }, (error, stdout, stderr) => (error ? reject(new Error((stderr || error.message).trim().split('\n').at(-1))) : resolve(stdout)));
+  });
+  const defaultBranch = out.match(/^ref: refs\/heads\/(\S+)\s+HEAD$/m)?.[1] ?? null;
+  const names = (prefix) => [...new Set([...out.matchAll(new RegExp(`\\s${prefix}(\\S+?)(\\^\\{\\})?$`, 'gm'))].map((match) => match[1]))];
+  const branches = names('refs/heads/');
+  return { defaultBranch, branches: defaultBranch ? [defaultBranch, ...branches.filter((one) => one !== defaultBranch)] : branches, tags: names('refs/tags/').sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) };
+}
 
 // The user's own PATH, from their login shell: an app opened from the Finder has only the system's,
 // so neither docker nor npm (Homebrew's, nvm's) would be found.
@@ -371,6 +383,40 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, o
         ...(run.stale ? { stale: true } : {}),
         line: runLine(run),
       }));
+    },
+
+    // How a proposal's checks stand, for the accept confirmation (the user's choice: it warns,
+    // never blocks, as a contract can be written ahead of its code): its latest run's code, and what
+    // its runs against that code add up to. { state: 'none' | 'not-run' | 'running' | 'didnt-run' |
+    // 'failing' | 'passing', total, failed, unchecked, code, detail }.
+    async proposalStanding(schemaId) {
+      const proposal = await store.getProposal(schemaId).catch(() => null);
+      if (!proposal?.implementation) return { state: 'none' };
+      const total = contractJob(proposal.contract).checks.length;
+      if (!total) return { state: 'none' };
+      const runs = [...runsOf(schemaId).values()].filter((run) => run.version === 'proposal' && !run.stale).sort((a, b) => b.startedAt - a.startedAt);
+      if (!runs.length) return { state: 'not-run', total };
+      const view = viewOf(runs, 'proposal', runs[0].target);
+      const code = view.code?.label ?? targetLabel(view.target);
+      if (view.running) return { state: 'running', total, code };
+      const outcomes = contractJob(proposal.contract).checks.map((check) => view.results[check.key]?.outcome);
+      const failed = outcomes.filter((one) => one === 'failed').length;
+      const unchecked = outcomes.filter((one) => one === 'error').length;
+      const missing = outcomes.filter((one) => !one).length;
+      if (!failed && !unchecked && missing === total) return { state: 'didnt-run', total, code, detail: view.detail };
+      if (failed || unchecked || missing) return { state: 'failing', total, failed, unchecked, missing, code };
+      return { state: 'passing', total, code };
+    },
+
+    // The branches and tags a draft's or the proposal's code can be run at, for the window's Branch
+    // menu: its repository's (see refsOf), its default the one the schematic names (its ref), else
+    // the repository's own; null default when neither says, and the user picks one.
+    async branchesOf(schemaId, version) {
+      const record = await recordOf(schemaId, version);
+      const source = record?.implementation?.source;
+      if (!source || !WORKSPACE_KINDS.includes(source.kind)) return null;
+      const refs = await refsOf(source.url, { ...process.env, PATH: await userPath() });
+      return { ...refs, defaultBranch: source.ref ?? refs.defaultBranch, named: Boolean(source.ref) };
     },
 
     // As the app quits: each runner told to stop, so it tidies up.
