@@ -32,4 +32,6 @@ const controller = new AbortController();
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => controller.abort());
 
 const done = await runJob(job, { emit: (event) => process.stdout.write(`${JSON.stringify(event)}\n`), signal: controller.signal });
-process.exitCode = { passed: 0, failed: 1 }[done.outcome] ?? 2;
+// Everything it started is stopped by now: it exits once its last line is out, so nothing left
+// waiting (a timer, a socket) holds it open.
+process.stdout.write('', () => process.exit({ passed: 0, failed: 1 }[done.outcome] ?? 2));

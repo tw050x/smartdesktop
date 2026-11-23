@@ -1616,3 +1616,11 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .check.passed .check-detail { display: none; }
 @keyframes run-breathe { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { :is(.clause, .contract-node, .node-entry).running .clause-dot { animation: none; } }
+
+/* The workspace (workspaceView in schemas.js): where its code is kept on this Mac to work on. */
+.impl-local { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13px; }
+.impl-local > .pane-subhead { margin: 0 0 6px; }
+.impl-local > p { margin: 0 0 10px; color: var(--text-2); }
+.impl-local code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.impl-local.trouble > p { color: light-dark(#8a5a00, #e3b341); }
+.impl-local-actions { display: flex; flex-wrap: wrap; gap: 8px; }

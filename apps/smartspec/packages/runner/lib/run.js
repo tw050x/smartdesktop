@@ -7,7 +7,8 @@ import { RunError, defaultCacheDir, startImplementation } from './start.js';
 //   { version: 1, id, schematic?: { id, name, draftId }, implementation, workdir?, shapes, checks }
 // `checks`, each { key: 'clause/check', clause, title?, setup, request, expect }, setup being the
 // steps above it in the tree in order (contract.js's checksUnder); `shapes`, the contract's, by id;
-// `workdir`, a folder on this machine standing in for the implementation's repository or archive.
+// `workdir`, a folder on this machine to keep a git repository's or Compose file's code in, to be
+// worked on there: cloned into it once, then tested as it is (see start.js).
 //
 // What happens is told as events (the JSON lines the command line writes):
 //   { type: 'job', id, checks }                 started

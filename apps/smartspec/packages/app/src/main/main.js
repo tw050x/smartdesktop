@@ -16,6 +16,7 @@ import { createStore } from './store.js';
 import { contractPartName } from './contract.js';
 import { createLayouts } from './layouts.js';
 import { createTestRuns } from './test-runs.js';
+import { createWorkspaces, WORKSPACE_KINDS } from './workspaces.js';
 import { createUpdates } from './updates.js';
 import { WaitRefused, createWaits } from './waits.js';
 
@@ -538,7 +539,12 @@ const schemasFor = (session, tab) => ({
   list: async () => (await store.list()).map((one) => ({ ...one, icon: itemIcons.get(one.id)?.icon ?? null })),
   getSchema: async (id, options) => {
     const shown = await store.getSchema(id, options);
-    return shown && { ...shown, icon: itemIcons.get(id)?.icon ?? null };
+    if (!shown) return shown;
+    // Where its code is kept to work on, on the user's Mac (see workspaces.js).
+    const workspace = shown.implementation && WORKSPACE_KINDS.includes(shown.implementation.source.kind)
+      ? await workspaces.info(id, shown.name).then(({ dir, cloned, branch, changes }) => ({ path: dir, cloned, ...(cloned ? { branch, changes } : {}) }))
+      : null;
+    return { ...shown, icon: itemIcons.get(id)?.icon ?? null, ...(workspace ? { workspace } : {}) };
   },
   // Setting the icon of the schematic the window shows (set_icon): the user's choice is kept over
   // the AI's.
@@ -551,6 +557,7 @@ const schemasFor = (session, tab) => ({
   getItem: (id, itemId, options) => store.getItem(id, itemId, options),
   getProposal: (id, options) => store.getProposal(id, options),
   listComments: (id, options) => store.listComments(id, options),
+  testResults: (id, options) => testRuns.resultsFor(id, options),
   listGroups: () => store.listGroups(),
   createGroup: (name, folderId) => store.createGroup(name, folderId),
   renameGroup: (id, name) => store.renameGroup(id, name),
@@ -755,7 +762,11 @@ store.events.on('changed', () => broadcast('schemas-changed'));
 // Running a schematic's contract checks (see test-runs.js): the runner, carried in the app's
 // resources as the smartspec command is (packages/runner while developing), run with the app's own
 // Node; each run's progress and results sent to every window.
+// Each schematic's workspace on this Mac, a clone of its code to work on (see workspaces.js).
+const workspaces = createWorkspaces(app.getPath('userData'));
 const testRuns = createTestRuns({
+  dir: path.join(app.getPath('userData'), 'test-results'),
+  workspaces,
   runner: {
     command: process.execPath,
     args: [path.join(app.isPackaged ? path.join(process.resourcesPath, 'runner') : fileURLToPath(new URL('../../../runner', import.meta.url)), 'cli.js')],
@@ -768,6 +779,17 @@ store.events.on('changed', (schemaId) => testRuns.changed(schemaId));
 handle('test-run', (_ctx, schemaId, version, only) => testRuns.start(schemaId, version, only ?? null));
 handle('test-stop', (_ctx, schemaId, version) => testRuns.stop(schemaId, version));
 handle('test-state', (_ctx, schemaId) => testRuns.stateOf(schemaId));
+// A schematic's workspace: where it is and how it stands, and showing it in the Finder (made
+// first if its first run hasn't cloned it yet, so there's somewhere to show).
+handle('workspace', async (_ctx, schemaId, name) => workspaces.info(schemaId, name));
+handle('workspace-show', async (_ctx, schemaId, name) => {
+  const { dir, cloned } = await workspaces.info(schemaId, name);
+  if (cloned) shell.showItemInFolder(dir);
+  else {
+    fs.mkdirSync(dir, { recursive: true });
+    shell.openPath(dir);
+  }
+});
 
 // Asks first when there's no way back: the AI would have to write the proposal again.
 async function discardProposal(ctx, schemaId) {

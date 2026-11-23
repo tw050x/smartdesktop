@@ -22,6 +22,8 @@
 // runs it (this Mac's Keychain), never in the schematic.
 
 export const SOURCE_KINDS = ['image', 'compose', 'git', 'archive', 'running'];
+// The kinds whose code is kept in a workspace on this Mac, to be worked on there (see workspaces.js).
+export const WORKSPACE_KINDS = ['git', 'compose'];
 export const SOURCE_LABELS = { image: 'Docker image', compose: 'Docker Compose', git: 'Git repository', archive: 'Archive', running: 'Already running' };
 const BUILT = ['git', 'archive'];
 const LABEL = /^[\w.-]+$/;

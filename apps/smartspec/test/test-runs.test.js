@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, describe, test } from 'node:test';
 import { createTestRuns } from '../packages/app/src/main/test-runs.js';
+import { createWorkspaces } from '../packages/app/src/main/workspaces.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runner = { command: process.execPath, args: [path.join(here, '../packages/runner/cli.js')], env: {} };
@@ -133,5 +137,104 @@ describe('running a schematic\'s checks', () => {
     assert.equal(states.proposal, undefined);
     assert.equal(states.d2.version, 'd2');
     assert.equal(states.d2.counts.passed, 1);
+  });
+});
+
+describe('a schematic\'s workspace', () => {
+  // A repository holding the service in services/thing, as the schematic's dir says: /b is broken.
+  const temp = mkdtempSync(path.join(os.tmpdir(), 'smartspec-workspace-'));
+  after(() => rmSync(temp, { recursive: true, force: true }));
+  const repo = path.join(temp, 'repo');
+  const server = (broken) => `require('node:http').createServer((req, res) => { res.writeHead(req.url === '/b' && ${broken} ? 500 : 200); res.end('{}'); }).listen(Number(process.env.PORT), '127.0.0.1');`;
+  mkdirSync(path.join(repo, 'services', 'thing'), { recursive: true });
+  writeFileSync(path.join(repo, 'services', 'thing', 'server.js'), server(true));
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: repo });
+  git('init', '--quiet', '--initial-branch=main');
+  git('add', '.');
+  git('commit', '--quiet', '-m', 'First');
+
+  const gitStore = async () => {
+    const store = fakeStore();
+    const port = await new Promise((resolve) => { const s = http.createServer().listen(0, '127.0.0.1', () => { const { port: p } = s.address(); s.close(() => resolve(p)); }); });
+    store.state.drafts.d1.implementation = { source: { kind: 'git', url: `file://${repo}`, ref: 'main', dir: 'services/thing' }, start: { port, env: { PORT: String(port) }, commands: ['node server.js'] }, ready: { path: '/a', timeout: 20 } };
+    store.getSchema = async (_id, { draftId } = {}) => ({ draftId: draftId ?? 'd1', number: 1, total: 1, ...store.state.drafts.d1 });
+    return store;
+  };
+  const workspaces = createWorkspaces(path.join(temp, 'data'), { home: path.join(temp, 'home') });
+  const withWorkspace = (store, results) => {
+    let done;
+    const testRuns = createTestRuns({ runner, store, dir: results, workspaces, onChange: (_s, _v, state) => state && !state.running && done?.(state) });
+    return { testRuns, finished: () => new Promise((resolve) => { done = resolve; }) };
+  };
+
+  test('is cloned by the first run, then tested as it is, changes and all', { timeout: 30_000 }, async () => {
+    const store = await gitStore();
+    const before = await workspaces.info('s1', 'Thing');
+    assert.equal(before.cloned, false);
+    assert.equal(before.dir, path.join(temp, 'home', 'workspaces', 'thing-s1'));
+
+    const { testRuns, finished } = withWorkspace(store);
+    let done = finished();
+    const started = await testRuns.start('s1', 'd1');
+    assert.equal(started.workdir, before.dir);
+    let state = await done;
+    assert.deepEqual(state.counts, { passed: 1, failed: 1, error: 0 }, JSON.stringify(state.log));
+    const cloned = await workspaces.info('s1', 'Renamed');
+    assert.equal(cloned.dir, before.dir, 'its place stays as the schematic is renamed');
+    assert.equal(cloned.cloned, true);
+    assert.equal(cloned.branch, 'main');
+    assert.equal(cloned.changes, 0);
+
+    // Fixed in the workspace, not committed: the next run tests the fix, nothing reset.
+    writeFileSync(path.join(cloned.dir, 'services', 'thing', 'server.js'), server(false));
+    assert.equal((await workspaces.info('s1')).changes, 1);
+    done = finished();
+    await testRuns.start('s1', 'd1');
+    state = await done;
+    assert.deepEqual(state.counts, { passed: 2, failed: 0, error: 0 }, JSON.stringify(state.log));
+    assert.ok(state.log.some((line) => line.text === `Using the code in ${cloned.dir} as it is`));
+  });
+
+  test('results are saved, read again after a restart, and given to the AI', { timeout: 30_000 }, async () => {
+    const results = mkdtempSync(path.join(os.tmpdir(), 'smartspec-results-'));
+    after(() => rmSync(results, { recursive: true, force: true }));
+    const store = await gitStore();
+    const first = createWorkspaces(path.join(temp, 'data2'), { home: path.join(temp, 'home2') });
+    let done;
+    const testRuns = createTestRuns({ runner, store, dir: results, workspaces: first, onChange: (_s, _v, state) => state && !state.running && done?.(state) });
+    const finished = new Promise((resolve) => { done = resolve; });
+    await testRuns.start('s1', 'd1');
+    await finished;
+
+    const again = createTestRuns({ runner, store, dir: results, workspaces: first });
+    const saved = again.stateOf('s1').d1;
+    assert.equal(saved.running, false);
+    assert.equal(saved.results['b-works/ok'].outcome, 'failed');
+
+    const given = await again.resultsFor('s1');
+    assert.equal(given.ran, true);
+    assert.equal(given.version, 'draft 1 of 1');
+    assert.deepEqual(given.counts, { passed: 1, failed: 1, couldnt_be_run: 0, not_run: 0 });
+    assert.deepEqual(given.passed, ['a-works/ok']);
+    assert.equal(given.problems[0].promise, 'B works');
+    assert.equal(given.problems[0].part, '/b');
+    assert.equal(given.problems[0].request, 'GET /b');
+    assert.match(given.problems[0].detail, /Expected status 200, got 500/);
+    assert.match(given.code_from, /workspace/);
+    assert.equal((await createTestRuns({ runner, store }).resultsFor('s1')).ran, false);
+  });
+
+  test('a clone that fails leaves nothing behind, saying why', { timeout: 30_000 }, async () => {
+    const store = await gitStore();
+    store.state.drafts.d1.implementation.source.url = `file://${path.join(temp, 'nowhere')}`;
+    const spaces = createWorkspaces(path.join(temp, 'data3'), { home: path.join(temp, 'home3') });
+    let done;
+    const testRuns = createTestRuns({ runner, store, workspaces: spaces, onChange: (_s, _v, state) => state && !state.running && done?.(state) });
+    const finished = new Promise((resolve) => { done = resolve; });
+    await testRuns.start('s1', 'd1');
+    const state = await finished;
+    assert.equal(state.outcome, 'error');
+    assert.match(state.detail, /couldn't be cloned/);
+    assert.equal(existsSync(spaces.pathFor('s1', 'Thing')), false);
   });
 });

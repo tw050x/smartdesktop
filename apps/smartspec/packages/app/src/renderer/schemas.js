@@ -20,7 +20,7 @@ import { plainText, renderMarkdown } from './markdown.js';
 import { levelOf } from './home-level.js';
 import { contractPlain, contractStanding, renderContract } from './contract-view.js';
 import { renderImplementation, sourceLine } from './implementation-view.js';
-import { SOURCE_LABELS } from '../main/implementation.js';
+import { SOURCE_LABELS, WORKSPACE_KINDS } from '../main/implementation.js';
 import { contractPartName, contractText } from '../main/contract.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
@@ -967,6 +967,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     if (!testRuns.has(here.schemaId)) testRuns.set(here.schemaId, (await api.testState?.(here.schemaId).catch(() => null)) ?? {});
     here.runVersion = versionOf(here, shown);
     here.paintRun = null;
+    here.workspace = shown.implementation && WORKSPACE_KINDS.includes(shown.implementation.source.kind)
+      ? (await api.workspace?.(here.schemaId, shown.name).catch(() => null)) ?? null : null;
     if (modes.mode() === 'test') {
       const page = testView(here, shown, uses);
       page.draftNav = draftControls(here, shown);
@@ -1002,6 +1004,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const embedded = [...uses.values()].filter((use) => !use.missing);
     here.contractFolded ??= new Set();
     const version = versionOf(here, shown);
+    // Where its code is kept on this Mac to work on, if it's a repository's (see main/workspaces.js).
+    const workspace = here.workspace;
     const run = (only = null) => api.testRun(here.schemaId, version, only).catch((error) => {
       here.runError = error.message;
       here.paintRun?.();
@@ -1053,11 +1057,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       h('summary', {},
         h('span', { className: 'test-fold', 'aria-hidden': 'true' }),
         h('h2', {}, 'Implementation'),
-        h('span', { className: 'test-summary muted' }, shown.implementation ? `${SOURCE_LABELS[shown.implementation.source.kind]}: ${sourceLine(shown.implementation.source)}` : 'None yet'),
+        h('span', { className: 'test-summary muted' }, !shown.implementation ? 'None yet'
+          : workspace?.cloned ? `${sourceLine(shown.implementation.source)}, kept in ${workspace.label}`
+          : `${SOURCE_LABELS[shown.implementation.source.kind]}: ${sourceLine(shown.implementation.source)}`),
         change && statusPills(...marker(change, approvals.has(IMPLEMENTATION))),
         change && approveButton(here, shown, IMPLEMENTATION, change, 'the implementation')),
       h('div', { className: 'test-card-body' },
         own,
+        workspace && workspaceView(here, shown, workspace),
         embedded.length > 0 && h('h3', { className: 'pane-subhead' }, 'What it embeds is tested against'),
         embedded.length > 0 && h('ul', { className: 'test-uses' }, ...embedded.map((use) => h('li', {},
           h('strong', {}, use.name ?? use.id),
@@ -1072,6 +1079,20 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     });
     return h('div', { className: 'page test-page' }, h('div', { className: 'test-columns' }, implementation, card));
   };
+
+  // The workspace: where its code is kept on this Mac, for the user and their AI to work on, and how
+  // it stands (its branch and commit, and any uncommitted changes, which the checks run against).
+  function workspaceView(here, shown, workspace) {
+    const show = h('button', { type: 'button', className: 'side-by-side', onclick: () => api.showWorkspace(here.schemaId, shown.name).catch(() => {}) }, 'Show in Finder');
+    const changes = workspace.changes ? `${workspace.changes} ${workspace.changes === 1 ? 'file' : 'files'} changed and not committed` : 'nothing changed since its last commit';
+    const said = workspace.cloned
+      ? [h('code', { title: workspace.dir }, workspace.label), ' is a clone of its repository, on ', workspace.branch ? h('code', {}, workspace.branch) : 'no branch', ` at ${workspace.commit ?? 'its last commit'}, with ${changes}. You and your AI can work on the code there: the checks run against it as it is, and it's never reset.`]
+      : ['Its first run clones the repository into ', h('code', { title: workspace.dir }, workspace.label), ', for you and your AI to work on the code there. Each run after tests it as it is.'];
+    return h('section', { className: 'impl-local' },
+      h('h3', { className: 'pane-subhead' }, 'Workspace'),
+      h('p', {}, ...said.flat()),
+      h('div', { className: 'impl-local-actions' }, show));
+  }
 
   // What a run is doing, or how the last one went, in a line.
   const PHASES = { starting: 'Starting the runner…', fetch: 'Fetching the code…', start: 'Starting it…', ready: 'Waiting for it to be ready…', stop: 'Tidying up…', stopping: 'Stopping, and tidying up…' };

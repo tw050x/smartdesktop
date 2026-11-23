@@ -16,8 +16,9 @@ import { pipeline } from 'node:stream/promises';
 //   git:     the repository fetched into the cache, its commands run there in turn, the last left
 //            running (in a process group of its own, so all it starts is stopped with it).
 //   archive: downloaded into the cache (its SHA-256 checked, if given), unpacked, then as git.
-// `workdir` stands in for the repository or archive: a folder on this machine holding the code (a
-// checkout being worked on), used as it is, nothing fetched. Logins (`credentials`) are this
+// `workdir` is a folder on this machine to keep the code of a git repository or Compose file in (a
+// workspace, worked on there by people and AIs): cloned into it at the ref if it's empty or not
+// there yet, then used as it is, uncommitted changes and all, never fetched or reset again. Logins (`credentials`) are this
 // machine's own: git's credential helper, Docker's login.
 
 export class RunError extends Error {}
@@ -84,7 +85,10 @@ function startService(command, { cwd, env, emit }) {
     async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return;
       kill(child, 'SIGTERM');
-      const done = await Promise.race([exited.then(() => true), wait(STOP_GRACE).then(() => false)]);
+      // Its grace timer cleared once it has gone, or it would hold the runner open that long.
+      let timer;
+      const done = await Promise.race([exited.then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), STOP_GRACE); })]);
+      clearTimeout(timer);
       if (!done) { kill(child, 'SIGKILL'); await exited; }
     },
   };
@@ -121,6 +125,26 @@ async function fetchGit(source, { cacheDir, ...context }) {
     throw new RunError(`${source.url}${source.ref ? ` at ${source.ref}` : ''} couldn't be fetched: the repository or ref may not exist, or it needs a login this machine doesn't have. git's own words are in the log.`);
   }
   await git('checkout --quiet --force FETCH_HEAD');
+  return dir;
+}
+
+// A clone to work in, made once: the whole history, at the ref (a branch, tag or commit). A clone
+// that fails leaves nothing behind, so the next run tries again.
+async function cloneInto(source, dir, context) {
+  const empty = !existsSync(dir) || (await readdir(dir)).filter((name) => name !== '.DS_Store').length === 0;
+  if (!empty) {
+    context.emit({ type: 'log', stream: 'runner', text: `Using the code in ${dir} as it is` });
+    return dir;
+  }
+  await mkdir(path.dirname(dir), { recursive: true });
+  const env = { ...context.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never' };
+  try {
+    await runCommand(`git clone --quiet ${quote(source.url)} ${quote(dir)}`, { ...context, env, cwd: path.dirname(dir), label: `git clone ${source.url} into ${dir}` });
+    if (source.ref) await runCommand(`git checkout --quiet ${quote(source.ref)}`, { ...context, env, cwd: dir, label: `git checkout ${source.ref}` });
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw new RunError(`${source.url}${source.ref ? ` at ${source.ref}` : ''} couldn't be cloned: the repository or ref may not exist, or it needs a login this machine doesn't have. git's own words are in the log.`);
+  }
   return dir;
 }
 
@@ -208,6 +232,7 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
   const name = `smartspec-${String(jobId ?? Date.now()).toLowerCase().replace(/[^a-z0-9_.-]/g, '-')}`.slice(0, 63);
 
   try {
+    if (workdir && !['git', 'compose'].includes(source.kind)) throw new RunError(`A workdir is for the code of a git repository or Compose file, not ${source.kind === 'running' ? 'something already running' : `${/^[aeiou]/.test(source.kind) ? 'an' : 'a'} ${source.kind}`}.`);
     if (source.kind !== 'running') emit({ type: 'phase', phase: 'fetch' });
     let service;
     switch (source.kind) {
@@ -230,7 +255,7 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
       }
       case 'compose': {
         await hasDocker(context);
-        const dir = workdir ?? await fetchGit(source, { cacheDir, ...context });
+        const dir = workdir ? await cloneInto(source, workdir, context) : await fetchGit(source, { cacheDir, ...context });
         emit({ type: 'phase', phase: 'start' });
         const compose = `docker compose -p ${name} ${source.file ? `-f ${quote(source.file)}` : ''}`;
         tidy.push(() => runCommand(`${compose} down --remove-orphans`, { ...context, cwd: dir, signal: undefined, label: 'docker compose down' }));
@@ -239,8 +264,9 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
       }
       case 'git':
       case 'archive': {
-        const fetched = workdir ?? (source.kind === 'git' ? await fetchGit(source, { cacheDir, ...context }) : await fetchArchive(source, { cacheDir, ...context }));
-        const dir = source.dir && !workdir ? path.join(fetched, source.dir) : fetched;
+        const fetched = workdir ? await cloneInto(source, workdir, context)
+          : source.kind === 'git' ? await fetchGit(source, { cacheDir, ...context }) : await fetchArchive(source, { cacheDir, ...context });
+        const dir = source.dir ? path.join(fetched, source.dir) : fetched;
         if (!existsSync(dir)) throw new RunError(`${source.dir} isn't in the repository.`);
         emit({ type: 'phase', phase: 'start' });
         if (stopCommands) tidy.push(async () => { for (const command of stopCommands.commands) await runCommand(command, { ...context, cwd: dir, signal: undefined }); });

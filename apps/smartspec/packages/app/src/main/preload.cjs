@@ -103,6 +103,10 @@ contextBridge.exposeInMainWorld('smartspec', {
   testStop: (schemaId, version) => call('test-stop', schemaId, version),
   testState: (schemaId) => call('test-state', schemaId),
   onTestRun: on('test-run'),
+  // A schematic's workspace, a clone of its code on this Mac to work on (see workspaces.js): where
+  // it is and how it stands ({ dir, label, cloned, branch, commit, changes }), and showing it.
+  workspace: (schemaId, name) => call('workspace', schemaId, name),
+  showWorkspace: (schemaId, name) => call('workspace-show', schemaId, name),
   onShowSchema: on('show-schema'),
   onNewSchema: on('new-schema'),
   mcpSetup: (target) => call('mcp-setup', target),
