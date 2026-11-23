@@ -1491,9 +1491,11 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .node-count { display: none; color: var(--muted); font-size: 12px; }
 .contract-node.folded > .node-head > .node-count { display: inline; }
 .node-head > .clause-dot { margin-left: auto; transform: none; }
-.node-body, .node-entries { position: relative; display: flex; flex-direction: column; gap: 10px; margin: 0 0 0 9px; padding: 0 0 0 22px; border-left: 1.5px solid var(--border-strong); }
+/* The line runs down from the chevron's point (its button's centre, 4px in: 20px wide, pulled 6px
+   left), the content where it was. */
+.node-body, .node-entries { position: relative; display: flex; flex-direction: column; gap: 10px; margin: 0 0 0 3.25px; padding: 0 0 0 28.25px; border-left: 1.5px solid var(--border-strong); }
 :is(.node-body, .node-entries) > * { position: relative; }
-:is(.node-body > .clause, .node-body > .contract-node, .node-entries > li)::before { content: ''; position: absolute; left: -22px; top: 14px; width: 16px; border-top: 1.5px solid var(--border-strong); }
+:is(.node-body > .clause, .node-body > .contract-node, .node-entries > li)::before { content: ''; position: absolute; left: -28.25px; top: 14px; width: 22.25px; border-top: 1.5px solid var(--border-strong); }
 .contract-node.failing > :is(.node-body, .node-entries) { border-left-color: color-mix(in srgb, var(--removed) 55%, transparent); }
 .contract-node.passing > :is(.node-body, .node-entries) { border-left-color: color-mix(in srgb, var(--decided-text) 55%, transparent); }
 .node-body > .markdown > :first-child { margin-top: 0; }

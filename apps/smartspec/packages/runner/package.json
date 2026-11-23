@@ -1,0 +1,31 @@
+{
+  "name": "@smartspec/runner",
+  "version": "0.1.0",
+  "description": "Runs a SmartSpec schematic's contract checks against its implementation: fetches the code, starts it, runs each check and reports the results as JSON lines.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "smartspec-runner": "cli.js"
+  },
+  "exports": {
+    ".": "./lib/run.js",
+    "./schema": "./lib/schema.js"
+  },
+  "files": [
+    "cli.js",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tw050x/smartspec.git",
+    "directory": "packages/runner"
+  },
+  "homepage": "https://github.com/tw050x/smartspec",
+  "keywords": [
+    "contract-testing",
+    "smartspec"
+  ]
+}

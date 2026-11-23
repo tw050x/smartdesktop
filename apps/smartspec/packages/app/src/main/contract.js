@@ -152,6 +152,23 @@ export function checksUnder(contract, id = null) {
   return out;
 }
 
+// What a runner is given to run all of a contract, or a branch or clause of it again (`id`): each
+// check with the setup above it, keyed `clause/check` as results are, and the contract's shapes by
+// id (unique across the tree, and already checked to be in scope). See @smartspec/runner.
+export function contractJob(contract, id = null) {
+  if (!isStructured(contract)) return { checks: [], shapes: {} };
+  const shapes = Object.fromEntries(walk(contract).flatMap(({ node }) => (node.shapes ?? []).map((shape) => [shape.id, shape.schema])));
+  const checks = checksUnder(contract, id).map(({ clause, check, setup }) => ({
+    key: `${clause.id}/${check.id}`,
+    clause: clause.id,
+    ...(check.title ? { title: check.title } : {}),
+    setup: setup.map(({ id: step, title, request, expect, keep }) => ({ id: step, ...(title ? { title } : {}), request, ...(expect ? { expect } : {}), ...(keep ? { keep } : {}) })),
+    request: check.request,
+    expect: check.expect,
+  }));
+  return { checks, shapes };
+}
+
 function fail(message) {
   throw new Error(message);
 }
