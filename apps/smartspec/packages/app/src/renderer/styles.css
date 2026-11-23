@@ -1555,8 +1555,19 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 /* Test mode (testView in schemas.js): what the contract is tested against, beside the contract with
    how each part stands. Two columns, one under the other when narrow. */
 .test-page { max-width: none; height: 100%; overflow: auto; padding: 20px 24px 32px; }
-.test-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 20px; align-items: start; max-width: 1400px; margin: 0 auto; }
-@media (max-width: 900px) { .test-columns { grid-template-columns: minmax(0, 1fr); } }
+/* One column (the user's choice): the implementation, folding to its head, above the contract. */
+.test-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; max-width: 1040px; margin: 0 auto; }
+.test-implementation > summary { display: flex; align-items: center; gap: 10px; min-height: 30px; margin: -4px 0; list-style: none; cursor: default; }
+.test-implementation > summary::-webkit-details-marker { display: none; }
+.test-implementation > summary h2 { flex: none; margin: 0; font-size: 15px; }
+.test-implementation > summary > .test-summary { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.test-implementation[open] > summary > .test-summary { visibility: hidden; }
+.test-implementation > summary > .approve-button { margin-left: auto; }
+.test-fold { flex: none; display: grid; place-items: center; width: 14px; height: 14px; color: var(--muted); }
+.test-fold::before { content: ''; width: 6px; height: 6px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 0.15s ease; }
+.test-implementation:not([open]) .test-fold::before { transform: translateX(-2px) rotate(-45deg); }
+.test-implementation > summary:hover .test-fold { color: var(--text); }
+.test-card-body { margin-top: 14px; }
 .test-card { padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); }
 .test-card > header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .test-card > header h2 { margin: 0; font-size: 15px; }
@@ -1570,3 +1581,38 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .impl-commands, .impl-env { margin: 0; padding-left: 18px; }
 .impl-env { padding-left: 0; list-style: none; }
 .test-uses { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+
+/* Running the checks (testView in schemas.js, contract-view.js): Run checks or Stop at the end of the
+   contract's header, a line on what the run is doing or how it went, its log folded, and each branch's
+   and clause's own run button. A check running is in the accent's colour, its dot breathing; one that
+   couldn't be run (no answer, setup failing) is amber, as it says nothing about the promise. */
+.run-all { flex: none; box-sizing: border-box; height: 30px; margin-left: 4px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: default; }
+.run-all:hover:not(:disabled) { background: var(--button-hover); }
+.run-all.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.run-all.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); }
+.run-all:disabled { opacity: 0.5; }
+.test-card > header > .run-standing { margin-left: auto; color: var(--muted); font-size: 12px; }
+.test-card > header > .run-standing.passing { color: var(--decided-text); }
+.test-card > header > .run-standing.failing { color: var(--removed); }
+.test-card > header > .run-standing.error { color: light-dark(#8a5a00, #e3b341); }
+.test-card > header > .run-standing.running { color: var(--accent); }
+.run-line { margin: -4px 0 12px; color: var(--text-2); font-size: 12px; }
+.run-line.trouble { color: light-dark(#8a5a00, #e3b341); }
+.run-log { margin: 0 0 12px; }
+.run-log > summary { color: var(--muted); font-size: 12px; cursor: default; }
+.run-log-lines { max-height: 240px; margin: 6px 0 0; padding: 8px 10px; overflow: auto; border-radius: 8px; background: var(--subtle-bg); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.run-stale :is(.clause-status, .check-detail, .clause-dot) { opacity: 0.55; }
+.run-part { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: -3px -4px -3px 0; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--muted); align-self: center; }
+.run-part:hover:not(:disabled) { background: var(--button-hover); color: var(--accent); }
+.run-part:disabled { opacity: 0.35; }
+.clause-head > .run-part { align-self: center; }
+:is(.clause, .contract-node, .node-entry).running :is(header > .clause-dot, .clause-dot) { background: var(--accent); animation: run-breathe 1.2s ease-in-out infinite; }
+:is(.clause, .contract-node).running > header > .clause-status, .node-entry.running .clause-status { color: var(--accent); }
+:is(.clause, .contract-node).error > header > .clause-dot, .node-entry.error .clause-dot { background: #d68c00; }
+:is(.clause, .contract-node).error > header > .clause-status, .node-entry.error .clause-status { color: light-dark(#8a5a00, #e3b341); }
+.check.running { border-left-color: var(--accent); }
+.check.error { border-left-color: #d68c00; }
+.check.error .check-detail { color: light-dark(#8a5a00, #e3b341); }
+.check.passed .check-detail { display: none; }
+@keyframes run-breathe { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { :is(.clause, .contract-node, .node-entry).running .clause-dot { animation: none; } }

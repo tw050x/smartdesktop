@@ -46,11 +46,12 @@ export async function runJob(job, { emit = () => {}, signal, cacheDir = defaultC
   try {
     running = await startImplementation(job.implementation, { jobId: job.id, cacheDir, workdir: job.workdir, emit, signal });
   } catch (error) {
+    const stopped = signal?.aborted;
     for (const check of job.checks) {
       counts.error++;
-      emit({ type: 'result', key: check.key, outcome: 'error', detail: 'Not run: the implementation didn\'t start.', ms: 0 });
+      emit({ type: 'result', key: check.key, outcome: 'error', detail: stopped ? 'Not run: stopped.' : 'Not run: the implementation didn\'t start.', ms: 0 });
     }
-    return done('error', error.message);
+    return done('error', stopped ? 'Stopped before the checks ran.' : error.message);
   }
 
   let stopped = false;

@@ -18,10 +18,10 @@ import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
 import { plainText, renderMarkdown } from './markdown.js';
 import { levelOf } from './home-level.js';
-import { contractPlain, renderContract } from './contract-view.js';
+import { contractPlain, contractStanding, renderContract } from './contract-view.js';
 import { renderImplementation, sourceLine } from './implementation-view.js';
 import { SOURCE_LABELS } from '../main/implementation.js';
-import { contractText } from '../main/contract.js';
+import { contractPartName, contractText } from '../main/contract.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
 // Where the window is, is a path of levels: the schema opened from home, then each embedded schema
@@ -137,6 +137,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   const modes = createModeSwitcher({ card: modeCard, onChange: () => render() });
   let rendering = 0;
   let aiWaiting = []; // the proposals an AI in another app is waiting on (`smartspec wait`)
+  // Each schematic's contract check runs (see main/test-runs.js): by schematic, each version's (a
+  // draft's id, or 'proposal') latest state, results and all.
+  const testRuns = new Map();
+  const versionOf = (here, shown) => (here.proposal ? 'proposal' : shown.draftId);
+  const runOf = (here, shown) => testRuns.get(here.schemaId)?.[versionOf(here, shown)] ?? null;
+  const runningKeys = (run) => new Set(run?.running ? run.pending : []);
   let homeShowing = false; // home's columns rise in only as it arrives, not each time it's drawn again
   // A schema shows one item with what links to it, or a list of everything in it. Remembered on this
   // computer, as a convenience.
@@ -958,6 +964,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
     here.choices = { shown };
     approvals = new Set(here.proposal ? shown.approved ?? [] : []);
+    if (!testRuns.has(here.schemaId)) testRuns.set(here.schemaId, (await api.testState?.(here.schemaId).catch(() => null)) ?? {});
+    here.runVersion = versionOf(here, shown);
+    here.paintRun = null;
     if (modes.mode() === 'test') {
       const page = testView(here, shown, uses);
       page.draftNav = draftControls(here, shown);
@@ -982,27 +991,72 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   }
 
   // Test mode: what the contract is tested against (the schematic's implementation, and what each
-  // schematic it embeds is tested against), and the contract with how each part stands. Nothing is
-  // run yet, and it says so rather than pretending.
+  // schematic it embeds is tested against), and the contract with how each part stands, run from
+  // here: all of it (Run checks), or a branch or clause (its own run button). As a run goes on only
+  // the contract's card is drawn again (`here.paintRun`), so the page keeps its place.
   const testView = (here, shown, uses) => {
     const change = here.proposal && shown.changes?.implementation ? 'changed' : null;
     const own = shown.implementation
       ? renderImplementation(shown.implementation)
       : h('p', { className: 'muted' }, `${shown.name} has no implementation yet: nothing says where its code is or how to run it. Ask your AI to add it, telling it where the code is.`);
     const embedded = [...uses.values()].filter((use) => !use.missing);
-    const contract = h('div', {});
     here.contractFolded ??= new Set();
-    renderContract(contract, shown.contract, {
-      titleOf: (link) => {
-        const { target, part } = parseLink(link);
-        return part ? `${titleOf(target, shown, uses)} › ${part}` : titleOf(target, shown, uses);
-      },
-      folded: here.contractFolded,
-      onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)),
+    const version = versionOf(here, shown);
+    const run = (only = null) => api.testRun(here.schemaId, version, only).catch((error) => {
+      here.runError = error.message;
+      here.paintRun?.();
     });
-    return h('div', { className: 'page test-page' }, h('div', { className: 'test-columns' },
-      h('section', { className: 'test-card' },
-        h('header', {}, h('h2', {}, 'Implementation'), change && statusPills(...marker(change, approvals.has(IMPLEMENTATION))), change && approveButton(here, shown, IMPLEMENTATION, change, 'the implementation')),
+
+    const contractCard = () => {
+      const state = runOf(here, shown);
+      const running = runningKeys(state);
+      const busy = Boolean(state?.running);
+      const overall = contractStanding(shown.contract, state?.results ?? {}, running);
+      // A run that never got to its checks (the code didn't start) says so in the header, once.
+      if (state && !busy && state.outcome === 'error' && !Object.keys(state.results).length) Object.assign(overall, { status: 'error', label: 'Didn’t run' });
+      const canRun = Boolean(shown.implementation) && overall.total > 0;
+      const contract = h('div', { className: state?.stale ? 'run-stale' : '' });
+      renderContract(contract, shown.contract, {
+        titleOf: (link) => {
+          const { target, part } = parseLink(link);
+          return part ? `${titleOf(target, shown, uses)} › ${part}` : titleOf(target, shown, uses);
+        },
+        results: state?.results ?? {},
+        running,
+        onRun: canRun ? (id) => run(id) : null,
+        busy,
+        folded: here.contractFolded,
+        onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)),
+      });
+      const action = busy
+        ? h('button', { type: 'button', className: 'run-all', disabled: state.phase === 'stopping', onclick: () => api.testStop(here.schemaId, version) }, state.phase === 'stopping' ? 'Stopping…' : 'Stop')
+        : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? 'Fetch the code, start it and run every check' : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => { here.runError = null; run(); } }, state ? 'Run again' : 'Run checks');
+      const said = runLine(state, here.runError, (id) => contractPartName(shown.contract, id));
+      const log = state?.log?.length ? logView(here, state) : null;
+      return h('section', { className: 'test-card test-contract' },
+        h('header', {}, h('h2', {}, 'Contract'), h('span', { className: `run-standing ${busy ? 'running' : overall.status}` }, busy ? 'Running…' : state ? overall.label : overall.total ? `${overall.total} ${overall.total === 1 ? 'check' : 'checks'}, not run` : 'No checks yet'), action),
+        said && h('p', { className: `run-line${state?.outcome === 'error' || here.runError ? ' trouble' : ''}` }, said),
+        log,
+        contract);
+    };
+
+    let card = contractCard();
+    here.paintRun = () => {
+      const next = contractCard();
+      card.replaceWith(next);
+      card = next;
+    };
+    // The implementation folds to its head, which still says where the code comes from (the
+    // user's choice: one column, it above the contract and folding away). Open or not, kept per tab
+    // while the app is open; open to begin with, and while a proposal changes it.
+    const implementation = h('details', { className: 'test-card test-implementation', open: (here.implementationOpen ?? true) || change ? '' : null },
+      h('summary', {},
+        h('span', { className: 'test-fold', 'aria-hidden': 'true' }),
+        h('h2', {}, 'Implementation'),
+        h('span', { className: 'test-summary muted' }, shown.implementation ? `${SOURCE_LABELS[shown.implementation.source.kind]}: ${sourceLine(shown.implementation.source)}` : 'None yet'),
+        change && statusPills(...marker(change, approvals.has(IMPLEMENTATION))),
+        change && approveButton(here, shown, IMPLEMENTATION, change, 'the implementation')),
+      h('div', { className: 'test-card-body' },
         own,
         embedded.length > 0 && h('h3', { className: 'pane-subhead' }, 'What it embeds is tested against'),
         embedded.length > 0 && h('ul', { className: 'test-uses' }, ...embedded.map((use) => h('li', {},
@@ -1010,11 +1064,53 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
           h('span', { className: 'muted' }, use.implementation
             ? ` its implementation here: ${SOURCE_LABELS[use.implementation.source.kind]} `
             : use.implemented ? ' its own implementation' : ' nothing yet: neither it nor this schematic says where its code is'),
-          use.implementation && h('code', {}, sourceLine(use.implementation.source)))))),
-      h('section', { className: 'test-card test-contract' },
-        h('header', {}, h('h2', {}, 'Contract'), h('span', { className: 'muted' }, 'Not run yet: running the checks comes next')),
-        contract)));
+          use.implementation && h('code', {}, sourceLine(use.implementation.source)))))));
+    implementation.addEventListener('toggle', () => { here.implementationOpen = implementation.open; });
+    // A button in its head (Approve) acts without folding it.
+    implementation.querySelector('summary').addEventListener('click', (event) => {
+      if (event.target.closest('button')) event.preventDefault();
+    });
+    return h('div', { className: 'page test-page' }, h('div', { className: 'test-columns' }, implementation, card));
   };
+
+  // What a run is doing, or how the last one went, in a line.
+  const PHASES = { starting: 'Starting the runner…', fetch: 'Fetching the code…', start: 'Starting it…', ready: 'Waiting for it to be ready…', stop: 'Tidying up…', stopping: 'Stopping, and tidying up…' };
+  function runLine(state, error, nameOf) {
+    if (error) return error;
+    if (!state) return null;
+    if (state.running) {
+      if (state.phase === 'check') {
+        const total = Object.keys(state.results).length + state.pending.length;
+        return `Running the checks: ${total - state.pending.length} of ${total} done.`;
+      }
+      return PHASES[state.phase] ?? 'Running…';
+    }
+    const when = new Date(state.endedAt ?? state.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const took = state.endedAt ? ` in ${Math.max(1, Math.round((state.endedAt - state.startedAt) / 1000))} s` : '';
+    const stale = state.stale ? ' The proposal has changed since, so these results are out of date.' : '';
+    if (state.outcome === 'error' && state.detail) return `${state.detail} Tried at ${when}.${stale}`;
+    const { passed = 0, failed = 0, error: unchecked = 0 } = state.counts ?? {};
+    const ran = passed + failed + unchecked;
+    const parts = [`${passed} passed`, failed && `${failed} failed`, unchecked && `${unchecked} couldn’t be run`].filter(Boolean).join(', ');
+    return `Ran ${ran} ${ran === 1 ? 'check' : 'checks'}${state.only ? ` of ${nameOf(state.only)}` : ''} at ${when}${took}: ${parts}.${stale}`;
+  }
+
+  // The run's log, folded: what the runner did and what the code wrote, kept at its end while it
+  // runs unless the user has scrolled up. Open or not, kept per tab while the app is open.
+  function logView(here, state) {
+    const pre = h('pre', { className: 'run-log-lines' }, state.log.map((line) => `${line.stream === 'runner' ? '› ' : ''}${line.text}`).join('\n'));
+    const details = h('details', { className: 'run-log', open: here.logOpen ? '' : null },
+      h('summary', {}, 'Log ', h('span', { className: 'muted' }, `${state.log.length} ${state.log.length === 1 ? 'line' : 'lines'}`)),
+      pre);
+    details.addEventListener('toggle', () => {
+      here.logOpen = details.open;
+      if (details.open) pre.scrollTop = pre.scrollHeight;
+    });
+    const was = document.querySelector('.run-log-lines');
+    const atEnd = !was || was.scrollHeight - was.scrollTop - was.clientHeight < 24;
+    requestAnimationFrame(() => { pre.scrollTop = atEnd ? pre.scrollHeight : was.scrollTop; });
+    return details;
+  }
 
   // In the toolbar, with a schema open: the mode, and the focus: what the AI's work on this draft is
   // for.
@@ -1264,7 +1360,15 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         actions: [{ id: 'view-proposal', label: 'Review', kind: 'primary', run: () => { here.proposal = true; render(); } }],
       });
     }
-    if (modes.mode() === 'test') return bar(shown.implementation ? `The checks for ${name} haven't been run: running them isn't built yet.` : `${name} has no implementation yet, so there's nothing to run its checks against.`);
+    if (modes.mode() === 'test') {
+      const state = runOf(here, shown);
+      if (!shown.implementation) return bar(`${name} has no implementation yet, so there's nothing to run its checks against.`);
+      if (!state) return bar(`Run the checks to fetch the code of ${name}, start it and test it against its contract.`);
+      if (state.running) return bar(`Running the checks of ${name}. Stop tidies up whatever was started.`);
+      const overall = contractStanding(shown.contract, state.results);
+      if (state.outcome === 'error' && !Object.keys(state.results).length) return bar(`The checks for ${name} couldn't be run: the contract card says why.`);
+      return bar(state.outcome === 'error' && state.detail ? `The checks for ${name} couldn't all be run.` : `The contract of ${name}: ${overall.label.toLowerCase()}.${state.stale ? ' The proposal has changed since it was run.' : ''}`);
+    }
     // An earlier draft, with the way back to the latest.
     if (shown.number < shown.total) {
       return bar(`You're looking at draft ${shown.number} of ${name}. Draft ${shown.total} is the latest.`, {
@@ -1641,6 +1745,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         },
         folded: here.contractFolded,
         onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)),
+        // The last run's results show here too, as run from Test mode.
+        results: runOf(here, shown)?.results ?? {},
+        running: runningKeys(runOf(here, shown)),
       };
       const written = (version, marks = {}) => renderContract(h('div', {}), version, { ...titled, marks });
       let contract = written(shown.contract, was !== null ? shown.changes?.contractParts : {});
@@ -2439,6 +2546,23 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
   });
   api.onSchemasChanged(render);
+  // A run moving on: the contract's card drawn again in Test mode; anywhere else showing that
+  // version, drawn again once it ends (and now and then while it runs).
+  let runRender = null;
+  api.onTestRun?.(({ schemaId, version, state }) => {
+    const runs = { ...(testRuns.get(schemaId) ?? {}) };
+    if (state) runs[version] = state;
+    else delete runs[version];
+    testRuns.set(schemaId, runs);
+    const here = top();
+    if (!here || here.schemaId !== schemaId || here.runVersion !== version) return;
+    if (state && !state.running) {
+      clearTimeout(runRender);
+      runRender = null;
+      render();
+    } else if (modes.mode() === 'test' && here.paintRun) here.paintRun();
+    else runRender ??= setTimeout(() => { runRender = null; render(); }, 600);
+  });
   // While an AI in another app waits on a proposal, the chat offers it the go-ahead.
   const heardWaiting = (list) => {
     aiWaiting = list ?? [];

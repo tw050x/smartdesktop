@@ -18,7 +18,9 @@ import { plainText, renderMarkdown } from './markdown.js';
 // another schematic, where only the contract can be seen: links to this schematic's items show as
 // plain text (the user's choice), and what defines a clause isn't named. `marks`, each node's,
 // clause's or shape's change under review (added, changed, removed). `results`, each check's result
-// by `clause/check`: { outcome: 'passed' | 'failed', detail }.
+// by `clause/check`: { outcome: 'passed' | 'failed' | 'error', detail }; `running`, the keys of the
+// checks being run now. `onRun(id)`, given in Test mode, puts a run button on each branch and clause
+// with checks (and the user runs just those), disabled while `busy`.
 
 function h(tag, props = {}, ...children) {
   const element = document.createElement(tag);
@@ -68,11 +70,14 @@ function expectLine(expect) {
 }
 
 // How some checks stand, from their results: passing, failing, not run, or none to run.
-function standing(keys, results) {
+function standing(keys, results, running = new Set()) {
   if (!keys.length) return { status: 'untested', label: 'No checks yet' };
+  if (keys.some((key) => running.has(key))) return { status: 'running', label: 'Running…' };
   const outcomes = keys.map((key) => results[key]?.outcome);
   const failed = outcomes.filter((one) => one === 'failed').length;
   if (failed) return { status: 'failing', label: `${failed} of ${keys.length} failing` };
+  const unchecked = outcomes.filter((one) => one === 'error').length;
+  if (unchecked) return { status: 'error', label: unchecked === keys.length ? 'Couldn’t be run' : `${unchecked} of ${keys.length} couldn’t be run` };
   if (outcomes.every((one) => one === 'passed')) return { status: 'passing', label: 'Passing' };
   const passed = outcomes.filter((one) => one === 'passed').length;
   return { status: 'not-run', label: passed ? `${passed} of ${keys.length} passing` : 'Not run' };
@@ -97,7 +102,14 @@ function markdown(text, outside) {
   return element;
 }
 
-export function renderContract(element, contract, { titleOf = (link) => link, outside = false, marks = {}, results = {}, folded = new Set(), onFold = () => {} } = {}) {
+// A run button: a play triangle, its title saying what it runs.
+function runButton(title, busy, onclick) {
+  const button = h('button', { type: 'button', className: 'run-part', title: busy ? 'Checks are running' : title, 'aria-label': title, disabled: busy, onclick: (event) => { event.stopPropagation(); onclick(); } });
+  button.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>';
+  return button;
+}
+
+export function renderContract(element, contract, { titleOf = (link) => link, outside = false, marks = {}, results = {}, running = new Set(), onRun = null, busy = false, folded = new Set(), onFold = () => {} } = {}) {
   element.classList.add('contract-view');
   if (!contract) return element.append(h('p', { className: 'muted' }, 'No contract yet.'));
   if (!isStructured(contract)) return element.append(markdown(contract, outside));
@@ -119,18 +131,20 @@ export function renderContract(element, contract, { titleOf = (link) => link, ou
       step.keep && h('span', { className: 'setup-keep' }, `keeps ${Object.entries(step.keep).map(([name, from]) => `{${name}} from ${from}`).join(', ')}`)))));
 
   const clause = (one) => {
-    const { status, label } = standing(checkKeys(one), results);
+    const { status, label } = standing(checkKeys(one), results, running);
     return h('section', { className: `clause ${status}${marks[one.id] ? ` ${marks[one.id]}` : ''}`, 'data-part': one.id },
       h('header', { className: 'clause-head' },
         h('span', { className: 'clause-dot', 'aria-hidden': 'true' }),
         h('strong', { className: 'clause-title' }, one.title),
         markTag(marks[one.id]),
-        h('span', { className: 'clause-status' }, label)),
+        h('span', { className: 'clause-status' }, label),
+        onRun && checkKeys(one).length > 0 && runButton(`Run the checks of “${one.title}”`, busy, () => onRun(one.id))),
       one.markdown && markdown(one.markdown, outside),
       one.defined_by && !outside && h('p', { className: 'clause-defined' }, 'Defined in ', h('a', { href: one.defined_by }, titleOf(one.defined_by))),
       (one.checks ?? []).length > 0 && h('ul', { className: 'clause-checks' }, ...one.checks.map((check) => {
-        const result = results[`${one.id}/${check.id}`];
-        return h('li', { className: `check ${result?.outcome ?? 'not-run'}` },
+        const key = `${one.id}/${check.id}`;
+        const result = running.has(key) ? null : results[key];
+        return h('li', { className: `check ${running.has(key) ? 'running' : result?.outcome ?? 'not-run'}` },
           check.title && h('span', { className: 'check-title' }, check.title),
           ...requestLine(check.request),
           h('span', { className: 'check-arrow', 'aria-hidden': 'true' }, '→'),
@@ -151,8 +165,8 @@ export function renderContract(element, contract, { titleOf = (link) => link, ou
   // What's directly under a folded branch, an entry each: its clauses, then the parts under it.
   const entries = (node, section) => {
     const under = [
-      ...(node.clauses ?? []).map((one) => ({ id: one.id, kind: 'clause', name: one.title, ...standing(checkKeys(one), results) })),
-      ...(node.children ?? []).map((one) => ({ id: one.id, kind: 'node', name: one.name, ...standing(branchKeys(one), results) })),
+      ...(node.clauses ?? []).map((one) => ({ id: one.id, kind: 'clause', name: one.title, ...standing(checkKeys(one), results, running) })),
+      ...(node.children ?? []).map((one) => ({ id: one.id, kind: 'node', name: one.name, ...standing(branchKeys(one), results, running) })),
     ];
     if (!under.length) return h('p', { className: 'node-entries muted' }, 'Nothing under it yet.');
     return h('ul', { className: 'node-entries' }, ...under.map((entry) => h('li', { className: `node-entry entry-${entry.kind} ${entry.status}` },
@@ -175,7 +189,7 @@ export function renderContract(element, contract, { titleOf = (link) => link, ou
   };
 
   const branch = (node) => {
-    const { status, label } = standing(branchKeys(node), results);
+    const { status, label } = standing(branchKeys(node), results, running);
     const shut = folded.has(node.id);
     const section = h('section', { className: `contract-node ${status}${marks[node.id] ? ` ${marks[node.id]}` : ''}${shut ? ' folded' : ''}`, 'data-part': node.id });
     const toggle = h('button', { type: 'button', className: 'node-fold', 'aria-expanded': String(!shut), title: shut ? `Unfold ${node.name}` : `Fold ${node.name}`, onclick: () => fold(section, node, !section.classList.contains('folded')) });
@@ -189,7 +203,8 @@ export function renderContract(element, contract, { titleOf = (link) => link, ou
         h('span', { className: 'node-count' }, countOf(node)),
         markTag(marks[node.id]),
         h('span', { className: 'clause-dot', 'aria-hidden': 'true' }),
-        h('span', { className: 'clause-status' }, label)),
+        h('span', { className: 'clause-status' }, label),
+        onRun && branchKeys(node).length > 0 && runButton(`Run the checks of ${node.name} and everything under it`, busy, () => onRun(node.id))),
       h('div', { className: 'node-body' }, ...contents(node)));
     section.append(entries(node, section));
     return section;
@@ -201,3 +216,10 @@ export function renderContract(element, contract, { titleOf = (link) => link, ou
 
 // The contract as plain text, for a collapsed card.
 export const contractPlain = (contract) => plainText(contractText(contract));
+
+// How the whole contract stands: { status, label, total } (see standing).
+export function contractStanding(contract, results = {}, running = new Set()) {
+  if (!isStructured(contract)) return { ...standing([], results, running), total: 0 };
+  const keys = branchKeys(contractTree(contract));
+  return { ...standing(keys, results, running), total: keys.length };
+}

@@ -35,6 +35,15 @@
     ],
     "extraResources": [
       {
+        "from": "../runner",
+        "to": "runner",
+        "filter": [
+          "cli.js",
+          "lib/**/*",
+          "package.json"
+        ]
+      },
+      {
         "from": "../cli",
         "to": "cli",
         "filter": [

@@ -15,6 +15,7 @@ import { confirm } from './confirm.js';
 import { createStore } from './store.js';
 import { contractPartName } from './contract.js';
 import { createLayouts } from './layouts.js';
+import { createTestRuns } from './test-runs.js';
 import { createUpdates } from './updates.js';
 import { WaitRefused, createWaits } from './waits.js';
 
@@ -679,7 +680,10 @@ async function offerMoveToApplications(ctx) {
 const updates = createUpdates({ report: (status) => broadcast('updates', status) });
 // As the app quits, an AI waiting on the user (`wait`) is told, and whether it's restarting to
 // install an update, so it carries on once the app is back rather than thinking it's gone.
-app.on('before-quit', () => mcp?.endWaits(updates.restarting));
+app.on('before-quit', () => {
+  mcp?.endWaits(updates.restarting);
+  testRuns.stopAll();
+});
 
 // --- The chat, in SmartDesktop (see desktop.js) -----------------------------------------------
 // The AI chat is SmartDesktop's, an app of its own, for SmartDoc and SmartSpec both: one chat
@@ -747,6 +751,23 @@ async function mcpSetup(target) {
 }
 
 store.events.on('changed', () => broadcast('schemas-changed'));
+
+// Running a schematic's contract checks (see test-runs.js): the runner, carried in the app's
+// resources as the smartspec command is (packages/runner while developing), run with the app's own
+// Node; each run's progress and results sent to every window.
+const testRuns = createTestRuns({
+  runner: {
+    command: process.execPath,
+    args: [path.join(app.isPackaged ? path.join(process.resourcesPath, 'runner') : fileURLToPath(new URL('../../../runner', import.meta.url)), 'cli.js')],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  },
+  store,
+  onChange: (schemaId, version, state) => broadcast('test-run', { schemaId, version, state }),
+});
+store.events.on('changed', (schemaId) => testRuns.changed(schemaId));
+handle('test-run', (_ctx, schemaId, version, only) => testRuns.start(schemaId, version, only ?? null));
+handle('test-stop', (_ctx, schemaId, version) => testRuns.stop(schemaId, version));
+handle('test-state', (_ctx, schemaId) => testRuns.stateOf(schemaId));
 
 // Asks first when there's no way back: the AI would have to write the proposal again.
 async function discardProposal(ctx, schemaId) {

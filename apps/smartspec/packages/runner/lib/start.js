@@ -105,14 +105,21 @@ const quote = (text) => `'${String(text).replace(/'/g, `'\\''`)}'`;
 async function fetchGit(source, { cacheDir, ...context }) {
   const dir = path.join(cacheDir, 'git', hashOf(source.url));
   await mkdir(dir, { recursive: true });
-  const git = (args, label) => runCommand(`git ${args}`, { ...context, cwd: dir, label: label ?? `git ${args}` });
+  // Never asks for a login (nobody could answer, and it would wait for good): this machine's own
+  // (git's credential helper) is used, or it fails saying so.
+  const env = { ...context.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never' };
+  const git = (args, label) => runCommand(`git ${args}`, { ...context, env, cwd: dir, label: label ?? `git ${args}` });
   if (!existsSync(path.join(dir, '.git'))) {
     await git('init --quiet');
     await git(`remote add origin ${quote(source.url)}`);
   } else {
     await git(`remote set-url origin ${quote(source.url)}`);
   }
-  await git(`fetch --depth 1 --quiet origin ${quote(source.ref ?? 'HEAD')}`, `git fetch ${source.url} ${source.ref ?? '(its default branch)'}`);
+  try {
+    await git(`fetch --depth 1 --quiet origin ${quote(source.ref ?? 'HEAD')}`, `git fetch ${source.url} ${source.ref ?? '(its default branch)'}`);
+  } catch {
+    throw new RunError(`${source.url}${source.ref ? ` at ${source.ref}` : ''} couldn't be fetched: the repository or ref may not exist, or it needs a login this machine doesn't have. git's own words are in the log.`);
+  }
   await git('checkout --quiet --force FETCH_HEAD');
   return dir;
 }

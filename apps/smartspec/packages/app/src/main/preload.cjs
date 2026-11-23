@@ -96,6 +96,13 @@ contextBridge.exposeInMainWorld('smartspec', {
   onAiWaiting: on('ai-waiting'),
   discardProposal: (id) => call('discard-proposal', id),
   onSchemasChanged: on('schemas-changed'),
+  // A schematic's contract checks (see test-runs.js): running them, all or a branch's or clause's
+  // (`only`), on a draft or the proposal (`version`: its draft id, or 'proposal'); stopping them;
+  // each version's results; and each run's progress as it goes ({ schemaId, version, state }).
+  testRun: (schemaId, version, only) => call('test-run', schemaId, version, only),
+  testStop: (schemaId, version) => call('test-stop', schemaId, version),
+  testState: (schemaId) => call('test-state', schemaId),
+  onTestRun: on('test-run'),
   onShowSchema: on('show-schema'),
   onNewSchema: on('new-schema'),
   mcpSetup: (target) => call('mcp-setup', target),
