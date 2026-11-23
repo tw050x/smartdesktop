@@ -54,11 +54,11 @@ describe('links', () => {
     const withDoc = (markdown) => record({ items: [{ id: 'n', kind: 'document', title: 'N', markdown }, { ...doc, markdown: '# Top' }, { ...flow, nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }] });
     assert.throws(() => checkLinks(withDoc('[x](missing)')), /goes to missing/);
     assert.throws(() => checkLinks(withDoc('[x](rules#missing)')), /no part missing/);
-    assert.throws(() => checkLinks(withDoc('[x](contract#part)')), /no parts/);
+    assert.throws(() => checkLinks(withDoc('[x](contract#part)')), /contract has no node, clause or shape part/);
   });
 
   test('refuses links that reach inside an embedded schema', () => {
-    assert.throws(() => checkLinks(record({ items: [{ id: 'n', kind: 'document', title: 'N', markdown: '[x](auth#inside)' }] })), /reaches inside an embedded schema/);
+    assert.throws(() => checkLinks(record({ items: [{ id: 'n', kind: 'document', title: 'N', markdown: '[x](auth#inside)' }] })), /only its contract can be seen/);
   });
 });
 

@@ -1474,3 +1474,78 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .tabs.dragging-tab .tab:hover:not([aria-selected="true"]) { background: var(--button-hover); }
 .tab-drop-line { position: absolute; z-index: 46; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
 .tab-drop-line[hidden] { display: none; }
+
+/* The contract (contract-view.js), as a tree: its writing, then each part of its interface as a
+   branch, its name in code with how the whole branch stands, and the parts under it indented along
+   a line; each clause a promise with how it stands (a dot and a word: passing green, failing red,
+   not run or with no checks grey), what explains it and its checks; shapes and setup folded. */
+.contract-view { display: flex; flex-direction: column; gap: 12px; user-select: text; }
+.contract-node { display: flex; flex-direction: column; gap: 8px; }
+/* A branch is a row of the tree, not a card (a card is a promise): its chevron, the tree's icon, its
+   name in code, how much is under it while folded, and how all of it stands. What's under it hangs
+   off a guide line, each part joined to it by an elbow, as a file tree's are. */
+.node-head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.node-icon { flex: none; display: grid; place-items: center; color: var(--accent); }
+.node-name { font: 600 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.node-path { color: var(--muted); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.node-count { display: none; color: var(--muted); font-size: 12px; }
+.contract-node.folded > .node-head > .node-count { display: inline; }
+.node-head > .clause-dot { margin-left: auto; transform: none; }
+.node-body, .node-entries { position: relative; display: flex; flex-direction: column; gap: 10px; margin: 0 0 0 9px; padding: 0 0 0 22px; border-left: 1.5px solid var(--border-strong); }
+:is(.node-body, .node-entries) > * { position: relative; }
+:is(.node-body > .clause, .node-body > .contract-node, .node-entries > li)::before { content: ''; position: absolute; left: -22px; top: 14px; width: 16px; border-top: 1.5px solid var(--border-strong); }
+.contract-node.failing > :is(.node-body, .node-entries) { border-left-color: color-mix(in srgb, var(--removed) 55%, transparent); }
+.contract-node.passing > :is(.node-body, .node-entries) { border-left-color: color-mix(in srgb, var(--decided-text) 55%, transparent); }
+.node-body > .markdown > :first-child { margin-top: 0; }
+.node-body > .markdown > :last-child { margin-bottom: 0; }
+/* A branch folds (its chevron, at its start): it keeps its head and lists what's directly under it on
+   its guide line, a short entry each, which unfolds it and goes there. */
+.node-fold { flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin: 0 -4px 0 -6px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--muted); transition: transform 0.15s ease; }
+.node-fold:hover { background: var(--button-hover); color: var(--text); }
+.contract-node.folded > .node-head > .node-fold { transform: rotate(-90deg); }
+.contract-node.folded > .node-body, .contract-node:not(.folded) > .node-entries { display: none; }
+.node-entries { gap: 0; list-style: none; }
+p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-size: 13px; }
+.node-entry button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 3px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font: inherit; font-size: 13px; text-align: left; }
+.node-entry button:hover { background: var(--hover-tint); }
+.node-entry .clause-dot { transform: none; }
+.node-entry .entry-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-entry code.entry-name { font: 600 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.node-entry.passing .clause-dot { background: var(--decided-text); }
+.node-entry.failing .clause-dot { background: var(--removed); }
+.node-entry.passing .clause-status { color: var(--decided-text); }
+.node-entry.failing .clause-status { color: var(--removed); }
+.clause { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--subtle-bg); }
+.clause > .markdown { margin-top: 6px; color: var(--text-2); }
+.clause > .markdown > :first-child { margin-top: 0; }
+.clause > .markdown > :last-child { margin-bottom: 0; }
+.clause-head { display: flex; align-items: baseline; gap: 8px; }
+.clause-head > .clause-status { margin-left: auto; }
+.clause-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); transform: translateY(-1px); }
+:is(.clause, .contract-node).passing > header > .clause-dot { background: var(--decided-text); }
+:is(.clause, .contract-node).failing > header > .clause-dot { background: var(--removed); }
+.clause-title { flex: 1; min-width: 0; }
+.clause-status { flex: none; color: var(--muted); font-size: 12px; }
+:is(.clause, .contract-node).passing > header > .clause-status { color: var(--decided-text); }
+:is(.clause, .contract-node).failing > header > .clause-status { color: var(--removed); }
+.clause-mark { flex: none; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.clause-mark.added { background: light-dark(rgba(40, 175, 85, 0.18), rgba(40, 175, 85, 0.28)); color: var(--decided-text); }
+.clause-mark.changed { background: light-dark(rgba(214, 140, 0, 0.18), rgba(227, 179, 65, 0.22)); color: light-dark(#8a5a00, #e3b341); }
+.clause-mark.removed { background: var(--del-bg); color: var(--del-text); }
+:is(.clause, .shape, .contract-node).removed { opacity: 0.6; }
+.clause-defined { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.clause-checks { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; padding-left: 10px; border-left: 2px solid var(--border-strong); font-size: 12px; }
+.check.passed { border-left-color: var(--decided-text); }
+.check.failed { border-left-color: var(--removed); }
+.check code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.check-title { flex-basis: 100%; color: var(--text-2); }
+.check-arrow { color: var(--muted); }
+.check-body { color: var(--muted); }
+.check-detail { flex-basis: 100%; margin: 0; color: var(--removed); }
+.setup-keep { color: var(--muted); }
+:is(.contract-shapes, .contract-setup) > summary { color: var(--muted); font-size: 12px; cursor: default; }
+:is(.contract-shapes, .contract-setup) > summary code { margin-left: 4px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.shape { margin-top: 8px; }
+.shape header { display: flex; align-items: baseline; gap: 8px; }
+.shape pre { margin: 4px 0 0; padding: 8px; border-radius: 8px; background: var(--subtle-bg); font-size: 11px; overflow: auto; }

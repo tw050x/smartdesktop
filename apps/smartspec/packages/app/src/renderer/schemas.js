@@ -18,6 +18,8 @@ import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
 import { arrowKeysIn } from './menu-keys.js';
 import { plainText, renderMarkdown } from './markdown.js';
 import { levelOf } from './home-level.js';
+import { contractPlain, renderContract } from './contract-view.js';
+import { contractText } from '../main/contract.js';
 
 // The window's content: the home screen (schemas › drafts), or one schema, opened level by level.
 // Where the window is, is a path of levels: the schema opened from home, then each embedded schema
@@ -1594,16 +1596,23 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // found Changed on it and nothing marked): Before, Changes or After, and Side by side.
       const earlier = here.proposal && shown.basedOn && mark(CONTRACT) === 'changed'
         ? await api.getSchema(here.schemaId, shown.basedOn).catch(() => null) : null;
-      const was = typeof earlier?.contract === 'string' ? earlier.contract : null;
+      const was = earlier ? earlier.contract ?? '' : null;
       const showing = was !== null ? here.diffs?.[CONTRACT] ?? (approvals.has(CONTRACT) ? 'after' : 'changes') : 'after';
-      const written = (markdown) => {
-        const element = h('div', {});
-        if (markdown) renderMarkdown(element, markdown);
-        else element.append(h('p', { className: 'muted' }, 'No contract yet.'));
-        return element;
+      // Clauses, their checks and shapes (see contract-view.js), each clause a part comments land on.
+      // Which branches are folded, kept per schematic while the app is open; the view folds itself.
+      here.contractFolded ??= new Set();
+      const titled = {
+        titleOf: (link) => {
+          const { target, part } = parseLink(link);
+          const title = titleOf(target, shown, uses);
+          return part ? `${title} › ${part}` : title;
+        },
+        folded: here.contractFolded,
+        onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)),
       };
-      let contract = written(shown.contract);
-      if (was !== null && showing === 'changes') markInline(contract, readText((element) => renderMarkdown(element, was)));
+      const written = (version, marks = {}) => renderContract(h('div', {}), version, { ...titled, marks });
+      let contract = written(shown.contract, was !== null ? shown.changes?.contractParts : {});
+      if (was !== null && showing === 'changes') markInline(contract, readText((element) => renderContract(element, was, titled)));
       else if (was !== null) {
         const before = written(was);
         markSides(before, contract);
@@ -1613,7 +1622,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       body.append(contract);
       if (was !== null) {
         foot.push(diffSwitch(here, CONTRACT, showing));
-        foot.push(h('button', { type: 'button', className: 'side-by-side', title: 'Open it beside the draft it changes, across the window', onclick: () => openCompareOf(here, shown, { id: CONTRACT, title: 'Contract', markdown: shown.contract ?? '' }, was) }, 'Side by side'));
+        foot.push(h('button', { type: 'button', className: 'side-by-side', title: 'Open it beside the draft it changes, across the window', onclick: () => openCompareOf(here, shown, { id: CONTRACT, title: 'Contract', markdown: contractText(shown.contract) }, contractText(was)) }, 'Side by side'));
         if (full) here.fullDiff = { showing, basedOn: shown.line.indexOf(shown.basedOn) + 1 };
       }
       if (shown.parameters.length) {
@@ -1688,7 +1697,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
         h('span', { className: 'focus-meta' }, use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
-        use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)));
+        use.contract && h('span', { className: 'card-contract' }, contractPlain(use.contract)));
     }
     const contract = id === CONTRACT;
     const item = shown.items.find((one) => one.id === id);
@@ -2155,7 +2164,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         h('span', { className: 'title-row' }, h('strong', {}, use.name ?? use.id), !use.missing && h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
         h('span', { className: 'focus-meta' }, use.missing ? 'This schematic is no longer available.' : use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
-        use.contract && h('span', { className: 'card-contract' }, plainText(use.contract)),
+        use.contract && h('span', { className: 'card-contract' }, contractPlain(use.contract)),
         h('span', { className: 'overview-card-foot' }, h('span', { className: 'overview-card-links' }, links(use.id))));
     };
 
@@ -2350,7 +2359,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // A very small look at a relevant neighbour.
   async function previewOf(id, shown, uses, content) {
     if (uses.has(id)) return null;
-    if (id === CONTRACT) return shown.contract ? h('span', { className: 'focus-preview text' }, plainText(shown.contract)) : null;
+    if (id === CONTRACT) return shown.contract ? h('span', { className: 'focus-preview text' }, contractPlain(shown.contract)) : null;
     const item = await content(id);
     if (item.kind === 'document') return h('span', { className: 'focus-preview text' }, plainText(item.markdown));
     if (item.kind === 'sequence') {

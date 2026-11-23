@@ -8,9 +8,9 @@ import { ICONS } from './icons.js';
 // the copy matches.
 
 const INSTRUCTIONS = `This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.
-A schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary: what it promises and what it needs.
+A schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary and its public side: what it promises and what it needs, and the only part of it other schematics can see or link to. Write it as a tree, the contract being its root: each node a part of the interface (/orders, with /orders/:id under it; for HTTP give each its path), with Markdown explaining it, the shapes it talks about (JSON Schema, seen by checks there and below), setup steps run before every check there and below (which keep values from their responses, such as an order's id, for requests below to use as {id}), its clauses and its child nodes. A clause is one promise: a title saying it in a line, Markdown explaining it, and the checks that test it (an HTTP request and what the response should be). Nodes, clauses and shapes each have a public id, unique in the contract and set once (other schematics link to it), so moving one in the tree breaks nothing. A branch can be run again on its own. When a promise is worked out in one of the schematic's own items (a sequence of the exchange, a table of endpoints, a row of one), the clause can be defined by it (defined_by): outsiders still link to the clause, never the item, so the item can change without them knowing. A contract can still be plain Markdown, with no clauses to link to or check.
 A schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.
-Items link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract, and the schematics this one embeds, but not inside them. Links that go nowhere are refused.
+Items link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract and its nodes, clauses and shapes (contract#id), and the schematics this one embeds and their contracts' nodes, clauses and shapes (use#id), but never their items. Links that go nowhere are refused.
 Schematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use follows the embedded schematic's latest draft, unless it's pinned to one, and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.
 Read only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.
 A focus is what the user wants this work to be for: their prompt may say "focusing on" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.
@@ -31,6 +31,68 @@ const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveH
 const DEPTH = z.number().int().min(0).max(10).optional();
 const LINK = z.string().optional().describe('Where it links: an item id, or item#part');
 const EXPLAIN = z.string().optional().describe('What this one does here and why, which the diagram can\'t show by itself, for agents reading the schematic. Don\'t repeat what the diagram already shows: who it joins and what it wraps.');
+const ID_TEXT = z.string().regex(/^[A-Za-z0-9][\w-]*$/);
+const TEXT_VALUES = z.record(z.string(), z.string());
+const REQUEST = z.object({
+  method: z.string().describe('GET, POST, PUT, PATCH, DELETE…'),
+  path: z.string().describe('From the implementation\'s base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept'),
+  query: TEXT_VALUES.optional(),
+  headers: TEXT_VALUES.optional(),
+  body: z.unknown().optional().describe('Sent as JSON. A string "{name}" is a value a setup step above kept'),
+});
+const EXPECT = z.object({
+  status: z.number().int().optional(),
+  headers: TEXT_VALUES.optional(),
+  body: z.unknown().optional().describe('JSON the response body must contain: every field given, with that value (others may be there too)'),
+  shape: z.string().optional().describe('The id of a shape declared on this node or one above it, which the response body must fit'),
+}).describe('What the response should be: at least one of status, headers, body or shape');
+const CHECK = z.object({
+  id: ID_TEXT.describe('Its id within the clause'),
+  kind: z.literal('http'),
+  title: z.string().optional().describe('What it tries, in a few words'),
+  request: REQUEST,
+  expect: EXPECT,
+});
+const CLAUSE = z.object({
+  id: ID_TEXT.describe('Its public name, unique in the contract, which other schematics link to (use#id): set once and kept'),
+  title: z.string().trim().min(1).describe('The promise, in a line'),
+  markdown: z.string().optional().describe('What explains it'),
+  defined_by: z.string().optional().describe('The item, or item#part, of this schematic where it\'s worked out: a document, flow, sequence or table'),
+  checks: z.array(CHECK).optional().describe('What tests it. A promise with none yet shows as not tested'),
+});
+const SHAPE = z.object({
+  id: ID_TEXT.describe('Its public name, unique in the contract, which checks and links use'),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  schema: z.record(z.string(), z.unknown()).describe('JSON Schema'),
+});
+const SETUP = z.object({
+  id: ID_TEXT.describe('Its id within the node'),
+  kind: z.literal('http'),
+  title: z.string().optional(),
+  request: REQUEST,
+  expect: EXPECT.optional().describe('What the response should be for setup to go on (default: any 2xx)'),
+  keep: TEXT_VALUES.optional().describe('Values to keep from the response for requests on this node and below, by name: where each is, such as { "id": "body.id" }'),
+});
+// What the root and every node have; a node also has its id, name and path.
+const BRANCH = {
+  markdown: z.string().optional().describe('What explains this part'),
+  shapes: z.array(SHAPE).optional().describe('The data this part talks about, seen by checks here and below'),
+  setup: z.array(SETUP).optional().describe('Steps run, in order, before every check here and below'),
+  clauses: z.array(CLAUSE).optional().describe('Its promises'),
+};
+const NODE = z.object({
+  id: ID_TEXT.describe('Its public name, unique in the contract, which other schematics can link to: set once and kept'),
+  name: z.string().trim().min(1).describe('The part of the interface it is, as shown: /orders, :id, a module, a function'),
+  path: z.string().optional().describe('For HTTP: the path of this branch, such as /orders/:id, under its parent\'s. Every check here must request a path under it'),
+  ...BRANCH,
+  get children() { return z.array(NODE).optional().describe('The parts under it'); },
+});
+const CONTRACT_TREE = z.object({
+  ...BRANCH,
+  children: z.array(NODE).optional().describe('The parts of its interface, each a branch of nodes'),
+}).describe('The contract as a tree, the root being the contract itself');
+
 const ITEM_BASE = {
   id: z.string().describe('Its id within this schematic. Sending an id that exists replaces that item.'),
   title: z.string().trim().min(1),
@@ -186,7 +248,7 @@ export function buildServer(call, { version }) {
     schematic_id: z.string().optional().describe('The schematic to change (leave out to propose a new one)'),
     name: z.string().trim().min(1).max(200).optional().describe('Needed for a new schematic'),
     summary: z.string().trim().min(1).optional().describe('What this is, in a sentence or two. Shows when it\'s collapsed. Needed for a new schematic.'),
-    contract: z.string().optional().describe('Markdown: what it promises and what it needs. Shows when it\'s collapsed.'),
+    contract: z.union([CONTRACT_TREE, z.string()]).optional().describe('What it promises and what it needs, its public side: a tree of the parts of its interface, each with its promises and their checks (or plain Markdown). Shows when it\'s collapsed. Replaces the whole contract.'),
     items: z.array(ITEM).optional().describe('Items to add, or to replace by id'),
     remove_items: z.array(z.string()).optional().describe('The ids of items to remove'),
     item_order: z.array(z.string()).optional().describe('Item ids in the order to show them. Any left out follow.'),

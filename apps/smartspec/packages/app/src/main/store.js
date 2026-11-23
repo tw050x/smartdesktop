@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as folders from './folders.js';
+import { brokenParts, contractPartName, contractParts, contractText } from './contract.js';
 import { CONTRACT, checkItem, checkLinks, connectionDetails, itemChanges, linkGraph, parseLink, partName, partsOf } from './items.js';
 
 // Schemas live in the app's data folder, one folder each:
@@ -261,10 +262,12 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   }
 
   // The schemas whose latest draft or proposal embeds `schemaId` following its latest draft, so a
-  // new draft of it changes them too, with any values they set for parameters `parameters` (the
-  // new draft's) doesn't declare: [{ id, name, uses: [use ids], undeclared: [names] }].
-  async function followersOf(schemaId, parameters) {
-    const declared = new Set(parameters.map((parameter) => parameter.name));
+  // new draft of it (`record`) changes them too: [{ id, name, uses: [use ids], undeclared: [names],
+  // breaks: [{ part, change }] }]. `undeclared`, the parameters they set that it doesn't declare;
+  // `breaks`, the contract's clauses and shapes they link to that it removes or whose promise it
+  // changes, from the contract `before` (the latest draft's).
+  async function followersOf(schemaId, record, before = null) {
+    const declared = new Set(record.parameters.map((parameter) => parameter.name));
     const out = [];
     const names = await readdir(path.join(root, 'schemas')).catch(() => []);
     for (const id of names) {
@@ -272,12 +275,27 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       const schema = await readSchema(id);
       if (!schema) continue;
       const records = [await latestRecord(schema), await readProposal(id)].filter(Boolean);
-      const following = records.flatMap((record) => record.uses.filter((use) => use.schemaId === schemaId && !use.pin));
+      const following = records.flatMap((one) => one.uses.filter((use) => use.schemaId === schemaId && !use.pin));
       if (!following.length) continue;
       const undeclared = [...new Set(following.flatMap((use) => Object.keys(use.with ?? {}).filter((key) => !declared.has(key))))];
-      out.push({ id, name: records.at(-1).name, uses: [...new Set(following.map((use) => use.id))], ...(undeclared.length && { undeclared }) });
+      const useIds = new Set(following.map((use) => use.id));
+      const linked = records.flatMap((one) => linkGraph(one).map(({ to }) => parseLink(to)).filter(({ target, part }) => useIds.has(target) && part && part !== CONTRACT).map(({ part }) => part));
+      const breaks = before ? brokenParts(before, record.contract, linked) : [];
+      out.push({ id, name: records.at(-1).name, uses: [...useIds], ...(undeclared.length && { undeclared }), ...(breaks.length && { breaks }) });
     }
     return out;
+  }
+
+  // Each use's public names (its contract's clauses and shapes), from the draft it shows, by its id.
+  async function partsOfUses(uses) {
+    const parts = new Map();
+    for (const use of uses) {
+      const schema = await readSchema(use.schemaId);
+      const draftId = schema && await draftOfUse(use, schema, false);
+      const draft = draftId && await readDraft(use.schemaId, draftId);
+      parts.set(use.id, draft ? contractParts(draft.contract) : []);
+    }
+    return parts;
   }
 
   // A complete record: `base` with `change` applied, and checked. What a change leaves out stays as
@@ -319,7 +337,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     for (const use of record.uses) {
       if (record.items.some((item) => item.id === use.id)) throw new Error(`An item and an embedded schematic are both called ${use.id}. Give each its own id.`);
     }
-    checkLinks(record);
+    checkLinks(record, { useParts: await partsOfUses(record.uses) });
     return record;
   }
 
@@ -331,7 +349,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   const changeKeys = (changes) => [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? [CONTRACT] : [])];
   // Whether a change is as it was in the proposal replaced (an item the same, or still gone).
   const sameChange = (before, after, key) => {
-    if (key === CONTRACT) return before.contract === after.contract;
+    if (key === CONTRACT) return JSON.stringify(before.contract ?? '') === JSON.stringify(after.contract ?? '');
     const was = before.items.find((item) => item.id === key);
     const is = after.items.find((item) => item.id === key);
     return JSON.stringify(was ?? null) === JSON.stringify(is ?? null);
@@ -360,7 +378,10 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   // or that it's no longer there.
   function describeTarget(record, target) {
     if (target.schematic) return { ...target, title: record.name };
-    if (target.item === CONTRACT) return { ...target, title: 'Contract' };
+    if (target.item === CONTRACT) {
+      const found = !target.part || contractParts(record.contract).includes(target.part);
+      return { ...target, title: 'Contract', ...(target.part && found && { partName: contractPartName(record.contract, target.part) }), ...(!found && { partMissing: true }) };
+    }
     const use = record.uses.find((one) => one.id === target.item);
     if (use) return { ...target, title: use.id };
     const item = record.items.find((one) => one.id === target.item);
@@ -375,7 +396,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     const described = describeTarget(record, target);
     if (described.missing || described.partMissing) return false;
     if (!target.quote || target.card) return true;
-    const thing = target.item === CONTRACT ? { contract: record.contract, parameters: record.parameters }
+    const thing = target.item === CONTRACT ? { contract: contractText(record.contract), parameters: record.parameters }
       : record.items.find((one) => one.id === target.item) ?? record.uses.find((one) => one.id === target.item);
     return plainText(thing).includes(plainWords(target.quote));
   }
@@ -648,7 +669,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         // The changes the user has approved (see approveChange), of those there are.
         approved: (proposal.approved ?? []).filter((key) => changeKeys(changes).includes(key)),
         // The schematics that embed this one following its latest draft, which accepting changes too.
-        usedBy: schema.line.length ? await followersOf(id, proposal.parameters) : [],
+        usedBy: schema.line.length ? await followersOf(id, proposal, (await latestRecord(schema))?.contract) : [],
       };
     },
 
@@ -710,7 +731,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         finished(id, replaced?.id);
         // What embeds it following its latest draft changes with it once accepted: said, so the AI
         // knows, above all where a parameter a use sets would no longer be declared.
-        const usedBy = existing ? await followersOf(id, record.parameters) : [];
+        const usedBy = existing ? await followersOf(id, record, (await latestRecord(existing))?.contract) : [];
         return { schema: id, proposal: proposal.id, ...(replaced && { replaced: replaced.id }), ...(usedBy.length && { usedBy }) };
       });
     },

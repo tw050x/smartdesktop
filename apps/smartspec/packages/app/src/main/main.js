@@ -13,6 +13,7 @@ import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
 import { confirm } from './confirm.js';
 import { createStore } from './store.js';
+import { contractPartName } from './contract.js';
 import { createLayouts } from './layouts.js';
 import { createUpdates } from './updates.js';
 import { WaitRefused, createWaits } from './waits.js';
@@ -579,7 +580,7 @@ const schemasFor = (session, tab) => ({
       status: 'waiting_for_user',
       wait: waitCommand('proposal', '--id', made.proposal),
       message: 'Nothing has changed yet. Tell the user straight away to switch to the SmartSpec app and accept or discard this: only they can. To hear their answer, run the wait command in the background if you can, or call get_schematic later. The wait also ends if the user sends you their comments to deal with first: answer them, revise if they need it, and wait again.'
-        + (made.usedBy ? ` Once accepted, this also changes what embeds it following its latest draft (usedBy).${made.usedBy.some((one) => one.undeclared) ? ' Some of those uses set parameters this no longer declares (undeclared): tell the user, and offer to propose the changes to those schematics.' : ''}` : ''),
+        + (made.usedBy ? ` Once accepted, this also changes what embeds it following its latest draft (usedBy).${made.usedBy.some((one) => one.undeclared) ? ' Some of those uses set parameters this no longer declares (undeclared): tell the user, and offer to propose the changes to those schematics.' : ''}${made.usedBy.some((one) => one.breaks) ? ' Some of them link to clauses or shapes of the contract this removes or whose promise it changes (breaks): tell the user, and offer to propose the changes to those schematics.' : ''}` : ''),
     };
   },
 });
@@ -801,6 +802,12 @@ async function acceptProposal(ctx, schemaId) {
   const followers = usedBy.slice(0, MOST_LISTED).map((one) => `“${one.name}”`);
   if (usedBy.length > MOST_LISTED) followers.push(`${usedBy.length - MOST_LISTED} more`);
   const unset = usedBy.filter((one) => one.undeclared).map((one) => `“${one.name}” sets ${list(one.undeclared.map((name) => `“${name}”`))}, which this no longer declares.`);
+  // What a follower relies on in the contract (it links to those clauses and shapes) that this removes or changes.
+  for (const one of usedBy.filter((follower) => follower.breaks)) {
+    const removed = one.breaks.filter((broken) => broken.change === 'removed').map((broken) => `“${broken.part}”`);
+    const changed = one.breaks.filter((broken) => broken.change === 'changed').map((broken) => `“${contractPartName(proposal.contract, broken.part)}”`);
+    unset.push(`“${one.name}” relies on ${[removed.length && `${list(removed)}, which this removes`, changed.length && `${list(changed)}, which this changes`].filter(Boolean).join(', and ')}.`);
+  }
   const alsoChanges = !usedBy.length ? ''
     : ` ${list(followers)} ${usedBy.length === 1 ? 'embeds' : 'embed'} its latest draft, so ${usedBy.length === 1 ? 'it changes' : 'they change'} with it.${unset.length ? ` ${unset.join(' ')}` : ''}`;
   const becomes = `${draftLine}${alsoChanges}`;

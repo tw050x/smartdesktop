@@ -1,3 +1,5 @@
+import { checkContract, contractChanges, contractLinks, contractParts } from './contract.js';
+
 // What's inside a schema: its items, each of a kind with its own way of rendering, and the links
 // between them. Plain data and no Node or Electron, as the store and the interface both use it.
 //
@@ -210,7 +212,7 @@ export function parseLink(link, fromItem = null) {
 
 // Every link in a schema's record, as [{ from, to, label }]: `from` and `to` are in link form.
 export function linkGraph({ contract, items }) {
-  const links = markdownLinks(contract).map(({ to, label }) => ({ item: CONTRACT, part: null, to, label }));
+  const links = contractLinks(contract).map(({ part, to, label }) => ({ item: CONTRACT, part, to, label }));
   for (const item of items) for (const link of linksOf(item)) links.push({ item: item.id, ...link });
   return links.map(({ item, part, to, label }) => {
     const { target, part: toPart } = parseLink(to, item);
@@ -218,16 +220,23 @@ export function linkGraph({ contract, items }) {
   });
 }
 
-// Throws if a link goes nowhere, or past an embedded schema's boundary.
-export function checkLinks(record) {
+// Throws if a link goes nowhere, or past an embedded schema's boundary. Outside a schematic, only
+// its contract can be seen: a link reaches an embedded schematic, its contract, or one of its
+// contract's public names (a node, clause or shape, `auth#issue-token`), never its items. `useParts`,
+// each use's public names, by its id (from the draft it shows).
+export function checkLinks(record, { useParts = new Map() } = {}) {
   const items = new Map(record.items.map((item) => [item.id, item]));
   const uses = new Set(record.uses.map((use) => use.id));
+  checkContract(record.contract, { items: record.items, partsOf });
+  const ownParts = contractParts(record.contract);
   for (const { from, to } of linkGraph(record)) {
     const { target, part } = parseLink(to);
     if (target === CONTRACT) {
-      if (part) throw new Error(`The link from ${from} to ${to} can't work: the contract has no parts to link to.`);
+      if (part && !ownParts.includes(part)) throw new Error(`The link from ${from} goes to ${to}, but the contract has no node, clause or shape ${part}. Its parts are: ${ownParts.join(', ') || 'none'}.`);
     } else if (uses.has(target)) {
-      if (part && part !== CONTRACT) throw new Error(`The link from ${from} to ${to} reaches inside an embedded schematic. Link to ${target}, or to ${target}#${CONTRACT}.`);
+      if (!part || part === CONTRACT) continue;
+      const parts = useParts.get(target) ?? [];
+      if (!parts.includes(part)) throw new Error(`The link from ${from} goes to ${to}, but ${target}'s contract has no node, clause or shape ${part}. Outside a schematic only its contract can be seen, so link to ${target}, ${target}#${CONTRACT}${parts.length ? `, or one of its contract's public names: ${parts.map((one) => `${target}#${one}`).join(', ')}` : ''}.`);
     } else if (!items.has(target)) {
       throw new Error(`The link from ${from} goes to ${target}, which isn't an item or embedded schematic here.`);
     } else if (part && !partsOf(items.get(target)).includes(part)) {
@@ -331,6 +340,8 @@ export function itemChanges(before, after) {
   return {
     items: changes,
     removed: [...was.values()].filter((item) => !ids.has(item.id)).map(({ id, title, kind, mediaType }) => ({ id, title, kind, ...(mediaType && { mediaType }) })),
-    contract: Boolean(before) && before.contract !== after.contract,
+    contract: Boolean(before) && contractChanges(before.contract, after.contract).changed,
+    // Each clause and shape of the contract added, changed or removed, by id.
+    contractParts: before ? contractChanges(before.contract, after.contract).parts : {},
   };
 }

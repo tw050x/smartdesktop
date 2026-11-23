@@ -233,7 +233,7 @@ describe('links across a schema', () => {
     const auth = await accepted(store, { items: [doc('inner')] });
     const uses = [{ id: 'auth', schemaId: auth.schema }];
     await assert.doesNotReject(store.propose(proposal({ uses, items: [doc('a', '[x](auth) [y](auth#contract)')] })));
-    await assert.rejects(store.propose(proposal({ uses, items: [doc('a', '[x](auth#inner)')] })), /reaches inside an embedded schema/);
+    await assert.rejects(store.propose(proposal({ uses, items: [doc('a', '[x](auth#inner)')] })), /only its contract can be seen/);
   });
 
   test('an item and a use can\'t share an id', async () => {
