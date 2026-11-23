@@ -81,5 +81,15 @@ export function createModeSwitcher({ card, onChange }) {
     }
   });
   draw();
-  return { button, mode: () => mode, close: () => setOpen(false) };
+  // Switching to a mode from elsewhere (reviewing a proposal is done in Design): kept as the user's
+  // own choice is, without telling onChange (the caller draws the view).
+  const set = (id) => {
+    if (id === mode) return;
+    mode = id;
+    try {
+      localStorage.setItem(STORED, mode);
+    } catch {}
+    draw();
+  };
+  return { button, mode: () => mode, set, close: () => setOpen(false) };
 }

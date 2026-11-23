@@ -1215,14 +1215,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 .diff-switch button { height: 26px; padding: 0 10px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
 .diff-switch button:hover { color: var(--text); }
 .diff-switch button[aria-pressed="true"] { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 0.15); }
-/* Under review, the drawer along the bottom of a card: the change's controls in a row, and why it
-   changes below them, scrolling, shown as the drawer is dragged open by the handle on its top edge
-   (cardDrawer in schemas.js). */
-/* It lies over the card's content, which keeps its size as it's dragged (the user's choice): the
-   content stops above it shut (--drawer-shut), and it's drawn over the content when it's opened. */
-.card-drawer { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border); background: var(--bg); border-radius: 0 0 var(--card-radius) var(--card-radius); transition: height 0.2s ease, transform 0.2s ease; }
-.card-drawer.open { box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.16); }
-.focus-card:has(> .card-drawer) { padding-bottom: var(--drawer-shut, 43px); }
+/* Under review, the drawer under a card's title bar: the change's controls in a row, and why it
+   changes below them, scrolling, shown as the drawer is dragged open (downwards) by the handle on
+   its bottom edge (cardDrawer in schemas.js). It lies over the card's content, which keeps its size
+   as it's dragged (the user's choice). */
+.card-drawer { position: absolute; z-index: 3; left: 0; right: 0; top: var(--drawer-top, 41px); display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--border); background: var(--bg); transition: height 0.2s ease; }
+.card-drawer.open { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16); }
+/* A second bar under the title bar (the user's choice: it was along the card's bottom): the content
+   starts below it shut, and it's drawn over the content as it opens downwards. */
+.focus-card:has(> .card-drawer) > .pane-head { margin-bottom: var(--drawer-shut, 43px); }
 .card-drawer.dragging { transition: none; }
 .card-drawer-row { display: flex; flex: none; align-items: center; gap: 8px; padding: 6px 8px; }
 /* Approve at the far end, the ways to look at the change together at the start. */
@@ -1241,7 +1242,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .card-drawer.titled .card-drawer-more p { margin: 0; }
 .card-drawer.open .card-drawer-more { display: block; }
 /* The handle: a grip on the drawer's top edge, half outside it, to drag. */
-.card-drawer-handle { position: absolute; z-index: 2; top: -7px; left: 50%; width: 44px; height: 14px; margin-left: -22px; border-radius: 7px; cursor: ns-resize; touch-action: none; }
+.card-drawer-handle { position: absolute; z-index: 2; bottom: -7px; left: 50%; width: 44px; height: 14px; margin-left: -22px; border-radius: 7px; cursor: ns-resize; touch-action: none; }
 .card-drawer-handle::before { content: ""; position: absolute; top: 5px; left: 8px; right: 8px; height: 4px; border-radius: 2px; background: var(--border-strong); transition: background 0.15s ease; }
 .card-drawer-handle:hover::before, .card-drawer.dragging .card-drawer-handle::before { background: var(--muted); }
 /* Full screen, a card floating over the content instead, a fixed size, what it says scrolling, dragged
@@ -1462,8 +1463,6 @@ body.chat-window-body { display: flex; background: var(--bg); }
 /* The window's top bar's tooltips: blue (the user's choice), hanging over the content below it. */
 .tooltip.strip-tip { background: var(--accent); color: #fff; }
 /* A page's zoom controls sit in the card's corner: above its drawer, when it has one. */
-.focus-card:has(> .card-drawer) > .canvas-controls { bottom: calc(var(--drawer-height, 43px) + 12px); }
-.focus-card:has(> .card-drawer) > .focus-body .canvas-controls { bottom: calc(var(--drawer-height, 43px) - var(--drawer-shut, 43px) + 12px); }
 /* Side by side, beside the switch: it opens a view across the window. The app's button height. */
 .side-by-side { flex: none; box-sizing: border-box; height: 30px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: default; }
 .side-by-side:hover { background: var(--button-hover); }

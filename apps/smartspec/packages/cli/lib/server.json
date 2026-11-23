@@ -1029,7 +1029,7 @@
                           },
                           "url": {
                             "type": "string",
-                            "description": "The git repository"
+                            "description": "The git repository: https:, ssh: or git:, or file: for one on the user's Mac"
                           },
                           "ref": {
                             "description": "A branch, tag or commit",
@@ -1899,7 +1899,7 @@
                             },
                             "url": {
                               "type": "string",
-                              "description": "The git repository"
+                              "description": "The git repository: https:, ssh: or git:, or file: for one on the user's Mac"
                             },
                             "ref": {
                               "description": "A branch, tag or commit",

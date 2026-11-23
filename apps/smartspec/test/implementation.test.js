@@ -16,6 +16,8 @@ describe('an implementation', () => {
     assert.doesNotThrow(() => checkImplementation({ source: { kind: 'compose', url: 'https://github.com/larder/stack.git', service: 'orders' }, start: { port: 3000 } }));
     assert.doesNotThrow(() => checkImplementation({ source: { kind: 'archive', url: 'https://example.com/orders.tar.gz', sha256: 'a'.repeat(64) }, start: { port: 3000, commands: ['./run'] } }));
     assert.doesNotThrow(() => checkImplementation({ source: { kind: 'running', url: 'https://orders.staging.example.com' }, ready: { path: '/health' } }));
+    assert.doesNotThrow(() => checkImplementation({ source: { kind: 'git', url: 'file:///Users/me/code/orders' }, start: { port: 3000, commands: ['npm start'] } }));
+    assert.throws(() => checkImplementation({ source: { kind: 'archive', url: 'file:///Users/me/orders.tar' }, start: { port: 3000, commands: ['./run'] } }), /should start https:\/\/ or http:\/\//);
     assert.doesNotThrow(() => checkImplementation(null));
   });
 

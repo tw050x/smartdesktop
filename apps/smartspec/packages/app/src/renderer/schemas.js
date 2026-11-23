@@ -1468,7 +1468,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         at: shown.proposal.createdAt ?? null,
         title: `Proposed changes to ${name}`,
         decide: 'Review them to accept or discard them.',
-        actions: [{ id: 'view-proposal', label: 'Review', kind: 'primary', run: () => { here.proposal = true; render(); } }],
+        actions: [{ id: 'view-proposal', label: 'Review', kind: 'primary', run: () => { here.proposal = true; modes.set('design'); render(); } }],
       });
     }
     if (modes.mode() === 'test') {
@@ -2070,12 +2070,23 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // Pressing in it never picks up the card or starts a comment.
     drawer.addEventListener('pointerdown', (event) => event.stopPropagation());
     drawer.addEventListener('dblclick', (event) => event.stopPropagation());
-    // The content stops above it shut, and it lies over the content when it's opened (the user's
-    // choice, again: making room for it opened grew the card on the overview).
-    requestAnimationFrame(() => card.style.setProperty('--drawer-shut', `${row.offsetHeight + 1}px`));
+    // A second bar under the card's title bar (the user's choice: it was along the bottom): the
+    // content starts below it shut, and it lies over the content as it opens (the user's choice,
+    // again: making room for it opened grew the card on the overview). It follows the title bar's
+    // height, which changes as a long title wraps.
+    const place = () => {
+      const head = card.querySelector(':scope > .pane-head');
+      if (head) card.style.setProperty('--drawer-top', `${head.offsetTop + head.offsetHeight}px`);
+      card.style.setProperty('--drawer-shut', `${row.offsetHeight + 1}px`);
+    };
+    requestAnimationFrame(() => {
+      place();
+      const head = card.querySelector(':scope > .pane-head');
+      if (head && typeof ResizeObserver === 'function') new ResizeObserver(place).observe(head);
+    });
     if (!more) return drawer;
     if (!controls.length) drawer.classList.add('titled');
-    const shut = () => row.offsetHeight + 1; // its row and its top border
+    const shut = () => row.offsetHeight + 1; // its row and its bottom border
     // As tall as what it says, no taller, and at most 0.7 of the card.
     const said = () => {
       const was = more.style.cssText;
@@ -2088,7 +2099,6 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const size = (height, open) => {
       drawer.classList.toggle('open', open);
       drawer.style.height = open ? `${height}px` : '';
-      card.style.setProperty('--drawer-height', `${open ? height : drawer.offsetHeight}px`);
     };
     // Opened before it's been sized, it's as tall as what it says.
     const natural = () => {
@@ -2124,10 +2134,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       // springs back when let go (the user's choice: it stopped dead).
       const give = (over) => (over * RUBBER) / (over + RUBBER);
       const move = (moved) => {
-        const wanted = from - (moved.clientY - start) / scale;
+        // Dragged down it opens; up past shut it gives a little and stays (its row never squashed).
+        const wanted = from + (moved.clientY - start) / scale;
         height = wanted > most() ? most() + give(wanted - most()) : wanted < shut() ? shut() - give(shut() - wanted) : wanted;
-        // Below shut it slides down past the card's bottom edge, rather than squashing its row.
-        drawer.style.transform = height < shut() ? `translateY(${shut() - height}px)` : '';
         size(Math.max(shut(), height), height > shut() + 1);
       };
       const end = () => {
@@ -2135,7 +2144,6 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         window.removeEventListener('pointerup', end);
         window.removeEventListener('pointercancel', end);
         drawer.classList.remove('dragging');
-        drawer.style.transform = '';
         height = Math.min(most(), Math.max(shut(), height));
         // Let go nearly shut, it shuts; otherwise it stays as it was left, and opens to that.
         kept.open = height > shut() + 24;
@@ -2146,7 +2154,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       window.addEventListener('pointerup', end);
       window.addEventListener('pointercancel', end);
     });
-    drawer.prepend(handle);
+    drawer.append(handle);
     return drawer;
   }
 
@@ -2698,8 +2706,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // Home, from the website demo's top bar (in the app it's a tab of its own).
   api.onGoHome?.(() => go([]));
   // An AI's proposal, in the window it works in.
+  // A proposal the AI has just made, shown to review: in Design, where proposals are reviewed (the
+  // user's choice), whichever mode the window was in.
   api.onShowSchema(({ schemaId, name }) => {
     selected = schemaId;
+    modes.set('design');
     go([level(schemaId, { proposal: true, label: name })]);
   });
   render();

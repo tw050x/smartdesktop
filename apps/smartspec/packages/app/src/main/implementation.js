@@ -12,6 +12,7 @@
 //   image:   { kind, image }                      a Docker image, by tag or digest
 //   compose: { kind, url, ref?, file?, service }  a Docker Compose file in a git repository
 //   git:     { kind, url, ref?, dir? }            a git repository, built and run on the machine
+//                                                  (its url may be file:// for one on this machine)
 //   archive: { kind, url, sha256? }               an archive at a URL, built and run on the machine
 //   running: { kind, url }                        something already running, to test as it is
 // `start`, how to run it: the port it listens on, its environment, and for git and archive the
@@ -56,12 +57,12 @@ function checkSource(source, where) {
       if (!text(source.image) || /\s/.test(source.image)) fail(`${at} needs the image, such as ghcr.io/larder/orders:1.4.`);
       break;
     case 'compose':
-      checkUrl(source.url, at, ['https:', 'ssh:', 'git:', 'http:']);
+      checkUrl(source.url, at, ['https:', 'ssh:', 'git:', 'http:', 'file:']);
       if (!text(source.service)) fail(`${at} needs the service in the Compose file that keeps the contract.`);
       if (source.file !== undefined && !text(source.file)) fail(`${at}'s file should be the Compose file's path in the repository.`);
       break;
     case 'git':
-      checkUrl(source.url, at, ['https:', 'ssh:', 'git:', 'http:']);
+      checkUrl(source.url, at, ['https:', 'ssh:', 'git:', 'http:', 'file:']);
       if (source.dir !== undefined && (!text(source.dir) || source.dir.startsWith('/') || source.dir.split('/').includes('..'))) fail(`${at}'s dir should be a folder inside the repository, such as services/orders.`);
       break;
     case 'archive':

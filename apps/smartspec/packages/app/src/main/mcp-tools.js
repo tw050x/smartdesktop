@@ -98,7 +98,7 @@ const IMPLEMENTATION = z.object({
   source: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('image'), image: z.string().describe('A Docker image, by tag or digest, such as ghcr.io/larder/orders:1.4') }),
     z.object({ kind: z.literal('compose'), url: z.string().describe('The git repository holding the Compose file'), ref: z.string().optional().describe('A branch, tag or commit'), file: z.string().optional().describe('The Compose file\'s path in the repository (default compose.yaml)'), service: z.string().describe('The service that keeps the contract') }),
-    z.object({ kind: z.literal('git'), url: z.string().describe('The git repository'), ref: z.string().optional().describe('A branch, tag or commit'), dir: z.string().optional().describe('The folder in it to build and run from') }),
+    z.object({ kind: z.literal('git'), url: z.string().describe('The git repository: https:, ssh: or git:, or file: for one on the user\'s Mac'), ref: z.string().optional().describe('A branch, tag or commit'), dir: z.string().optional().describe('The folder in it to build and run from') }),
     z.object({ kind: z.literal('archive'), url: z.string().describe('An archive to download'), sha256: z.string().optional() }),
     z.object({ kind: z.literal('running'), url: z.string().describe('Its base address, to test as it is') }),
   ]).describe('Where the code comes from'),
