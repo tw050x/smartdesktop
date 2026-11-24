@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, describe, test } from 'node:test';
 import { contractJob, checkContract } from '../packages/app/src/main/contract.js';
-import { runCheck, runJob, validate } from '../packages/runner/lib/run.js';
+import { masker, runCheck, runJob, validate } from '../packages/runner/lib/run.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const temp = mkdtempSync(path.join(os.tmpdir(), 'smartspec-runner-'));
@@ -191,5 +191,68 @@ describe('a job', () => {
     assert.equal(code, 0);
     assert.deepEqual(events.map((one) => one.type), ['job', 'code', 'phase', 'log', 'phase', 'result', 'phase', 'done']);
     assert.equal(events.at(-1).outcome, 'passed');
+  });
+});
+
+// A service that needs secrets: a key in a file git ignores, a token in its environment.
+const KEYED = `
+const fs = require('node:fs');
+const http = require('node:http');
+const key = fs.readFileSync('.secret/jwt.key', 'utf8');
+const other = fs.readFileSync('config/other.key', 'utf8');
+console.log('token is ' + process.env.TOKEN);
+http.createServer((req, res) => {
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ key, other, token: process.env.TOKEN }));
+}).listen(Number(process.env.PORT), '127.0.0.1');
+`;
+
+describe('secrets', () => {
+  test('are given as files and environment variables, hidden in what\'s told, and the code is left as it was', { timeout: 60_000 }, async () => {
+    const port = await freePort();
+    const dir = path.join(temp, 'keyed');
+    mkdirSync(path.join(dir, 'config'), { recursive: true });
+    writeFileSync(path.join(dir, 'server.js'), KEYED);
+    writeFileSync(path.join(dir, 'config', 'other.key'), 'what was there');
+    const implementation = { source: { kind: 'git', url: 'https://github.com/larder/auth.git' }, start: { port, env: { PORT: String(port) }, commands: ['node server.js'] }, ready: { path: '/', timeout: 20 } };
+    const secrets = [
+      { name: 'jwt-key', value: 'k3y-from-the-keychain', files: ['.secret/jwt.key'] },
+      { name: 'other', value: 'an0ther-value', files: ['config/other.key'] },
+      { name: 'token', value: 't0ken-value', env: 'TOKEN' },
+    ];
+    const checks = [{ key: 'got/them', clause: 'got', setup: [], request: { method: 'GET', path: '/' }, expect: { status: 200, body: { key: 'k3y-from-the-keychain', other: 'an0ther-value', token: 'wrong' } } }];
+    const events = [];
+    const done = await runJob({ version: 1, id: 'keyed', implementation, workdir: dir, secrets, shapes: {}, checks }, { emit: (event) => events.push(event), cacheDir: path.join(temp, 'cache') });
+    // The check reached the values (only the token was expected wrongly), and its detail hides them.
+    assert.equal(done.outcome, 'failed');
+    const result = events.find((one) => one.type === 'result');
+    assert.match(result.detail, /Body.token should be "wrong", not "•••"/);
+    const told = JSON.stringify(events);
+    for (const { value } of secrets) assert.equal(told.includes(value), false, `${value} shows in ${told}`);
+    assert.ok(events.some((one) => one.type === 'log' && one.text === 'token is •••'));
+    // Taken away again: the file that wasn't there, and its folder; the one that was, put back.
+    assert.equal(existsSync(path.join(dir, '.secret')), false);
+    assert.equal(readFileSync(path.join(dir, 'config', 'other.key'), 'utf8'), 'what was there');
+  });
+
+  test('can\'t be written outside its code, nor given to something already running', async () => {
+    const port = await freePort();
+    const dir = path.join(temp, 'outside');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'server.js'), KEYED);
+    const implementation = { source: { kind: 'git', url: 'https://github.com/larder/auth.git' }, start: { port, env: { PORT: String(port) }, commands: ['node server.js'] } };
+    const checks = [{ key: 'a/b', setup: [], request: { method: 'GET', path: '/' }, expect: { status: 200 } }];
+    const escaped = await runJob({ version: 1, id: 'out', implementation, workdir: dir, secrets: [{ name: 'x', value: 'xxxxxx', files: ['../escaped.key'] }], shapes: {}, checks }, { cacheDir: path.join(temp, 'cache') });
+    assert.equal(escaped.outcome, 'error');
+    assert.match(escaped.detail, /isn't inside its code/);
+    assert.equal(existsSync(path.join(temp, 'escaped.key')), false);
+    const running = await runJob({ version: 1, id: 'run', implementation: { source: { kind: 'running', url: `http://127.0.0.1:${port}` } }, secrets: [{ name: 'x', value: 'xxxxxx', env: 'X' }], shapes: {}, checks });
+    assert.match(running.detail, /can't be given secrets/);
+  });
+
+  test('are masked whole and line by line, but not when too short to tell from words', () => {
+    const mask = masker([{ name: 'pem', value: '-----BEGIN KEY-----\nabcdefgh\n-----END KEY-----' }, { name: 'pin', value: 'abc' }]);
+    assert.equal(mask('got abcdefgh and abc'), 'got ••• and abc');
+    assert.equal(mask('-----BEGIN KEY-----\nabcdefgh\n-----END KEY-----'), '•••');
   });
 });

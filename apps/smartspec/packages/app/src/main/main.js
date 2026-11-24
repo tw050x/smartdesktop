@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell, WebContentsView } from 'electron';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,6 +15,7 @@ import { confirm } from './confirm.js';
 import { createStore } from './store.js';
 import { contractPartName } from './contract.js';
 import { createLayouts } from './layouts.js';
+import { createSecrets } from './secrets.js';
 import { createTestRuns } from './test-runs.js';
 import { createWorkspaces, WORKSPACE_KINDS } from './workspaces.js';
 import { createUpdates } from './updates.js';
@@ -556,7 +557,42 @@ const schemasFor = (session, tab) => ({
     const workspace = shown.implementation && WORKSPACE_KINDS.includes(shown.implementation.source.kind)
       ? await workspaces.info(id, shown.name).then(({ dir, cloned, branch, changes }) => ({ path: dir, cloned, ...(cloned ? { branch, changes } : {}) }))
       : null;
-    return { ...shown, icon: itemIcons.get(id)?.icon ?? null, ...(workspace ? { workspace } : {}) };
+    // How its secrets stand on this Mac: set or not, never a value (see secrets.js).
+    const kept = shown.implementation?.secrets?.length ? secrets.statusOf(id, shown.implementation).map((one) => ({ name: one.name, set: one.set, ...(one.random ? { random: true } : {}) })) : null;
+    return { ...shown, icon: itemIcons.get(id)?.icon ?? null, ...(workspace ? { workspace } : {}), ...(kept ? { secrets: kept } : {}) };
+  },
+  // The AI having random values made for secrets that can be random (generate_secrets): which were
+  // made, never the values; those set are left alone (only the user replaces a value).
+  async generateSecrets(id, { names = null, proposal = false } = {}) {
+    const record = proposal ? await store.getProposal(id) : await store.getSchema(id);
+    if (!record) throw new Error(proposal ? 'There\'s no proposal waiting on that schematic.' : 'There\'s no schematic with that id.');
+    const all = secrets.statusOf(id, record.implementation);
+    if (!all.length) throw new Error(`${record.name}'s implementation lists no secrets.`);
+    const unknown = (names ?? []).filter((name) => !all.some((one) => one.name === name));
+    if (unknown.length) throw new Error(`${record.name} has no secret called ${unknown.join(' or ')}. Its secrets: ${all.map((one) => one.name).join(', ')}.`);
+    const asked = names ? all.filter((one) => names.includes(one.name)) : all.filter((one) => !one.set && one.random);
+    const made = [];
+    const alreadySet = [];
+    const notRandom = [];
+    for (const one of asked) {
+      if (one.set) alreadySet.push(one.name);
+      else if (!one.random) notRandom.push(one.name);
+      else {
+        secrets.generate(id, one);
+        made.push(one.name);
+      }
+    }
+    if (made.length) {
+      const ctx = session.ctx;
+      const text = `Your AI made random ${made.length === 1 ? 'a value' : 'values'} for ${made.join(', ')}`;
+      if (ctx && !ctx.win.isDestroyed()) desktop.note(ctx.id, { text, detail: `${text}, secrets of “${record.name}”` });
+    }
+    const missing = secrets.statusOf(id, record.implementation).filter((one) => !one.set).map((one) => one.name);
+    return {
+      made, ...(alreadySet.length ? { already_set: alreadySet } : {}), ...(notRandom.length ? { not_random: notRandom } : {}),
+      still_missing: missing,
+      message: missing.length ? `Still not set: ${missing.join(', ')}. Only the user can enter ${missing.length === 1 ? 'it' : 'them'}, in Test mode under Implementation › Secrets: ask them to.` : 'Every secret is set, so its checks can be run.',
+    };
   },
   // Setting the icon of the schematic the window shows (set_icon): the user's choice is kept over
   // the AI's.
@@ -782,9 +818,20 @@ store.events.on('changed', () => broadcast('schemas-changed'));
 // Node; each run's progress and results sent to every window.
 // Each schematic's workspace on this Mac, a clone of its code to work on (see workspaces.js).
 const workspaces = createWorkspaces(app.getPath('userData'));
+// The values of schematics' secrets, kept on this Mac, encrypted with a key in its Keychain (see
+// secrets.js); each window told when a schematic's change.
+const secrets = createSecrets(app.getPath('userData'), {
+  cipher: {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (text) => safeStorage.encryptString(text),
+    decrypt: (data) => safeStorage.decryptString(data),
+  },
+  onChange: (schemaId) => broadcast('secrets-changed', schemaId),
+});
 const testRuns = createTestRuns({
   dir: path.join(app.getPath('userData'), 'test-results'),
   workspaces,
+  secrets,
   runner: {
     command: process.execPath,
     args: [path.join(app.isPackaged ? path.join(process.resourcesPath, 'runner') : fileURLToPath(new URL('../../../runner', import.meta.url)), 'cli.js')],
@@ -798,6 +845,17 @@ handle('test-run', (_ctx, schemaId, version, options) => testRuns.start(schemaId
 handle('test-stop', (_ctx, schemaId, runId) => testRuns.stop(schemaId, runId));
 handle('test-state', (_ctx, schemaId) => testRuns.stateOf(schemaId));
 handle('test-branches', (_ctx, schemaId, version) => testRuns.branchesOf(schemaId, version));
+// A schematic's secrets on this Mac (see secrets.js): how each of a draft's or the proposal's
+// (`version`) stands, and the user entering, generating or clearing one. Values only ever come in.
+const secretRecord = async (schemaId, version) => (version === 'proposal' ? store.getProposal(schemaId) : store.getSchema(schemaId, { draftId: version }));
+handle('secrets', async (_ctx, schemaId, version) => secrets.statusOf(schemaId, (await secretRecord(schemaId, version))?.implementation).map(({ name, description, env, files, random, set, by, at }) => ({ name, description, env, files, random: Boolean(random), set, by, at })));
+handle('secret-set', (_ctx, schemaId, name, value) => secrets.set(schemaId, name, value));
+handle('secret-generate', async (_ctx, schemaId, version, name) => {
+  const secret = secrets.statusOf(schemaId, (await secretRecord(schemaId, version))?.implementation).find((one) => one.name === name);
+  if (!secret) throw new Error(`There's no secret called ${name}.`);
+  secrets.generate(schemaId, secret);
+});
+handle('secret-clear', (_ctx, schemaId, name) => secrets.clear(schemaId, name));
 // A schematic's workspace: where it is and how it stands, and showing it in the Finder (made
 // first if its first run hasn't cloned it yet, so there's somewhere to show).
 handle('workspace', async (_ctx, schemaId, name) => workspaces.info(schemaId, name));

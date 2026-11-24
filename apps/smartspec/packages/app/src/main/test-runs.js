@@ -54,8 +54,9 @@ function userPath() {
 
 // `runner`: { command, args, env } to start the runner's cli.js; `store` (see store.js); `dir`, where
 // runs are saved (none: kept in memory only); `workspaces`, where code is kept to work on;
+// `secrets`, the values of its secrets on this Mac (see secrets.js), given to the runner in its job;
 // `onChange(schemaId, run)`, told as a run moves on (at most every SEND_EVERY ms).
-export function createTestRuns({ runner, store, dir = null, workspaces = null, onChange = () => {} }) {
+export function createTestRuns({ runner, store, dir = null, workspaces = null, secrets = null, onChange = () => {} }) {
   const history = new Map(); // schemaId → Map(runId → run)
   const waiting = new Map(); // runId → [told when it ends]
   const safe = (text) => text.replace(/[^\w-]/g, '_');
@@ -206,6 +207,13 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, o
       if (target !== DEFAULT_TARGET && !WORKSPACE_KINDS.includes(kind)) throw new Error(`Its code is ${kind === 'running' ? 'something already running' : kind === 'image' ? 'a Docker image' : 'an archive'}, so there's no branch, commit or workspace to choose: run it as the schematic says.`);
       const workdir = target === WORKSPACE_TARGET ? workspaces?.pathFor(schemaId, record.name) : null;
       if (target === WORKSPACE_TARGET && !workdir) throw new Error('There\'s no workspace here to run.');
+      // Its secrets' values, or no run: one missing would only crash it halfway, confusingly.
+      const given = secrets ? secrets.valuesFor(schemaId, record.implementation) : { values: [], missing: (record.implementation.secrets ?? []).map((one) => one.name) };
+      if (given.missing.length) {
+        const error = new Error(`${record.name} needs ${given.missing.length === 1 ? 'a secret' : 'secrets'} not set on this Mac yet: ${given.missing.join(', ')}. Set ${given.missing.length === 1 ? 'it' : 'them'} in Test mode, under Implementation › Secrets.`);
+        error.missingSecrets = given.missing;
+        throw error;
+      }
 
       const startedAt = Date.now();
       const run = {
@@ -224,6 +232,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, o
         implementation: record.implementation,
         ...(workdir ? { workdir } : {}),
         ...(refOf(target) ? { ref: refOf(target) } : {}),
+        ...(given.values.length ? { secrets: given.values } : {}),
         shapes,
         checks,
       };
@@ -325,7 +334,12 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, o
         }
       }
       const target = targetOf({ ref, workspace });
-      const run = runningOn(schemaId, version, target) ?? await this.start(schemaId, version, { only, target, by: 'ai' });
+      const run = runningOn(schemaId, version, target) ?? await this.start(schemaId, version, { only, target, by: 'ai' }).catch((error) => {
+        if (!error.missingSecrets) throw error;
+        const random = (record.implementation.secrets ?? []).filter((one) => error.missingSecrets.includes(one.name) && one.random).map((one) => one.name);
+        const entered = error.missingSecrets.filter((name) => !random.includes(name));
+        throw new Error(`The checks weren't run: ${record.name} needs secrets not set on the user's Mac: ${error.missingSecrets.join(', ')}. ${random.length ? `${random.join(', ')} can be made at random: generate_secrets makes ${random.length === 1 ? 'it' : 'them'} (you never see the values). ` : ''}${entered.length ? `Only the user can enter ${entered.join(', ')}: ask them to, in Test mode under Implementation › Secrets.` : 'Then run the checks again.'}`);
+      });
       const ended = new Promise((resolve) => waiting.set(run.id, [...(waiting.get(run.id) ?? []), (state) => {
         resolve(true);
         try { onEnd?.(state, record); } catch { /* only a line for the chat */ }

@@ -114,6 +114,16 @@ const IMPLEMENTATION = z.object({
   }).optional(),
   stop: z.object({ commands: z.array(z.string()) }).optional().describe('For git or an archive: shell commands that tidy up afterwards'),
   credentials: z.array(z.string()).optional().describe('Labels for logins it needs to be fetched (a private repository or registry), such as github: kept on the machine that runs it, never here'),
+  secrets: z.array(z.object({
+    name: z.string().describe('Its name, such as jwt-key: letters, numbers, ., - and _'),
+    description: z.string().optional().describe('What it is, for the user entering it'),
+    env: z.string().optional().describe('An environment variable to set to it, for its commands (or Compose\'s file, or the container)'),
+    files: z.array(z.string()).optional().describe('Paths in its code, from the repository\'s top, to write it to before it starts (taken away afterwards), such as service/auth/.secret/jwt.secret-key. Not for a Docker image'),
+    random: z.object({
+      format: z.enum(['hex', 'base64', 'base64url', 'alphanumeric']).optional().describe('Default hex'),
+      length: z.number().int().min(8).max(1024).optional().describe('Characters (default 64 for hex, else 43)'),
+    }).optional().describe('Give it when any random value will do (a signing or encryption key): then one can be made for it, by the user or by you with generate_secrets'),
+  })).optional().describe('What it needs to run that isn\'t in its repository and mustn\'t be (keys, passwords): names only, never values. The values are kept on the user\'s Mac, entered by the user, or made at random'),
 });
 
 const ITEM_BASE = {
@@ -228,7 +238,7 @@ export function buildServer(call, { version }) {
     icon: z.enum(ICONS.map((i) => i.name)).describe(`One of: ${ICONS.map((i) => `${i.name} (${i.label})`).join(', ')}`),
   }, ({ icon }, schemas) => schemas.setIcon(icon));
 
-  tool('get_schematic', 'One schematic\'s accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and the draft it shows: its latest, or the one it\'s pinned to (pinned), saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic\'s id and draft. proposal says if a change is waiting for the user. implementation says where its code comes from and how to run it; workspace, for a git repository, is where its code is kept on the user\'s Mac to work on (path, cloned, branch, changes: files with uncommitted changes).', {
+  tool('get_schematic', 'One schematic\'s accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and the draft it shows: its latest, or the one it\'s pinned to (pinned), saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic\'s id and draft. proposal says if a change is waiting for the user. implementation says where its code comes from and how to run it; workspace, for a git repository, is where its code is kept on the user\'s Mac to work on (path, cloned, branch, changes: files with uncommitted changes); secrets, how its implementation\'s secrets stand on the user\'s Mac (name, set, and random if one can be made), never their values.', {
     schematic_id: z.string(),
     draft_id: z.string().optional().describe('The draft to read (default: the latest)'),
     depth: DEPTH.describe('How many levels of embedded schematics to open (default 0: all collapsed)'),
@@ -264,6 +274,12 @@ export function buildServer(call, { version }) {
     only: z.string().optional().describe('The id of a node or clause in the contract, to run only its checks'),
     wait: z.number().int().min(5).max(300).optional().describe('Seconds to wait for it to finish (default 60)'),
   }, ({ schematic_id, draft_id, proposal, ref, workspace, only, wait }, schemas) => schemas.runChecks(schematic_id, { draftId: draft_id, proposal, ref: ref ?? null, workspace: Boolean(workspace), only: only ?? null, wait }));
+
+  tool('generate_secrets', 'Makes random values for a schematic\'s secrets that can be random (its implementation\'s secrets with random, such as signing keys), kept on the user\'s Mac. You never see the values: only which were made. Those already set are left as they are. Secrets that can\'t be random are entered by the user, in Test mode under Implementation › Secrets. Uses the latest draft\'s implementation, or the proposal\'s.', {
+    schematic_id: z.string(),
+    names: z.array(z.string()).optional().describe('Which (default: every one not set that can be random)'),
+    proposal: z.boolean().optional().describe('The proposal\'s secrets instead of the latest draft\'s'),
+  }, ({ schematic_id, names, proposal }, schemas) => schemas.generateSecrets(schematic_id, { names: names ?? null, proposal: Boolean(proposal) }));
 
   tool('list_test_runs', 'The runs of a schematic\'s contract checks, newest first (every run is kept): each with its run_id, when, who ran it (user or ai), the contract (a draft or the proposal), the code it ran against and its commit, what part was run (only), and how it went. Read one with get_test_results and run_id: to see whether a failure is new on a branch, or when something last passed.', {
     schematic_id: z.string(),

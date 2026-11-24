@@ -7,7 +7,7 @@
 // system embedding it says which code implements it there); a use naming none is tested against the
 // embedded schematic's.
 //
-//   { source, start?, ready?, stop?, credentials? }
+//   { source, start?, ready?, stop?, credentials?, secrets? }
 // `source`, where the code comes from, a kind each:
 //   image:   { kind, image }                      a Docker image, by tag or digest
 //   compose: { kind, url, ref?, file?, service }  a Docker Compose file in a git repository
@@ -20,7 +20,12 @@
 // path answering (200 unless `status` says), waited for up to `timeout` seconds (60). `stop`,
 // commands that tidy up afterwards (what was started is stopped regardless). `credentials`, labels
 // for the logins it needs to be fetched (a private repository or registry), kept on the machine that
-// runs it (this Mac's Keychain), never in the schematic.
+// runs it (this Mac's Keychain), never in the schematic. `secrets`, what the code needs to run that
+// isn't in its repository and mustn't be (keys, passwords): each named, with what it is and how the
+// code gets it (an environment variable, files at paths in its code, or both), and whether it can be
+// random (`random`: its format and length, so a value can be made for it). Only names: the values are
+// kept on the machine that runs it (main/secrets.js), never here, as the AI reads every word of this.
+//   { name, description?, env?, files?, random?: { format?, length? } }
 
 export const SOURCE_KINDS = ['image', 'compose', 'git', 'archive', 'running'];
 // The kinds whose code is kept in a workspace on this Mac, to be worked on there (see workspaces.js).
@@ -30,6 +35,10 @@ const BUILT = ['git', 'archive'];
 const LABEL = /^[\w.-]+$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_TIMEOUT = 60;
+export const RANDOM_FORMATS = ['hex', 'base64', 'base64url', 'alphanumeric'];
+export const DEFAULT_RANDOM = { format: 'hex', length: 64 };
+// The kinds whose code is in a folder, where a secret can be written as a file.
+const HAS_FILES = ['git', 'compose', 'archive'];
 
 const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const text = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -83,7 +92,7 @@ export function checkImplementation(implementation, where = 'The implementation'
   if (!isObject(implementation)) fail(`${where} should say where the code comes from and how to run it.`);
   checkSource(implementation.source, where);
   const { kind } = implementation.source;
-  const { start, ready, stop, credentials } = implementation;
+  const { start, ready, stop, credentials, secrets } = implementation;
   if (kind === 'running' && (start !== undefined || stop !== undefined)) fail(`${where} is already running, so it has no start or stop: it's tested as it is.`);
   if (start !== undefined) {
     if (!isObject(start)) fail(`${where}'s start should say its port, environment and commands.`);
@@ -114,7 +123,46 @@ export function checkImplementation(implementation, where = 'The implementation'
   if (credentials !== undefined) {
     if (!Array.isArray(credentials) || !credentials.every((label) => typeof label === 'string' && LABEL.test(label))) fail(`${where}'s credentials should be labels for logins kept on the machine that runs it, such as github or ghcr: letters, numbers, ., - and _.`);
   }
+  if (secrets !== undefined) checkSecrets(secrets, kind, start, where);
 }
+
+function checkSecrets(secrets, kind, start, where) {
+  if (!Array.isArray(secrets)) fail(`${where}'s secrets should be a list, each with its name and how the code gets it.`);
+  if (secrets.length && kind === 'running') fail(`${where} is already running, so nothing can be given to it: it has no secrets.`);
+  const names = new Set();
+  const envs = new Set(Object.keys(start?.env ?? {}));
+  const files = new Set();
+  for (const secret of secrets) {
+    if (!isObject(secret) || typeof secret.name !== 'string' || !LABEL.test(secret.name)) fail(`Each of ${where.toLowerCase()}'s secrets needs a name, such as jwt-key: letters, numbers, ., - and _.`);
+    const at = `${where}'s secret ${secret.name}`;
+    if (names.has(secret.name)) fail(`${where} has two secrets called ${secret.name}.`);
+    names.add(secret.name);
+    if (secret.description !== undefined && typeof secret.description !== 'string') fail(`${at}'s description should be text.`);
+    if (secret.env === undefined && secret.files === undefined) fail(`${at} needs env (an environment variable to set) or files (paths in its code to write it to), or both: how the code gets it.`);
+    if (secret.env !== undefined) {
+      if (typeof secret.env !== 'string' || !ENV_NAME.test(secret.env)) fail(`${at}'s env should be an environment variable's name, such as JWT_SECRET.`);
+      if (envs.has(secret.env)) fail(`${at} sets ${secret.env}, which ${Object.hasOwn(start?.env ?? {}, secret.env) ? 'start.env sets too' : 'another secret sets'}.`);
+      envs.add(secret.env);
+    }
+    if (secret.files !== undefined) {
+      if (!HAS_FILES.includes(kind)) fail(`${at} is written to files, but ${where.toLowerCase()} is ${SOURCE_LABELS[kind].toLowerCase()}, which has no folder of code to write them in: give it as env instead.`);
+      if (!Array.isArray(secret.files) || !secret.files.length) fail(`${at}'s files should be a list of paths in its code, such as service/auth/.secret/jwt.secret-key.`);
+      for (const file of secret.files) {
+        if (!text(file) || file.startsWith('/') || file.split('/').some((part) => part === '..' || part === '.git') || file.endsWith('/')) fail(`${at}'s file "${file}" should be a path to a file inside its code (from the repository's top), such as service/auth/.secret/jwt.secret-key.`);
+        if (files.has(file)) fail(`${at} is written to ${file}, as another secret is.`);
+        files.add(file);
+      }
+    }
+    if (secret.random !== undefined) {
+      if (!isObject(secret.random)) fail(`${at}'s random should say its format and length, such as { format: 'hex', length: 64 }.`);
+      if (secret.random.format !== undefined && !RANDOM_FORMATS.includes(secret.random.format)) fail(`${at}'s random format should be one of ${RANDOM_FORMATS.join(', ')}.`);
+      if (secret.random.length !== undefined && !(Number.isInteger(secret.random.length) && secret.random.length >= 8 && secret.random.length <= 1024)) fail(`${at}'s random length should be how many characters, 8 to 1024.`);
+    }
+  }
+}
+
+// Its secrets, as the schematic gives them (none: an empty list).
+export const secretsOf = (implementation) => implementation?.secrets ?? [];
 
 // Where the checks reach it: what's running's own address, else this machine at its port.
 export function baseUrlOf(implementation) {

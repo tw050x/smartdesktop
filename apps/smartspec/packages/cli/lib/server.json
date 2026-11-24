@@ -361,7 +361,7 @@
     },
     {
       "name": "get_schematic",
-      "description": "One schematic's accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and the draft it shows: its latest, or the one it's pinned to (pinned), saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic's id and draft. proposal says if a change is waiting for the user. implementation says where its code comes from and how to run it; workspace, for a git repository, is where its code is kept on the user's Mac to work on (path, cloned, branch, changes: files with uncommitted changes).",
+      "description": "One schematic's accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and the draft it shows: its latest, or the one it's pinned to (pinned), saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic's id and draft. proposal says if a change is waiting for the user. implementation says where its code comes from and how to run it; workspace, for a git repository, is where its code is kept on the user's Mac to work on (path, cloned, branch, changes: files with uncommitted changes); secrets, how its implementation's secrets stand on the user's Mac (name, set, and random if one can be made), never their values.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -537,6 +537,41 @@
             "type": "integer",
             "minimum": 5,
             "maximum": 300
+          }
+        },
+        "required": [
+          "schematic_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "generate_secrets",
+      "description": "Makes random values for a schematic's secrets that can be random (its implementation's secrets with random, such as signing keys), kept on the user's Mac. You never see the values: only which were made. Those already set are left as they are. Secrets that can't be random are entered by the user, in Test mode under Implementation › Secrets. Uses the latest draft's implementation, or the proposal's.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schematic_id": {
+            "type": "string"
+          },
+          "names": {
+            "description": "Which (default: every one not set that can be random)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "proposal": {
+            "description": "The proposal's secrets instead of the latest draft's",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1158,6 +1193,59 @@
                     "type": "array",
                     "items": {
                       "type": "string"
+                    }
+                  },
+                  "secrets": {
+                    "description": "What it needs to run that isn't in its repository and mustn't be (keys, passwords): names only, never values. The values are kept on the user's Mac, entered by the user, or made at random",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "description": "Its name, such as jwt-key: letters, numbers, ., - and _"
+                        },
+                        "description": {
+                          "description": "What it is, for the user entering it",
+                          "type": "string"
+                        },
+                        "env": {
+                          "description": "An environment variable to set to it, for its commands (or Compose's file, or the container)",
+                          "type": "string"
+                        },
+                        "files": {
+                          "description": "Paths in its code, from the repository's top, to write it to before it starts (taken away afterwards), such as service/auth/.secret/jwt.secret-key. Not for a Docker image",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "random": {
+                          "description": "Give it when any random value will do (a signing or encryption key): then one can be made for it, by the user or by you with generate_secrets",
+                          "type": "object",
+                          "properties": {
+                            "format": {
+                              "description": "Default hex",
+                              "type": "string",
+                              "enum": [
+                                "hex",
+                                "base64",
+                                "base64url",
+                                "alphanumeric"
+                              ]
+                            },
+                            "length": {
+                              "description": "Characters (default 64 for hex, else 43)",
+                              "type": "integer",
+                              "minimum": 8,
+                              "maximum": 1024
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ]
                     }
                   }
                 },
@@ -2028,6 +2116,59 @@
                       "type": "array",
                       "items": {
                         "type": "string"
+                      }
+                    },
+                    "secrets": {
+                      "description": "What it needs to run that isn't in its repository and mustn't be (keys, passwords): names only, never values. The values are kept on the user's Mac, entered by the user, or made at random",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "Its name, such as jwt-key: letters, numbers, ., - and _"
+                          },
+                          "description": {
+                            "description": "What it is, for the user entering it",
+                            "type": "string"
+                          },
+                          "env": {
+                            "description": "An environment variable to set to it, for its commands (or Compose's file, or the container)",
+                            "type": "string"
+                          },
+                          "files": {
+                            "description": "Paths in its code, from the repository's top, to write it to before it starts (taken away afterwards), such as service/auth/.secret/jwt.secret-key. Not for a Docker image",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "random": {
+                            "description": "Give it when any random value will do (a signing or encryption key): then one can be made for it, by the user or by you with generate_secrets",
+                            "type": "object",
+                            "properties": {
+                              "format": {
+                                "description": "Default hex",
+                                "type": "string",
+                                "enum": [
+                                  "hex",
+                                  "base64",
+                                  "base64url",
+                                  "alphanumeric"
+                                ]
+                              },
+                              "length": {
+                                "description": "Characters (default 64 for hex, else 43)",
+                                "type": "integer",
+                                "minimum": 8,
+                                "maximum": 1024
+                              }
+                            }
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ]
                       }
                     }
                   },

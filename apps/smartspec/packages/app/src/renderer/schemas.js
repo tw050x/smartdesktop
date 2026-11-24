@@ -991,6 +991,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     here.paintRun = null;
     here.workspace = shown.implementation && WORKSPACE_KINDS.includes(shown.implementation.source.kind)
       ? (await api.workspace?.(here.schemaId, shown.name).catch(() => null)) ?? null : null;
+    here.secrets = shown.implementation?.secrets?.length ? (await api.secrets?.(here.schemaId, here.runVersion).catch(() => null)) ?? null : null;
     if (modes.mode() === 'test') {
       const page = testView(here, shown, uses);
       page.draftNav = draftControls(here, shown);
@@ -1046,7 +1047,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const overall = contractStanding(shown.contract, state?.results ?? {}, running);
       // A run that never got to its checks (the code didn't start) says so in the header, once.
       if (state && !busy && state.outcome === 'error' && !Object.keys(state.results).length) Object.assign(overall, { status: 'error', label: 'Didn’t run' });
-      const canRun = Boolean(shown.implementation) && overall.total > 0 && !viewing && !branchUnknown(here, shown);
+      const missing = (here.secrets ?? []).filter((one) => !one.set).map((one) => one.name);
+      const canRun = Boolean(shown.implementation) && overall.total > 0 && !viewing && !branchUnknown(here, shown) && !missing.length;
       const contract = h('div', { className: state?.stale ? 'run-stale' : '' });
       renderContract(contract, shown.contract, {
         titleOf: (link) => {
@@ -1062,13 +1064,14 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       });
       const action = viewing ? null : busy
         ? h('button', { type: 'button', className: 'run-all', disabled: state.phase === 'stopping', onclick: () => api.testStop(here.schemaId, state.id) }, state.phase === 'stopping' ? 'Stopping…' : 'Stop')
-        : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? `Run every check against ${targetLabel(targetFor(here, shown), state?.code)}` : branchUnknown(here, shown) ? 'Pick the branch to run first: its repository doesn’t say which is its default' : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => run() }, state ? 'Run again' : 'Run checks');
-      const said = runSentence(state, here.runError, nameOf);
+        : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? `Run every check against ${targetLabel(targetFor(here, shown), state?.code)}` : missing.length ? `Set its ${missing.length === 1 ? 'secret' : 'secrets'} first: ${missing.join(', ')}` : branchUnknown(here, shown) ? 'Pick the branch to run first: its repository doesn’t say which is its default' : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => run() }, state ? 'Run again' : 'Run checks');
+      const said = runSentence(state, here.runError, nameOf)
+        ?? (missing.length && !viewing ? `It needs ${missing.length === 1 ? 'a secret' : 'secrets'} not set on this Mac yet (${missing.join(', ')}): set ${missing.length === 1 ? 'it' : 'them'} under Implementation, then run its checks.` : null);
       const log = state?.log?.length ? logView(here, state) : null;
       return h('section', { className: 'test-card test-contract' },
         h('header', {}, h('h2', {}, 'Contract'), h('span', { className: `run-standing ${busy ? 'running' : overall.status}` }, busy ? 'Running…' : state ? overall.label : overall.total ? `${overall.total} ${overall.total === 1 ? 'check' : 'checks'}, not run` : 'No checks yet'), action),
         viewing ? viewingLine(here, shown, state) : codeSwitch(here, shown, version, workspace),
-        said && h('p', { className: `run-line${state?.outcome === 'error' || here.runError ? ' trouble' : ''}` }, said),
+        said && h('p', { className: `run-line${state?.outcome === 'error' || here.runError || (missing.length && !state) ? ' trouble' : ''}` }, said),
         log,
         historyView(here, shown),
         contract);
@@ -1083,17 +1086,20 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // The implementation folds to its head, which still says where the code comes from (the
     // user's choice: one column, it above the contract and folding away). Open or not, kept per tab
     // while the app is open; open to begin with, and while a proposal changes it.
-    const implementation = h('details', { className: 'test-card test-implementation', open: (here.implementationOpen ?? true) || change ? '' : null },
+    const unset = (here.secrets ?? []).filter((one) => !one.set).length;
+    const implementation = h('details', { className: 'test-card test-implementation', open: (here.implementationOpen ?? true) || change || unset ? '' : null },
       h('summary', {},
         h('span', { className: 'test-fold', 'aria-hidden': 'true' }),
         h('h2', {}, 'Implementation'),
         h('span', { className: 'test-summary muted' }, !shown.implementation ? 'None yet'
           : workspace?.cloned ? `${sourceLine(shown.implementation.source)}, kept in ${workspace.label}`
-          : `${SOURCE_LABELS[shown.implementation.source.kind]}: ${sourceLine(shown.implementation.source)}`),
+          : `${SOURCE_LABELS[shown.implementation.source.kind]}: ${sourceLine(shown.implementation.source)}`,
+          unset ? `, ${unset} ${unset === 1 ? 'secret' : 'secrets'} not set` : ''),
         change && statusPills(...marker(change, approvals.has(IMPLEMENTATION))),
         change && approveButton(here, shown, IMPLEMENTATION, change, 'the implementation')),
       h('div', { className: 'test-card-body' },
         own,
+        here.secrets?.length > 0 && secretsView(here, shown),
         workspace && workspaceView(here, shown, workspace),
         embedded.length > 0 && h('h3', { className: 'pane-subhead' }, 'What it embeds is tested against'),
         embedded.length > 0 && h('ul', { className: 'test-uses' }, ...embedded.map((use) => h('li', {},
@@ -1109,6 +1115,67 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     });
     return h('div', { className: 'page test-page' }, h('div', { className: 'test-columns' }, implementation, card));
   };
+
+  // Its secrets: what its code needs that isn't in its repository, each set or not on this Mac (see
+  // main/secrets.js). Only the user enters a value (the user's choice), in a field that never shows
+  // it; one that can be random can be made here (or by their AI). Values go in, never come back out.
+  function secretsView(here, shown) {
+    here.secretEntering ??= null;
+    const version = here.runVersion;
+    const when = (at) => new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' });
+    // Drawn again by secrets-changed once it's done, or here if it failed.
+    const act = (promise, said) => promise.then(() => {
+      here.secretError = null;
+      onNote({ text: said, detail: `${said}, a secret of “${shown.name}” (its value kept on this Mac)` });
+    }, (error) => {
+      here.secretError = error.message;
+      render();
+    });
+    const how = (secret) => [
+      secret.env && ['Set as ', h('code', {}, secret.env)],
+      secret.env && secret.files?.length && ' and written to ',
+      !secret.env && secret.files?.length && 'Written to ',
+      secret.files?.length && secret.files.map((file, index) => [index ? ', ' : '', h('code', {}, file)]),
+    ];
+    const entry = (secret) => {
+      const field = h('input', { type: 'password', className: 'secret-field', placeholder: `${secret.name}’s value`, autocomplete: 'off', spellcheck: 'false', 'aria-label': `${secret.name}’s value` });
+      const save = h('button', { type: 'button', className: 'side-by-side primary', disabled: '' }, 'Save');
+      field.addEventListener('input', () => { save.disabled = !field.value; });
+      const done = () => {
+        if (!field.value) return;
+        here.secretEntering = null;
+        act(api.setSecret(here.schemaId, secret.name, field.value), `${secret.set ? 'Replaced' : 'Set'} the secret ${secret.name}`);
+      };
+      save.addEventListener('click', done);
+      field.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') done();
+        if (event.key === 'Escape') { event.stopPropagation(); here.secretEntering = null; render(); }
+      });
+      requestAnimationFrame(() => field.focus());
+      return h('div', { className: 'secret-entry' }, field, save,
+        h('button', { type: 'button', className: 'side-by-side', onclick: () => { here.secretEntering = null; render(); } }, 'Cancel'));
+    };
+    const rowOf = (secret) => {
+      const entering = here.secretEntering === secret.name;
+      const buttons = entering ? null : h('div', { className: 'secret-actions' },
+        h('button', { type: 'button', className: `side-by-side${secret.set ? '' : ' primary'}`, onclick: () => { here.secretEntering = secret.name; render(); } }, secret.set ? 'Replace…' : 'Enter…'),
+        secret.random && h('button', { type: 'button', className: 'side-by-side', title: secret.set ? 'Replace its value with a new random one' : 'Make a random value for it', onclick: () => act(api.generateSecret(here.schemaId, version, secret.name), `Made a random value for the secret ${secret.name}`) }, secret.set ? 'New Random Value' : 'Make Random'),
+        secret.set && h('button', { type: 'button', className: 'side-by-side', onclick: () => act(api.clearSecret(here.schemaId, secret.name), `Cleared the secret ${secret.name}`) }, 'Clear'));
+      return h('li', { className: `secret${secret.set ? ' set' : ' missing'}` },
+        h('div', { className: 'secret-head' },
+          h('code', { className: 'secret-name' }, secret.name),
+          h('span', { className: `secret-state ${secret.set ? 'set' : 'missing'}` }, secret.set ? (secret.by === 'random' ? `Made at random, ${when(secret.at)}` : `Set ${when(secret.at)}`) : 'Not set'),
+          buttons),
+        secret.description && h('p', { className: 'secret-what' }, secret.description),
+        h('p', { className: 'secret-how muted' }, ...how(secret).flat(3).filter(Boolean)),
+        entering && entry(secret));
+    };
+    return h('section', { className: 'impl-local impl-secrets' },
+      h('h3', { className: 'pane-subhead' }, 'Secrets'),
+      h('p', {}, 'What its code needs that isn’t in its repository. Their values are kept on this Mac, in its Keychain, never in the schematic, and your AI never sees them. They’re given to the code only while its checks run, and hidden in its log.'),
+      here.secretError && h('p', { className: 'run-line trouble' }, here.secretError),
+      h('ul', { className: 'secret-list' }, ...here.secrets.map(rowOf)));
+  }
 
   // The workspace: where its code is kept on this Mac, for the user and their AI to work on, and how
   // it stands (its branch and commit, and any uncommitted changes, which the checks run against).
@@ -2740,6 +2807,12 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
   });
   api.onSchemasChanged(render);
+  // A schematic's secrets changed (the user here or in another tab, or their AI): drawn again if
+  // this tab shows it, unless a value is being entered here.
+  api.onSecretsChanged?.((schemaId) => {
+    const here = top();
+    if (here?.schemaId === schemaId && !here.secretEntering) render();
+  });
   // A run moving on: the contract's card drawn again in Test mode; anywhere else showing that
   // version, drawn again once it ends (and now and then while it runs).
   let runRender = null;
