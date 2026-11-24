@@ -371,3 +371,48 @@ async function refsTest() {
   const { startImplementation } = await import('../packages/runner/lib/start.js');
   await assert.rejects(startImplementation({ source: { kind: 'git', url: `file://${bare}` }, start: { port: 1, commands: ['true'] } }, { cacheDir: path.join(temp, 'headless-cache') }), /doesn't say which branch is its default/);
 }
+
+describe('a schematic\'s status', () => {
+  // Runs written as the app keeps them, read by statusOf; the branch's head as `head` says.
+  function statusWith(runs, { head = 'abc123', kind = 'git' } = {}) {
+    const dir = mkdtempSync(path.join(temp, 'status-'));
+    mkdirSync(path.join(dir, 's1'));
+    for (const run of runs) writeFileSync(path.join(dir, 's1', `${run.id}.json`), JSON.stringify({ target: 'default', results: {}, log: [], ...run }));
+    const told = [];
+    const testRuns = createTestRuns({ runner, store: fakeStore(), dir, readHead: async () => head, onStatus: (id) => told.push(id) });
+    const record = { contract: contract(), implementation: { source: kind === 'git' ? { kind: 'git', url: 'https://example.com/repo.git' } : { kind: 'running', url } } };
+    return { status: (version = 'd2') => testRuns.statusOf('s1', version, record), told };
+  }
+  const passed = { outcome: 'passed' };
+  const failed = { outcome: 'failed', detail: 'got 500' };
+  const code = { kind: 'git', ref: 'main', commit: 'abc123', label: 'main at abc123' };
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+  test('is design only without an implementation or checks, and implemented until it\'s run', () => {
+    const testRuns = createTestRuns({ runner, store: fakeStore() });
+    assert.equal(testRuns.statusOf('s1', 'd1', { contract: contract(), implementation: null }), 'design-only');
+    assert.equal(testRuns.statusOf('s1', 'd1', { contract: { children: [] }, implementation: { source: { kind: 'running', url } } }), 'design-only');
+    assert.equal(statusWith([]).status(), 'implemented');
+  });
+
+  test('is failing, or can\'t run, against the default branch, whatever ran elsewhere', () => {
+    assert.equal(statusWith([{ id: 'r1', version: 'd2', startedAt: 1, outcome: 'failed', results: { 'a-works/ok': passed, 'b-works/ok': failed }, code }]).status(), 'failing');
+    assert.equal(statusWith([{ id: 'r1', version: 'd2', startedAt: 1, outcome: 'error', detail: 'Docker isn\'t running', code }]).status(), 'cant-run');
+    assert.equal(statusWith([{ id: 'r1', version: 'd2', target: 'workspace', startedAt: 1, outcome: 'failed', results: { 'a-works/ok': failed } }]).status(), 'implemented');
+  });
+
+  test('passes on the branch\'s head, and is out of date once it moves on or the draft is new', async () => {
+    const all = { 'a-works/ok': passed, 'b-works/ok': passed };
+    const same = statusWith([{ id: 'r1', version: 'd2', startedAt: 1, outcome: 'passed', results: all, code }], { head: 'abc123' });
+    assert.equal(same.status(), 'passing');
+    await tick();
+    assert.equal(same.status(), 'passing');
+    const moved = statusWith([{ id: 'r1', version: 'd2', startedAt: 1, outcome: 'passed', results: all, code }], { head: 'def456' });
+    assert.equal(moved.status(), 'passing', 'until the head is read');
+    await tick();
+    assert.deepEqual(moved.told, ['s1']);
+    assert.equal(moved.status(), 'out-of-date');
+    assert.equal(statusWith([{ id: 'r1', version: 'd1', startedAt: 1, outcome: 'passed', results: all, code }]).status('d2'), 'out-of-date');
+    assert.equal(statusWith([{ id: 'r1', version: 'd2', startedAt: 1, outcome: 'passed', results: { 'a-works/ok': passed }, only: 'a', code }]).status(), 'implemented');
+  });
+});

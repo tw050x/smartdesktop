@@ -56,7 +56,21 @@ function userPath() {
 // runs are saved (none: kept in memory only); `workspaces`, where code is kept to work on;
 // `secrets`, the values of its secrets on this Mac (see secrets.js), given to the runner in its job;
 // `onChange(schemaId, run)`, told as a run moves on (at most every SEND_EVERY ms).
-export function createTestRuns({ runner, store, dir = null, workspaces = null, secrets = null, onChange = () => {} }) {
+// How long a branch's head, read from its repository, is trusted before it's read again.
+const HEAD_FRESH_MS = 5 * 60_000;
+
+// A branch's head commit, read from its repository without cloning; null if it can't be read.
+async function headCommit(url, branch, env) {
+  return new Promise((resolve) => {
+    execFile('git', ['ls-remote', url, `refs/heads/${branch}`], { env: { ...env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never' }, timeout: 20_000, encoding: 'utf8' }, (error, stdout) => resolve(error ? null : stdout.split(/\s/)[0] || null));
+  });
+}
+
+export function createTestRuns({ runner, store, dir = null, workspaces = null, secrets = null, onChange = () => {}, onStatus = () => {}, readHead = null }) {
+  // Branches' heads (`url branch` → { commit, at, reading }), for whether a passing run is still of
+  // the code there (see statusOf).
+  const heads = new Map();
+  const readHeadOf = readHead ?? (async (url, branch) => headCommit(url, branch, { ...process.env, PATH: await userPath() }));
   const history = new Map(); // schemaId → Map(runId → run)
   const waiting = new Map(); // runId → [told when it ends]
   const safe = (text) => text.replace(/[^\w-]/g, '_');
@@ -282,6 +296,51 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
         run.child.kill('SIGTERM');
         send(run, true);
       }
+    },
+
+    // A schematic's status (the brief's states: what the user sees on home and on what embeds it),
+    // for one of its versions (a draft's id, or 'proposal') and its record: the contract against
+    // the code it's meant for, the default branch.
+    // - 'design-only': no implementation, or no checks;
+    // - 'implemented': never run against the default branch, or not every check yet;
+    // - 'failing': a check failed;
+    // - 'cant-run': none failed, but the code didn't start, or a check couldn't be run;
+    // - 'out-of-date': it passed, but the branch has moved on since (its head, read from the
+    //   repository now and then: when that changes, `onStatus(schemaId)` says so), or an earlier
+    //   draft was run and this one hasn't been (its contract or code changed since);
+    // - 'passing': every check passed, on the branch's head as last read.
+    statusOf(schemaId, version, record) {
+      if (!record?.implementation) return 'design-only';
+      let checks = [];
+      try { checks = contractJob(record.contract).checks; } catch { /* no checks */ }
+      if (!checks.length) return 'design-only';
+      const runs = [...runsOf(schemaId).values()];
+      const view = viewOf(runs, version, DEFAULT_TARGET);
+      if (!view) {
+        const earlier = version !== 'proposal' && runs.some((run) => run.target === DEFAULT_TARGET && run.version !== version && run.version !== 'proposal');
+        return earlier ? 'out-of-date' : 'implemented';
+      }
+      const outcomes = checks.map((check) => view.results[check.key]?.outcome);
+      if (outcomes.includes('failed')) return 'failing';
+      if (outcomes.includes('error')) return 'cant-run';
+      if (outcomes.every((one) => !one)) return !view.running && view.outcome === 'error' ? 'cant-run' : 'implemented';
+      if (outcomes.some((one) => !one)) return 'implemented';
+      const source = record.implementation.source;
+      const code = view.code;
+      if (WORKSPACE_KINDS.includes(source?.kind) && code?.commit && code.ref) {
+        const key = `${source.url} ${code.ref}`;
+        const head = heads.get(key);
+        if ((!head || Date.now() - head.at > HEAD_FRESH_MS) && !head?.reading) {
+          heads.set(key, { ...head, at: head?.at ?? 0, reading: true });
+          readHeadOf(source.url, code.ref).then((commit) => {
+            heads.set(key, { commit: commit ?? head?.commit ?? null, at: Date.now(), reading: false });
+            if (commit && commit !== head?.commit) onStatus(schemaId);
+          }, () => heads.set(key, { ...head, at: Date.now(), reading: false }));
+        }
+        const known = heads.get(key)?.commit;
+        if (known && !known.startsWith(code.commit) && !code.commit.startsWith(known)) return 'out-of-date';
+      }
+      return 'passing';
     },
 
     // Every run of a schematic, newest first, for its windows.

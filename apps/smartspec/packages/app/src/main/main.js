@@ -839,7 +839,11 @@ const testRuns = createTestRuns({
   },
   store,
   onChange: (schemaId, run) => broadcast('test-run', { schemaId, run }),
+  // A branch moved on since its checks passed: home and what embeds it say so.
+  onStatus: (schemaId) => broadcast('test-status', schemaId),
 });
+// Each schematic's status (on home, in what embeds it, and to the AI) is what its runs show.
+store.setStatusOf((schemaId, version, record) => testRuns.statusOf(schemaId, version, record));
 store.events.on('changed', (schemaId) => testRuns.changed(schemaId));
 handle('test-run', (_ctx, schemaId, version, options) => testRuns.start(schemaId, version, { ...options, by: 'user' }));
 handle('test-stop', (_ctx, schemaId, runId) => testRuns.stop(schemaId, runId));

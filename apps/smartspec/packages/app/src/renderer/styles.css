@@ -514,6 +514,10 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .card-contract { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; padding-left: 8px; border-left: 2px solid var(--border); color: var(--muted); font-size: 12px; white-space: pre-line; }
 .pill { flex: none; padding: 1px 8px; border-radius: 10px; background: var(--subtle-bg); color: var(--muted); font-size: 11px; font-weight: 500; }
 .pill.proposed { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+/* How a schematic's checks stand (testPill in schemas.js): failing red, can't run and out of date
+   amber, as Test mode marks them. */
+.pill.test-status.failing { background: color-mix(in srgb, var(--removed) 14%, transparent); color: var(--removed); }
+.pill.test-status:is(.cant-run, .out-of-date) { background: color-mix(in srgb, #e3b341 18%, transparent); color: light-dark(#8a5a00, #e3b341); }
 /* What a card is, at its top, in capitals. */
 .pill.kind-pill { margin-bottom: 3px; padding: 2px 8px; border-radius: 4px; background: var(--border-strong); color: var(--text); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 /* Another schema stands out from the rest: solid, and not the accent that status pills use. */

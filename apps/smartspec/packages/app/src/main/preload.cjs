@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('smartspec', {
   // The branches and tags its code can be run at, and its default branch (null when nothing says).
   testBranches: (schemaId, version) => call('test-branches', schemaId, version),
   onTestRun: on('test-run'),
+  onTestStatus: on('test-status'),
   // A schematic's workspace, a clone of its code on this Mac to work on (see workspaces.js): where
   // it is and how it stands ({ dir, label, cloned, branch, commit, changes }), and showing it.
   workspace: (schemaId, name) => call('workspace', schemaId, name),

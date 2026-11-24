@@ -49,7 +49,7 @@ const now = () => new Date().toISOString();
 const newId = () => randomUUID().slice(0, 8);
 const OUTCOME_MAX = 40; // a comment's outcome, in the AI's words: a word or two
 
-// Until implementations can be linked and tested, every schema is a design.
+// A schematic's status until it's worked out from its test runs (see setStatusOf).
 const STATUS = 'design-only';
 
 // A focus's name: its title, else its goal cut short.
@@ -70,6 +70,7 @@ function plainText(thing) {
 }
 
 export function createStore(root, { events = new EventEmitter() } = {}) {
+  let statusOf = () => STATUS; // a version's status (see setStatusOf and test-runs.js)
   const schemaDir = (id) => {
     if (!FILE_ID.test(id)) throw new Error(`No schematic ${id}.`);
     return path.join(root, 'schemas', id);
@@ -223,7 +224,8 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       // schematic's own, if it has one: `implemented` says whether it does).
       implementation: use.implementation ?? null,
       implemented: Boolean(draft.implementation),
-      status: STATUS,
+      // A use with code of its own isn't run yet; else the embedded schematic's, for the draft shown.
+      status: use.implementation ? 'implemented' : statusOf(use.schemaId, draftId, draft),
       newerDraftId: use.pin && latest !== draftId ? latest : null,
     };
     if (depth <= 0) return collapsed;
@@ -423,6 +425,11 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   return {
     events,
 
+    // Where statuses come from (main.js: the test runs, made after the store).
+    setStatusOf(fn) {
+      statusOf = fn;
+    },
+
     async list() {
       const names = await readdir(path.join(root, 'schemas')).catch((error) => {
         if (error.code === 'ENOENT') return [];
@@ -442,7 +449,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
           drafts: schema.line.length,
           latestDraftId: latest ?? null,
           proposal: brief(proposal),
-          status: STATUS,
+          status: statusOf(id, latest ?? 'proposal', record),
           group: groups.has(schema.group) ? schema.group : null,
           updatedAt: schema.updatedAt,
         };
@@ -656,6 +663,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         total: schema.line.length,
         line: schema.line,
         ...(await describe(record, depth, isEarlier(schema, record))),
+        status: statusOf(id, which, record),
         comments: await openCount(id, which),
         proposal: brief(proposal),
       };
@@ -675,6 +683,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         total: schema.line.length,
         line: schema.line,
         ...(await describe(proposal, depth)),
+        status: statusOf(id, 'proposal', proposal),
         comments: await openCount(id, ON_PROPOSAL),
         forTheAi: await commentsWaiting(id, proposal),
         changes,

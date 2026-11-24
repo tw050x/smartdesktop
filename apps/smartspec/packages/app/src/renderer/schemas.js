@@ -45,6 +45,21 @@ const pill = (text, kind = '') => h('span', { className: `pill ${kind}` }, text)
 // they all fit, else all of them go beneath it (see .status-pills). The normal state shows nothing.
 const WAITING = () => pill('Waiting for you', 'proposed');
 const statusPills = (...pills) => (pills.some(Boolean) ? h('span', { className: 'status-pills' }, ...pills) : null);
+// What a schematic's checks show against its default branch (its `status`, see main/test-runs.js):
+// only what needs attention has a pill (the brief's Failing and Out of date, and Can't run when its
+// code wouldn't start); passing, untested and design only show nothing.
+const TEST_PILLS = {
+  failing: ['Failing', 'Its contract’s checks fail against its default branch'],
+  'cant-run': ['Can’t run', 'Its checks couldn’t be run against its default branch: its code didn’t start, or a check couldn’t be made'],
+  'out-of-date': ['Out of date', 'Its checks passed, but its default branch or its contract has changed since they ran'],
+};
+const testPill = (status) => {
+  const [text, title] = TEST_PILLS[status] ?? [];
+  if (!text) return null;
+  const one = pill(text, `test-status ${status}`);
+  one.title = title;
+  return one;
+};
 
 // The kind of item on a small card at the sides, as an icon rather than a pill, so the card's
 // title has the room. Its name is still there, for pointing at and for screen readers.
@@ -584,7 +599,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
           title: each.name,
           icon: each.icon,
           arrow: true,
-          tag: each.proposal && WAITING(),
+          tag: [each.proposal && WAITING(), testPill(each.status)],
           text: each.summary,
         });
         makeDraggable(one, 'schema', each.id);
@@ -915,7 +930,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const mark = icon && h('span', { className: 'home-doc-icon', 'aria-hidden': 'true' });
     if (mark) mark.innerHTML = iconSvg(icon, 15);
     const button = h('button', { ...attributes, className: `browser-row ${className}`, type: 'button', onclick },
-      h('span', { className: 'title-row' }, h('strong', {}, ...(mark ? [mark] : []), title), statusPills(tag)),
+      h('span', { className: 'title-row' }, h('strong', {}, ...(mark ? [mark] : []), title), statusPills(...[tag].flat())),
       h('span', { className: 'browser-row-text' }, text),
       meta && h('span', { className: 'browser-row-meta' }, meta));
     if (arrow) {
@@ -2330,7 +2345,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const settings = Object.entries(use.with ?? {});
       return h('div', { className: 'focus-neighbour board-card embedded' },
         kindIcon('schematic', 'Embedded schematic'),
-        h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
+        h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status))),
         h('span', { className: 'focus-meta' }, use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
         use.contract && h('span', { className: 'card-contract' }, contractPlain(use.contract)));
@@ -2341,7 +2356,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       : await previewOf(id, shown, uses, content).catch(() => null));
     return h('div', { className: 'focus-neighbour board-card' },
       !contract && item && kindIcon(item.kind, kindLabel(item)),
-      h('span', { className: 'title-row' }, h('strong', {}, contract ? 'Contract' : item?.title ?? id), statusPills(...marker(mark(id), approvals.has(id)))),
+      h('span', { className: 'title-row' }, h('strong', {}, contract ? 'Contract' : item?.title ?? id), statusPills(...marker(mark(id), approvals.has(id)), contract && !shown.proposalId && testPill(shown.status))),
       h('span', { className: 'focus-meta' }, contract ? 'What it promises and needs' : item?.description),
       preview);
   }
@@ -2655,7 +2670,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
     const inner = await api.getSchema(use.schemaId, use.draftId).catch(() => null);
     const head = paneHead(use.name, useDraft(use), null, pill('Embedded schematic', 'kind-pill schema-pill'));
-    head.querySelector('.title-row').append(...[statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))].filter(Boolean));
+    head.querySelector('.title-row').append(...[statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status))].filter(Boolean));
     // Opened on its own, in a tab of its own (the user's choice: in place of full screen, and of
     // going into it within this tab; see openUse).
     const tab = h('button', { className: 'icon-button', type: 'button', id: 'use-open', title: api.openSchematicTab ? 'Open in New Tab' : 'Open schematic', 'aria-label': api.openSchematicTab ? 'Open in New Tab' : 'Open schematic', onclick: () => openUse(use) });
@@ -2805,7 +2820,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const settings = Object.entries(use.with ?? {});
       return h('button', { className: 'overview-card embedded', type: 'button', 'data-item': use.id, onclick: open(use.id) },
         pill('Embedded schematic', 'kind-pill schema-pill'),
-        h('span', { className: 'title-row' }, h('strong', {}, use.name ?? use.id), !use.missing && h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'))),
+        h('span', { className: 'title-row' }, h('strong', {}, use.name ?? use.id), !use.missing && h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status))),
         h('span', { className: 'focus-meta' }, use.missing ? 'This schematic is no longer available.' : use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
         use.contract && h('span', { className: 'card-contract' }, contractPlain(use.contract)),
@@ -3064,6 +3079,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     if (!testRuns.has(schemaId)) testRuns.set(schemaId, new Map());
     testRuns.get(schemaId).set(run.id, run);
     const here = top();
+    // Home's pills say how each schematic's checks stand: drawn again once a run ends.
+    if (!here && !run.running) return render();
     if (!here || here.schemaId !== schemaId) return;
     if (modes.mode() === 'test' && here.paintRun) {
       here.paintRun();
@@ -3074,6 +3091,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       runRender = null;
       render();
     } else runRender ??= setTimeout(() => { runRender = null; render(); }, 600);
+  });
+  // A branch moved on since its checks passed: home, or a schematic's design (its contract's card,
+  // what it embeds), drawn again to say so.
+  api.onTestStatus?.(() => {
+    if (!top() || modes.mode() === 'design') render();
   });
   // While an AI in another app waits on a proposal, the chat offers it the go-ahead.
   const heardWaiting = (list) => {

@@ -41,6 +41,20 @@ describe('proposing and accepting', () => {
     assert.deepEqual({ ...(await store.proposalOutcome(id)), at: null }, { proposal: id, schema, outcome: 'accepted', draft, at: null });
   });
 
+  test('says each version\'s status as it\'s told to work it out', async () => {
+    const store = newStore();
+    const { schema } = await store.propose(proposal({ items: [doc('notes')] }));
+    assert.equal((await store.list())[0].status, 'design-only');
+    const asked = [];
+    store.setStatusOf((id, version) => { asked.push(version); return version === 'proposal' ? 'implemented' : 'failing'; });
+    assert.equal((await store.list())[0].status, 'implemented');
+    assert.equal((await store.getProposal(schema)).status, 'implemented');
+    const { draft } = await store.accept(schema);
+    assert.equal((await store.list())[0].status, 'failing');
+    assert.equal((await store.getSchema(schema)).status, 'failing');
+    assert.ok(asked.includes(draft));
+  });
+
   test('a change sends only what changes, and earlier drafts stay', async () => {
     const store = newStore();
     const { schema, draft: first } = await accepted(store, { contract: 'Promise', items: [doc('a'), doc('b')] });
