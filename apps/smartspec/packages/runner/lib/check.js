@@ -3,8 +3,13 @@ import { pathText, validate } from './schema.js';
 // One check of a contract, run over HTTP: the setup steps above it in turn (each kept value named
 // for what follows), then its request, its response compared with what it expects.
 //   { key, title?, setup: [{ id?, title?, request, expect?, keep? }], request, expect }
-// request: { method, path, query?, headers?, body? }, `{name}` anywhere in it standing for a value a
-// setup step kept. expect: { status?, headers?, body?, shape? }: the body is matched as far as it
+// request: { method, path, port?, query?, headers?, body? | form? }, `{name}` anywhere in it standing
+// for a value a setup step kept; `port`, another port on the implementation's host (another service
+// of the run); `form`, fields sent form-encoded, as a browser's form is. keep: names and where each is
+// ('body.id', 'headers.location'), or { from, match?, decode? }: `match` a regular expression whose
+// first group (else all it matched) is kept, `decode` 'url' or 'html' for what was escaped. Cookies a
+// response sets are sent with the check's later requests (to any port of the host, as a browser does),
+// so a check can sign in and go on signed in. expect: { status?, headers?, body?, shape? }: the body is matched as far as it
 // goes (an object's other fields are left alone; an array's items are matched one for one), a shape
 // by its JSON Schema (`shapes`, the contract's, by id).
 // Gives { outcome: 'passed' | 'failed' | 'error', detail?, ms, status? }: failed when it answered
@@ -76,12 +81,51 @@ export function bodyDiffers(actual, expected, path = []) {
   return actual === expected ? null : `${at} should be ${show(expected)}, not ${show(actual)}`;
 }
 
-async function send(base, request, kept, { signal, timeout }) {
-  const url = new URL(fill(request.path, kept, { encode: true }), `${base}/`);
+const HTML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const decodeHtml = (text) => text.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (all, code) => (code[0] === '#'
+  ? String.fromCodePoint(code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : Number(code.slice(1)))
+  : HTML_ENTITIES[code.toLowerCase()] ?? all));
+
+// What a setup step keeps from a response, by its keep's `where` (see above); undefined if it isn't there.
+export function keepFrom(response, where) {
+  if (typeof where === 'string') return pick(response, where);
+  let value = pick(response, where.from);
+  if (value === undefined) return undefined;
+  if (where.match) {
+    const found = new RegExp(where.match).exec(typeof value === 'string' ? value : JSON.stringify(value));
+    if (!found) return undefined;
+    value = found[1] ?? found[0];
+  }
+  if (where.decode === 'url') value = decodeURIComponent(String(value));
+  if (where.decode === 'html') value = decodeHtml(String(value));
+  return value;
+}
+
+// The cookies a response sets, kept in `jar` (a Map of name to value); one set to expire goes.
+function takeCookies(headers, jar) {
+  for (const line of headers.getSetCookie?.() ?? []) {
+    const [pair, ...attributes] = line.split(';');
+    const at = pair.indexOf('=');
+    if (at < 1) continue;
+    const name = pair.slice(0, at).trim();
+    const gone = attributes.some((one) => /^\s*max-age\s*=\s*(0|-\d+)\s*$/i.test(one) || (/^\s*expires\s*=/i.test(one) && Date.parse(one.split('=').slice(1).join('=')) < Date.now()));
+    if (gone) jar.delete(name);
+    else jar.set(name, pair.slice(at + 1).trim());
+  }
+}
+
+async function send(base, request, kept, { signal, timeout, cookies = new Map() }) {
+  const root = new URL(`${base}/`);
+  if (request.port) root.port = String(request.port);
+  const url = new URL(fill(request.path, kept, { encode: true }), root);
   for (const [name, value] of Object.entries(fill(request.query ?? {}, kept))) url.searchParams.set(name, String(value));
   const headers = { ...fill(request.headers ?? {}, kept) };
+  if (cookies.size && !Object.keys(headers).some((name) => name.toLowerCase() === 'cookie')) headers.cookie = [...cookies].map(([name, value]) => `${name}=${value}`).join('; ');
   let body;
-  if (request.body !== undefined) {
+  if (request.form !== undefined) {
+    body = new URLSearchParams(Object.entries(fill(request.form, kept)).map(([name, value]) => [name, typeof value === 'string' ? value : JSON.stringify(value)])).toString();
+    if (!Object.keys(headers).some((name) => name.toLowerCase() === 'content-type')) headers['content-type'] = 'application/x-www-form-urlencoded';
+  } else if (request.body !== undefined) {
     const filled = fill(request.body, kept);
     if (typeof filled === 'string') body = filled;
     else {
@@ -98,6 +142,7 @@ async function send(base, request, kept, { signal, timeout }) {
     const cause = error.cause?.code ?? error.name;
     throw new Unchecked(cause === 'TimeoutError' ? `${request.method} ${url.pathname} had no answer in ${timeout / 1000} s.` : `${request.method} ${url.pathname} couldn't be sent: ${cause === 'ECONNREFUSED' ? 'nothing is listening there' : error.cause?.message ?? error.message}.`);
   }
+  takeCookies(response.headers, cookies);
   const text = await response.text();
   let parsed = text;
   if (/json/i.test(response.headers.get('content-type') ?? '') || /^\s*[[{]/.test(text)) {
@@ -138,12 +183,13 @@ export async function runCheck(check, { base, shapes = {}, signal, timeout = DEF
   const started = performance.now();
   const ms = () => Math.round(performance.now() - started);
   const kept = {};
+  const cookies = new Map();
   try {
     for (const [index, step] of (check.setup ?? []).entries()) {
       const name = step.title ? `Setup “${step.title}”` : step.id ? `Setup ${step.id}` : `Setup step ${index + 1}`;
       let response;
       try {
-        response = await send(base, step.request, kept, { signal, timeout });
+        response = await send(base, step.request, kept, { signal, timeout, cookies });
       } catch (error) {
         if (error instanceof Unchecked) throw new Unchecked(`${name}: ${error.message}`);
         throw error;
@@ -151,12 +197,12 @@ export async function runCheck(check, { base, shapes = {}, signal, timeout = DEF
       const wrong = step.expect ? mismatch(response, step.expect, kept, shapes) : response.status >= 400 ? `Got status ${response.status}${briefBody(response.body)}.` : null;
       if (wrong) throw new Unchecked(`${name} didn't work, so this couldn't be checked. ${wrong}`);
       for (const [kept_, where] of Object.entries(step.keep ?? {})) {
-        const value = pick(response, where);
-        if (value === undefined) throw new Unchecked(`${name} answered with nothing at ${where}, to keep as {${kept_}}.`);
+        const value = keepFrom(response, where);
+        if (value === undefined) throw new Unchecked(typeof where === 'string' || !where.match ? `${name} answered with nothing at ${typeof where === 'string' ? where : where.from}, to keep as {${kept_}}.` : `${name}'s ${where.from} has nothing matching ${where.match}, to keep as {${kept_}}.`);
         kept[kept_] = value;
       }
     }
-    const response = await send(base, check.request, kept, { signal, timeout });
+    const response = await send(base, check.request, kept, { signal, timeout, cookies });
     const wrong = mismatch(response, check.expect, kept, shapes);
     return wrong ? { outcome: 'failed', detail: wrong, status: response.status, ms: ms() } : { outcome: 'passed', status: response.status, ms: ms() };
   } catch (error) {

@@ -119,7 +119,7 @@ export function placeholders(request) {
     else if (Array.isArray(value)) value.forEach(scan);
     else if (isObject(value)) Object.values(value).forEach(scan);
   };
-  scan([request.path, request.query, request.headers, request.body]);
+  scan([request.path, request.query, request.headers, request.body, request.form]);
   return [...found];
 }
 
@@ -179,7 +179,9 @@ function checkRequest(request, where, { nodePath, known }) {
   request.method = request.method.toUpperCase();
   if (typeof request.path !== 'string' || !request.path.startsWith('/')) fail(`${where} needs a path starting with /, such as /orders.`);
   if (nodePath && !pathUnder(request.path, nodePath)) fail(`${where} requests ${request.path}, which isn't under its node's path, ${nodePath}. Move it to the node its path is under.`);
-  for (const key of ['headers', 'query']) {
+  if (request.port !== undefined && !(Number.isInteger(request.port) && request.port > 0 && request.port < 65536)) fail(`${where}'s port should be a port number: another port on the implementation's host, such as another service of the run.`);
+  if (request.form !== undefined && request.body !== undefined) fail(`${where} has a body and a form: send one, JSON as body or fields as form.`);
+  for (const key of ['headers', 'query', 'form']) {
     if (request[key] !== undefined && (!isObject(request[key]) || Object.values(request[key]).some((value) => typeof value !== 'string'))) fail(`${where}'s ${key} should be names and their values, as text.`);
   }
   for (const name of placeholders(request)) {
@@ -248,10 +250,16 @@ export function checkContract(contract, { items = [], partsOf = () => [] } = {})
       checkRequest(step.request, at, { nodePath: null, known });
       if (step.expect !== undefined) checkExpect(step.expect, at, shapes);
       if (step.keep !== undefined) {
-        if (!isObject(step.keep) || Object.values(step.keep).some((value) => typeof value !== 'string')) fail(`${at}'s keep should be names and where each is in the response, such as { "id": "body.id" }.`);
-        for (const [kept, from] of Object.entries(step.keep)) {
+        const keepable = (value) => typeof value === 'string' || (isObject(value) && typeof value.from === 'string' && Object.keys(value).every((key) => ['from', 'match', 'decode'].includes(key)));
+        if (!isObject(step.keep) || !Object.values(step.keep).every(keepable)) fail(`${at}'s keep should be names and where each is in the response, such as { "id": "body.id" }, or { "from": "headers.location", "match": "state=([^&]+)", "decode": "url" } to keep part of it.`);
+        for (const [kept, where] of Object.entries(step.keep)) {
+          const from = typeof where === 'string' ? where : where.from;
           if (!NAME.test(kept)) fail(`${at} keeps "${kept}", which can't be a name: use letters, numbers and _.`);
           if (!/^(body|headers|status)(\.|$)/.test(from)) fail(`${at} keeps ${kept} from "${from}": say where in the response, starting body., headers. or status.`);
+          if (typeof where !== 'string' && where.match !== undefined) {
+            try { new RegExp(where.match); } catch { fail(`${at} keeps ${kept} matching "${where.match}", which isn't a regular expression.`); }
+          }
+          if (typeof where !== 'string' && where.decode !== undefined && !['url', 'html'].includes(where.decode)) fail(`${at} keeps ${kept} decoded as "${where.decode}": decode is url or html.`);
           known.add(kept);
         }
       }

@@ -789,6 +789,12 @@
                               "type": "string",
                               "description": "From the implementation's base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept"
                             },
+                            "port": {
+                              "description": "Another port on the implementation's host, for another service of the run (one its Compose source starts with it); default its own",
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
                             "query": {
                               "type": "object",
                               "propertyNames": {
@@ -809,6 +815,16 @@
                             },
                             "body": {
                               "description": "Sent as JSON. A string \"{name}\" is a value a setup step above kept"
+                            },
+                            "form": {
+                              "description": "Fields sent form-encoded, as a browser's form is, instead of a body",
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": "string"
+                              }
                             }
                           },
                           "required": [
@@ -844,13 +860,41 @@
                           }
                         },
                         "keep": {
-                          "description": "Values to keep from the response for requests on this node and below, by name: where each is, such as { \"id\": \"body.id\" }",
+                          "description": "Values to keep from the response for requests on this node and below, by name: where each is, such as { \"id\": \"body.id\" }, or part of it. Cookies the responses set are sent on with a check's later requests by themselves (to any port of the host, as a browser does), so setup can sign in.",
                           "type": "object",
                           "propertyNames": {
                             "type": "string"
                           },
                           "additionalProperties": {
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "from": {
+                                    "type": "string",
+                                    "description": "Where in the response: body, body.…, headers.… or status"
+                                  },
+                                  "match": {
+                                    "description": "A regular expression: its first group (else all it matches) is kept, such as state=([^&]+) in a Location header, or name=\"state\" value=\"([^\"]*)\" in HTML",
+                                    "type": "string"
+                                  },
+                                  "decode": {
+                                    "description": "Undo URL-encoding or HTML escaping in what was matched",
+                                    "type": "string",
+                                    "enum": [
+                                      "url",
+                                      "html"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "from"
+                                ]
+                              }
+                            ]
                           }
                         }
                       },
@@ -915,6 +959,12 @@
                                     "type": "string",
                                     "description": "From the implementation's base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept"
                                   },
+                                  "port": {
+                                    "description": "Another port on the implementation's host, for another service of the run (one its Compose source starts with it); default its own",
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
                                   "query": {
                                     "type": "object",
                                     "propertyNames": {
@@ -935,6 +985,16 @@
                                   },
                                   "body": {
                                     "description": "Sent as JSON. A string \"{name}\" is a value a setup step above kept"
+                                  },
+                                  "form": {
+                                    "description": "Fields sent form-encoded, as a browser's form is, instead of a body",
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -1149,6 +1209,13 @@
                       },
                       "commands": {
                         "description": "For git or an archive: the shell commands that build and start it, the last left running. For Compose: commands run in the repository before it's started, each to its end (installing dependencies, writing configuration)",
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "after": {
+                        "description": "Commands run in its code once it's ready, each to its end, such as seeding a database (a Compose file's scripts reach its containers with plain docker compose)",
                         "type": "array",
                         "items": {
                           "type": "string"
@@ -2083,6 +2150,13 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "after": {
+                          "description": "Commands run in its code once it's ready, each to its end, such as seeding a database (a Compose file's scripts reach its containers with plain docker compose)",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         }
                       }
                     },
@@ -2379,6 +2453,12 @@
                           "type": "string",
                           "description": "From the implementation's base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept"
                         },
+                        "port": {
+                          "description": "Another port on the implementation's host, for another service of the run (one its Compose source starts with it); default its own",
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
                         "query": {
                           "type": "object",
                           "propertyNames": {
@@ -2399,6 +2479,16 @@
                         },
                         "body": {
                           "description": "Sent as JSON. A string \"{name}\" is a value a setup step above kept"
+                        },
+                        "form": {
+                          "description": "Fields sent form-encoded, as a browser's form is, instead of a body",
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "string"
+                          }
                         }
                       },
                       "required": [
@@ -2434,13 +2524,41 @@
                       }
                     },
                     "keep": {
-                      "description": "Values to keep from the response for requests on this node and below, by name: where each is, such as { \"id\": \"body.id\" }",
+                      "description": "Values to keep from the response for requests on this node and below, by name: where each is, such as { \"id\": \"body.id\" }, or part of it. Cookies the responses set are sent on with a check's later requests by themselves (to any port of the host, as a browser does), so setup can sign in.",
                       "type": "object",
                       "propertyNames": {
                         "type": "string"
                       },
                       "additionalProperties": {
-                        "type": "string"
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "from": {
+                                "type": "string",
+                                "description": "Where in the response: body, body.…, headers.… or status"
+                              },
+                              "match": {
+                                "description": "A regular expression: its first group (else all it matches) is kept, such as state=([^&]+) in a Location header, or name=\"state\" value=\"([^\"]*)\" in HTML",
+                                "type": "string"
+                              },
+                              "decode": {
+                                "description": "Undo URL-encoding or HTML escaping in what was matched",
+                                "type": "string",
+                                "enum": [
+                                  "url",
+                                  "html"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "from"
+                            ]
+                          }
+                        ]
                       }
                     }
                   },
@@ -2505,6 +2623,12 @@
                                 "type": "string",
                                 "description": "From the implementation's base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept"
                               },
+                              "port": {
+                                "description": "Another port on the implementation's host, for another service of the run (one its Compose source starts with it); default its own",
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
                               "query": {
                                 "type": "object",
                                 "propertyNames": {
@@ -2525,6 +2649,16 @@
                               },
                               "body": {
                                 "description": "Sent as JSON. A string \"{name}\" is a value a setup step above kept"
+                              },
+                              "form": {
+                                "description": "Fields sent form-encoded, as a browser's form is, instead of a body",
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [

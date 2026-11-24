@@ -19,7 +19,9 @@
 //   running: { kind, url }                        something already running, to test as it is
 // `start`, how to run it: the port it listens on, its environment, and for git and archive the
 // commands that build and start it (the last left running); for Compose, commands run in the
-// repository before it's started, each to its end (installing, writing its configuration). `ready`, how to tell it has started: a
+// repository before it's started, each to its end (installing, writing its configuration); and
+// `after`, commands run in its code once it's ready, each to its end (seeding data), for any kind
+// with code in a folder. `ready`, how to tell it has started: a
 // path answering (200 unless `status` says), waited for up to `timeout` seconds (60). `stop`,
 // commands that tidy up afterwards (what was started is stopped regardless). `credentials`, labels
 // for the logins it needs to be fetched (a private repository or registry), kept on the machine that
@@ -113,7 +115,11 @@ export function checkImplementation(implementation, where = 'The implementation'
       if (!Array.isArray(start.commands) || !start.commands.length || !start.commands.every(text)) fail(kind === 'compose' ? `${where}'s commands should be a list of shell commands, run in the repository before Compose starts it, each to its end.` : `${where}'s commands should be a list of shell commands, the last starting it (left running).`);
     }
   }
-  if (kind !== 'running' && !Number.isInteger(start?.port)) fail(`${where} needs start.port: the port it listens on, so the checks can reach it.`);
+  if (start?.after !== undefined) {
+    if (!HAS_FILES.includes(kind)) fail(`${where} is ${SOURCE_LABELS[kind].toLowerCase()}, with no folder of code to run commands in: after is for a git repository, a Compose file or an archive.`);
+    if (!Array.isArray(start.after) || !start.after.length || !start.after.every(text)) fail(`${where}'s after should be a list of shell commands, run once it's ready, each to its end (seeding data).`);
+  }
+    if (kind !== 'running' && !Number.isInteger(start?.port)) fail(`${where} needs start.port: the port it listens on, so the checks can reach it.`);
   if (BUILT.includes(kind) && !start?.commands) fail(`${where} is built and run on the machine, so it needs start.commands: the shell commands that build and start it, the last left running.`);
   if (ready !== undefined) {
     if (!isObject(ready) || typeof ready.path !== 'string' || !ready.path.startsWith('/')) fail(`${where}'s ready should give a path that answers once it has started, such as /health.`);

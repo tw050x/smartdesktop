@@ -37,9 +37,11 @@ const TEXT_VALUES = z.record(z.string(), z.string());
 const REQUEST = z.object({
   method: z.string().describe('GET, POST, PUT, PATCH, DELETE…'),
   path: z.string().describe('From the implementation\'s base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept'),
+  port: z.number().int().optional().describe('Another port on the implementation\'s host, for another service of the run (one its Compose source starts with it); default its own'),
   query: TEXT_VALUES.optional(),
   headers: TEXT_VALUES.optional(),
   body: z.unknown().optional().describe('Sent as JSON. A string "{name}" is a value a setup step above kept'),
+  form: TEXT_VALUES.optional().describe('Fields sent form-encoded, as a browser\'s form is, instead of a body'),
 });
 const EXPECT = z.object({
   status: z.number().int().optional(),
@@ -73,7 +75,11 @@ const SETUP = z.object({
   title: z.string().optional(),
   request: REQUEST,
   expect: EXPECT.optional().describe('What the response should be for setup to go on (default: any 2xx)'),
-  keep: TEXT_VALUES.optional().describe('Values to keep from the response for requests on this node and below, by name: where each is, such as { "id": "body.id" }'),
+  keep: z.record(z.string(), z.union([z.string(), z.object({
+    from: z.string().describe('Where in the response: body, body.…, headers.… or status'),
+    match: z.string().optional().describe('A regular expression: its first group (else all it matches) is kept, such as state=([^&]+) in a Location header, or name="state" value="([^"]*)" in HTML'),
+    decode: z.enum(['url', 'html']).optional().describe('Undo URL-encoding or HTML escaping in what was matched'),
+  })])).optional().describe('Values to keep from the response for requests on this node and below, by name: where each is, such as { "id": "body.id" }, or part of it. Cookies the responses set are sent on with a check\'s later requests by themselves (to any port of the host, as a browser does), so setup can sign in.'),
 });
 // What the root and every node have; a node also has its id, name and path.
 const BRANCH = {
@@ -106,6 +112,7 @@ const IMPLEMENTATION = z.object({
     port: z.number().int().optional().describe('The port it listens on (needed unless it\'s already running)'),
     env: z.record(z.string(), z.string()).optional().describe('Its environment'),
     commands: z.array(z.string()).optional().describe('For git or an archive: the shell commands that build and start it, the last left running. For Compose: commands run in the repository before it\'s started, each to its end (installing dependencies, writing configuration)'),
+    after: z.array(z.string()).optional().describe('Commands run in its code once it\'s ready, each to its end, such as seeding a database (a Compose file\'s scripts reach its containers with plain docker compose)'),
   }).optional().describe('How to run it'),
   ready: z.object({
     path: z.string().describe('A path that answers once it has started, such as /health'),

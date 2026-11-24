@@ -13,7 +13,9 @@ import { pipeline } from 'node:stream/promises';
 //   running: nothing to start; the checks reach it at its URL.
 //   image:   `docker run` with its port published on 127.0.0.1, stopped with `docker rm -f`.
 //   compose: the repository fetched, its commands run there (each to its end), then `docker compose
-//            up` of its service and those `with` it, and `down`.
+//            up` of its service and those `with` it, and `down`. COMPOSE_PROJECT_NAME is the run's
+//            project, so its commands' own `docker compose` reach its containers.
+// Then, once it's ready, `start.after`: commands run in its code, each to its end (seeding data).
 //   git:     the repository fetched into the cache, its commands run there in turn, the last left
 //            running (in a process group of its own, so all it starts is stopped with it).
 //   archive: downloaded into the cache (its SHA-256 checked, if given), unpacked, then as git.
@@ -360,6 +362,7 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
     if (withFiles.length && source.kind === 'image') throw new RunError('A Docker image has no folder of code to write secrets into: give them as environment variables.');
     if (source.kind !== 'running') emit({ type: 'phase', phase: 'fetch' });
     let service;
+    let codeDir;
     switch (source.kind) {
       case 'running':
         told({ kind: 'running', label: source.url });
@@ -384,11 +387,14 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
       case 'compose': {
         await hasDocker(context);
         const dir = await codeFor(source, { workdir, ref, cacheDir, context });
+        codeDir = dir;
         emit({ type: 'phase', phase: 'start' });
         // Its commands first (installing, writing configuration), so none of them writes over a secret's file.
         for (const command of start.commands ?? []) await runCommand(command, { ...context, cwd: dir });
         await place(dir);
         const compose = `docker compose -p ${name} ${source.file ? `-f ${quote(source.file)}` : ''}`;
+        env.COMPOSE_PROJECT_NAME = name;
+        if (source.file) env.COMPOSE_FILE = source.file;
         const services = [source.service, ...(source.with ?? [])];
         tidy.push(() => runCommand(`${compose} down --remove-orphans`, { ...context, cwd: dir, signal: undefined, label: 'docker compose down' }));
         await runCommand(`${compose} up -d --build ${services.map(quote).join(' ')}`, { ...context, cwd: dir, label: `docker compose up ${services.join(' ')}` });
@@ -403,6 +409,7 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
         if (source.kind === 'archive') told({ kind: 'archive', label: source.url });
         const dir = source.dir ? path.join(fetched, source.dir) : fetched;
         if (!existsSync(dir)) throw new RunError(`${source.dir} isn't in the repository.`);
+        codeDir = dir;
         await place(fetched);
         emit({ type: 'phase', phase: 'start' });
         if (stopCommands) tidy.push(async () => { for (const command of stopCommands.commands) await runCommand(command, { ...context, cwd: dir, signal: undefined }); });
@@ -417,6 +424,7 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
     }
     emit({ type: 'phase', phase: 'ready' });
     await waitReady(implementation, base, { signal, service, emit });
+    for (const command of start.after ?? []) await runCommand(command, { ...context, cwd: codeDir });
     return { base, stop, code };
   } catch (error) {
     await stop();

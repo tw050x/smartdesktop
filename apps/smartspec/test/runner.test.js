@@ -149,11 +149,16 @@ describe('a job', () => {
   test('starts its implementation from a folder, runs every check, and stops it', { timeout: 60_000 }, async () => {
     const port = await freePort();
     const events = [];
-    const done = await runJob({ version: 1, id: 'orders-1', implementation: implementationAt(port), workdir: await ordersDir(), ...contractJob(contract()) }, { emit: (event) => events.push(event), cacheDir: path.join(temp, 'cache') });
+    const implementation = implementationAt(port);
+    implementation.start.after = [`node -e "fetch('http://127.0.0.1:${port}/health').then((r) => console.log('seeded after', r.status))"`];
+    const done = await runJob({ version: 1, id: 'orders-1', implementation, workdir: await ordersDir(), ...contractJob(contract()) }, { emit: (event) => events.push(event), cacheDir: path.join(temp, 'cache') });
     assert.equal(done.outcome, 'passed', JSON.stringify(events.filter((one) => one.type !== 'log'), null, 1));
     assert.deepEqual(done.counts, { passed: 4, failed: 0, error: 0 });
     assert.deepEqual(events.filter((one) => one.type === 'phase').map((one) => one.phase), ['fetch', 'start', 'ready', 'check', 'stop']);
     assert.ok(events.some((one) => one.type === 'log' && one.text === '$ node server.js'));
+    // Its after commands ran once it was ready, before the checks.
+    const seeded = events.findIndex((one) => one.type === 'log' && one.text === 'seeded after 200');
+    assert.ok(seeded > events.findIndex((one) => one.phase === 'ready') && seeded < events.findIndex((one) => one.phase === 'check'));
     assert.equal(await portOpen(port), false);
   });
 
