@@ -8,6 +8,7 @@ import { drawOverview, watchOverview } from './overview-view.js';
 import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from './comments.js';
 import { closeThread, openThread, refreshThread } from './comment-overlay.js';
 import { shadeScrolling } from './scroll-shade.js';
+import { rubberBand } from './rubber-band.js';
 import { watchLongPress } from './long-press.js';
 import { itemView, kindLabel, sequenceKey, wipeView } from './item-views.js';
 import { markInline, markSides, readText } from './diff-marks.js';
@@ -1017,8 +1018,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
   // Test mode: what the contract is tested against (the schematic's implementation, and what each
   // schematic it embeds is tested against), and the contract with how each part stands, run from
-  // here: all of it (Run checks), or a branch or clause (its own run button). As a run goes on only
-  // the contract's card is drawn again (`here.paintRun`), so the page keeps its place.
+  // here: all of it (Run checks), or a branch or clause (its own run button), with the run's log and
+  // the history beside it. As a run goes on only the contract's, log's and history's cards are drawn
+  // again (`here.paintRun`), so the canvas keeps its place.
   const testView = (here, shown, uses) => {
     const change = here.proposal && shown.changes?.implementation ? 'changed' : null;
     const own = shown.implementation
@@ -1067,54 +1069,211 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         : h('button', { type: 'button', className: 'run-all primary', disabled: !canRun, title: canRun ? `Run every check against ${targetLabel(targetFor(here, shown), state?.code)}` : missing.length ? `Set its ${missing.length === 1 ? 'secret' : 'secrets'} first: ${missing.join(', ')}` : branchUnknown(here, shown) ? 'Pick the branch to run first: its repository doesn’t say which is its default' : shown.implementation ? 'The contract has no checks to run yet' : 'It has no implementation to run the checks against', onclick: () => run() }, state ? 'Run again' : 'Run checks');
       const said = runSentence(state, here.runError, nameOf)
         ?? (missing.length && !viewing ? `It needs ${missing.length === 1 ? 'a secret' : 'secrets'} not set on this Mac yet (${missing.join(', ')}): set ${missing.length === 1 ? 'it' : 'them'} under Implementation, then run its checks.` : null);
-      const log = state?.log?.length ? logView(here, state) : null;
       return h('section', { className: 'test-card test-contract' },
         h('header', {}, h('h2', {}, 'Contract'), h('span', { className: `run-standing ${busy ? 'running' : overall.status}` }, busy ? 'Running…' : state ? overall.label : overall.total ? `${overall.total} ${overall.total === 1 ? 'check' : 'checks'}, not run` : 'No checks yet'), action),
         viewing ? viewingLine(here, shown, state) : codeSwitch(here, shown, version, workspace),
         said && h('p', { className: `run-line${state?.outcome === 'error' || here.runError || (missing.length && !state) ? ' trouble' : ''}` }, said),
-        log,
-        historyView(here, shown),
         contract);
     };
 
-    let card = contractCard();
-    here.paintRun = () => {
-      const next = contractCard();
-      card.replaceWith(next);
-      card = next;
+    // The run's log and the history of runs, each a card of its own beside the contract (the
+    // user's choice: in the contract's card they pushed the contract down the page).
+    const logCard = () => {
+      const state = runOf(here, shown);
+      return h('section', { className: 'test-card test-log' },
+        h('header', {}, h('h2', {}, 'Log'), h('span', { className: 'muted' }, state?.log?.length ? `${state.log.length} ${state.log.length === 1 ? 'line' : 'lines'}${state.running ? ', running' : ''}` : '')),
+        state?.log?.length ? logView(here, state) : h('p', { className: 'muted' }, state ? 'This run wrote nothing.' : 'What the runner does and what the code writes shows here as its checks run.'));
     };
-    // The implementation folds to its head, which still says where the code comes from (the
-    // user's choice: one column, it above the contract and folding away). Open or not, kept per tab
-    // while the app is open; open to begin with, and while a proposal changes it.
+    const historyCard = () => h('section', { className: 'test-card test-history' },
+      h('header', {}, h('h2', {}, 'History'), h('span', { className: 'muted' }, (() => {
+        const count = runsOf(here.schemaId).length;
+        return count ? `${count} ${count === 1 ? 'run' : 'runs'}` : '';
+      })())),
+      historyView(here, shown) ?? h('p', { className: 'muted' }, 'Every run of its checks is kept here, newest first. Pick one to see its results on the contract.'));
+
+    // As a run goes on, only its cards are drawn again, in place, so the canvas keeps its place.
+    const painted = { contract: contractCard(), log: logCard(), history: historyCard() };
+    const makers = { contract: contractCard, log: logCard, history: historyCard };
+    here.paintRun = () => {
+      for (const [name, make] of Object.entries(makers)) {
+        const next = make();
+        painted[name].replaceWith(next);
+        painted[name] = next;
+      }
+    };
     const unset = (here.secrets ?? []).filter((one) => !one.set).length;
-    const implementation = h('details', { className: 'test-card test-implementation', open: (here.implementationOpen ?? true) || change || unset ? '' : null },
-      h('summary', {},
-        h('span', { className: 'test-fold', 'aria-hidden': 'true' }),
+    const implementation = h('section', { className: 'test-card test-implementation' },
+      h('header', {},
         h('h2', {}, 'Implementation'),
-        h('span', { className: 'test-summary muted' }, !shown.implementation ? 'None yet'
-          : workspace?.cloned ? `${sourceLine(shown.implementation.source)}, kept in ${workspace.label}`
-          : `${SOURCE_LABELS[shown.implementation.source.kind]}: ${sourceLine(shown.implementation.source)}`,
-          unset ? `, ${unset} ${unset === 1 ? 'secret' : 'secrets'} not set` : ''),
         change && statusPills(...marker(change, approvals.has(IMPLEMENTATION))),
         change && approveButton(here, shown, IMPLEMENTATION, change, 'the implementation')),
-      h('div', { className: 'test-card-body' },
-        own,
-        here.secrets?.length > 0 && secretsView(here, shown),
-        workspace && workspaceView(here, shown, workspace),
-        embedded.length > 0 && h('h3', { className: 'pane-subhead' }, 'What it embeds is tested against'),
-        embedded.length > 0 && h('ul', { className: 'test-uses' }, ...embedded.map((use) => h('li', {},
-          h('strong', {}, use.name ?? use.id),
-          h('span', { className: 'muted' }, use.implementation
-            ? ` its implementation here: ${SOURCE_LABELS[use.implementation.source.kind]} `
-            : use.implemented ? ' its own implementation' : ' nothing yet: neither it nor this schematic says where its code is'),
-          use.implementation && h('code', {}, sourceLine(use.implementation.source)))))));
-    implementation.addEventListener('toggle', () => { here.implementationOpen = implementation.open; });
-    // A button in its head (Approve) acts without folding it.
-    implementation.querySelector('summary').addEventListener('click', (event) => {
-      if (event.target.closest('button')) event.preventDefault();
+      own,
+      embedded.length > 0 && h('h3', { className: 'pane-subhead' }, 'What it embeds is tested against'),
+      embedded.length > 0 && h('ul', { className: 'test-uses' }, ...embedded.map((use) => h('li', {},
+        h('strong', {}, use.name ?? use.id),
+        h('span', { className: 'muted' }, use.implementation
+          ? ` its implementation here: ${SOURCE_LABELS[use.implementation.source.kind]} `
+          : use.implemented ? ' its own implementation' : ' nothing yet: neither it nor this schematic says where its code is'),
+        use.implementation && h('code', {}, sourceLine(use.implementation.source))))));
+    const secrets = here.secrets?.length > 0 && h('section', { className: `test-card test-secrets${unset ? ' wanting' : ''}` },
+      h('header', {}, h('h2', {}, 'Secrets'), h('span', { className: unset ? 'run-standing trouble' : 'muted' }, unset ? `${unset} not set` : 'All set')),
+      secretsView(here, shown));
+    const workspaceCard = workspace && h('section', { className: 'test-card test-workspace' },
+      h('header', {}, h('h2', {}, 'Workspace'), h('span', { className: 'muted' }, workspace.cloned ? (workspace.changes ? `${workspace.changes} not committed` : 'Clean') : 'Not cloned yet')),
+      workspaceView(here, shown, workspace));
+
+    // Cards side by side, each a column of its own (the user's choice: one column was hard to take
+    // in and pushed what matters down the page, and there's no need to be compact), on a canvas that
+    // pans and zooms: what it runs against, the contract, the history and the log. Dragging on a card's text or controls selects or uses them; anywhere
+    // else it pans. Where it was left is kept per tab while the app is open.
+    // A handle after each card widens or narrows it (the user's choice); see sizedColumns below.
+    const world = h('div', { className: 'test-world' }, ...sizedColumns([
+      ['implementation', implementation], ['secrets', secrets], ['workspace', workspaceCard],
+      ['contract', painted.contract], ['history', painted.history], ['log', painted.log],
+    ], () => Number(/scale\(([\d.]+)\)/.exec(world.style.transform)?.[1] ?? 1)));
+    const size = { width: 1600, height: 1000 };
+    new ResizeObserver(() => {
+      size.width = world.offsetWidth;
+      size.height = world.offsetHeight;
+    }).observe(world);
+    const holder = makeCanvas(h('div', { className: 'diagram test-canvas' }, world), {
+      drawing: world,
+      size,
+      minScale: 0.2,
+      rubber: true,
+      saved: here.views?.test ?? { x: 24, y: 20, scale: 1 },
+      panFrom: (event) => !event.target.closest('button, a[href], input, textarea, select, summary, pre, code, p, li, h2, h3, h4, .branch-menu'),
+      onChange: (kept) => {
+        here.views ??= {};
+        here.views.test = kept;
+      },
     });
-    return h('div', { className: 'page test-page' }, h('div', { className: 'test-columns' }, implementation, card));
+    return h('div', { className: 'page test-page' }, holder);
   };
+
+  // Test mode's columns, each a card with a handle after it that widens or narrows it (the user's
+  // choice; as wide as wanted, never narrower than 280px), and a grip above it, centred, that drags
+  // it along the row to put the cards in another order (the user's choice), the others gliding out of
+  // its way. Widths and order are kept on this Mac for every schematic alike (localStorage, as the
+  // board's focus width is); a double-click on a width handle gives the column its own width back.
+  // A card drawn again as a run goes on (paintRun) takes its column's width from the column.
+  const TEST_WIDTHS = 'test-column-widths';
+  const TEST_ORDER = 'test-column-order';
+  const LEAST_COLUMN = 280;
+  const kept = (key, empty) => {
+    try { return JSON.parse(localStorage.getItem(key) ?? 'null') ?? empty; } catch { return empty; }
+  };
+  const keepIt = (key, value) => {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* not kept */ }
+  };
+
+  // The kept order, with any card it doesn't know put after the one it follows by default.
+  function inKeptOrder(names) {
+    const saved = kept(TEST_ORDER, []);
+    const order = Array.isArray(saved) ? saved.filter((name) => names.includes(name)) : [];
+    names.forEach((name, index) => {
+      if (order.includes(name)) return;
+      const before = names.slice(0, index).reverse().find((other) => order.includes(other));
+      order.splice(before ? order.indexOf(before) + 1 : 0, 0, name);
+    });
+    return order;
+  }
+
+  function sizedColumns(cards, scaleOf) {
+    const widths = kept(TEST_WIDTHS, {});
+    const present = cards.filter(([, card]) => card);
+    const byName = new Map(present);
+    const units = [];
+    const columns = inKeptOrder(present.map(([name]) => name)).flatMap((name) => {
+      const card = byName.get(name);
+      const grip = h('div', { className: 'test-move', role: 'button', 'aria-label': `Move the ${name} card`, title: 'Drag to move this card' }, h('span'));
+      const column = h('div', { className: `test-column test-column-${name}` }, grip, card);
+      column.dataset.name = name;
+      if (widths[name]) column.style.width = `${widths[name]}px`;
+      const handle = h('div', { className: 'test-resize', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': `Widen or narrow the ${name} card`, title: 'Drag to widen or narrow it; double-click for its own width' }, h('span'));
+      const unit = { name, column, handle };
+      units.push(unit);
+      dragging(handle, (from) => ({ width: column.getBoundingClientRect().width / scaleOf(), x: from.clientX }), (moved, start) => {
+        const width = Math.round(Math.max(LEAST_COLUMN, start.width + (moved.clientX - start.x) / scaleOf()));
+        column.style.width = `${width}px`;
+        widths[name] = width;
+      }, () => keepIt(TEST_WIDTHS, widths));
+      handle.addEventListener('dblclick', () => {
+        delete widths[name];
+        column.style.width = '';
+        keepIt(TEST_WIDTHS, widths);
+      });
+      dragging(grip, (from) => {
+        column.classList.add('moving');
+        return { x: from.clientX, left: column.offsetLeft };
+      }, (moved, start) => moveAlong(unit, start.left + (moved.clientX - start.x) / scaleOf()), () => {
+        column.classList.remove('moving');
+        glide(column, column.style.transform);
+        keepIt(TEST_ORDER, units.map((each) => each.name));
+      });
+      return [column, handle];
+    });
+
+    // The column being moved follows the pointer (`left`, where it'd be in the row); once its middle
+    // passes a neighbour's, it takes that one's place, the neighbour gliding to where it was.
+    function moveAlong(unit, left) {
+      const middle = left + unit.column.offsetWidth / 2;
+      for (;;) {
+        const at = units.indexOf(unit);
+        const next = units[at + 1];
+        const before = units[at - 1];
+        if (next && next.column.offsetLeft + next.column.offsetWidth / 2 < middle) swap(at, at + 1);
+        else if (before && before.column.offsetLeft + before.column.offsetWidth / 2 > middle) swap(at - 1, at);
+        else break;
+      }
+      unit.column.style.transform = `translateX(${left - unit.column.offsetLeft}px)`;
+    }
+
+    // Puts units[first] after units[first + 1], in the list and in the row.
+    function swap(first, second) {
+      const [a, b] = [units[first], units[second]];
+      const moved = a.column.classList.contains('moving') ? b : a;
+      const was = moved.column.offsetLeft;
+      b.handle.after(a.column, a.handle);
+      units[first] = b;
+      units[second] = a;
+      glide(moved.column, `translateX(${was - moved.column.offsetLeft}px)`);
+    }
+
+    return columns;
+  }
+
+  // Shows a column moved by `from` (a transform), then glides it to where it now is.
+  function glide(column, from) {
+    column.style.transition = 'none';
+    column.style.transform = from;
+    column.getBoundingClientRect();
+    column.style.transition = '';
+    column.style.transform = '';
+  }
+
+  // A drag on a handle of Test mode's, kept from the canvas (which would pan).
+  function dragging(element, begin, move, end) {
+    element.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const start = begin(event);
+      element.setPointerCapture(event.pointerId);
+      element.classList.add('dragging');
+      const onMove = (moved) => move(moved, start);
+      const onEnd = () => {
+        element.removeEventListener('pointermove', onMove);
+        element.removeEventListener('pointerup', onEnd);
+        element.removeEventListener('pointercancel', onEnd);
+        element.classList.remove('dragging');
+        end();
+      };
+      element.addEventListener('pointermove', onMove);
+      element.addEventListener('pointerup', onEnd);
+      element.addEventListener('pointercancel', onEnd);
+    });
+  }
 
   // Its secrets: what its code needs that isn't in its repository, each set or not on this Mac (see
   // main/secrets.js). Only the user enters a value (the user's choice), in a field that never shows
@@ -1308,47 +1467,132 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       back);
   }
 
-  // Every run of the schematic (the user's choice: all kept), newest first, folded: when, who, the
-  // contract and the code; one picked shows its results on the contract.
+  // Every run of the schematic (the user's choice: all kept), newest first: when, who, the contract
+  // and the code; one picked shows its results on the contract.
   function historyView(here, shown) {
     const runs = runsOf(here.schemaId).sort((a, b) => b.startedAt - a.startedAt);
     if (!runs.length) return null;
     const contractOf = (run) => (run.version === 'proposal' ? 'Proposal' : shown.line?.includes(run.version) ? `Draft ${shown.line.indexOf(run.version) + 1}` : 'A draft');
     const when = (run) => new Date(run.startedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    const details = h('details', { className: 'run-history', open: here.historyOpen ? '' : null },
-      h('summary', {}, 'History ', h('span', { className: 'muted' }, `${runs.length} ${runs.length === 1 ? 'run' : 'runs'}`)),
-      h('ol', {}, ...runs.map((run) => {
-        const row = h('button', { type: 'button', className: `run-row ${run.running ? 'running' : run.outcome === 'passed' ? 'passing' : run.outcome === 'failed' ? 'failing' : 'error'}`, 'aria-pressed': String(here.viewRun === run.id) },
-          h('span', { className: 'clause-dot', 'aria-hidden': 'true' }),
-          h('span', { className: 'run-when' }, when(run)),
-          h('span', { className: 'run-who' }, run.by === 'ai' ? 'AI' : 'You'),
-          h('span', { className: 'run-contract' }, `${contractOf(run)}${run.only ? `, ${contractPartName(shown.contract, run.only)}` : ''}${run.stale ? ' (since changed)' : ''}`),
-          h('span', { className: 'run-what' }, historyLine(run)));
-        row.addEventListener('click', () => {
-          here.viewRun = here.viewRun === run.id ? null : run.id;
-          render();
-        });
-        return h('li', {}, row);
-      })));
-    details.addEventListener('toggle', () => { here.historyOpen = details.open; });
-    return details;
+    const list = h('ol', {}, ...runs.map((run) => {
+      const row = h('button', { type: 'button', className: `run-row ${run.running ? 'running' : run.outcome === 'passed' ? 'passing' : run.outcome === 'failed' ? 'failing' : 'error'}`, 'aria-pressed': String(here.viewRun === run.id) },
+        h('span', { className: 'clause-dot', 'aria-hidden': 'true' }),
+        h('span', { className: 'run-when' }, when(run)),
+        h('span', { className: 'run-who' }, run.by === 'ai' ? 'AI' : 'You'),
+        h('span', { className: 'run-contract' }, `${contractOf(run)}${run.only ? `, ${contractPartName(shown.contract, run.only)}` : ''}${run.stale ? ' (since changed)' : ''}`),
+        h('span', { className: 'run-what' }, historyLine(run)));
+      row.addEventListener('click', () => {
+        here.viewRun = here.viewRun === run.id ? null : run.id;
+        render();
+      });
+      return h('li', {}, row);
+    }));
+    // Drawn again as a run goes on: it stays scrolled where it was.
+    const was = document.querySelector('.run-history ol')?.scrollTop ?? 0;
+    requestAnimationFrame(() => { list.scrollTop = was; });
+    const box = h('div', { className: 'run-history' }, list);
+    scrollsAlone(list, box);
+    return box;
   }
 
-  // The run's log, folded: what the runner did and what the code wrote, kept at its end while it
-  // runs unless the user has scrolled up. Open or not, kept per tab while the app is open.
+  // The run's log: what the runner did and what the code wrote, kept at its end while it runs
+  // unless the user has scrolled up.
   function logView(here, state) {
     const pre = h('pre', { className: 'run-log-lines' }, state.log.map((line) => `${line.stream === 'runner' ? '› ' : ''}${line.text}`).join('\n'));
-    const details = h('details', { className: 'run-log', open: here.logOpen ? '' : null },
-      h('summary', {}, 'Log ', h('span', { className: 'muted' }, `${state.log.length} ${state.log.length === 1 ? 'line' : 'lines'}`)),
-      pre);
-    details.addEventListener('toggle', () => {
-      here.logOpen = details.open;
-      if (details.open) pre.scrollTop = pre.scrollHeight;
-    });
     const was = document.querySelector('.run-log-lines');
     const atEnd = !was || was.scrollHeight - was.scrollTop - was.clientHeight < 24;
     requestAnimationFrame(() => { pre.scrollTop = atEnd ? pre.scrollHeight : was.scrollTop; });
-    return details;
+    // Its lines wrap, or run on to be scrolled sideways (the user's choice: a button over its
+    // corner), kept on this Mac for every log.
+    let wraps = true;
+    try { wraps = localStorage.getItem(LOG_WRAP) !== 'off'; } catch { /* wraps */ }
+    const box = h('div', { className: `run-log${wraps ? '' : ' unwrapped'}` }, pre);
+    scrollsAlone(pre, box);
+    const toggle = h('button', { type: 'button', className: 'log-wrap', 'aria-pressed': String(wraps), title: 'Wrap long lines, or let them run on to be scrolled sideways' }, 'Wrap');
+    toggle.addEventListener('click', () => {
+      const atEnd = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
+      wraps = !wraps;
+      box.classList.toggle('unwrapped', !wraps);
+      toggle.setAttribute('aria-pressed', String(wraps));
+      if (atEnd) pre.scrollTop = pre.scrollHeight;
+      try { localStorage.setItem(LOG_WRAP, wraps ? 'on' : 'off'); } catch { /* not kept */ }
+    });
+    box.append(toggle);
+    box.addEventListener('wheel', (event) => {
+      if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
+    });
+    return box;
+  }
+  const LOG_WRAP = 'test-log-wrap';
+
+  // Something that scrolls inside a Test mode card (the log, the history) has the wheel to itself
+  // while the pointer is over it (the user's choice): it never passes on to the canvas, which would
+  // pan once it reached its end; there it rubber-bands instead, sliding within what holds it (which
+  // clips it), to say it goes no further. ⌘ or a pinch still zooms the canvas.
+  function scrollsAlone(scroller, holder) {
+    rubberBand(scroller);
+    scroller.addEventListener('wheel', (event) => {
+      if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
+    });
+    scroller.classList.add('scrolls-alone');
+    scrollBar(scroller, holder);
+  }
+
+  // A scrollbar of our own for a scroller that rubber-bands (its own is hidden): drawn in `holder`,
+  // which doesn't move, so it stays put while what scrolls is pulled past an end, and it shows then
+  // too (nothing scrolls, so the system's never would), squashed at that end as macOS's is (the
+  // user's choice). It shows while scrolling and while pointed at, and its thumb can be dragged.
+  function scrollBar(scroller, holder) {
+    const thumb = h('div', { className: 'scroll-thumb' });
+    const bar = h('div', { className: 'scroll-bar', 'aria-hidden': 'true' }, thumb);
+    holder.append(bar);
+    let hide = 0;
+    const place = () => {
+      const range = scroller.scrollHeight - scroller.clientHeight;
+      bar.hidden = range <= 0;
+      if (range <= 0) return;
+      const track = bar.clientHeight;
+      const pull = Number(/\S+\s+(-?[\d.]+)px/.exec(scroller.style.translate)?.[1] ?? 0);
+      let size = Math.max(28, track * scroller.clientHeight / scroller.scrollHeight);
+      let top = (track - size) * Math.min(1, Math.max(0, scroller.scrollTop / range));
+      const squash = Math.min(size - 10, Math.abs(pull) * 1.5);
+      if (pull > 0) size -= squash; // pulled down past the top: squashed against the top
+      else if (pull < 0) { size -= squash; top += squash; } // past the end: against the bottom
+      thumb.style.height = `${size}px`;
+      thumb.style.transform = `translateY(${top}px)`;
+    };
+    const show = () => {
+      place();
+      bar.classList.add('showing');
+      clearTimeout(hide);
+      hide = setTimeout(() => { if (!bar.matches(':hover') && !bar.classList.contains('dragging')) bar.classList.remove('showing'); }, 900);
+    };
+    scroller.addEventListener('scroll', show, { passive: true });
+    new MutationObserver(() => { if (scroller.style.translate) show(); else place(); }).observe(scroller, { attributes: true, attributeFilter: ['style', 'class'] });
+    new ResizeObserver(place).observe(scroller);
+    holder.addEventListener('pointerenter', show);
+    holder.addEventListener('pointerleave', () => { if (!bar.classList.contains('dragging')) bar.classList.remove('showing'); });
+    thumb.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const from = { y: event.clientY, top: scroller.scrollTop };
+      const perPixel = (scroller.scrollHeight - scroller.clientHeight) / Math.max(1, bar.getBoundingClientRect().height - thumb.getBoundingClientRect().height);
+      thumb.setPointerCapture(event.pointerId);
+      bar.classList.add('dragging', 'showing');
+      const move = (moved) => { scroller.scrollTop = from.top + (moved.clientY - from.y) * perPixel; };
+      const end = () => {
+        thumb.removeEventListener('pointermove', move);
+        thumb.removeEventListener('pointerup', end);
+        thumb.removeEventListener('pointercancel', end);
+        bar.classList.remove('dragging');
+        show();
+      };
+      thumb.addEventListener('pointermove', move);
+      thumb.addEventListener('pointerup', end);
+      thumb.addEventListener('pointercancel', end);
+    });
+    place();
   }
 
   // In the toolbar, with a schema open: the mode, and the focus: what the AI's work on this draft is

@@ -1554,21 +1554,53 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .shape header { display: flex; align-items: baseline; gap: 8px; }
 .shape pre { margin: 4px 0 0; padding: 8px; border-radius: 8px; background: var(--subtle-bg); font-size: 11px; overflow: auto; }
 
-/* Test mode (testView in schemas.js): what the contract is tested against, beside the contract with
-   how each part stands. Two columns, one under the other when narrow. */
-.test-page { max-width: none; height: 100%; overflow: auto; padding: 20px 24px 32px; }
-/* One column (the user's choice): the implementation, folding to its head, above the contract. */
-.test-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; max-width: 1040px; margin: 0 auto; }
-.test-implementation > summary { display: flex; align-items: center; gap: 10px; min-height: 30px; margin: -4px 0; list-style: none; cursor: default; }
-.test-implementation > summary::-webkit-details-marker { display: none; }
-.test-implementation > summary h2 { flex: none; margin: 0; font-size: 15px; }
-.test-implementation > summary > .test-summary { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.test-implementation[open] > summary > .test-summary { visibility: hidden; }
-.test-implementation > summary > .approve-button { margin-left: auto; }
-.test-fold { flex: none; display: grid; place-items: center; width: 14px; height: 14px; color: var(--muted); }
-.test-fold::before { content: ''; width: 6px; height: 6px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 0.15s ease; }
-.test-implementation:not([open]) .test-fold::before { transform: translateX(-2px) rotate(-45deg); }
-.test-implementation > summary:hover .test-fold { color: var(--text); }
+/* Test mode (testView in schemas.js): cards side by side on a canvas that pans and zooms, as the
+   overview's does (the user's choice: one column was hard to take in): what the code runs against
+   (implementation, secrets, workspace), the contract, and the run's log with the history. */
+.page.test-page { position: relative; max-width: none; height: 100%; padding: 0; overflow: hidden; }
+.test-page .diagram.test-canvas { position: absolute; inset: 0; overflow: hidden; padding: 0; border: 0; border-radius: 0; background: none; cursor: grab; touch-action: none; }
+.test-world { position: absolute; top: 0; left: 0; display: flex; align-items: flex-start; gap: 0; padding-bottom: 40px; transform-origin: 0 0; text-align: start; cursor: auto; }
+.diagram-canvas.springing > .test-world { transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.test-column > .test-card { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+.test-column-implementation, .test-column-secrets { width: 420px; }
+.test-column-workspace { width: 380px; }
+.test-column-contract { width: 640px; }
+.test-column-history { width: 480px; }
+.test-column-log { width: 600px; }
+/* The handle after each column, in the gap: a grip that looks grabbable, and a line down the
+   column's height while it's pointed at or dragged. Above each card, centred, a grip to move it. */
+.test-resize { flex: none; align-self: stretch; position: relative; width: 32px; cursor: col-resize; touch-action: none; }
+.test-resize::after { content: ''; position: absolute; top: 34px; bottom: 8px; left: 50%; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--accent); opacity: 0; transition: opacity 0.15s ease; }
+.test-resize > span { position: absolute; top: 34px; left: 50%; width: 12px; height: 64px; margin-left: -6px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg) radial-gradient(circle, var(--faint) 1.2px, transparent 1.6px) center / 6px 8px; box-sizing: border-box; transition: border-color 0.15s ease, background-color 0.15s ease; z-index: 1; }
+.test-resize:hover::after, .test-resize.dragging::after { opacity: 0.8; }
+.test-resize:hover > span, .test-resize.dragging > span { border-color: var(--accent); }
+.test-column { flex: none; position: relative; transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.test-column.moving { z-index: 2; transition: none; }
+.test-column.moving > .test-card { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
+.test-move { display: flex; justify-content: center; align-items: center; height: 26px; cursor: grab; touch-action: none; }
+.test-move > span { width: 64px; height: 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg) radial-gradient(circle, var(--faint) 1.2px, transparent 1.6px) center / 8px 6px; box-sizing: border-box; transition: border-color 0.15s ease; }
+.test-move:hover > span, .test-move.dragging > span { border-color: var(--accent); }
+.test-move.dragging { cursor: grabbing; }
+.test-secrets.wanting { border-color: light-dark(#e3b341, #8a5a00); }
+.test-card > header > .run-standing.trouble { color: light-dark(#8a5a00, #e3b341); }
+.test-implementation > header > .approve-button { margin-left: auto; }
+.test-log .run-log-lines { max-height: 760px; margin: 0; background: none; }
+.test-log .run-log { position: relative; overflow: hidden; border-radius: 8px; background: var(--subtle-bg); }
+.run-log.unwrapped .run-log-lines { white-space: pre; overflow-wrap: normal; }
+.run-log .log-wrap { position: absolute; top: 8px; right: 18px; height: 26px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg); color: var(--muted); font: inherit; font-size: 12px; cursor: default; opacity: 0.85; }
+.run-log .log-wrap:hover { opacity: 1; background: var(--button-hover); color: var(--text); }
+.run-log .log-wrap[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.test-history .run-history { position: relative; overflow: hidden; }
+/* Our own scrollbar for what rubber-bands (scrollBar in schemas.js); the system's vertical one is
+   hidden, a sideways one kept thin. */
+.scrolls-alone::-webkit-scrollbar { width: 0; height: 6px; background: transparent; }
+.scrolls-alone::-webkit-scrollbar-thumb { border-radius: 3px; background: color-mix(in srgb, var(--muted) 45%, transparent); }
+.scrolls-alone::-webkit-scrollbar-corner { background: transparent; }
+.scroll-bar { position: absolute; top: 6px; bottom: 6px; right: 2px; width: 10px; opacity: 0; transition: opacity 0.3s ease; z-index: 1; }
+.scroll-bar.showing { opacity: 1; transition-duration: 0.1s; }
+.scroll-thumb { position: absolute; top: 0; left: 2px; right: 2px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 55%, transparent); cursor: default; }
+.scroll-bar:hover .scroll-thumb, .scroll-bar.dragging .scroll-thumb { left: 1px; right: 1px; background: color-mix(in srgb, var(--muted) 80%, transparent); }
+.test-history .run-history ol { max-height: 640px; margin: 0; }
 .test-card-body { margin-top: 14px; }
 .test-card { padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); }
 .test-card > header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -1686,3 +1718,6 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .secret-entry { display: flex; gap: 6px; margin-top: 8px; }
 .secret-field { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .secret-field:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* Secrets and the workspace are cards of their own in Test mode, their heads their titles. */
+.test-card > .impl-local { margin-top: 0; padding-top: 0; border-top: 0; }
+.test-card > .impl-local > .pane-subhead { display: none; }
