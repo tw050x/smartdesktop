@@ -55,8 +55,9 @@ const markTag = (mark) => mark && h('span', { className: `clause-mark ${mark}` }
 // A request, in a line: its method and path, then its body.
 function requestLine(request) {
   return [
-    h('code', { className: 'check-request' }, `${request.method} ${request.path}${request.query ? `?${new URLSearchParams(request.query)}` : ''}`),
+    h('code', { className: 'check-request' }, `${request.method} ${request.port ? `:${request.port}` : ''}${request.path}${request.query ? `?${new URLSearchParams(request.query)}` : ''}`),
     request.body !== undefined && h('code', { className: 'check-body' }, JSON.stringify(request.body)),
+    request.form !== undefined && h('code', { className: 'check-body' }, `form ${new URLSearchParams(request.form)}`),
   ];
 }
 
@@ -128,7 +129,7 @@ export function renderContract(element, contract, { titleOf = (link) => link, ou
       ...requestLine(step.request),
       step.expect && h('span', { className: 'check-arrow', 'aria-hidden': 'true' }, '→'),
       step.expect && h('code', { className: 'check-expect' }, expectLine(step.expect)),
-      step.keep && h('span', { className: 'setup-keep' }, `keeps ${Object.entries(step.keep).map(([name, from]) => `{${name}} from ${from}`).join(', ')}`)))));
+      step.keep && h('span', { className: 'setup-keep' }, `keeps ${Object.entries(step.keep).map(([name, from]) => `{${name}} from ${typeof from === 'string' ? from : `${from.from}${from.match ? ` matching ${from.match}` : ''}`}`).join(', ')}`)))));
 
   const clause = (one) => {
     const { status, label } = standing(checkKeys(one), results, running);
