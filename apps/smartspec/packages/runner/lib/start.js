@@ -392,6 +392,9 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
         const services = [source.service, ...(source.with ?? [])];
         tidy.push(() => runCommand(`${compose} down --remove-orphans`, { ...context, cwd: dir, signal: undefined, label: 'docker compose down' }));
         await runCommand(`${compose} up -d --build ${services.map(quote).join(' ')}`, { ...context, cwd: dir, label: `docker compose up ${services.join(' ')}` });
+        // What its services write, each line named by its service, as an image's log is followed.
+        const logs = startService(`${compose} logs -f --no-color ${services.map(quote).join(' ')}`, { ...context, cwd: dir, emit: (event) => emit(event.stream === 'runner' ? { ...event, text: '(their logs follow)' } : event) });
+        tidy.push(() => logs.stop());
         break;
       }
       case 'git':
