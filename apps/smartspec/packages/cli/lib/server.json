@@ -1047,6 +1047,13 @@
                           "service": {
                             "type": "string",
                             "description": "The service that keeps the contract"
+                          },
+                          "with": {
+                            "description": "Other services in the Compose file to start beside it, such as a database it needs",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -1141,7 +1148,7 @@
                         }
                       },
                       "commands": {
-                        "description": "For git or an archive: the shell commands that build and start it, the last left running",
+                        "description": "For git or an archive: the shell commands that build and start it, the last left running. For Compose: commands run in the repository before it's started, each to its end (installing dependencies, writing configuration)",
                         "type": "array",
                         "items": {
                           "type": "string"
@@ -1970,6 +1977,13 @@
                             "service": {
                               "type": "string",
                               "description": "The service that keeps the contract"
+                            },
+                            "with": {
+                              "description": "Other services in the Compose file to start beside it, such as a database it needs",
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
                             }
                           },
                           "required": [
@@ -2064,7 +2078,7 @@
                           }
                         },
                         "commands": {
-                          "description": "For git or an archive: the shell commands that build and start it, the last left running",
+                          "description": "For git or an archive: the shell commands that build and start it, the last left running. For Compose: commands run in the repository before it's started, each to its end (installing dependencies, writing configuration)",
                           "type": "array",
                           "items": {
                             "type": "string"

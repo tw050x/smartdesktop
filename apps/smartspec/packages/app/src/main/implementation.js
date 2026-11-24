@@ -10,13 +10,16 @@
 //   { source, start?, ready?, stop?, credentials?, secrets? }
 // `source`, where the code comes from, a kind each:
 //   image:   { kind, image }                      a Docker image, by tag or digest
-//   compose: { kind, url, ref?, file?, service }  a Docker Compose file in a git repository
+//   compose: { kind, url, ref?, file?, service, with? }  a Docker Compose file in a git repository:
+//                                                  `service` keeps the contract, `with` the others
+//                                                  in the file started beside it (a database)
 //   git:     { kind, url, ref?, dir? }            a git repository, built and run on the machine
 //                                                  (its url may be file:// for one on this machine)
 //   archive: { kind, url, sha256? }               an archive at a URL, built and run on the machine
 //   running: { kind, url }                        something already running, to test as it is
 // `start`, how to run it: the port it listens on, its environment, and for git and archive the
-// commands that build and start it (the last left running). `ready`, how to tell it has started: a
+// commands that build and start it (the last left running); for Compose, commands run in the
+// repository before it's started, each to its end (installing, writing its configuration). `ready`, how to tell it has started: a
 // path answering (200 unless `status` says), waited for up to `timeout` seconds (60). `stop`,
 // commands that tidy up afterwards (what was started is stopped regardless). `credentials`, labels
 // for the logins it needs to be fetched (a private repository or registry), kept on the machine that
@@ -69,6 +72,7 @@ function checkSource(source, where) {
       checkUrl(source.url, at, ['https:', 'ssh:', 'git:', 'http:', 'file:']);
       if (!text(source.service)) fail(`${at} needs the service in the Compose file that keeps the contract.`);
       if (source.file !== undefined && !text(source.file)) fail(`${at}'s file should be the Compose file's path in the repository.`);
+      if (source.with !== undefined && !(Array.isArray(source.with) && source.with.length && source.with.every((one) => text(one) && LABEL.test(one)) && !source.with.includes(source.service))) fail(`${at}'s with should list the other services in the Compose file to start beside ${source.service}, such as ["mongo"].`);
       break;
     case 'git':
       checkUrl(source.url, at, ['https:', 'ssh:', 'git:', 'http:', 'file:']);
@@ -105,8 +109,8 @@ export function checkImplementation(implementation, where = 'The implementation'
       }
     }
     if (start.commands !== undefined) {
-      if (!BUILT.includes(kind)) fail(`${where} is ${SOURCE_LABELS[kind].toLowerCase()}, which runs as it is: commands are for a git repository or an archive, built and run on the machine.`);
-      if (!Array.isArray(start.commands) || !start.commands.length || !start.commands.every(text)) fail(`${where}'s commands should be a list of shell commands, the last starting it (left running).`);
+      if (!BUILT.includes(kind) && kind !== 'compose') fail(`${where} is ${SOURCE_LABELS[kind].toLowerCase()}, which runs as it is: commands are for a git repository or an archive, built and run on the machine, or run before a Compose file is started.`);
+      if (!Array.isArray(start.commands) || !start.commands.length || !start.commands.every(text)) fail(kind === 'compose' ? `${where}'s commands should be a list of shell commands, run in the repository before Compose starts it, each to its end.` : `${where}'s commands should be a list of shell commands, the last starting it (left running).`);
     }
   }
   if (kind !== 'running' && !Number.isInteger(start?.port)) fail(`${where} needs start.port: the port it listens on, so the checks can reach it.`);
@@ -178,7 +182,7 @@ export function sourceLine(source) {
   const at = (url) => url.replace(/^[a-z+]+:\/\//, '').replace(/\.git$/, '');
   switch (source.kind) {
     case 'image': return source.image;
-    case 'compose': return `${source.service} in ${at(source.url)}${source.ref ? ` at ${source.ref}` : ''}${source.file ? `, ${source.file}` : ''}`;
+    case 'compose': return `${source.service}${source.with ? ` (with ${source.with.join(', ')})` : ''} in ${at(source.url)}${source.ref ? ` at ${source.ref}` : ''}${source.file ? `, ${source.file}` : ''}`;
     case 'git': return `${at(source.url)}${source.ref ? ` at ${source.ref}` : ''}${source.dir ? `, in ${source.dir}` : ''}`;
     case 'archive': return at(source.url);
     case 'running': return source.url;

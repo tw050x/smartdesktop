@@ -97,7 +97,7 @@ const CONTRACT_TREE = z.object({
 const IMPLEMENTATION = z.object({
   source: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('image'), image: z.string().describe('A Docker image, by tag or digest, such as ghcr.io/larder/orders:1.4') }),
-    z.object({ kind: z.literal('compose'), url: z.string().describe('The git repository holding the Compose file'), ref: z.string().optional().describe('A branch, tag or commit'), file: z.string().optional().describe('The Compose file\'s path in the repository (default compose.yaml)'), service: z.string().describe('The service that keeps the contract') }),
+    z.object({ kind: z.literal('compose'), url: z.string().describe('The git repository holding the Compose file'), ref: z.string().optional().describe('A branch, tag or commit'), file: z.string().optional().describe('The Compose file\'s path in the repository (default compose.yaml)'), service: z.string().describe('The service that keeps the contract'), with: z.array(z.string()).optional().describe('Other services in the Compose file to start beside it, such as a database it needs') }),
     z.object({ kind: z.literal('git'), url: z.string().describe('The git repository: https:, ssh: or git:, or file: for one on the user\'s Mac'), ref: z.string().optional().describe('A branch, tag or commit'), dir: z.string().optional().describe('The folder in it to build and run from') }),
     z.object({ kind: z.literal('archive'), url: z.string().describe('An archive to download'), sha256: z.string().optional() }),
     z.object({ kind: z.literal('running'), url: z.string().describe('Its base address, to test as it is') }),
@@ -105,7 +105,7 @@ const IMPLEMENTATION = z.object({
   start: z.object({
     port: z.number().int().optional().describe('The port it listens on (needed unless it\'s already running)'),
     env: z.record(z.string(), z.string()).optional().describe('Its environment'),
-    commands: z.array(z.string()).optional().describe('For git or an archive: the shell commands that build and start it, the last left running'),
+    commands: z.array(z.string()).optional().describe('For git or an archive: the shell commands that build and start it, the last left running. For Compose: commands run in the repository before it\'s started, each to its end (installing dependencies, writing configuration)'),
   }).optional().describe('How to run it'),
   ready: z.object({
     path: z.string().describe('A path that answers once it has started, such as /health'),

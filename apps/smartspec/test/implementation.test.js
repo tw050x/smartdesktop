@@ -21,6 +21,15 @@ describe('an implementation', () => {
     assert.doesNotThrow(() => checkImplementation(null));
   });
 
+  test('a Compose file can start other services beside it, after commands run to their end', () => {
+    const stack = { source: { kind: 'compose', url: 'https://github.com/larder/stack.git', service: 'orders', with: ['mongo'] }, start: { port: 3000, commands: ['yarn install', './setup.sh'] } };
+    assert.doesNotThrow(() => checkImplementation(stack));
+    assert.equal(sourceLine(stack.source), 'orders (with mongo) in github.com/larder/stack');
+    assert.throws(() => checkImplementation({ ...stack, source: { ...stack.source, with: ['orders'] } }), /other services/);
+    assert.throws(() => checkImplementation({ ...stack, source: { ...stack.source, with: [] } }), /other services/);
+    assert.throws(() => checkImplementation({ ...stack, start: { port: 3000, commands: [] } }), /before Compose starts it/);
+  });
+
   test('refuses what can\'t be run, saying why', () => {
     const broken = (change) => {
       const one = git();

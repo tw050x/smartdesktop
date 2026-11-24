@@ -12,7 +12,8 @@ import { pipeline } from 'node:stream/promises';
 // app's implementation.js for what an implementation says). Each kind:
 //   running: nothing to start; the checks reach it at its URL.
 //   image:   `docker run` with its port published on 127.0.0.1, stopped with `docker rm -f`.
-//   compose: the repository fetched, then `docker compose up` of its service, and `down`.
+//   compose: the repository fetched, its commands run there (each to its end), then `docker compose
+//            up` of its service and those `with` it, and `down`.
 //   git:     the repository fetched into the cache, its commands run there in turn, the last left
 //            running (in a process group of its own, so all it starts is stopped with it).
 //   archive: downloaded into the cache (its SHA-256 checked, if given), unpacked, then as git.
@@ -383,11 +384,14 @@ export async function startImplementation(implementation, { jobId, cacheDir = de
       case 'compose': {
         await hasDocker(context);
         const dir = await codeFor(source, { workdir, ref, cacheDir, context });
-        await place(dir);
         emit({ type: 'phase', phase: 'start' });
+        // Its commands first (installing, writing configuration), so none of them writes over a secret's file.
+        for (const command of start.commands ?? []) await runCommand(command, { ...context, cwd: dir });
+        await place(dir);
         const compose = `docker compose -p ${name} ${source.file ? `-f ${quote(source.file)}` : ''}`;
+        const services = [source.service, ...(source.with ?? [])];
         tidy.push(() => runCommand(`${compose} down --remove-orphans`, { ...context, cwd: dir, signal: undefined, label: 'docker compose down' }));
-        await runCommand(`${compose} up -d --build ${quote(source.service)}`, { ...context, cwd: dir, label: `docker compose up ${source.service}` });
+        await runCommand(`${compose} up -d --build ${services.map(quote).join(' ')}`, { ...context, cwd: dir, label: `docker compose up ${services.join(' ')}` });
         break;
       }
       case 'git':
