@@ -1,8 +1,8 @@
 import { iconSvg } from '../main/icons.js';
 import { CONTRACT, IMPLEMENTATION, connectedPairs, isInternalLink, neighboursOf, parseLink, partName, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
 import { makeCanvas } from './canvas-view.js';
-import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
-import { watchBoard } from './board-view.js';
+import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, focusOf, layoutToSave, placeNew, setFocusWidth } from './board.js';
+import { focusWidth, watchBoard } from './board-view.js';
 import { watchPage } from './page-view.js';
 import { drawOverview, watchOverview } from './overview-view.js';
 import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from './comments.js';
@@ -2040,11 +2040,13 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const onWhole = everything.filter((comment) => comment.target.schematic);
 
     let layout = await layoutOf(here.schemaId);
+    // Where items start to shrink is the focus area's edge, for the layout's decisions below too.
+    setFocusWidth(focusOf({ width: el.clientWidth, focus: focusWidth() }));
     const fresh = !Object.keys(layout.boxes).length;
     const asked = here.bring || here.item !== CONTRACT;
     // Brought to the middle (with no layout yet, it starts there anyway).
     if (here.bring && !fresh) {
-      layout = bringToMiddle(layout, here.item, { width: el.clientWidth, height: el.clientHeight }, { alone: here.bring === 'alone' });
+      layout = bringToMiddle(layout, here.item, { width: el.clientWidth, height: el.clientHeight, focus: focusWidth() }, { alone: here.bring === 'alone' });
       keepLayout(here.schemaId, layout);
     }
     here.bring = false;

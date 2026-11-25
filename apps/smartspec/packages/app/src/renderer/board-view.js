@@ -9,8 +9,14 @@
 // Each item is an element `.board-item[data-item]` holding its full view (`.board-full`, built when
 // first needed by `build(id)`) and its card (`.board-card`). The board calls `onChange(layout)` when
 // the user has moved or sized something, and `onBring(id)` when a card is clicked.
+//
+// The focus area, the middle that a lone item fills and that an item dragged to the board's top
+// fills (alone, or half of it each beside another: see board.js), is as wide as the user makes it
+// with a bar at each of its edges, as SmartDoc's pages are (the user's choice): dragging either
+// resizes it from both sides at once, staying centred; double-clicking goes back to the usual
+// width. The width is kept for every board alike (focusWidth).
 
-import { bringToMiddle, cardnessAtEdge, leastScale, forgetSnap, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, inMiddle, isCard, MARGIN, scaleAtEdge, separate, settleFilling as settle, settleSize, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
+import { bringToMiddle, cardnessAtEdge, choicesOf, dismissChoices, leastScale, forgetSnap, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, focusLimits, focusOf, FOCUS_WIDTH, halfBox, inMiddle, isCard, leaveHalf, MARGIN, offerChoices, offeredFor, otherSide, pickChoice, scaleAtEdge, separate, setFocusWidth, settleFilling as settle, settleSize, snapTarget, snapToHalf, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
 import { watchPage } from './page-view.js';
 import { longPressed } from './long-press.js';
 
@@ -37,6 +43,25 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const GRIPS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 
 const SNAP_TOP = 16; // px from the board's top: an item dragged there and let go fills the middle alone
+const NEAR_FOCUS_EDGE = 48; // px either side of the focus area's edge that bring up its bar
+
+// How wide the focus area is, as a fraction of the board's width: the user's, kept on this computer
+// for every board alike, or the usual. A board's own size is worked out against its limits (focusOf).
+const FOCUS_KEY = 'focus-width';
+export function focusWidth() {
+  try {
+    const kept = Number(localStorage.getItem(FOCUS_KEY));
+    return kept > 0 && kept < 1 ? kept : FOCUS_WIDTH;
+  } catch {
+    return FOCUS_WIDTH;
+  }
+}
+function keepFocusWidth(width) {
+  try {
+    if (width === null || Math.abs(width - FOCUS_WIDTH) < 0.0005) localStorage.removeItem(FOCUS_KEY);
+    else localStorage.setItem(FOCUS_KEY, String(Math.round(width * 10000) / 10000));
+  } catch {}
+}
 
 export function watchBoard(board, { layout: first, build, onChange = () => {}, onBring = () => {} }) {
   let layout = first;
@@ -45,7 +70,25 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   let placed = null; // the item last dropped, which stays exactly where it was put
   const items = () => [...board.querySelectorAll(':scope > .board-item')];
   const itemOf = (id) => board.querySelector(`:scope > .board-item[data-item="${CSS.escape(id)}"]`);
-  const size = () => ({ width: board.clientWidth, height: board.clientHeight });
+  let focus = focusWidth();
+  // The board's size in px, with the focus area's width; where items start to shrink follows the
+  // focus area's edge (setFocusWidth), so it's set again from whatever size is asked for.
+  const size = () => {
+    const now = { width: board.clientWidth, height: board.clientHeight, focus };
+    setFocusWidth(focusOf(now));
+    return now;
+  };
+  // An item filling half the focus area, and its partner picked for the other half; the items
+  // offered for that other half while the user picks one (`choosing`: { id, side }).
+  let choosing = null;
+  // A board drawn again while the user picks (the schematic changed meanwhile) goes on offering them.
+  {
+    const offered = choicesOf(layout);
+    const side = offered.length && (layout.boxes[offered[0]].cx < 0.5 ? 'left' : 'right');
+    const snapped = side && Object.keys(layout.boxes).find((id) => layout.boxes[id].half === otherSide(side));
+    if (snapped) choosing = { id: snapped, side };
+    else if (offered.length) layout = dismissChoices(layout);
+  }
 
   // The box an item shows in, as fractions: the middle's, if it fills it.
   // Open items in the middle that would hide one another are drawn as a cascade (see stagger):
@@ -53,7 +96,15 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   // moves under the pointer.
   let staggered = {};
   let resizing = null;
-  const shownBox = (id) => (fills(layout, id, dragging) ? { ...layout.boxes[id], ...fillBox(size()) } : staggered[id] ? { ...layout.boxes[id], ...staggered[id] } : layout.boxes[id]);
+  const shownBox = (id) => {
+    const box = layout.boxes[id];
+    // A half shares the cascade's rules: two in the same half (one not picked, put back) cascade.
+    if (box?.half && id !== dragging) return { ...box, ...halfBox(size(), box.half), ...staggered[id] };
+    if (fills(layout, id, dragging)) return { ...box, ...fillBox(size()) };
+    return staggered[id] ? { ...box, ...staggered[id] } : box;
+  };
+  // The layout as it shows, for the cascade: what fills half the focus area at that half as it is now.
+  const asShown = () => ({ boxes: Object.fromEntries(Object.entries(layout.boxes).map(([id, box]) => [id, box.half ? { ...box, ...halfBox(size(), box.half) } : box])) });
 
   // An item's full view, built the first time it's shown.
   const fullOf = (element) => {
@@ -128,21 +179,26 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     if (!box) return null;
     const { width, height } = size();
     const filling = fills(layout, id, dragging);
+    // An item offered for the other half of the focus area shows as its card, the size of its place
+    // there, so it can be recognised and picked.
+    const choice = Boolean(box.choice);
+    element.classList.toggle('choice', choice);
     const one = {
       id, element, cx: box.cx * width, cy: box.cy * height,
       full: { width: box.w * width, height: box.h * height },
-      fixed: element.classList.contains('board-comment') ? commentSize(element, false) : null,
+      fixed: choice ? { width: box.w * width, height: box.h * height } : element.classList.contains('board-comment') ? commentSize(element, false) : null,
       shrink: id === dragging || id === placed ? element.keepShrink ?? 1 : 1,
+      choice,
     };
     one.least = smallestOf(element, one.full);
     // An item with no edge kept, whose centre is where cards go, is a card.
     one.e = box.ex != null && !filling ? box.ex : zoneAt(box.cx) === 'edge' ? 0 : edgeFromCentre(one);
-    const zone = zoneAtEdge(one.e);
+    const zone = choice ? 'middle' : zoneAtEdge(one.e);
     one.side = zone === 'middle' ? null : box.cx < 0.5 ? 'left' : 'right';
     // A comment needing nothing more is folded to one line on a side (unless the user opened it
     // there), and shows in full in the middle: the user wanted to read it there too. Its width is the
     // same either way, so where it shows doesn't depend on which.
-    if (one.fixed) one.fixed = commentSize(element, zone === 'middle' || Boolean(element.querySelector('.comment-card.unfolded')));
+    if (one.fixed && !choice) one.fixed = commentSize(element, zone === 'middle' || Boolean(element.querySelector('.comment-card.unfolded')));
     one.cardness = one.fixed ? 1 : cardnessAtEdge(one.e);
     // The open view is built the first time it's needed; until it's there, the card shows.
     one.built = one.cardness < 1 ? Boolean(fullOf(element)) : Boolean(element.querySelector(':scope > .board-full'));
@@ -324,7 +380,7 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   const placeAll = () => {
     board.classList.toggle('stacked', narrow());
     shownAt = {};
-    if (!resizing) staggered = stagger(layout, size(), dragging ? [dragging] : []);
+    if (!resizing) staggered = stagger(asShown(), size(), dragging ? [dragging] : []);
     const looks = items().map(look).filter(Boolean);
     // What's being dragged stays under the pointer, and the things on its side move out of its way
     // as it goes, gliding there.
@@ -335,6 +391,8 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     if (held && !held.side) show(held);
     for (const one of looks.filter((one) => !one.side && one !== held)) show(one);
     for (const element of items()) element.classList.toggle('held', element.dataset.item === dragging);
+    placeBars();
+    placeChoosing();
   };
 
   const changed = () => onChange(layout);
@@ -345,6 +403,13 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   // down or resized from filling the screen). If anything else has come into the middle since, it's
   // forgotten instead (see forgetSnap in board.js). Whether anything came back.
   function unsnap(id, { self = false } = {}) {
+    // Half the focus area: it leaves its half, taking back its own size if dragged away; what's in
+    // the other half stays there (see leaveHalf in board.js).
+    if (layout.boxes[id]?.half) {
+      layout = leaveHalf(layout, id, { self });
+      placeAll();
+      return true;
+    }
     const restore = layout.boxes[id]?.restore;
     if (!restore) return false;
     if (inMiddle(layout).join() !== id) {
@@ -394,6 +459,151 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     layout = settle(layout, size());
   };
 
+  // --- Picking the other half --------------------------------------------------------------
+  // With an item filling one half of the focus area, the items that were open there are offered
+  // for the other half as their cards (see offerChoices in board.js), over a frame saying so. A
+  // click on one makes it fill that half, side by side with the first; the rest go to the nearer
+  // side. Escape, or a press anywhere else, picks none: they go back where they were. Each glides.
+  const choosingFrame = Object.assign(document.createElement('div'), { className: 'board-choosing', ariaHidden: 'true' });
+  choosingFrame.append(Object.assign(document.createElement('span'), { className: 'board-choosing-label', textContent: 'Pick one to go beside it' }));
+  function placeChoosing() {
+    if (choosing && !choicesOf(layout).length) choosing = null;
+    board.classList.toggle('choosing', Boolean(choosing));
+    if (!choosing) return choosingFrame.remove();
+    const { width, height } = size();
+    const half = halfBox(size(), choosing.side);
+    Object.assign(choosingFrame.style, { left: `${(half.cx - half.w / 2) * width}px`, top: `${(half.cy - half.h / 2) * height}px`, width: `${half.w * width}px`, height: `${half.h * height}px` });
+    if (!choosingFrame.isConnected) board.append(choosingFrame);
+  }
+  function pick(id) {
+    const snapped = choosing?.id;
+    choosing = null;
+    if (!snapped || !layout.boxes[snapped]) return dismiss();
+    layout = pickChoice(layout, snapped, id, size());
+    placeAll();
+    changed();
+  }
+  function dismiss() {
+    if (!choicesOf(layout).length) return;
+    choosing = null;
+    layout = dismissChoices(layout);
+    placeAll();
+    changed();
+  }
+  // Registered first, so a press on a choice is only a pick: never a drag, nor bringing it forward.
+  board.addEventListener('pointerdown', (event) => {
+    if (!choosing) return;
+    const choice = event.target.closest?.('.board-item.choice');
+    if (!choice) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    const up = (release) => {
+      removeEventListener('pointerup', up, true);
+      if (release.target.closest?.('.board-item.choice') === choice) pick(choice.dataset.item);
+    };
+    addEventListener('pointerup', up, true);
+  }, true);
+  // Listened for on the document while this board is on the page.
+  const gone = () => {
+    if (board.isConnected) return false;
+    document.removeEventListener('pointerdown', elsewhere, true);
+    document.removeEventListener('keydown', escape, true);
+    return true;
+  };
+  const elsewhere = (event) => {
+    if (gone()) return;
+    if (choosing && !event.target.closest?.('.board-item.choice')) dismiss();
+  };
+  document.addEventListener('pointerdown', elsewhere, true);
+  const escape = (event) => {
+    if (gone()) return;
+    if (choosing && event.key === 'Escape') {
+      event.preventDefault();
+      dismiss();
+    }
+  };
+  document.addEventListener('keydown', escape, true);
+
+  // --- The focus area's bars --------------------------------------------------------------------
+  // A bar just outside each edge of the focus area, as SmartDoc's pages have: faint until the
+  // pointer is near that edge, at any height on the board. Dragging either resizes the focus area
+  // from both sides at once (twice the pointer's travel), staying centred, and what fills it
+  // follows; double-clicking goes back to the usual width. None in a narrow window's stack, nor
+  // while something is dragged (styles.css).
+  const bars = ['left', 'right'].map((side) => Object.assign(document.createElement('div'), { className: `focus-bar ${side}`, title: 'Drag to widen or narrow the focus area. Double-click to reset.' }));
+  for (const bar of bars) {
+    bar.setAttribute('role', 'separator');
+    bar.setAttribute('aria-orientation', 'vertical');
+    bar.setAttribute('aria-label', 'Resize the focus area');
+  }
+  const BAR_OUT = MARGIN / 2; // px from the focus area's edge to the middle of its bar
+  // While a bar is dragged, the focus area and the sides it leaves show as outlines, as the drop
+  // outline does (the user's choice), so their sizes can be seen whatever is on the board.
+  const zones = ['left', 'focus', 'right'].map((part) => Object.assign(document.createElement('div'), { className: `focus-zone ${part}`, ariaHidden: 'true' }));
+  function placeBars() {
+    const { width, height } = size();
+    const area = focusOf(size()) * width;
+    bars[0].style.left = `${(width - area) / 2 - BAR_OUT}px`;
+    bars[1].style.left = `${(width + area) / 2 + BAR_OUT}px`;
+    for (const bar of bars) if (!bar.isConnected) board.append(bar);
+    // Each side from the board's margin to the bar's gap; the focus area as what fills it.
+    const fill = fillBox(size());
+    const top = (fill.cy - fill.h / 2) * height;
+    const tall = fill.h * height;
+    const side = Math.max(0, (width - area) / 2 - 2 * BAR_OUT - MARGIN);
+    const spans = [[MARGIN, side], [(width - area) / 2, area], [(width + area) / 2 + 2 * BAR_OUT, side]];
+    for (const [index, zone] of zones.entries()) {
+      Object.assign(zone.style, { left: `${spans[index][0]}px`, width: `${spans[index][1]}px`, top: `${top}px`, height: `${tall}px` });
+      if (!zone.isConnected) board.append(zone);
+    }
+  }
+  const setFocus = (next) => {
+    focus = next;
+    placeAll();
+  };
+  for (const [index, bar] of bars.entries()) {
+    const direction = index === 0 ? -1 : 1;
+    bar.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      try { bar.setPointerCapture(event.pointerId); } catch {}
+      const startX = event.clientX;
+      const startWidth = focusOf(size()) * size().width;
+      board.classList.add('resizing', 'focus-resizing');
+      const onMove = (move) => {
+        const { width } = size();
+        const [low, high] = focusLimits(width);
+        // Twice the pointer's travel: the far edge moves as much as the near one.
+        setFocus(clamp((startWidth + 2 * direction * (move.clientX - startX)) / width, low, high));
+      };
+      const onEnd = () => {
+        bar.removeEventListener('pointermove', onMove);
+        bar.removeEventListener('lostpointercapture', onEnd);
+        board.classList.remove('resizing', 'focus-resizing');
+        keepFocusWidth(focusOf(size()));
+        placeAll();
+      };
+      bar.addEventListener('pointermove', onMove);
+      bar.addEventListener('lostpointercapture', onEnd);
+    });
+    bar.addEventListener('dblclick', (event) => {
+      event.stopPropagation();
+      keepFocusWidth(null);
+      setFocus(FOCUS_WIDTH);
+    });
+  }
+  const nearBars = (event) => {
+    if (!board.isConnected) return document.removeEventListener('pointermove', nearBars);
+    const rect = board.getBoundingClientRect();
+    const inside = event.clientY >= rect.top && event.clientY < rect.bottom && event.clientX >= rect.left && event.clientX < rect.right;
+    for (const bar of bars) {
+      const box = bar.getBoundingClientRect();
+      bar.classList.toggle('near', inside && Math.abs(event.clientX - (box.left + box.right) / 2) <= NEAR_FOCUS_EDGE);
+    }
+  };
+  document.addEventListener('pointermove', nearBars, { passive: true });
+
   // Touching an item brings it to the front.
   board.addEventListener('pointerdown', (event) => {
     const element = event.target.closest?.('.board-item');
@@ -428,7 +638,9 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
     const hold = { x: (start.x - picked.left) / (picked.width || 1), y: (start.y - picked.top) / (picked.height || 1) };
     let from = null;
     let frameNow = null; // its size under the pointer, for springing back inside the window
-    let snap = false; // the pointer at the board's top: let go there, it has the middle to itself
+    // The pointer at the board's top: let go there, it has the focus area to itself ('whole'), or
+    // the half on that side ('left', 'right'), by where the pointer is across (see snapTarget).
+    let snap = false;
     const onMove = (move) => {
       const dx = move.clientX - start.x;
       const dy = move.clientY - start.y;
@@ -463,17 +675,17 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
         layout = { boxes: { ...layout.boxes, [id]: { ...from, ex: edge, cx: (left + w / 2) / width, cy: (top + h / 2) / height } } };
         frameNow = { w, h };
       }
-      showSnap(pointer.y < SNAP_TOP);
+      showSnap(pointer.y < SNAP_TOP ? snapTarget(pointer.x, size()) : false);
       placeAll();
     };
-    // Dragged to the board's top, the middle it would fill shows, as a window dragged to the top of
-    // a Mac's screen shows where it would go.
+    // Dragged to the board's top, the focus area it would fill shows, or the half of it, as a
+    // window dragged to the top of a Mac's screen shows where it would go.
     const showSnap = (on) => {
       if (on === snap) return;
       snap = on;
       if (on) {
         const { width, height } = size();
-        const fill = fillBox(size());
+        const fill = on === 'whole' ? fillBox(size()) : halfBox(size(), on);
         Object.assign(snapShade.style, { left: `${(fill.cx - fill.w / 2) * width}px`, top: `${(fill.cy - fill.h / 2) * height}px`, width: `${fill.w * width}px`, height: `${fill.h * height}px` });
         if (!snapShade.isConnected) board.append(snapShade);
       }
@@ -501,13 +713,25 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       setTimeout(() => { justDragged = false; });
       // Let go at the top, it has the middle to itself, as full screen gives it the window (the
       // user's choice): it fills the middle, and everything else there goes to the nearer side.
-      const snapped = snap;
+      const snapped = snap === 'whole';
+      const half = snap && snap !== 'whole' ? snap : null;
       // What it had before, for dragging it away again: its own box as picked up, and those of what
       // was open in the middle, which go to the sides.
       const restore = snapped && { self: (({ restore: _, ...box }) => box)(from), others: Object.fromEntries(Object.entries(layout.boxes).filter(([other, box]) => other !== id && !other.startsWith('comment:') && !isCard(box)).map(([other, box]) => [other, (({ restore: _, ...kept }) => kept)(box)])) };
+      // Let go on one side, it fills that half of the focus area, and what was open there is offered
+      // for the other half (the user's choice, as Windows' Snap Assist; see board.js).
+      let offered = [];
       if (snapped) {
         showSnap(false);
         layout = bringToMiddle(layout, id, size(), { alone: true });
+      } else if (half) {
+        showSnap(false);
+        offered = offeredFor(layout, id);
+        layout = snapToHalf(layout, id, half, size(), from);
+        if (offered.length) {
+          layout = offerChoices(layout, offered, otherSide(half), size());
+          choosing = { id, side: otherSide(half) };
+        }
       } else if (inMiddle(layout).includes(id)) {
         // Something else let go in the middle: it's no longer the snapped item's own.
         layout = forgetSnap(layout);
@@ -522,12 +746,12 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       placeAll();
       const boxes = { ...layout.boxes };
       for (const [other, at] of Object.entries(shownAt)) {
-        if (boxes[other] && zoneAtEdge(at.ex) !== 'middle' && (other !== id || cardnessAtEdge(at.ex) === 1)) boxes[other] = { ...boxes[other], ex: at.ex, cx: at.cx, cy: at.cy };
+        if (boxes[other] && !boxes[other].choice && !boxes[other].half && zoneAtEdge(at.ex) !== 'middle' && (other !== id || cardnessAtEdge(at.ex) === 1)) boxes[other] = { ...boxes[other], ex: at.ex, cx: at.cx, cy: at.cy };
       }
       if (restore) boxes[id] = { ...boxes[id], restore };
       layout = { boxes };
       changed();
-      if (snapped) onBring(id);
+      if (snapped || half) onBring(id);
     };
     board.addEventListener('pointermove', onMove);
     board.addEventListener('pointerup', onEnd);
@@ -574,9 +798,9 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
       // Resized after being dragged to the top: what it sent to the sides comes back (see unsnap).
       if (!begun) {
         begun = true;
-        if (box.restore) {
+        if (box.restore || box.half) {
           unsnap(id);
-          const { restore: _, ...kept } = box;
+          const { restore: _, half: __, ...kept } = box;
           box = kept;
         }
       }

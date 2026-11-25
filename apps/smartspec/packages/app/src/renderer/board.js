@@ -6,23 +6,52 @@
 // things by dragging them. A layout is kept on this computer for each schematic, never with it.
 
 // Distances of an item's outer edge (the one nearer the window's side) from that side, as fractions
-// of the board's width.
-export const FULL_FROM = 0.15; // this far in or more, an item is open at full size
+// of the board's width. Where an item starts to shrink is the focus area's edge (fullFrom, below).
 export const SMALLEST_BY = 0.03; // by here it's at its smallest, and from here out it's its card
 export const SMALLEST_SCALE = 0.18; // its smallest (the user found 0.25 left cards mostly empty)
-export const MIDDLE = [0.3, 0.7]; // without a known edge, centres in here count as the middle
+export const MIDDLE_CENTRE = 0.1; // without a known edge, a centre this far inside fullFrom counts as the middle
 export const EDGE = 0.07; // and centres nearer than this to a side as cards
-export const FILL = [0.2, 0.8]; // what a lone item in the middle fills, across
+export const FILL = [0.2, 0.8]; // the focus area as it usually is: what a lone item in the middle fills, across
 export const DEFAULT_SIZE = { w: 0.45, h: 0.72 }; // an item's full size until the user sizes it
 export const MARGIN = 16; // px around the board's edges, and between stacked cards
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+
+// The focus area: the middle of the board that a lone item fills, and that an item dragged to the
+// board's top fills, alone or in half of it, beside another. How wide it is, a fraction of the
+// board's width, is the user's: set with the bars at its edges (see board-view.js) and kept for
+// every schematic alike; a board's size (`board`, in px) carries it as `focus`. Never so narrow
+// that it's no use (FOCUS_LEAST px at least, and FOCUS_LIMITS[0]), nor so wide that the sides can't
+// hold their cards.
+export const FOCUS_WIDTH = FILL[1] - FILL[0];
+export const FOCUS_LIMITS = [0.3, 0.68];
+export const FOCUS_LEAST = 420; // px
+export function focusLimits(width) {
+  const high = FOCUS_LIMITS[1];
+  return [Math.min(high, Math.max(FOCUS_LIMITS[0], FOCUS_LEAST / Math.max(1, width))), high];
+}
+export const focusOf = (board = {}) => {
+  const [low, high] = focusLimits(board.width ?? 0);
+  return clamp(board.focus ?? FOCUS_WIDTH, low, high);
+};
 const fromSide = (cx) => Math.min(cx, 1 - cx);
 
-// The scale an open item shows at, its outer edge `e` from the side: 1 from FULL_FROM in, falling
+// Where items start to shrink: the focus area's edge (the user's choice: resizing the focus area is
+// what sets where cards begin to scale down). An item whose outer edge is this far in or more is
+// open at full size. The board showing sets it as its focus area changes (setFocusWidth); it's one
+// for every board alike, as the focus area's width is. The usual focus area gives 0.2.
+const EPSILON = 1e-6; // so what fills the focus area, its edge exactly there, counts as in it
+let fullFromNow = (1 - FOCUS_WIDTH) / 2;
+export const fullFrom = () => fullFromNow;
+export function setFocusWidth(focus) {
+  fullFromNow = (1 - clamp(focus, 0, FOCUS_LIMITS[1])) / 2;
+}
+
+// The scale an open item shows at, its outer edge `e` from the side: 1 from fullFrom in, falling
 // steadily to its smallest (`least`, see leastScale) by SMALLEST_BY.
 export function scaleAtEdge(e, least = SMALLEST_SCALE) {
-  return 1 - (1 - least) * clamp((FULL_FROM - e) / (FULL_FROM - SMALLEST_BY), 0, 1);
+  const from = fullFromNow;
+  return 1 - (1 - least) * clamp((from - EPSILON - e) / (from - EPSILON - SMALLEST_BY), 0, 1);
 }
 
 // How small an item can get at the side: as small as its card's face (its kind's icon, its title, and
@@ -67,14 +96,14 @@ export function cardnessAtEdge(e) {
 
 // 'middle' (open, full size), 'side' (open, smaller, as usable as in the middle) or 'edge' (its card).
 export function zoneAtEdge(e) {
-  return e >= FULL_FROM ? 'middle' : e <= SMALLEST_BY ? 'edge' : 'side';
+  return e >= fullFromNow - EPSILON ? 'middle' : e <= SMALLEST_BY ? 'edge' : 'side';
 }
 
 // Without a known edge, by its centre alone (for the layout's own decisions, before anything is
 // measured): the same three.
 export function zoneAt(cx) {
   const out = fromSide(cx);
-  return out >= MIDDLE[0] ? 'middle' : out >= EDGE ? 'side' : 'edge';
+  return out >= Math.min(0.45, fullFromNow + MIDDLE_CENTRE) ? 'middle' : out >= EDGE ? 'side' : 'edge';
 }
 
 // An item's zone: by its outer edge (`ex`, known once it's been shown or dragged), else its centre.
@@ -107,7 +136,7 @@ export function cleanLayout(saved) {
   const number = (value) => typeof value === 'number' && Number.isFinite(value);
   for (const [id, box] of Object.entries(saved?.boxes ?? {})) {
     if (!box || ![box.cx, box.cy, box.w, box.h].every(number)) continue;
-    boxes[id] = { cx: clamp(box.cx, 0, 1), cy: clamp(box.cy, 0, 1), w: clamp(box.w, 0.05, 1), h: clamp(box.h, 0.05, 1), z: number(box.z) ? box.z : 0, sized: Boolean(box.sized), ...(number(box.ex) && { ex: box.ex }) };
+    boxes[id] = { cx: clamp(box.cx, 0, 1), cy: clamp(box.cy, 0, 1), w: clamp(box.w, 0.05, 1), h: clamp(box.h, 0.05, 1), z: number(box.z) ? box.z : 0, sized: Boolean(box.sized), ...(number(box.ex) && { ex: box.ex }), ...((box.half === 'left' || box.half === 'right') && { half: box.half }) };
   }
   return { boxes };
 }
@@ -115,30 +144,64 @@ export function cleanLayout(saved) {
 const topZ = (layout) => Math.max(0, ...Object.values(layout.boxes).map((box) => box.z));
 
 // The items whose centres are in the middle.
-// Comments on the whole schematic (`comment:` ids) are notes on the board, not things to work on.
-export const inMiddle = (layout) => Object.keys(layout.boxes).filter((id) => !id.startsWith('comment:') && zoneOf(layout.boxes[id]) === 'middle');
+// Comments on the whole schematic (`comment:` ids) are notes on the board, not things to work on,
+// and nor are the items offered for the other half of the focus area (`choice`, see offerChoices).
+export const inMiddle = (layout) => Object.keys(layout.boxes).filter((id) => !id.startsWith('comment:') && !layout.boxes[id].choice && zoneOf(layout.boxes[id]) === 'middle');
 
 // Whether an item fills the middle: it's there alone, and the user hasn't sized it. One being dragged
 // never does, so it doesn't jump under the pointer; it fills once let go.
 export function fills(layout, id, dragging = null) {
   const box = layout.boxes[id];
-  if (!box || box.sized || id === dragging || zoneOf(box) !== 'middle') return false;
+  if (!box || box.sized || box.half || box.choice || id === dragging || zoneOf(box) !== 'middle') return false;
   return inMiddle(layout).length === 1;
 }
 
-// The box a lone item fills, as fractions, for a board this size in px.
-export function fillBox({ width, height }) {
-  const margin = Math.min(0.2, MARGIN / Math.max(1, height));
-  return { cx: (FILL[0] + FILL[1]) / 2, cy: 0.5, w: FILL[1] - FILL[0], h: 1 - 2 * margin };
+// The box a lone item fills, the focus area, as fractions, for a board this size in px (and the
+// focus area's width, `focus`, as the user set it).
+export function fillBox(board) {
+  const margin = Math.min(0.2, MARGIN / Math.max(1, board.height));
+  return { cx: 0.5, cy: 0.5, w: focusOf(board), h: 1 - 2 * margin };
 }
 
+// Half the focus area, 'left' or 'right', with MARGIN px between the two halves: what an item
+// dragged to the board's top on one side fills, and the item picked to go beside it the other.
+export function halfBox(board, side) {
+  const whole = fillBox(board);
+  const gap = Math.min(0.05, MARGIN / Math.max(1, board.width));
+  const w = (whole.w - gap) / 2;
+  return { cx: 0.5 + (side === 'left' ? -1 : 1) * (gap / 2 + w / 2), cy: whole.cy, w, h: whole.h };
+}
+export const otherSide = (side) => (side === 'left' ? 'right' : 'left');
+
+// What an item dragged to the board's top would fill, by where the pointer is across (`x`, px):
+// the focus area's left half from its left third or further left, its right half from its right
+// third or further right, else all of it.
+export function snapTarget(x, board) {
+  const { cx, w } = fillBox(board);
+  const left = (cx - w / 2) * board.width;
+  const third = (w * board.width) / 3;
+  if (x < left + third) return 'left';
+  if (x > left + 2 * third) return 'right';
+  return 'whole';
+}
+
+// A box without what only the layout's own moves keep: its kept edge, a snap and its memory, and
+// the marks of a choice offered.
+const plain = (box) => {
+  const { ex, restore, half, choice, was, ...kept } = box ?? {};
+  return kept;
+};
+
 // Whatever fills the middle keeps that as its own box, before anything else comes into the middle,
-// so it doesn't jump when it stops filling. `board` is the board's size in px.
+// so it doesn't jump when it stops filling; and what fills half of it has that half's box as the
+// focus area is now. `board` is the board's size in px.
 export function settleFilling(layout, board) {
   const filling = Object.keys(layout.boxes).filter((id) => fills(layout, id));
-  if (!filling.length) return layout;
+  const halves = Object.keys(layout.boxes).filter((id) => layout.boxes[id].half);
+  if (!filling.length && !halves.length) return layout;
   const boxes = { ...layout.boxes };
   for (const id of filling) boxes[id] = { ...boxes[id], ...fillBox(board) };
+  for (const id of halves) boxes[id] = { ...boxes[id], ...halfBox(board, boxes[id].half) };
   return { boxes };
 }
 
@@ -155,10 +218,10 @@ export function bringToMiddle(layout, id, board = null, { alone = false } = {}) 
     for (const [other, box] of Object.entries(boxes)) {
       if (other === id || isCard(box)) continue;
       const left = box.cx === 0.5 ? count(true) <= count(false) : box.cx < 0.5;
-      boxes[other] = { ...box, cx: left ? LEFT_CARDS : RIGHT_CARDS, ex: 0 };
+      boxes[other] = { ...plain(box), cx: left ? LEFT_CARDS : RIGHT_CARDS, ex: 0 };
     }
   }
-  const { ex, ...kept } = was ?? {};
+  const kept = plain(was);
   boxes[id] = { w: DEFAULT_SIZE.w, h: DEFAULT_SIZE.h, sized: false, ...kept, ...(alone && { sized: false }), cx: 0.5, cy: 0.5, z: topZ(settled) + 1 };
   return { boxes };
 }
@@ -168,14 +231,110 @@ export function bringToMiddle(layout, id, board = null, { alone = false } = {}) 
 // takes its size back and they come back to the middle, as a Mac window dragged down from filling
 // the screen does. Anything else coming into the middle forgets it (the user's choice: the middle is
 // no longer its own). In memory only, never saved.
+// What fills half of the focus area keeps its own box from before (`restore.self`) until it's
+// dragged away or resized, whatever else happens (see leaveHalf).
 export function forgetSnap(layout) {
-  if (!Object.values(layout.boxes).some((box) => box.restore)) return layout;
+  if (!Object.values(layout.boxes).some((box) => box.restore && !box.half)) return layout;
   const boxes = {};
   for (const [id, box] of Object.entries(layout.boxes)) {
     const { restore, ...kept } = box;
-    boxes[id] = kept;
+    boxes[id] = box.half ? box : kept;
   }
   return { boxes };
+}
+
+// --- Half the focus area each, side by side --------------------------------------------------
+// The user's choice, as Windows' Snap Assist: an item dragged to the board's top on one side fills
+// that half of the focus area (snapToHalf). The items open in the focus area then are offered for
+// the other half (offerChoices), laid out there as their cards; one picked fills it, side by side
+// with the first, and the rest go to the nearer side (pickChoice). Not picking (dismissChoices)
+// puts them back where they were. Each half follows the focus area's width as it changes (see
+// board-view.js). Dragged away or resized, an item leaves its half (leaveHalf): dragged, it takes
+// back the size it had before; what's in the other half stays there.
+
+// The items open in the focus area, offered for the other half when `id` fills one: halves
+// already there too, as the new one takes the place of one of them.
+export const offeredFor = (layout, id) => inMiddle(layout).filter((other) => other !== id);
+
+// `id` fills `side` of the focus area, in front: `from` is its own box before it was dragged
+// there, which it takes back when it's dragged away (`restore.self`). Nothing else moves.
+export function snapToHalf(layout, id, side, board, from = layout.boxes[id]) {
+  const settled = forgetSnap(layout);
+  return { boxes: { ...settled.boxes, [id]: { ...plain(settled.boxes[id]), ...halfBox(board, side), sized: false, half: side, z: topZ(settled) + 1, restore: { self: plain(from), others: {} } } } };
+}
+
+// Where the items offered for `side` of the focus area go: a grid filling that half, each cell a
+// card no taller than three quarters of its width, centred. Returns each one's box, as fractions.
+export function choiceBoxes(board, side, ids) {
+  const half = halfBox(board, side);
+  const columns = ids.length <= 1 ? 1 : ids.length <= 4 ? 2 : 3;
+  const rows = Math.ceil(ids.length / columns);
+  const gap = MARGIN;
+  const width = (half.w * board.width - gap * (columns + 1)) / columns;
+  const height = Math.min(width * 0.75, (half.h * board.height - gap * (rows + 1)) / rows);
+  const top = (half.cy * board.height) - (rows * height + (rows - 1) * gap) / 2;
+  const left = (half.cx - half.w / 2) * board.width + gap;
+  return Object.fromEntries(ids.map((id, i) => {
+    const row = Math.floor(i / columns);
+    // A last row with fewer items is centred under the rest.
+    const inRow = Math.min(columns, ids.length - row * columns);
+    const shift = ((columns - inRow) * (width + gap)) / 2;
+    const x = left + shift + (i % columns) * (width + gap);
+    const y = top + row * (height + gap);
+    return [id, { cx: (x + width / 2) / board.width, cy: (y + height / 2) / board.height, w: width / board.width, h: height / board.height }];
+  }));
+}
+
+// The items `ids` offered for `side` of the focus area: each laid out there as its card
+// (`choice`), keeping the box it had (`was`, a half it filled and all) to go back to.
+export function offerChoices(layout, ids, side, board) {
+  const cells = choiceBoxes(board, side, ids);
+  const boxes = { ...layout.boxes };
+  for (const id of ids) {
+    const { choice, was, ...own } = boxes[id];
+    boxes[id] = { ...cells[id], z: own.z ?? 0, choice: true, was: own };
+  }
+  return { boxes };
+}
+// An item's own box from before it filled a half, or its box.
+const ownBox = (box) => (box.half && box.restore?.self ? box.restore.self : plain(box));
+export const choicesOf = (layout) => Object.keys(layout.boxes).filter((id) => layout.boxes[id].choice);
+
+// The item `picked` fills the other half from `snapped`, in front; the rest offered go to the
+// nearer side of the board, at the height they were.
+export function pickChoice(layout, snapped, picked, board) {
+  const side = otherSide(layout.boxes[snapped]?.half ?? 'left');
+  const boxes = { ...layout.boxes };
+  const z = topZ(layout) + 1;
+  const count = (left) => Object.values(boxes).filter((box) => !box.choice && isCard(box) && (box.cx < 0.5) === left).length;
+  for (const id of choicesOf(layout)) {
+    const was = boxes[id].was;
+    if (id === picked) boxes[id] = { ...plain(was), ...halfBox(board, side), sized: false, half: side, z, restore: { self: ownBox(was), others: {} } };
+    else {
+      const left = was.cx === 0.5 ? count(true) <= count(false) : was.cx < 0.5;
+      boxes[id] = { ...plain(was), cx: left ? LEFT_CARDS : RIGHT_CARDS, ex: 0 };
+    }
+  }
+  return { boxes };
+}
+
+// No pick: the items offered go back where they were.
+export function dismissChoices(layout) {
+  const ids = choicesOf(layout);
+  if (!ids.length) return layout;
+  const boxes = { ...layout.boxes };
+  for (const id of ids) boxes[id] = boxes[id].was;
+  return { boxes };
+}
+
+// An item leaves its half of the focus area: dragged away (`self`), it takes back the size it had
+// before it was snapped there, where it is now; resized, it keeps the size it shows at.
+export function leaveHalf(layout, id, { self = false } = {}) {
+  const box = layout.boxes[id];
+  if (!box?.half) return layout;
+  const { restore, half, ...kept } = box;
+  const own = self && restore?.self;
+  return { boxes: { ...layout.boxes, [id]: own ? { ...plain(own), ex: kept.ex, cx: kept.cx, cy: kept.cy, z: kept.z } : kept } };
 }
 
 // An open item made as big as the middle allows, as a lone one fills it, and in front (a double click
@@ -183,14 +342,14 @@ export function forgetSnap(layout) {
 // size in px.
 export function fillMiddle(layout, id, board) {
   const settled = forgetSnap(settleFilling(layout, board));
-  const { ex, ...kept } = settled.boxes[id] ?? {};
+  const kept = plain(settled.boxes[id]);
   return { boxes: { ...settled.boxes, [id]: { ...kept, ...fillBox(board), sized: true, z: topZ(settled) + 1 } } };
 }
 
 // Whether an item fills the middle, alone there or made to (fillMiddle).
 export function filling(layout, id, board) {
   const box = layout.boxes[id];
-  if (!box) return false;
+  if (!box || box.half || box.choice) return false;
   if (fills(layout, id)) return true;
   const fill = fillBox(board);
   const near = (a, b) => Math.abs(a - b) < 0.005;
@@ -414,13 +573,14 @@ export function separate(rects, { top: first, bottom, gap = MARGIN, across: asid
   };
 }
 
-// What's kept: only the boxes of items still in the schematic, rounded.
+// What's kept: only the boxes of items still in the schematic, rounded. Which half of the focus
+// area an item fills is kept; an item offered for one is kept where it was before.
 export function layoutToSave(layout, ids) {
   const round = (value) => Math.round(value * 10000) / 10000;
   const boxes = {};
   for (const id of ids) {
-    const box = layout.boxes[id];
-    if (box) boxes[id] = { cx: round(box.cx), cy: round(box.cy), w: round(box.w), h: round(box.h), z: box.z, ...(box.sized && { sized: true }), ...(box.ex != null && { ex: round(box.ex) }) };
+    const box = layout.boxes[id]?.choice ? layout.boxes[id].was : layout.boxes[id];
+    if (box) boxes[id] = { cx: round(box.cx), cy: round(box.cy), w: round(box.w), h: round(box.h), z: box.z, ...(box.sized && { sized: true }), ...(box.ex != null && { ex: round(box.ex) }), ...(box.half && { half: box.half }) };
   }
   return { boxes };
 }
