@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, describe, test } from 'node:test';
-import { createTestRuns } from '../packages/app/src/main/test-runs.js';
+import { createTestRuns, useBasis } from '../packages/app/src/main/test-runs.js';
 import { targetOf, viewOf } from '../packages/app/src/main/test-history.js';
 import { createWorkspaces } from '../packages/app/src/main/workspaces.js';
 import { describeStep } from '../packages/app/src/main/describe-step.js';
@@ -444,7 +444,38 @@ describe('what depending schematics rely on', () => {
     assert.deepEqual(results.dependents[0].counts, { passed: 1, failed: 1, couldnt_be_run: 0, not_run: 0 });
     assert.equal(results.dependents[0].problems[0].relies_on, '/b answers');
     // Changed since, what was run says nothing about it.
-    assert.equal(testRuns.expectationsOf('s1', 'd1', store.state.drafts.d1, 'shop', { ...use, expects: relies(['/a']) }).status, 'implemented');
+    const changed = testRuns.expectationsOf('s1', 'd1', store.state.drafts.d1, 'shop', { ...use, expects: relies(['/a']) });
+    assert.equal(changed.status, 'out-of-date');
+    assert.equal(changed.stale, 'expects');
+  });
+
+  test('are out of date once the code moves on, or only an earlier draft was run', async () => {
+    const use = { id: 'thing', schemaId: 's1', with: {}, expects: relies(['/a']) };
+    const consumers = [{ schemaId: 'shop', name: 'Shop', version: 's-d1', use: 'thing', basis: useBasis(use), expects: use.expects }];
+    const results = { 'a-works/ok': { outcome: 'passed' }, 'b-works/ok': { outcome: 'passed' }, 'use:shop/thing/needs-a/ok': { outcome: 'passed' } };
+    const code = { kind: 'git', ref: 'main', commit: 'abc123', label: 'main at abc123' };
+    const record = { contract: contract(), implementation: { source: { kind: 'git', url: 'https://example.com/repo.git' } } };
+    const standingWith = (version, head) => {
+      const dir = mkdtempSync(path.join(temp, 'relied-'));
+      mkdirSync(path.join(dir, 's1'));
+      writeFileSync(path.join(dir, 's1', 'r1.json'), JSON.stringify({ id: 'r1', version, target: 'default', startedAt: 1, outcome: 'passed', results, consumers, code, log: [] }));
+      const testRuns = createTestRuns({ runner, store: fakeStore(), dir, readHead: async () => head });
+      return () => testRuns.expectationsOf('s1', 'd2', record, 'shop', use);
+    };
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+    const same = standingWith('d2', 'abc123');
+    assert.equal(same().status, 'passing');
+    await tick();
+    assert.equal(same().status, 'passing');
+    const moved = standingWith('d2', 'def456');
+    moved();
+    await tick();
+    assert.equal(moved().status, 'out-of-date');
+    assert.equal(moved().stale, 'code');
+    assert.equal(moved().failed, 0, 'its results are kept');
+    const earlier = standingWith('d1', 'abc123')();
+    assert.equal(earlier.status, 'out-of-date');
+    assert.equal(earlier.stale, 'draft');
   });
 
   test('a branch runs none of theirs, and a use\'s run only its own', { timeout: 30_000 }, async () => {

@@ -64,6 +64,12 @@ const testPill = (status) => {
 // main/store.js), rolled up into one pill beside its own: the worst status, "inside" (the user's
 // choice: status rolls up through embedding), each one named with the way to it on pointing at it.
 const WITHIN_STATUS = { failing: 'is failing', 'cant-run': 'can’t be run', 'out-of-date': 'is out of date' };
+// Why what a schematic relies on is out of date (`stale` from expectationsOf in test-runs.js).
+const STALE_RELIANCE = {
+  code: 'It passed, but the default branch has moved on since. Run it again to check the code as it is now.',
+  draft: 'It ran on an earlier draft of this schematic, not on the one used now.',
+  expects: 'What it relies on has changed since it last ran.',
+};
 const RELIED_STATUS = { failing: 'fails what’s relied on from it', 'cant-run': 'can’t run what’s relied on from it', 'out-of-date': 'is out of date' };
 const withinPill = (within) => {
   const worst = within?.[0];
@@ -1128,13 +1134,15 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // itself, and a dependent's own checks show what a change breaks for it.
     const reliance = ({ title, line, expects, results, running, standing: given = null, action = null, error = null }) => {
       const overall = contractStanding(expects, results, running);
+      const stale = !running.size && given?.status === 'out-of-date' && (given.stale !== 'code' || overall.status === 'passing') ? STALE_RELIANCE[given.stale] : null;
       const said = given?.status === 'design-only' ? 'No code to run against yet'
-        : running.size ? 'Running…' : Object.keys(results).length ? overall.label : `${overall.total} ${overall.total === 1 ? 'check' : 'checks'}, not run`;
+        : running.size ? 'Running…' : stale ? 'Out of date' : Object.keys(results).length ? overall.label : `${overall.total} ${overall.total === 1 ? 'check' : 'checks'}, not run`;
       const tree = h('div', {});
       renderContract(tree, expects, { results, running, folded: here.contractFolded, onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)) });
       return h('section', { className: 'reliance' },
-        h('header', {}, h('h3', {}, title), h('span', { className: `run-standing ${running.size ? 'running' : Object.keys(results).length ? overall.status : ''}` }, said), action),
+        h('header', {}, h('h3', {}, title), h('span', { className: `run-standing ${running.size ? 'running' : stale ? 'out-of-date' : Object.keys(results).length ? overall.status : ''}` }, said), action),
         line && h('p', { className: 'muted run-line' }, line),
+        stale && h('p', { className: 'run-line stale' }, stale),
         error && h('p', { className: 'run-line trouble' }, error),
         tree);
     };
@@ -1151,12 +1159,15 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         h('p', { className: 'muted run-line' }, `What ${dependents.length === 1 ? 'it relies' : 'each relies'} on from ${shown.name}, run with its checks against the same code.`),
         ...dependents.map((one) => {
           const prefix = `use:${one.ownerId}/${one.use.id}/`;
+          const results = strip(prefix, state?.results ?? {});
           return reliance({
             title: one.ownerName,
             line: one.version === 'proposal' ? 'From its proposal, not yet accepted.' : null,
             expects: one.use.expects,
-            results: strip(prefix, state?.results ?? {}),
+            results,
             running: new Set([...running].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length))),
+            // Run with this one's checks, so out of date as they are (its code moved on).
+            standing: shown.status === 'out-of-date' && Object.keys(results).length ? { status: 'out-of-date', stale: 'code' } : null,
           });
         }));
     };

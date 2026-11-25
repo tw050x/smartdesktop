@@ -23,7 +23,7 @@ const SAVED_LOG_LINES = 300;
 const SEND_EVERY = 120;
 
 // What a use relies on, as run: a run's results for it count only while it's the same.
-const useBasis = (use) => createHash('sha256').update(JSON.stringify([use.expects ?? null, use.with ?? {}])).digest('hex');
+export const useBasis = (use) => createHash('sha256').update(JSON.stringify([use.expects ?? null, use.with ?? {}])).digest('hex');
 // A run started by itself is for a change made in the last few minutes only, never one found
 // waiting after a restart.
 const AUTO_WITHIN_MS = 10 * 60_000;
@@ -236,6 +236,25 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
     return { status, total: keys.length, failed, unchecked, notRun, running: Boolean(view?.running), ...(view ? { code: view.code?.label ?? targetLabel(view.target), at: view.startedAt } : {}) };
   }
 
+  // Whether the branch a view's code came from has moved on since it ran: its head, read from the
+  // repository at most every HEAD_FRESH_MS (`onStatus(schemaId)` says when that changes it).
+  function movedOn(schemaId, record, view) {
+    const source = record?.implementation?.source;
+    const code = view?.code;
+    if (!WORKSPACE_KINDS.includes(source?.kind) || !code?.commit || !code.ref) return false;
+    const key = `${source.url} ${code.ref}`;
+    const head = heads.get(key);
+    if ((!head || Date.now() - head.at > HEAD_FRESH_MS) && !head?.reading) {
+      heads.set(key, { ...head, at: head?.at ?? 0, reading: true });
+      readHeadOf(source.url, code.ref).then((commit) => {
+        heads.set(key, { commit: commit ?? head?.commit ?? null, at: Date.now(), reading: false });
+        if (commit && commit !== head?.commit) onStatus(schemaId);
+      }, () => heads.set(key, { ...head, at: Date.now(), reading: false }));
+    }
+    const known = heads.get(key)?.commit;
+    return Boolean(known && !known.startsWith(code.commit) && !code.commit.startsWith(known));
+  }
+
   // A draft's (the latest unless named) or the proposal's record and version.
   async function contractOf(schemaId, { draftId, proposal = false }) {
     const record = proposal ? await store.getProposal(schemaId) : await store.getSchema(schemaId, { draftId });
@@ -392,21 +411,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
       if (outcomes.includes('error')) return 'cant-run';
       if (outcomes.every((one) => !one)) return !view.running && view.outcome === 'error' ? 'cant-run' : 'implemented';
       if (outcomes.some((one) => !one)) return 'implemented';
-      const source = record.implementation.source;
-      const code = view.code;
-      if (WORKSPACE_KINDS.includes(source?.kind) && code?.commit && code.ref) {
-        const key = `${source.url} ${code.ref}`;
-        const head = heads.get(key);
-        if ((!head || Date.now() - head.at > HEAD_FRESH_MS) && !head?.reading) {
-          heads.set(key, { ...head, at: head?.at ?? 0, reading: true });
-          readHeadOf(source.url, code.ref).then((commit) => {
-            heads.set(key, { commit: commit ?? head?.commit ?? null, at: Date.now(), reading: false });
-            if (commit && commit !== head?.commit) onStatus(schemaId);
-          }, () => heads.set(key, { ...head, at: Date.now(), reading: false }));
-        }
-        const known = heads.get(key)?.commit;
-        if (known && !known.startsWith(code.commit) && !code.commit.startsWith(known)) return 'out-of-date';
-      }
+      if (movedOn(schemaId, record, view)) return 'out-of-date';
       return 'passing';
     },
 
@@ -421,13 +426,22 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
       if (!keys.length) return null;
       if (!record?.implementation) return { status: 'design-only', total: keys.length, failed: 0, unchecked: 0, notRun: keys.length, running: false };
       const basis = useBasis(use);
-      const runs = [...runsOf(schemaId).values()].filter((run) => run.consumers?.some((one) => one.schemaId === ownerId && one.use === use.id && one.basis === basis));
+      const ofUse = [...runsOf(schemaId).values()].filter((run) => run.target === DEFAULT_TARGET && run.consumers?.some((one) => one.schemaId === ownerId && one.use === use.id));
+      const runs = ofUse.filter((run) => run.consumers.some((one) => one.schemaId === ownerId && one.use === use.id && one.basis === basis));
       const view = viewOf(runs, version, DEFAULT_TARGET);
       // Its results by the keys its own tree has (`clause/check`), and what's running, for drawing it.
       const prefix = useKey(ownerId, use.id);
       const results = Object.fromEntries(Object.entries(view?.results ?? {}).filter(([key]) => key.startsWith(prefix)).map(([key, result]) => [key.slice(prefix.length), result]));
       const pending = (view?.running ? view.pending ?? [] : []).filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
-      return { ...standingOf(view, keys), results, pending };
+      const standing = standingOf(view, keys);
+      // Out of date, as its own checks go: it passed, but the code has moved on since (`stale:
+      // 'code'`), or it never ran on this draft of the embedded one, or on what it relies on as it
+      // is now, though it ran before (`stale: 'draft'`, `'expects'`).
+      const stale = view
+        ? (standing.status === 'passing' && movedOn(schemaId, record, view) ? 'code' : null)
+        : ofUse.some((run) => run.version !== version && run.version !== 'proposal' && run.consumers.some((one) => one.schemaId === ownerId && one.use === use.id && one.basis === basis)) ? 'draft'
+          : ofUse.some((run) => run.version === version) ? 'expects' : null;
+      return { ...standing, ...(stale && { status: 'out-of-date', stale }), results, pending };
     },
 
     // Every run of a schematic, newest first, for its windows.

@@ -1671,9 +1671,11 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .reliance > header > .run-standing.failing { color: var(--removed); }
 .reliance > header > .run-standing.error { color: light-dark(#8a5a00, #e3b341); }
 .reliance > header > .run-standing.running { color: var(--accent); }
+.reliance > header > .run-standing.out-of-date { color: light-dark(#8a5a00, #e3b341); }
 .reliance > .run-line { margin: 0 0 8px; }
 .run-line { margin: -4px 0 12px; color: var(--text-2); font-size: 12px; }
 .run-line.trouble { color: light-dark(#8a5a00, #e3b341); }
+.run-line.stale { color: light-dark(#8a5a00, #e3b341); }
 .run-log { margin: 0 0 12px; }
 .run-log > summary { color: var(--muted); font-size: 12px; cursor: default; }
 .run-log-lines { max-height: 240px; margin: 6px 0 0; padding: 8px 10px; overflow: auto; border-radius: 8px; background: var(--subtle-bg); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
