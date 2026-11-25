@@ -1225,6 +1225,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         h('h2', {}, 'Implementation'),
         change && statusPills(...marker(change, approvals.has(IMPLEMENTATION))),
         change && approveButton(here, shown, IMPLEMENTATION, change, 'the implementation')),
+      // Why the proposal changes it, as the AI said (`reasons`' `@implementation`), as an item's drawer says.
+      change && here.proposal && shown.reasons?.[IMPLEMENTATION] && h('div', { className: 'impl-why' },
+        h('strong', { className: 'card-drawer-title' }, 'Why it changes'), h('p', {}, shown.reasons[IMPLEMENTATION])),
       own,
       embedded.length > 0 && h('h3', { className: 'pane-subhead' }, 'What it embeds is tested against'),
       embedded.length > 0 && h('ul', { className: 'test-uses' }, ...embedded.map((use) => h('li', {},

@@ -1611,6 +1611,8 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .test-move > span { width: 64px; height: 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg) radial-gradient(circle, var(--faint) 1.2px, transparent 1.6px) center / 8px 6px; box-sizing: border-box; transition: border-color 0.15s ease; }
 .test-move:hover > span, .test-move.dragging > span { border-color: var(--accent); }
 .test-move.dragging { cursor: grabbing; }
+.impl-why { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: light-dark(rgb(0 0 0 / 0.04), rgb(255 255 255 / 0.05)); }
+.impl-why p { margin: 4px 0 0; }
 .test-secrets.wanting { border-color: light-dark(#e3b341, #8a5a00); }
 .test-card > header > .run-standing.trouble { color: light-dark(#8a5a00, #e3b341); }
 .test-implementation > header > .approve-button { margin-left: auto; }

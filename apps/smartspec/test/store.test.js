@@ -780,6 +780,18 @@ describe('why each item changes', () => {
     const record = await store.getSchema(schema, { draftId: draft });
     assert.equal(record.reasons, undefined);
   });
+
+  test('the implementation has a reason too, shown only while it changes', async () => {
+    const store = newStore();
+    const { schema } = await accepted(store, { items: [doc('a')] });
+    const implementation = { source: { kind: 'running', url: 'http://localhost:1' } };
+    await store.propose({ schemaId: schema, implementation, note: 'Its code', reasons: { '@implementation': 'It runs on staging now.' } });
+    assert.equal((await store.getProposal(schema)).reasons['@implementation'], 'It runs on staging now.');
+    await assert.rejects(store.propose({ schemaId: schema, note: 'Odd', reasons: { implementation: 'Why?' } }), /keyed @implementation/);
+    await store.accept(schema);
+    await store.propose({ schemaId: schema, items: [doc('a', '# Changed')], note: 'Words', reasons: { '@implementation': 'Unchanged, though.' } });
+    assert.equal((await store.getProposal(schema)).reasons['@implementation'], undefined);
+  });
 });
 
 describe('approving changes', () => {

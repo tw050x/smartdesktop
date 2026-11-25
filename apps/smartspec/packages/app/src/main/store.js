@@ -802,7 +802,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         forTheAi: await commentsWaiting(id, proposal),
         changes,
         // Why each item changes, as the AI said: only for what does change.
-        reasons: Object.fromEntries(Object.entries(proposal.reasons ?? {}).filter(([itemId]) => (itemId === CONTRACT ? changes.contract || !schema.line.length : changes.items[itemId] || changes.removed.some((one) => one.id === itemId)))),
+        reasons: Object.fromEntries(Object.entries(proposal.reasons ?? {}).filter(([itemId]) => (itemId === CONTRACT ? changes.contract || !schema.line.length : itemId === IMPLEMENTATION ? changes.implementation : changes.items[itemId] || changes.removed.some((one) => one.id === itemId)))),
         // The changes the user has approved (see approveChange), of those there are.
         approved: (proposal.approved ?? []).filter((key) => changeKeys(changes).includes(key)),
         // The schematics that embed this one following its latest draft, which accepting changes too.
@@ -847,9 +847,10 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const base = replaced ?? (existing && await latestRecord(existing));
         const record = await buildRecord(base, { ...changes, note });
         // Why each item changes, for the user reviewing it: those given before carry over, those
-        // given now replace them. Each is about an item there is, or was, or the contract.
-        const known = new Set([CONTRACT, ...record.items.map((item) => item.id), ...(base?.items ?? []).map((item) => item.id)]);
-        for (const id of Object.keys(given ?? {})) if (!known.has(id)) throw new Error(`There's no item ${id} for a reason to be about.`);
+        // given now replace them. Each is about an item there is, or was, the contract, or the
+        // implementation (`@implementation`, as its approval is keyed).
+        const known = new Set([CONTRACT, IMPLEMENTATION, ...record.items.map((item) => item.id), ...(base?.items ?? []).map((item) => item.id)]);
+        for (const id of Object.keys(given ?? {})) if (!known.has(id)) throw new Error(`There's no item ${id} for a reason to be about${id === 'implementation' ? `: the implementation's reason is keyed ${IMPLEMENTATION}` : ''}.`);
         const reasons = { ...(replaced?.reasons ?? {}), ...(given ?? {}) };
         if (Object.keys(reasons).length) record.reasons = reasons;
         // What the user approved stays approved while the AI leaves it as it was.
