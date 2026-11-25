@@ -72,6 +72,8 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
   let hover = null; // the hovered deck's key
   const editing = new Set(); // ids of decided findings whose decision is being changed
   const picked = new Map(); // finding id → the option picked, not yet confirmed: { decision, title }
+  const changeViews = new Map(); // change finding id → the view picked on its switch (changeView)
+  const wording = new Map(); // change finding id → the user's wording being written, not yet saved
   let decks = [];
   let items = []; // everything in the review
   let shown = []; // what's on the page: the review's items and earlier comments
@@ -552,7 +554,9 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     }
     if (item.body) card.append(el('p', 'finding-body', item.body));
     if (item.anchors.length && item.kind !== 'change') card.append(el('blockquote', 'finding-quote', quoteOf(item.anchors)));
-    if (item.kind === 'change' && item.proposal) {
+    if (onThePage(item)) card.append(changeSwitch(item));
+    else if (item.kind === 'change' && item.proposal) {
+      // A change with no text of its own on the page (the whole document, say) shows it here.
       const diff = el('div', 'diff');
       if (item.proposal.before) diff.append(el('del', null, item.proposal.before));
       diff.append(el('ins', null, item.decision.edited ?? item.proposal.after ?? ''));
@@ -676,13 +680,30 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
         const editButton = el('button', 'secondary-button', 'Edit');
         editButton.type = 'button';
         editButton.addEventListener('click', () => {
-          const ins = box.closest('.margin-card')?.querySelector('.diff ins');
-          if (!ins) return;
+          const card = box.closest('.margin-card');
+          // In the card's diff, its green box becoming the text box; for a change shown on the page,
+          // a text box under the switch, the page following what's written.
+          const ins = card?.querySelector('.diff ins');
+          const switcher = card?.querySelector('.change-switch');
+          if (!ins && !switcher) return;
           const edit = el('textarea', 'diff-edit');
           edit.value = item.decision.edited ?? item.proposal?.after ?? '';
+          edit.rows = 3;
           edit.setAttribute('aria-label', 'Your wording');
-          edit.addEventListener('change', () => decide({ status: 'accepted', edited: edit.value }));
-          ins.replaceWith(edit);
+          edit.addEventListener('change', () => {
+            wording.delete(item.id);
+            decide({ status: 'accepted', edited: edit.value });
+          });
+          if (ins) ins.replaceWith(edit);
+          else {
+            edit.addEventListener('input', () => {
+              wording.set(item.id, edit.value);
+              if (changeView(item) === 'before') changeViews.set(item.id, 'changes');
+              syncSwitch(switcher, item);
+              sendMarks();
+            });
+            switcher.after(edit);
+          }
           edit.focus();
           edit.setSelectionRange(edit.value.length, edit.value.length);
           editButton.disabled = true;
@@ -746,6 +767,41 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
     if (choice) choice.before(comment);
     else box.append(comment);
     return box;
+  }
+
+  // A suggested change whose text is on the page shows there, at that text, and its card has the
+  // switch (the user's choice: no diff in the card, and only the passage compared, never the whole
+  // document): Before, Changes, After. It starts on Changes, After once accepted and Before once
+  // rejected, until the user picks one (kept per finding while the app is open).
+  function onThePage(item) {
+    return item.kind === 'change' && Boolean(item.proposal) && item.anchors.some((a) => a.end > a.start);
+  }
+  function changeView(item) {
+    const status = item.decision.status;
+    return changeViews.get(item.id) ?? (status === 'accepted' ? 'after' : status === 'rejected' ? 'before' : 'changes');
+  }
+  const CHANGE_VIEWS = [['before', 'Before'], ['changes', 'Changes'], ['after', 'After']];
+  function changeSwitch(item) {
+    const row = el('div', 'segmented change-switch');
+    row.setAttribute('role', 'radiogroup');
+    row.setAttribute('aria-label', 'Show on the page');
+    for (const [view, label] of CHANGE_VIEWS) {
+      const b = el('button', null, label);
+      b.type = 'button';
+      b.dataset.view = view;
+      b.setAttribute('role', 'radio');
+      b.addEventListener('click', () => {
+        changeViews.set(item.id, view);
+        syncSwitch(row, item);
+        sendMarks();
+      });
+      row.append(b);
+    }
+    syncSwitch(row, item);
+    return row;
+  }
+  function syncSwitch(row, item) {
+    for (const b of row.querySelectorAll('button')) b.setAttribute('aria-checked', String(b.dataset.view === changeView(item)));
   }
 
   // Stands in for the buttons once decided: the decision made, and a hint that it can be changed.
@@ -1071,6 +1127,12 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       items: shown.filter((i) => i.anchors.length && !i.done && i.type !== 'earlier').map((i) => ({ id: i.id, anchors: i.anchors, tint: i.tint ?? tint(i.color, 0.14), strong: i.strong ?? tint(i.color, 0.3) })),
       focus,
       veil: Boolean(lit) && lit.type !== 'earlier' && lit.anchors.length > 0, // an earlier comment has no mark to bring forward
+      // The change open beside the pages, shown at its text (see changeSwitch).
+      change: reviewed?.type === 'finding' && onThePage(reviewed.item) ? {
+        anchors: reviewed.item.anchors,
+        after: wording.get(reviewed.id) ?? reviewed.item.decision.edited ?? reviewed.item.proposal.after ?? '',
+        view: changeView(reviewed.item),
+      } : null,
     });
   }
 
@@ -1120,6 +1182,7 @@ export function createMarginReview({ layer, pagesEl, bar, api, onMarks, onCompar
       hover = null;
       editing.clear();
       picked.clear();
+      wording.clear();
       render();
     },
   };

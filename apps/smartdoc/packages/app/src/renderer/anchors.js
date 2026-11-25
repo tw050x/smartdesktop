@@ -92,6 +92,33 @@ export function rangeRects(page, start, end) {
   return rects;
 }
 
+// How far the page's text runs across the line at a rectangle (unscaled coordinates): { left,
+// right } of every span sharing its line, so wording put there flows in the text's own column.
+export function lineExtent(pageNumber, rect) {
+  const page = pages.get(pageNumber);
+  if (!page) return { left: rect.x, right: rect.x + rect.width };
+  const box = page.contentEl.getBoundingClientRect();
+  const scale = box.width / page.contentEl.offsetWidth || 1;
+  let left = rect.x;
+  let right = rect.x + rect.width;
+  const middle = rect.y + rect.height / 2;
+  for (const span of page.spans) {
+    if (!span.el.isConnected || !span.el.firstChild) continue;
+    const r = span.el.getBoundingClientRect();
+    const top = (r.top - box.top) / scale;
+    const bottom = (r.bottom - box.top) / scale;
+    if (top > middle || bottom < middle) continue;
+    left = Math.min(left, (r.left - box.left) / scale);
+    right = Math.max(right, (r.right - box.left) / scale);
+  }
+  return { left, right };
+}
+
+// The text layer's span holding a character of a page's text, for its font.
+export function spanAt(pageNumber, offset) {
+  return pages.get(pageNumber)?.spans.find((s) => s.start <= offset && offset < s.end)?.el ?? null;
+}
+
 // The text position nearest a point (client coordinates) on a page, for starting or extending a
 // selection from the space between the text: { node, offset } in a span's text node, or null if
 // the page has no text. Text on the same line as the point wins; otherwise the nearest line. Left

@@ -1,3 +1,5 @@
+// The same in SmartDoc and SmartSpec (keep them the same): diffPages for whole documents, diffText
+// for one passage (SmartDoc's suggested changes, SmartSpec's writing).
 // Compares two documents' text word by word, across their whole length, so text that only moved
 // to another line or page isn't a change. Words and punctuation marks are compared separately and
 // white space not at all: wrapping can't show up as a change, even where a line breaks at a hyphen
@@ -139,6 +141,28 @@ export function diffPages(beforePages, afterPages) {
     const change = changes.at(-1);
     change.removed.push(...ranges(before, edit.aStart, edit.aEnd));
     change.added.push(...ranges(after, edit.bStart, edit.bEnd));
+    previous = edit;
+  }
+  return changes;
+}
+
+// The changes from one text to another, for marking them in the new text alone: each change's
+// removed range in `before` and added range in `after` (either can be null), and `at`, where in
+// `after` the removed text was, so it can be shown there.
+export function diffText(before, after) {
+  const a = tokenize([before]);
+  const b = tokenize([after]);
+  const words = [a.map((t) => t.word), b.map((t) => t.word)];
+  const changes = [];
+  let previous = null;
+  for (const edit of slideForward(edits(...words), ...words)) {
+    const at = edit.bStart < b.length ? b[edit.bStart].start : after.length;
+    const removed = edit.aEnd > edit.aStart ? { start: a[edit.aStart].start, end: a[edit.aEnd - 1].end } : null;
+    const added = edit.bEnd > edit.bStart ? { start: b[edit.bStart].start, end: b[edit.bEnd - 1].end } : null;
+    // Edits a word or two apart are one change, as in diffPages.
+    const last = changes.at(-1);
+    if (last && edit.aStart - previous.aEnd <= SAME_CHANGE_GAP) last.parts.push({ removed, added, at });
+    else changes.push({ parts: [{ removed, added, at }] });
     previous = edit;
   }
   return changes;

@@ -1228,6 +1228,17 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .mark { position: absolute; border-radius: 2px; }
 /* While a deck is hovered, the rest of the page fades behind a white veil with its text cut out. */
 .veil { position: absolute; inset: 0; fill: rgba(255, 255, 255, 0.72); }
+/* The change open beside the pages, at its text (drawChange in overlays.js). The page is white in
+   either appearance, so these colours are fixed. */
+.change-mark.removed { background: rgba(214, 48, 49, 0.3); }
+.change-mark.changed { background: rgba(230, 150, 20, 0.34); }
+.change-cover { position: absolute; background: #fff; }
+.change-words { position: absolute; color: #1d1d1f; white-space: pre-line; overflow-wrap: break-word; }
+.change-run { background: #fff; box-decoration-break: clone; -webkit-box-decoration-break: clone; box-shadow: 0 0 0 2px #fff; }
+.change-words :is(ins, del) { border-radius: 2px; text-decoration: none; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.change-words .change-added { background: #c9efd7; color: #0f5a2f; }
+.change-words .change-changed { background: #fde3b5; color: #6b4300; }
+.change-words .change-removed { background: #fbd5d5; color: #8a1f1f; text-decoration: line-through; text-decoration-color: rgba(138, 31, 31, 0.7); }
 
 /* --- The review in the margins (see margin-review.js) ----------------------------------- */
 .margin-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
@@ -1362,6 +1373,9 @@ body.chat-window-body { display: flex; background: var(--bg); }
 .diff del { padding: 4px 6px; border-radius: 6px; background: var(--del-bg); color: var(--del-text); }
 .diff ins { padding: 4px 6px; border-radius: 6px; background: var(--ins-bg); color: var(--ins-text); text-decoration: none; }
 /* The suggested wording being edited, in place: the same green box, as a text box. */
+.change-switch { align-self: flex-start; }
+.change-switch button { padding: 4px 12px; font-size: 12px; }
+.margin-card .change-switch + .diff-edit { width: 100%; box-sizing: border-box; }
 .margin-card .diff-edit { min-height: 0; padding: 4px 6px; border: 0; border-radius: 6px; background: var(--ins-bg); color: var(--ins-text); font: inherit; font-size: 12px; line-height: inherit; box-shadow: inset 0 0 0 1px #9fd4b4; }
 .margin-card .diff-edit:focus { outline: 2px solid #1f9d55; outline-offset: -1px; }
 .option-list { display: grid; gap: 6px; }
