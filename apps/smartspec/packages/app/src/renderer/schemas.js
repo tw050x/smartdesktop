@@ -1460,12 +1460,24 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const show = h('button', { type: 'button', className: 'side-by-side', onclick: () => api.showWorkspace(here.schemaId, shown.name).catch(() => {}) }, 'Show in Finder');
     const changes = workspace.changes ? `${workspace.changes} ${workspace.changes === 1 ? 'file' : 'files'} changed and not committed` : 'nothing changed since its last commit';
     const said = workspace.cloned
-      ? [h('code', { title: workspace.dir }, workspace.label), ' is a clone of its repository, on ', workspace.branch ? h('code', {}, workspace.branch) : 'no branch', ` at ${workspace.commit ?? 'its last commit'}, with ${changes}. You and your AI can work on the code there: the checks run against it as it is, and it's never reset.`]
+      ? [h('code', { title: workspace.dir }, workspace.label), ' is a clone of its repository, on ', workspace.branch ? h('code', {}, workspace.branch) : 'no branch', ` at ${workspace.commit ?? 'its last commit'}, with ${changes}. You and your AI can work on the code there: the checks run against it as it is, and it's never reset unless you start it again.`]
       : ['Its first run clones the repository into ', h('code', { title: workspace.dir }, workspace.label), ', for you and your AI to work on the code there. Each run after tests it as it is.'];
+    // Start Again…: asked first (main's startWorkspaceAgain), its folder to the Bin, cloned afresh by
+    // the next run; for a clone gone wrong.
+    const again = workspace.cloned && api.startWorkspaceAgain && h('button', {
+      type: 'button', className: 'side-by-side', title: 'Move the workspace to the Bin, so the next run clones the repository afresh',
+      onclick: () => api.startWorkspaceAgain(here.schemaId).then(() => render(), (error) => {
+        here.workspaceError = error.message;
+        render();
+      }),
+    }, 'Start Again…');
+    const trouble = here.workspaceError;
+    here.workspaceError = null;
     return h('section', { className: 'impl-local' },
       h('h3', { className: 'pane-subhead' }, 'Workspace'),
       h('p', {}, ...said.flat()),
-      h('div', { className: 'impl-local-actions' }, show));
+      trouble && h('p', { className: 'run-line trouble' }, trouble),
+      h('div', { className: 'impl-local-actions' }, show, again));
   }
 
   // What a run is doing, or how the last one went, in a line, naming the code it's against.
@@ -3227,6 +3239,10 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // what it embeds), drawn again to say so.
   api.onTestStatus?.(() => {
     if (!top() || modes.mode() === 'design') render();
+  });
+  // A workspace started again (by the user here or elsewhere, or the AI): Test mode says so.
+  api.onWorkspaceChanged?.(() => {
+    if (top() && modes.mode() === 'test') render();
   });
   // While an AI in another app waits on a proposal, the chat offers it the go-ahead.
   const heardWaiting = (list) => {

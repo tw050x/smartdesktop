@@ -111,6 +111,8 @@ contextBridge.exposeInMainWorld('smartspec', {
   // it is and how it stands ({ dir, label, cloned, branch, commit, changes }), and showing it.
   workspace: (schemaId, name) => call('workspace', schemaId, name),
   showWorkspace: (schemaId, name) => call('workspace-show', schemaId, name),
+  startWorkspaceAgain: (schemaId) => call('workspace-start-again', schemaId),
+  onWorkspaceChanged: on('workspace-changed'),
   // A schematic's secrets on this Mac (see secrets.js): how each of a draft's or the proposal's
   // stands (never a value), entering one, having one made at random, clearing one, and hearing when
   // a schematic's change (its id).

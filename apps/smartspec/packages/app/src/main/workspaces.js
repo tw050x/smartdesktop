@@ -39,18 +39,26 @@ export function createWorkspaces(userData, { home = smartspecHome() } = {}) {
       }
       return all[schemaId];
     },
-    // What's there: { dir, label, cloned, branch, commit, changes } (changes: files with
-    // uncommitted changes); cloned false before its first run.
+    // What's there: { dir, label, cloned, branch, commit, changes, unpushed } (changes: files with
+    // uncommitted changes; unpushed: commits on no remote); cloned false before its first run.
     async info(schemaId, name) {
       const dir = this.pathFor(schemaId, name);
       const cloned = fs.existsSync(path.join(dir, '.git'));
       if (!cloned) return { dir, label: shortened(dir), cloned: false };
-      const [branch, commit, status] = await Promise.all([
+      const [branch, commit, status, unpushed] = await Promise.all([
         git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']),
         git(dir, ['log', '-1', '--format=%h %s']),
         git(dir, ['status', '--porcelain']),
+        git(dir, ['rev-list', '--count', 'HEAD', '--not', '--remotes']),
       ]);
-      return { dir, label: shortened(dir), cloned: true, branch: branch === 'HEAD' ? null : branch, commit, changes: status ? status.split('\n').length : 0 };
+      return { dir, label: shortened(dir), cloned: true, branch: branch === 'HEAD' ? null : branch, commit, changes: status ? status.split('\n').length : 0, unpushed: Number(unpushed) || 0 };
+    },
+    // Starting it again: its folder goes (to the Bin, by `trash`, so nothing is lost for good), its
+    // place kept, and the next run clones the repository there afresh.
+    async startAgain(schemaId, name, trash) {
+      const dir = this.pathFor(schemaId, name);
+      if (fs.existsSync(dir)) await trash(dir);
+      return dir;
     },
   };
 }

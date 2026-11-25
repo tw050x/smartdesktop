@@ -255,6 +255,20 @@ describe('the code a run is against', () => {
     assert.deepEqual(run.counts, { passed: 2, failed: 0, error: 0 }, JSON.stringify(run.log));
     assert.equal(run.code.changes, 1);
     assert.match(run.code.label, /, 1 file not committed$/);
+
+    // A commit on no remote is told of, as what starting it again would lose.
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'Fix it'], { cwd: cloned.dir });
+    assert.equal((await workspaces.info('s1', 'Thing')).unpushed, 1);
+
+    // Started again: its folder goes (to the Bin, in the app), and the next run clones it afresh.
+    const binned = [];
+    await workspaces.startAgain('s1', 'Thing', async (dir) => { binned.push(dir); rmSync(dir, { recursive: true }); });
+    assert.deepEqual(binned, [space.dir]);
+    assert.equal((await workspaces.info('s1', 'Thing')).cloned, false);
+    done = next();
+    await testRuns.start('s1', 'd1', { target: 'workspace' });
+    run = await done;
+    assert.deepEqual(run.counts, { passed: 1, failed: 1, error: 0 }, 'the fix went with it');
   });
 
   test('is kept with every run, read again after a restart, and given to the AI', { timeout: 60_000 }, async () => {

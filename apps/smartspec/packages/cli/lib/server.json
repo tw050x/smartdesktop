@@ -589,6 +589,30 @@
       }
     },
     {
+      "name": "start_workspace_again",
+      "description": "Starts a schematic's workspace again, when the clone has gone wrong (a broken checkout, history in a tangle, the wrong repository) or the user asks: its folder goes to the Bin, and the next run clones the repository there afresh, at its ref. The user is asked first in SmartSpec, told of any uncommitted changes and unpushed commits that would go with it; it says whether they agreed. Refused while its checks run. Never use it to undo your own changes: use git in the workspace for that.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schematic_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schematic_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "list_test_runs",
       "description": "The runs of a schematic's contract checks, newest first (every run is kept): each with its run_id, when, who ran it (user or ai), the contract (a draft or the proposal), the code it ran against and its commit, what part was run (only), and how it went. Read one with get_test_results and run_id: to see whether a failure is new on a branch, or when something last passed.",
       "inputSchema": {

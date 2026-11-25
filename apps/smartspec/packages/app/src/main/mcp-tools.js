@@ -289,6 +289,10 @@ export function buildServer(call, { version }) {
     proposal: z.boolean().optional().describe('The proposal\'s secrets instead of the latest draft\'s'),
   }, ({ schematic_id, names, proposal }, schemas) => schemas.generateSecrets(schematic_id, { names: names ?? null, proposal: Boolean(proposal) }));
 
+  tool('start_workspace_again', 'Starts a schematic\'s workspace again, when the clone has gone wrong (a broken checkout, history in a tangle, the wrong repository) or the user asks: its folder goes to the Bin, and the next run clones the repository there afresh, at its ref. The user is asked first in SmartSpec, told of any uncommitted changes and unpushed commits that would go with it; it says whether they agreed. Refused while its checks run. Never use it to undo your own changes: use git in the workspace for that.', {
+    schematic_id: z.string(),
+  }, ({ schematic_id }, schemas) => schemas.startWorkspaceAgain(schematic_id));
+
   tool('list_test_runs', 'The runs of a schematic\'s contract checks, newest first (every run is kept): each with its run_id, when, who ran it (user or ai), the contract (a draft or the proposal), the code it ran against and its commit, what part was run (only), and how it went. Read one with get_test_results and run_id: to see whether a failure is new on a branch, or when something last passed.', {
     schematic_id: z.string(),
     limit: z.number().int().min(1).max(200).optional().describe('How many (default 20)'),

@@ -594,6 +594,14 @@ const schemasFor = (session, tab) => ({
       message: missing.length ? `Still not set: ${missing.join(', ')}. Only the user can enter ${missing.length === 1 ? 'it' : 'them'}, in Test mode under Implementation › Secrets: ask them to.` : 'Every secret is set, so its checks can be run.',
     };
   },
+  // The AI asking to start a workspace again (start_workspace_again): the user is asked first, in
+  // the window it works in, or the one last used.
+  async startWorkspaceAgain(id) {
+    const ctx = session.ctx;
+    const result = await startWorkspaceAgain(ctx && !ctx.win.isDestroyed() ? ctx.win : lastFocused?.win ?? null, id, { by: 'ai' });
+    if (result.started_again && ctx && !ctx.win.isDestroyed()) desktop.note(ctx.id, { text: 'Your AI started the workspace again', detail: 'Your AI started the workspace again: its old folder is in the Bin' });
+    return result;
+  },
   // Setting the icon of the schematic the window shows (set_icon): the user's choice is kept over
   // the AI's.
   setIcon(icon) {
@@ -865,6 +873,7 @@ handle('secret-clear', (_ctx, schemaId, name) => secrets.clear(schemaId, name));
 // A schematic's workspace: where it is and how it stands, and showing it in the Finder (made
 // first if its first run hasn't cloned it yet, so there's somewhere to show).
 handle('workspace', async (_ctx, schemaId, name) => workspaces.info(schemaId, name));
+handle('workspace-start-again', async (ctx, schemaId) => startWorkspaceAgain(ctx?.win ?? null, schemaId));
 handle('workspace-show', async (_ctx, schemaId, name) => {
   const { dir, cloned } = await workspaces.info(schemaId, name);
   if (cloned) shell.showItemInFolder(dir);
@@ -873,6 +882,34 @@ handle('workspace-show', async (_ctx, schemaId, name) => {
     shell.openPath(dir);
   }
 });
+
+// Starting a schematic's workspace again (the user's Start Again…, or the AI's
+// start_workspace_again): asked first, naming what would go with it (uncommitted changes, commits
+// on no remote), then its folder moved to the Bin, and the next run clones it afresh. Refused while
+// its checks run. { started_again, message }.
+async function startWorkspaceAgain(parent, schemaId, { by = 'user' } = {}) {
+  const record = await store.getSchema(schemaId);
+  if (!record) throw new Error('There\'s no schematic with that id.');
+  if (!record.implementation || !WORKSPACE_KINDS.includes(record.implementation.source.kind)) throw new Error(`${record.name}'s code isn't a git repository, so it has no workspace.`);
+  if (testRuns.stateOf(schemaId).some((run) => run.running)) throw new Error(`${record.name}'s checks are running: start the workspace again once they've finished.`);
+  const info = await workspaces.info(schemaId, record.name);
+  if (!info.cloned && !fs.existsSync(info.dir)) return { started_again: false, message: 'It hasn\'t been cloned yet: its next run clones it.' };
+  const lost = [
+    info.changes && `${info.changes} ${info.changes === 1 ? 'file' : 'files'} changed and not committed`,
+    info.unpushed && `${info.unpushed} ${info.unpushed === 1 ? 'commit' : 'commits'} not pushed`,
+  ].filter(Boolean);
+  const choice = await confirm(parent, {
+    title: `Start the workspace of “${record.name}” again?`,
+    message: `${by === 'ai' ? 'Your AI asks to start it again. ' : ''}Its folder, ${info.label}, goes to the Bin, and the next run clones the repository afresh.`,
+    points: lost.length ? lost : null,
+    after: lost.length ? 'These go with it, kept in the Bin until it’s emptied.' : null,
+    buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Move to Bin', choice: 'trash', kind: 'primary' }],
+  });
+  if (choice !== 'trash') return { started_again: false, message: 'The user chose not to start it again.' };
+  await workspaces.startAgain(schemaId, record.name, (dir) => shell.trashItem(dir));
+  broadcast('workspace-changed', schemaId);
+  return { started_again: true, message: `Its folder went to the Bin. The next run clones the repository into ${info.dir} afresh.` };
+}
 
 // Asks first when there's no way back: the AI would have to write the proposal again.
 async function discardProposal(ctx, schemaId) {
