@@ -55,6 +55,28 @@ describe('proposing and accepting', () => {
     assert.ok(asked.includes(draft));
   });
 
+  test('rolls up what needs attention in what a schematic embeds, at any depth', async () => {
+    const store = newStore();
+    const auth = await accepted(store, { name: 'Auth' });
+    const billing = await accepted(store, { name: 'Billing', uses: [{ id: 'auth', schemaId: auth.schema }] });
+    const shop = await accepted(store, { name: 'Shop', uses: [{ id: 'billing', schemaId: billing.schema }, { id: 'own', schemaId: auth.schema, implementation: { source: { kind: 'running', url: 'http://localhost:1' } } }] });
+    const statuses = { [auth.schema]: 'failing', [billing.schema]: 'out-of-date', [shop.schema]: 'passing' };
+    store.setStatusOf((id) => statuses[id]);
+    const rows = Object.fromEntries((await store.list()).map((row) => [row.name, row]));
+    // Worst first; Auth through Billing; the use with code of its own isn't run, so says nothing.
+    assert.deepEqual(rows.Shop.within.map(({ name, status, via }) => ({ name, status, via })), [
+      { name: 'Auth', status: 'failing', via: ['Billing'] },
+      { name: 'Billing', status: 'out-of-date', via: [] },
+    ]);
+    assert.deepEqual(rows.Billing.within.map((one) => one.name), ['Auth']);
+    assert.deepEqual(rows.Auth.within, []);
+    const shown = await store.getSchema(shop.schema);
+    assert.equal(shown.within.length, 2);
+    assert.deepEqual(shown.uses.find((use) => use.id === 'billing').within.map((one) => one.status), ['failing']);
+    statuses[auth.schema] = 'passing';
+    assert.deepEqual((await store.getSchema(shop.schema)).within.map((one) => one.name), ['Billing']);
+  });
+
   test('a change sends only what changes, and earlier drafts stay', async () => {
     const store = newStore();
     const { schema, draft: first } = await accepted(store, { contract: 'Promise', items: [doc('a'), doc('b')] });

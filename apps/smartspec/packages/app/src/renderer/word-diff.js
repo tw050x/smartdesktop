@@ -1,4 +1,5 @@
-// The same as SmartDoc's word-diff.js (keep them the same), with diffText for SmartSpec's writing.
+// The same in SmartDoc and SmartSpec (keep them the same): diffPages for whole documents, diffText
+// for one passage (SmartDoc's suggested changes, SmartSpec's writing).
 // Compares two documents' text word by word, across their whole length, so text that only moved
 // to another line or page isn't a change. Words and punctuation marks are compared separately and
 // white space not at all: wrapping can't show up as a change, even where a line breaks at a hyphen

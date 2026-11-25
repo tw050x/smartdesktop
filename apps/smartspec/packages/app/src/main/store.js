@@ -51,6 +51,8 @@ const OUTCOME_MAX = 40; // a comment's outcome, in the AI's words: a word or two
 
 // A schematic's status until it's worked out from its test runs (see setStatusOf).
 const STATUS = 'design-only';
+// The statuses that need attention, worst first (see withinOf).
+const ATTENTION = ['failing', 'cant-run', 'out-of-date'];
 
 // A focus's name: its title, else its goal cut short.
 const focusTitle = (goal, title) => title?.trim() || (goal.trim().length > 48 ? `${goal.trim().slice(0, 47).trimEnd()}…` : goal.trim());
@@ -227,10 +229,40 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       // A use with code of its own isn't run yet; else the embedded schematic's, for the draft shown.
       status: use.implementation ? 'implemented' : statusOf(use.schemaId, draftId, draft),
       newerDraftId: use.pin && latest !== draftId ? latest : null,
+      within: await withinOf(draft, earlier || isEarlier(schema, draft)),
     };
     if (depth <= 0) return collapsed;
     const { parameters, items, links, uses } = await describe(draft, depth - 1, earlier || isEarlier(schema, draft));
     return { ...collapsed, parameters, items, links, uses };
+  }
+
+  // The schematics a record embeds, at any depth, whose status needs attention (failing, cant-run,
+  // out-of-date), worst first: [{ schemaId, draftId, name, status, via }], `via` naming the
+  // schematics between (empty for one embedded directly). Each is the draft its use shows, and a
+  // use with code of its own isn't run yet, so says nothing. Status rolls up so a fault deep down
+  // shows at the top (the user's choice). `cache` keeps what's worked out during one call.
+  async function withinOf(record, earlier = false, cache = new Map(), stack = new Set()) {
+    const found = new Map();
+    for (const use of record.uses ?? []) {
+      const schema = await readSchema(use.schemaId);
+      const draftId = schema && await draftOfUse(use, schema, earlier);
+      const key = `${use.schemaId}/${draftId}`;
+      if (!draftId || stack.has(key)) continue;
+      const draft = await readDraft(use.schemaId, draftId);
+      if (!draft) continue;
+      const status = use.implementation ? 'implemented' : statusOf(use.schemaId, draftId, draft);
+      if (ATTENTION.includes(status)) found.set(key, { schemaId: use.schemaId, draftId, name: draft.name, status, via: [] });
+      if (!cache.has(key)) {
+        stack.add(key);
+        cache.set(key, await withinOf(draft, earlier || isEarlier(schema, draft), cache, stack));
+        stack.delete(key);
+      }
+      for (const deeper of cache.get(key)) {
+        const at = `${deeper.schemaId}/${deeper.draftId}`;
+        if (!found.has(at)) found.set(at, { ...deeper, via: [draft.name, ...deeper.via] });
+      }
+    }
+    return [...found.values()].sort((a, b) => ATTENTION.indexOf(a.status) - ATTENTION.indexOf(b.status));
   }
 
   // Whether a record embeds a schema, at any depth, as its uses are now.
@@ -431,6 +463,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     },
 
     async list() {
+      const cache = new Map();
       const names = await readdir(path.join(root, 'schemas')).catch((error) => {
         if (error.code === 'ENOENT') return [];
         throw error;
@@ -450,6 +483,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
           latestDraftId: latest ?? null,
           proposal: brief(proposal),
           status: statusOf(id, latest ?? 'proposal', record),
+          within: await withinOf(record, false, cache),
           group: groups.has(schema.group) ? schema.group : null,
           updatedAt: schema.updatedAt,
         };
@@ -664,6 +698,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         line: schema.line,
         ...(await describe(record, depth, isEarlier(schema, record))),
         status: statusOf(id, which, record),
+        within: await withinOf(record, isEarlier(schema, record)),
         comments: await openCount(id, which),
         proposal: brief(proposal),
       };
@@ -684,6 +719,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         line: schema.line,
         ...(await describe(proposal, depth)),
         status: statusOf(id, 'proposal', proposal),
+        within: await withinOf(proposal),
         comments: await openCount(id, ON_PROPOSAL),
         forTheAi: await commentsWaiting(id, proposal),
         changes,

@@ -60,6 +60,18 @@ const testPill = (status) => {
   one.title = title;
   return one;
 };
+// What it embeds that needs attention, at any depth (its `within`, worst first, see withinOf in
+// main/store.js), rolled up into one pill beside its own: the worst status, "inside" (the user's
+// choice: status rolls up through embedding), each one named with the way to it on pointing at it.
+const WITHIN_STATUS = { failing: 'is failing', 'cant-run': 'can’t be run', 'out-of-date': 'is out of date' };
+const withinPill = (within) => {
+  const worst = within?.[0];
+  const [text] = TEST_PILLS[worst?.status] ?? [];
+  if (!text) return null;
+  const one = pill(`${text} inside`, `test-status ${worst.status}`);
+  one.title = within.map((each) => `${each.name}${each.via.length ? ` (inside ${each.via.join(' › ')})` : ''} ${WITHIN_STATUS[each.status]}`).join('\n');
+  return one;
+};
 
 // The kind of item on a small card at the sides, as an icon rather than a pill, so the card's
 // title has the room. Its name is still there, for pointing at and for screen readers.
@@ -599,7 +611,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
           title: each.name,
           icon: each.icon,
           arrow: true,
-          tag: [each.proposal && WAITING(), testPill(each.status)],
+          tag: [each.proposal && WAITING(), testPill(each.status), withinPill(each.within)],
           text: each.summary,
         });
         makeDraggable(one, 'schema', each.id);
@@ -2345,7 +2357,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const settings = Object.entries(use.with ?? {});
       return h('div', { className: 'focus-neighbour board-card embedded' },
         kindIcon('schematic', 'Embedded schematic'),
-        h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status))),
+        h('span', { className: 'title-row' }, h('strong', {}, use.name), h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status), withinPill(use.within))),
         h('span', { className: 'focus-meta' }, use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
         use.contract && h('span', { className: 'card-contract' }, contractPlain(use.contract)));
@@ -2670,7 +2682,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
     const inner = await api.getSchema(use.schemaId, use.draftId).catch(() => null);
     const head = paneHead(use.name, useDraft(use), null, pill('Embedded schematic', 'kind-pill schema-pill'));
-    head.querySelector('.title-row').append(...[statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status))].filter(Boolean));
+    head.querySelector('.title-row').append(...[statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status), withinPill(use.within))].filter(Boolean));
     // Opened on its own, in a tab of its own (the user's choice: in place of full screen, and of
     // going into it within this tab; see openUse).
     const tab = h('button', { className: 'icon-button', type: 'button', id: 'use-open', title: api.openSchematicTab ? 'Open in New Tab' : 'Open schematic', 'aria-label': api.openSchematicTab ? 'Open in New Tab' : 'Open schematic', onclick: () => openUse(use) });
@@ -2820,7 +2832,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const settings = Object.entries(use.with ?? {});
       return h('button', { className: 'overview-card embedded', type: 'button', 'data-item': use.id, onclick: open(use.id) },
         pill('Embedded schematic', 'kind-pill schema-pill'),
-        h('span', { className: 'title-row' }, h('strong', {}, use.name ?? use.id), !use.missing && h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status))),
+        h('span', { className: 'title-row' }, h('strong', {}, use.name ?? use.id), !use.missing && h('span', { className: 'card-meta' }, useDraft(use)), statusPills(use.newerDraftId && pill('Newer draft available', 'proposed'), testPill(use.status), withinPill(use.within))),
         h('span', { className: 'focus-meta' }, use.missing ? 'This schematic is no longer available.' : use.summary),
         settings.length > 0 && h('span', { className: 'card-settings' }, ...settings.map(([key, value]) => h('code', {}, `${key}: ${value}`))),
         use.contract && h('span', { className: 'card-contract' }, contractPlain(use.contract)),
