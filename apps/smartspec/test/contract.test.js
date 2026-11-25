@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
-import { brokenParts, checkContract, checksUnder, contractChanges, contractLinks, contractParts, contractText, contractTree, pathUnder, placeholders } from '../packages/app/src/main/contract.js';
+import { brokenParts, checkContract, expectationsJob, shapesNamed, checksUnder, contractChanges, contractLinks, contractParts, contractText, contractTree, pathUnder, placeholders } from '../packages/app/src/main/contract.js';
 import { checkLinks, linkGraph, partsOf } from '../packages/app/src/main/items.js';
 import { createStore } from '../packages/app/src/main/store.js';
 
@@ -184,5 +184,28 @@ describe('the contract in the store', () => {
     await store.addComment(one.schema, { target: { item: 'contract', part: 'create-order' }, text: 'What about two lines?' });
     const [comment] = await store.listComments(one.schema);
     assert.equal(comment.target.partName, 'Creating an order returns its id');
+  });
+});
+
+describe('what a use relies on', () => {
+  const expects = {
+    setup: [{ id: 'in', kind: 'http', request: { method: 'POST', path: '/sign-in', form: { client: '{client}' } }, keep: { token: 'body.token' } }],
+    clauses: [{ id: 'reads', title: 'Lets {client} read', checks: [{ id: 'ok', kind: 'http', request: { method: 'GET', path: '/me', headers: { authorization: 'Bearer {token}', 'x-client': '{client}' } }, expect: { shape: 'user' } }] }],
+  };
+
+  test('is keyed apart, its parameters filled in, what setup keeps left for the runner', () => {
+    const job = expectationsJob(expects, { ownerId: 'shop', useId: 'auth', values: { client: 'shop' } });
+    const [one] = job.checks;
+    assert.equal(one.key, 'use:shop/auth/reads/ok');
+    assert.equal(one.clause, 'use:shop/auth/reads');
+    assert.deepEqual(one.setup[0].request.form, { client: 'shop' });
+    assert.deepEqual(one.request.headers, { authorization: 'Bearer {token}', 'x-client': 'shop' });
+    assert.deepEqual(shapesNamed(expects), ['user']);
+  });
+
+  test('can name the embedded schematic\'s shapes and the use\'s parameters, and nothing else', () => {
+    assert.doesNotThrow(() => checkContract(structuredClone(expects), { shapes: ['user'], known: ['client'] }));
+    assert.throws(() => checkContract(structuredClone(expects), { shapes: ['user'] }), /uses \{client\}/);
+    assert.throws(() => checkContract(structuredClone(expects), { known: ['client'] }), /expects shape user/);
   });
 });

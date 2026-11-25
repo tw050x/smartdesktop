@@ -844,6 +844,8 @@ const testRuns = createTestRuns({
 });
 // Each schematic's status (on home, in what embeds it, and to the AI) is what its runs show.
 store.setStatusOf((schemaId, version, record) => testRuns.statusOf(schemaId, version, record));
+// And how what a schematic relies on from one it embeds stands against that one's code.
+store.setExpectationsOf((schemaId, version, record, ownerId, use) => testRuns.expectationsOf(schemaId, version, record, ownerId, use));
 store.events.on('changed', (schemaId) => testRuns.changed(schemaId));
 handle('test-run', (_ctx, schemaId, version, options) => testRuns.start(schemaId, version, { ...options, by: 'user' }));
 handle('test-stop', (_ctx, schemaId, runId) => testRuns.stop(schemaId, runId));
@@ -949,16 +951,27 @@ async function acceptProposal(ctx, schemaId) {
     failing: `${[standing.failed && `${standing.failed} of its ${standing.total} checks fail`, standing.unchecked && `${standing.unchecked} couldn’t be run`, standing.missing && `${standing.missing} haven’t been run`].filter(Boolean).join(', ')} against ${standing.code}. `.replace(/^./, (one) => one.toUpperCase()),
     passing: `All ${standing.total} of its checks pass against ${standing.code}. `,
   }[standing.state] ?? '';
-  const warned = ['not-run', 'running', 'didnt-run', 'failing'].includes(standing.state);
+  // What the schematics depending on it rely on, run against the same code (see auto in
+  // test-runs.js): those it breaks named, with what of theirs fails.
+  const dependents = (standing.dependents ?? []).map((one) => (
+    one.running ? `“${one.name}” relies on it: its checks are still running. `
+      : one.failed || one.unchecked ? [
+        one.broken.length && `It breaks what “${one.name}” relies on: ${list(one.broken.map((title) => `“${title}”`))} ${one.broken.length === 1 ? 'fails' : 'fail'}. `,
+        one.already.length && `${one.broken.length ? '' : `“${one.name}” relies on it: `}${list(one.already.map((title) => `“${title}”`))} already failed before this change. `,
+      ].filter(Boolean).join('')
+        : one.notRun ? `“${one.name}” relies on it, and some of what it relies on hasn’t been run. `
+          : `Everything “${one.name}” relies on from it passes. `)).join('');
+  const checksLine = `${checks}${dependents}`;
+  const warned = ['not-run', 'running', 'didnt-run', 'failing'].includes(standing.state) || (standing.dependents ?? []).some((one) => one.status !== 'passing');
   const question = !waiting
-    ? { title: `Accept ${what}?`, message: `${checks}${notApproved}${becomes}`, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: warned ? 'Accept anyway' : 'Accept', choice: 'accept', kind: 'primary' }] }
+    ? { title: `Accept ${what}?`, message: `${checksLine}${notApproved}${becomes}`, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: warned ? 'Accept anyway' : 'Accept', choice: 'accept', kind: 'primary' }] }
     : sent === waiting
       // Sent to an AI in another app, which may be at work on them, or may have stopped.
       ? {
         title: `Accept ${what}?`,
         message: `The AI hasn’t answered the ${many(sent)} you sent it yet. If it isn’t working on ${sent === 1 ? 'it' : 'them'}, ask the AI here.`,
         points: quoted,
-        after: `${checks}${notApproved}${becomes}`,
+        after: `${checksLine}${notApproved}${becomes}`,
         buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, ask, { label: 'Keep waiting', choice: 'cancel', kind: 'primary' }],
       }
       : aiWaits
@@ -966,7 +979,7 @@ async function acceptProposal(ctx, schemaId) {
           title: `Accept ${what}?`,
           message: `You have ${many(waiting)} the AI hasn’t answered. Send ${waiting === 1 ? 'it' : 'them'} to the AI, to deal with before you accept?`,
           points: quoted,
-          after: `${checks}${notApproved}${alsoChanges}`.trim() || null,
+          after: `${checksLine}${notApproved}${alsoChanges}`.trim() || null,
           buttons: [{ label: 'Cancel', choice: 'cancel', apart: true }, { label: 'Accept anyway', choice: 'accept' }, { label: 'Send to AI', choice: 'send', kind: 'primary' }],
         }
         // No AI in another app is waiting to be sent them: the chat's AI is asked.
@@ -974,7 +987,7 @@ async function acceptProposal(ctx, schemaId) {
           title: `Accept ${what}?`,
           message: `You have ${many(waiting)} the AI hasn’t answered.`,
           points: quoted,
-          after: `${checks}${notApproved}${becomes}`,
+          after: `${checksLine}${notApproved}${becomes}`,
           buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, { label: 'Cancel', choice: 'cancel' }, { ...ask, kind: 'primary' }],
         };
   const choice = await confirm(ctx?.win, question);

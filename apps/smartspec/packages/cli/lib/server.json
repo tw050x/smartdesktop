@@ -11,7 +11,7 @@
       "listChanged": true
     }
   },
-  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary and its public side: what it promises and what it needs, and the only part of it other schematics can see or link to. Write it as a tree, the contract being its root: each node a part of the interface (/orders, with /orders/:id under it; for HTTP give each its path), with Markdown explaining it, the shapes it talks about (JSON Schema, seen by checks there and below), setup steps run before every check there and below (which keep values from their responses, such as an order's id, for requests below to use as {id}), its clauses and its child nodes. A clause is one promise: a title saying it in a line, Markdown explaining it, and the checks that test it (an HTTP request and what the response should be). Nodes, clauses and shapes each have a public id, unique in the contract and set once (other schematics link to it), so moving one in the tree breaks nothing. A branch can be run again on its own. When a promise is worked out in one of the schematic's own items (a sequence of the exchange, a table of endpoints, a row of one), the clause can be defined by it (defined_by): outsiders still link to the clause, never the item, so the item can change without them knowing. A contract can still be plain Markdown, with no clauses to link to or check.\nA schematic's implementation says where the code that keeps its contract comes from (a Docker image, a Docker Compose file in a git repository, a git repository or an archive built and run on the machine, or something already running) and how to run it: the port it listens on, its environment, the commands that build and start it, a path that answers once it's ready, and labels for any logins it needs (kept on the machine that runs it, never in the schematic). The contract's checks are run against it. It's private, as items are. A use can name its own implementation, when the embedded schematic is a standard each system implements itself; otherwise the embedded schematic's own is used. Ask the user where the code is before writing one. The code of a git repository (or one holding a Compose file) is kept in the schematic's workspace on the user's Mac, a clone made by the first run of its checks (get_schematic gives its path, as workspace): work on the code there, as the checks run against it as it is, uncommitted changes and all. The user runs the checks from SmartSpec's Test mode (all of them, or a branch's), and you can with run_checks, choosing the contract (a draft, old ones too, or the proposal) and the code (a branch, tag or commit, or the workspace as it is; else the default branch). Code not yet committed, or waiting for review, counts as a draft: after changing the code in the workspace, run the checks against the workspace (the branch of the contract you worked on, then all) to see the contract kept before it's committed, and say which promises are broken and why. Every run is kept: list_test_runs lists them, get_test_results reads one or what they add up to.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract and its nodes, clauses and shapes (contract#id), and the schematics this one embeds and their contracts' nodes, clauses and shapes (use#id), but never their items. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use follows the embedded schematic's latest draft, unless it's pinned to one, and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. It also ends when the user sends you their comments on the proposal to deal with before they accept (outcome comments): read them with get_comments (proposal: true), answer each with reply_to_comment, propose again if they need changes, then wait again. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics belong to domains: a domain is a set of schematics owned by one team or one department, such as \"Auth\". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.\nEach schematic has an icon, shown on its tab and on the user's home screen so they can tell it apart at a glance: one with no icon of its own (get_schematic's icon is null) gets one from you, with propose_schematic's icon for a new one or set_icon for the one the window shows.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many are open, and get_comments reads them, each on the whole schematic (schematic: true), an item, a part of it, a point in it or words they quoted. Answer each one with reply_to_comment: say what you changed or why you didn't, and give its outcome, how you dealt with it in a word or two of your own (\"Actioned\", \"Noted\", \"Answered\", \"Not changed\"). Some comments only need reading. When nothing more is needed, set no_further_action: the comment then folds away and get_comments leaves it out. The user can set or clear that too, so one that comes back open needs another look. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. One with point is about that place in the item: read the item to see what's there. One on the whole schematic is about all of it, or anything not in one item. Comments on a proposal stay with it as you revise it.",
+  "instructions": "This server is SmartSpec: a desktop app holding the design of a system as schematics, for the user and for other agents to act on. It's about system design at any scale: a schematic can describe a whole business, one service, or one module inside a single application.\nA schematic has a name, a summary and a contract, which are what show when it's collapsed inside another schematic, so write them to stand on their own. The contract is its boundary and its public side: what it promises and what it needs, and the only part of it other schematics can see or link to. Write it as a tree, the contract being its root: each node a part of the interface (/orders, with /orders/:id under it; for HTTP give each its path), with Markdown explaining it, the shapes it talks about (JSON Schema, seen by checks there and below), setup steps run before every check there and below (which keep values from their responses, such as an order's id, for requests below to use as {id}), its clauses and its child nodes. A clause is one promise: a title saying it in a line, Markdown explaining it, and the checks that test it (an HTTP request and what the response should be). Nodes, clauses and shapes each have a public id, unique in the contract and set once (other schematics link to it), so moving one in the tree breaks nothing. A branch can be run again on its own. When a promise is worked out in one of the schematic's own items (a sequence of the exchange, a table of endpoints, a row of one), the clause can be defined by it (defined_by): outsiders still link to the clause, never the item, so the item can change without them knowing. A contract can still be plain Markdown, with no clauses to link to or check.\nA schematic's implementation says where the code that keeps its contract comes from (a Docker image, a Docker Compose file in a git repository, a git repository or an archive built and run on the machine, or something already running) and how to run it: the port it listens on, its environment, the commands that build and start it, a path that answers once it's ready, and labels for any logins it needs (kept on the machine that runs it, never in the schematic). The contract's checks are run against it. It's private, as items are. A use can name its own implementation, when the embedded schematic is a standard each system implements itself; otherwise the embedded schematic's own is used. Ask the user where the code is before writing one. The code of a git repository (or one holding a Compose file) is kept in the schematic's workspace on the user's Mac, a clone made by the first run of its checks (get_schematic gives its path, as workspace): work on the code there, as the checks run against it as it is, uncommitted changes and all. The user runs the checks from SmartSpec's Test mode (all of them, or a branch's), and you can with run_checks, choosing the contract (a draft, old ones too, or the proposal) and the code (a branch, tag or commit, or the workspace as it is; else the default branch). Code not yet committed, or waiting for review, counts as a draft: after changing the code in the workspace, run the checks against the workspace (the branch of the contract you worked on, then all) to see the contract kept before it's committed, and say which promises are broken and why. Every run is kept: list_test_runs lists them, get_test_results reads one or what they add up to.\nA schematic's design is a set of items, each of a kind: document (Markdown), flow (a diagram of nodes and connections), sequence (a diagram of participants and messages), table, or image. Use whichever explain it best, and as many as it needs. Diagrams are data, not a text language: the app lays them out and draws them. Give a description to anything in a diagram whose reason isn't obvious from its label, especially loops, alternatives and activations.\nItems link to each other, so a schematic is a connected graph. A link is an item's id, or item#part for a part inside it: a document's heading (as a slug), a flow's node or connection, a sequence's participant or message, or a table's row. In Markdown, write [text](item#part). Nodes, connections, participants, messages and rows can each have a link. Any item can list links too, which is the way to link from an image. A link can reach the contract and its nodes, clauses and shapes (contract#id), and the schematics this one embeds and their contracts' nodes, clauses and shapes (use#id), but never their items. Links that go nowhere are refused.\nSchematics embed other schematics: a standard structure, such as machine to machine auth, is one schematic, and shows as a single element in each schematic that uses it. Each use follows the embedded schematic's latest draft, unless it's pinned to one, and can only set the parameters the embedded schematic declares. To change anything else, propose a new draft of that schematic, or a separate schematic.\nEach schematic tests itself, with its contract's checks. A schematic that depends on one it embeds writes down what it relies on from it as the use's expects: clauses with checks, in the contract's format, run against the embedded schematic's code (they can name its shapes, and {name} fills in the use's parameters). They're this schematic's, not the embedded one's: only what this one needs, never a copy of the other's own checks. Whenever the embedded schematic's checks run, its dependents' run with them, and a proposal changing its contract runs them by itself, so a change shows what it breaks for whoever depends on it: get_test_results gives them as dependents, and each use says how they stand (expectations).\nRead only what you need: get_schematic lists a schematic's items and links without their content, with its uses collapsed. Fetch an item with get_schematic_item when you need it, and open further levels by asking for them.\nA focus is what the user wants this work to be for: their prompt may say \"focusing on\" a goal. Keep to it, and pass it to propose_schematic as goal, with a short goal_title if you're given one or can name it, so the app can show it. If the user's prompt names a window, call use_window with it first, so that window becomes yours.\nOnly the user accepts what you propose: propose_schematic creates a proposal, and it becomes a draft once they accept it in the app. Send only what changes: the rest carries over. Tell the user straight away to switch to SmartSpec and review it. Each reply gives a wait command, a shell command that ends when they have answered: run it in the background if you can, or call get_schematic later to see where it stands. It also ends when the user sends you their comments on the proposal to deal with before they accept (outcome comments): read them with get_comments (proposal: true), answer each with reply_to_comment, propose again if they need changes, then wait again. A schematic you embed must have an accepted draft, so wait for the acceptance before building on it.\nSchematics belong to domains: a domain is a set of schematics owned by one team or one department, such as \"Auth\". A schematic in none is in No domain. Domains are organised in folders, which nest, so they can follow the organisation (a department's folder holding its teams'). list_domains and list_folders show them. create_domain, rename_domain, move_schematic, create_folder, rename_folder and move_domain take effect straight away, so only use them when the user asks. A new schematic can go straight into a domain with propose_schematic's domain_id.\nEach schematic has an icon, shown on its tab and on the user's home screen so they can tell it apart at a glance: one with no icon of its own (get_schematic's icon is null) gets one from you, with propose_schematic's icon for a new one or set_icon for the one the window shows.\nThe user comments on what you propose, and on drafts: get_schematic and get_proposal say how many are open, and get_comments reads them, each on the whole schematic (schematic: true), an item, a part of it, a point in it or words they quoted. Answer each one with reply_to_comment: say what you changed or why you didn't, and give its outcome, how you dealt with it in a word or two of your own (\"Actioned\", \"Noted\", \"Answered\", \"Not changed\"). Some comments only need reading. When nothing more is needed, set no_further_action: the comment then folds away and get_comments leaves it out. The user can set or clear that too, so one that comes back open needs another look. A comment whose target has card: true is about the item's card, what shows for it around the schematic: answer it by changing the item's title, description or card lines. One with point is about that place in the item: read the item to see what's there. One on the whole schematic is about all of it, or anything not in one item. Comments on a proposal stay with it as you revise it.",
   "tools": [
     {
       "name": "use_window",
@@ -361,7 +361,7 @@
     },
     {
       "name": "get_schematic",
-      "description": "One schematic's accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and the draft it shows: its latest, or the one it's pinned to (pinned), saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic's id and draft. proposal says if a change is waiting for the user. status says how its checks stand against its default branch, as list_schematics says (each embedded schematic's too), and within what it embeds that needs attention, at any depth, as list_schematics says. implementation says where its code comes from and how to run it; workspace, for a git repository, is where its code is kept on the user's Mac to work on (path, cloned, branch, changes: files with uncommitted changes); secrets, how its implementation's secrets stand on the user's Mac (name, set, and random if one can be made), never their values.",
+      "description": "One schematic's accepted draft: its name, summary, contract and parameters; its items listed with their id, kind, title and description but not their content; every link between them; and the schematics it embeds, each collapsed to its name, summary, contract and the draft it shows: its latest, or the one it's pinned to (pinned), saying if a newer draft exists. Fetch an item with get_schematic_item. Open further levels with depth, or by calling this for an embedded schematic's id and draft. proposal says if a change is waiting for the user. status says how its checks stand against its default branch, as list_schematics says (each embedded schematic's too), and within what it embeds that needs attention, at any depth, as list_schematics says. A use with expects (what this schematic relies on from it) gives expectations, how they stand against its code: status, total, failed, unchecked, notRun. dependents lists the schematics relying on this draft (their use of it and its expects), whose checks run with its own. implementation says where its code comes from and how to run it; workspace, for a git repository, is where its code is kept on the user's Mac to work on (path, cloned, branch, changes: files with uncommitted changes); secrets, how its implementation's secrets stand on the user's Mac (name, set, and random if one can be made), never their values.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -461,7 +461,7 @@
     },
     {
       "name": "get_test_results",
-      "description": "The results of a schematic's contract checks: one run (run_id, from list_test_runs or run_checks), or what a contract's runs add up to (a draft's, the latest unless you name one, or the proposal's) against some code (ref, or workspace; else the code it was last run against): each check's latest result, back to its last full run. Gives the code (named, with its commit), when and who ran it, how it went (passed, failed, or error when the code couldn't be started, with why and the end of the log), counts, and each check that failed or couldn't be run in full (its key clause/check, the promise it tests and the part of the contract it's in, its request, what it expects, its setup, and what went wrong); those passing and those not run by key. stale says a proposal changed after it was run. ran: false if they haven't been run.",
+      "description": "The results of a schematic's contract checks: one run (run_id, from list_test_runs or run_checks), or what a contract's runs add up to (a draft's, the latest unless you name one, or the proposal's) against some code (ref, or workspace; else the code it was last run against): each check's latest result, back to its last full run. Gives the code (named, with its commit), when and who ran it, how it went (passed, failed, or error when the code couldn't be started, with why and the end of the log), counts, and each check that failed or couldn't be run in full (its key clause/check, the promise it tests and the part of the contract it's in, its request, what it expects, its setup, and what went wrong); those passing and those not run by key. stale says a proposal changed after it was run. ran: false if they haven't been run. dependents, how what each schematic depending on this one relies on from it (its use's expects) went against the same code: counts, and each that failed or couldn't be run, with what it relies on.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2263,6 +2263,340 @@
                   "required": [
                     "source"
                   ]
+                },
+                "expects": {
+                  "description": "What this schematic relies on from it, as clauses with checks (a tree in the contract's format), run against the embedded schematic's code whenever its checks run, and by themselves when its contract changes, so a change that breaks this schematic shows. Only what this schematic needs. Checks can name the embedded schematic's shapes in expect.shape, and {name} in a request is the value this use gives that parameter. Send it again each time you send uses, or it goes.",
+                  "type": "object",
+                  "properties": {
+                    "markdown": {
+                      "description": "What explains this part",
+                      "type": "string"
+                    },
+                    "shapes": {
+                      "description": "The data this part talks about, seen by checks here and below",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][\\w-]*$",
+                            "description": "Its public name, unique in the contract, which checks and links use"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "schema": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {},
+                            "description": "JSON Schema"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "schema"
+                        ]
+                      }
+                    },
+                    "setup": {
+                      "description": "Steps run, in order, before every check here and below",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][\\w-]*$",
+                            "description": "Its id within the node"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "http"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "request": {
+                            "type": "object",
+                            "properties": {
+                              "method": {
+                                "type": "string",
+                                "description": "GET, POST, PUT, PATCH, DELETE…"
+                              },
+                              "path": {
+                                "type": "string",
+                                "description": "From the implementation's base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept"
+                              },
+                              "port": {
+                                "description": "Another port on the implementation's host, for another service of the run (one its Compose source starts with it); default its own",
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "query": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              },
+                              "headers": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              },
+                              "body": {
+                                "description": "Sent as JSON. A string \"{name}\" is a value a setup step above kept"
+                              },
+                              "form": {
+                                "description": "Fields sent form-encoded, as a browser's form is, instead of a body",
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "method",
+                              "path"
+                            ]
+                          },
+                          "expect": {
+                            "description": "What the response should be for setup to go on (default: any 2xx)",
+                            "type": "object",
+                            "properties": {
+                              "status": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "headers": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              },
+                              "body": {
+                                "description": "JSON the response body must contain: every field given, with that value (others may be there too)"
+                              },
+                              "shape": {
+                                "description": "The id of a shape declared on this node or one above it, which the response body must fit",
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "keep": {
+                            "description": "Values to keep from the response for requests on this node and below, by name: where each is, such as { \"id\": \"body.id\" }, or part of it. Cookies the responses set are sent on with a check's later requests by themselves (to any port of the host, as a browser does), so setup can sign in.",
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "from": {
+                                      "type": "string",
+                                      "description": "Where in the response: body, body.…, headers.… or status"
+                                    },
+                                    "match": {
+                                      "description": "A regular expression: its first group (else all it matches) is kept, such as state=([^&]+) in a Location header, or name=\"state\" value=\"([^\"]*)\" in HTML",
+                                      "type": "string"
+                                    },
+                                    "decode": {
+                                      "description": "Undo URL-encoding or HTML escaping in what was matched",
+                                      "type": "string",
+                                      "enum": [
+                                        "url",
+                                        "html"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "from"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "request"
+                        ]
+                      }
+                    },
+                    "clauses": {
+                      "description": "Its promises",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][\\w-]*$",
+                            "description": "Its public name, unique in the contract, which other schematics link to (use#id): set once and kept"
+                          },
+                          "title": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The promise, in a line"
+                          },
+                          "markdown": {
+                            "description": "What explains it",
+                            "type": "string"
+                          },
+                          "defined_by": {
+                            "description": "The item, or item#part, of this schematic where it's worked out: a document, flow, sequence or table",
+                            "type": "string"
+                          },
+                          "checks": {
+                            "description": "What tests it. A promise with none yet shows as not tested",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9][\\w-]*$",
+                                  "description": "Its id within the clause"
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "const": "http"
+                                },
+                                "title": {
+                                  "description": "What it tries, in a few words",
+                                  "type": "string"
+                                },
+                                "request": {
+                                  "type": "object",
+                                  "properties": {
+                                    "method": {
+                                      "type": "string",
+                                      "description": "GET, POST, PUT, PATCH, DELETE…"
+                                    },
+                                    "path": {
+                                      "type": "string",
+                                      "description": "From the implementation's base address, starting with /, such as /orders/{id}: {name} is a value a setup step above kept"
+                                    },
+                                    "port": {
+                                      "description": "Another port on the implementation's host, for another service of the run (one its Compose source starts with it); default its own",
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "query": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "headers": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "body": {
+                                      "description": "Sent as JSON. A string \"{name}\" is a value a setup step above kept"
+                                    },
+                                    "form": {
+                                      "description": "Fields sent form-encoded, as a browser's form is, instead of a body",
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "method",
+                                    "path"
+                                  ]
+                                },
+                                "expect": {
+                                  "type": "object",
+                                  "properties": {
+                                    "status": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "headers": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "body": {
+                                      "description": "JSON the response body must contain: every field given, with that value (others may be there too)"
+                                    },
+                                    "shape": {
+                                      "description": "The id of a shape declared on this node or one above it, which the response body must fit",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "description": "What the response should be: at least one of status, headers, body or shape"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "kind",
+                                "request",
+                                "expect"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title"
+                        ]
+                      }
+                    },
+                    "children": {
+                      "description": "The parts of its interface, each a branch of nodes",
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/__schema0"
+                      }
+                    }
+                  }
                 }
               },
               "required": [

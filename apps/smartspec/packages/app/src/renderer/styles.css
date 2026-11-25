@@ -1660,6 +1660,18 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .test-card > header > .run-standing.failing { color: var(--removed); }
 .test-card > header > .run-standing.error { color: light-dark(#8a5a00, #e3b341); }
 .test-card > header > .run-standing.running { color: var(--accent); }
+/* What a schematic relies on from one it embeds, or what one depending on it relies on from it:
+   each a section of its card, headed by the other schematic, drawn as a contract is. */
+.reliance { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.test-card > header + .reliance, .test-card > .run-line + .reliance { margin-top: 0; padding-top: 0; border-top: 0; }
+.reliance > header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.reliance > header h3 { margin: 0; font-size: 13px; }
+.reliance > header > .run-standing { margin-left: auto; color: var(--muted); font-size: 12px; }
+.reliance > header > .run-standing.passing { color: var(--decided-text); }
+.reliance > header > .run-standing.failing { color: var(--removed); }
+.reliance > header > .run-standing.error { color: light-dark(#8a5a00, #e3b341); }
+.reliance > header > .run-standing.running { color: var(--accent); }
+.reliance > .run-line { margin: 0 0 8px; }
 .run-line { margin: -4px 0 12px; color: var(--text-2); font-size: 12px; }
 .run-line.trouble { color: light-dark(#8a5a00, #e3b341); }
 .run-log { margin: 0 0 12px; }

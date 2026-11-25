@@ -169,6 +169,53 @@ export function contractJob(contract, id = null) {
   return { checks, shapes };
 }
 
+// What a schematic relies on from one it embeds (a use's `expects`, the user's model, 2026-11-25:
+// each schematic tests itself, and one that depends on another writes down what it relies on, so a
+// change to that one's contract shows what it breaks for those depending on it). A tree in the
+// contract's own format, its checks run against the embedded schematic's code, kept apart from that
+// schematic's own checks by their keys: `use:<owner>/<use>/clause/check`. A use's parameters (`with`)
+// fill `{name}` in its requests.
+export const useKey = (ownerId, useId) => `use:${ownerId}/${useId}/`;
+export const isUseKey = (key) => key.startsWith('use:');
+
+function fill(value, values) {
+  if (typeof value === 'string') return value.replace(PLACEHOLDER, (whole, name) => (Object.hasOwn(values, name) ? values[name] : whole));
+  if (Array.isArray(value)) return value.map((one) => fill(one, values));
+  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([key, one]) => [key, fill(one, values)]));
+  return value;
+}
+
+// The job's checks for what a use relies on, keyed apart (see useKey), its parameters filled in.
+// `shapes`, its own shapes; the embedded schematic's are given beside them.
+export function expectationsJob(expects, { ownerId, useId, values = {} }) {
+  const { checks, shapes } = contractJob(expects);
+  const prefix = useKey(ownerId, useId);
+  return {
+    shapes,
+    checks: checks.map((check) => ({
+      ...check,
+      key: `${prefix}${check.key}`,
+      clause: `${prefix}${check.clause}`,
+      setup: check.setup.map((step) => ({ ...step, request: fill(step.request, values) })),
+      request: fill(check.request, values),
+    })),
+  };
+}
+
+// The shapes a tree's checks and setup name (expect.shape), for what a use relies on from another's
+// contract: one it removes or changes breaks it.
+export function shapesNamed(tree) {
+  const named = new Set();
+  for (const { node } of walk(tree)) {
+    for (const step of node.setup ?? []) if (step.expect?.shape) named.add(step.expect.shape);
+    for (const clause of node.clauses ?? []) for (const check of clause.checks ?? []) if (check.expect?.shape) named.add(check.expect.shape);
+  }
+  return [...named];
+}
+
+// The shapes a contract declares, by id.
+export const shapeIds = (contract) => (isStructured(contract) ? walk(contract).flatMap(({ node }) => (node.shapes ?? []).map((shape) => shape.id)) : []);
+
 function fail(message) {
   throw new Error(message);
 }
@@ -199,10 +246,13 @@ function checkExpect(expect, where, shapes) {
 
 // Throws saying what's wrong with a contract, naming the part. `items`, the schematic's items, for
 // what defines a clause; `partsOf`, an item's parts. Tidies it as it goes (methods in capitals).
-export function checkContract(contract, { items = [], partsOf = () => [] } = {}) {
+// For what a use relies on (`expects`): `shapes`, the embedded schematic's, which its checks can
+// name too (its own can't share their ids); `known`, the use's parameters, filled into requests.
+export function checkContract(contract, { items = [], partsOf = () => [], shapes: given = [], known: values = [] } = {}) {
   if (contract === undefined || contract === null || typeof contract === 'string') return;
   if (!isObject(contract)) fail('The contract is Markdown, or a tree of nodes.');
   const seen = new Set();
+  const theirs = new Set(given);
   const name = (id, what) => {
     if (typeof id !== 'string' || !ID.test(id)) fail(`"${id}" can't be the id of ${what}: use letters, numbers, - and _.`);
     if (id === 'contract') fail(`"contract" can't be the id of ${what}.`);
@@ -234,6 +284,7 @@ export function checkContract(contract, { items = [], partsOf = () => [] } = {})
     for (const shape of list(node, 'shapes', where)) {
       if (!isObject(shape)) fail(`${where} has a shape that isn't one.`);
       name(shape.id, 'a shape');
+      if (theirs.has(shape.id)) fail(`Shape ${shape.id} has the id of one of the embedded schematic's shapes: name that one in expect.shape instead, or give this its own id.`);
       if (!isObject(shape.schema)) fail(`Shape ${shape.id} needs a schema: JSON Schema, as an object.`);
       shapes.add(shape.id);
     }
@@ -293,7 +344,7 @@ export function checkContract(contract, { items = [], partsOf = () => [] } = {})
 
     for (const child of list(node, 'children', where)) visit(child, { root: false, parentPath: path, shapes, known });
   };
-  visit(contract, { root: true, parentPath: null, shapes: new Set(), known: new Set() });
+  visit(contract, { root: true, parentPath: null, shapes: theirs, known: new Set(values) });
 }
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);

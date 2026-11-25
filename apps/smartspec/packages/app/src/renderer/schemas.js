@@ -64,12 +64,15 @@ const testPill = (status) => {
 // main/store.js), rolled up into one pill beside its own: the worst status, "inside" (the user's
 // choice: status rolls up through embedding), each one named with the way to it on pointing at it.
 const WITHIN_STATUS = { failing: 'is failing', 'cant-run': 'can’t be run', 'out-of-date': 'is out of date' };
+const RELIED_STATUS = { failing: 'fails what’s relied on from it', 'cant-run': 'can’t run what’s relied on from it', 'out-of-date': 'is out of date' };
 const withinPill = (within) => {
   const worst = within?.[0];
   const [text] = TEST_PILLS[worst?.status] ?? [];
   if (!text) return null;
   const one = pill(`${text} inside`, `test-status ${worst.status}`);
-  one.title = within.map((each) => `${each.name}${each.via.length ? ` (inside ${each.via.join(' › ')})` : ''} ${WITHIN_STATUS[each.status]}`).join('\n');
+  // One whose own checks pass but that fails what's relied on from it (see main/store.js) says so.
+  const how = (each) => (each.expectations && !each.own ? RELIED_STATUS[each.status] : WITHIN_STATUS[each.status]);
+  one.title = within.map((each) => `${each.name}${each.via.length ? ` (inside ${each.via.join(' › ')})` : ''} ${how(each)}`).join('\n');
   return one;
 };
 
@@ -1013,6 +1016,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     };
 
     here.choices = { shown };
+    here.embeds = new Set([...uses.values()].map((use) => use.schemaId));
     approvals = new Set(here.proposal ? shown.approved ?? [] : []);
     if (!testRuns.has(here.schemaId)) testRuns.set(here.schemaId, new Map(((await api.testState?.(here.schemaId).catch(() => null)) ?? []).map((run) => [run.id, run])));
     here.runVersion = versionOf(here, shown);
@@ -1118,12 +1122,88 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       })())),
       historyView(here, shown) ?? h('p', { className: 'muted' }, 'Every run of its checks is kept here, newest first. Pick one to see its results on the contract.'));
 
+    // What another schematic relies on from this one (its use's expects, see expectationsJob in
+    // main/contract.js), or this one from one it embeds: its checks drawn as a contract's are, with
+    // how each stands against that one's code. The user's model (2026-11-25): each schematic tests
+    // itself, and a dependent's own checks show what a change breaks for it.
+    const reliance = ({ title, line, expects, results, running, standing: given = null, action = null, error = null }) => {
+      const overall = contractStanding(expects, results, running);
+      const said = given?.status === 'design-only' ? 'No code to run against yet'
+        : running.size ? 'Running…' : Object.keys(results).length ? overall.label : `${overall.total} ${overall.total === 1 ? 'check' : 'checks'}, not run`;
+      const tree = h('div', {});
+      renderContract(tree, expects, { results, running, folded: here.contractFolded, onFold: (id, shut) => (shut ? here.contractFolded.add(id) : here.contractFolded.delete(id)) });
+      return h('section', { className: 'reliance' },
+        h('header', {}, h('h3', {}, title), h('span', { className: `run-standing ${running.size ? 'running' : Object.keys(results).length ? overall.status : ''}` }, said), action),
+        line && h('p', { className: 'muted run-line' }, line),
+        error && h('p', { className: 'run-line trouble' }, error),
+        tree);
+    };
+    // Its dependents (`shown.dependents`): what each relies on from this version, run with its own
+    // checks (Run checks runs theirs too), its results from the same runs as the contract's.
+    const reliedOnCard = () => {
+      const dependents = shown.dependents ?? [];
+      if (!dependents.length) return null;
+      const state = runOf(here, shown);
+      const running = runningKeys(state);
+      const strip = (prefix, source) => Object.fromEntries(Object.entries(source).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [key.slice(prefix.length), value]));
+      return h('section', { className: 'test-card test-relied-on' },
+        h('header', {}, h('h2', {}, 'Relied on by'), h('span', { className: 'muted' }, `${dependents.length} ${dependents.length === 1 ? 'schematic' : 'schematics'}`)),
+        h('p', { className: 'muted run-line' }, `What ${dependents.length === 1 ? 'it relies' : 'each relies'} on from ${shown.name}, run with its checks against the same code.`),
+        ...dependents.map((one) => {
+          const prefix = `use:${one.ownerId}/${one.use.id}/`;
+          return reliance({
+            title: one.ownerName,
+            line: one.version === 'proposal' ? 'From its proposal, not yet accepted.' : null,
+            expects: one.use.expects,
+            results: strip(prefix, state?.results ?? {}),
+            running: new Set([...running].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length))),
+          });
+        }));
+    };
+    // What this schematic relies on from each it embeds, run against that one's code (its default
+    // branch), each with Run.
+    here.relyErrors ??= new Map();
+    const reliesCard = () => {
+      const relying = embedded.filter((use) => use.expects);
+      if (!relying.length) return null;
+      return h('section', { className: 'test-card test-relies' },
+        h('header', {}, h('h2', {}, 'Relies on'), h('span', { className: 'muted' }, `${relying.length} ${relying.length === 1 ? 'schematic' : 'schematics'}`)),
+        ...relying.map((use) => {
+          const standing = use.expectations ?? null;
+          const running = new Set(standing?.pending ?? []);
+          const busy = Boolean(standing?.running);
+          const canRun = standing?.status !== 'design-only' && api.testRun && !busy;
+          const action = h('button', {
+            type: 'button', className: 'run-all', disabled: !canRun,
+            title: canRun ? `Run what ${shown.name} relies on against ${use.name}’s code` : busy ? 'Running' : `${use.name} has no implementation to run against yet`,
+            onclick: () => {
+              here.relyErrors.delete(use.id);
+              api.testRun(use.schemaId, use.draftId, { only: `use:${here.schemaId}/${use.id}`, ownerVersion: version }).catch((error) => {
+                here.relyErrors.set(use.id, error.message);
+                render();
+              });
+            },
+          }, standing?.at ? 'Run again' : 'Run');
+          return reliance({
+            title: use.name,
+            line: standing?.code ? `Against ${standing.code}` : `Run against ${use.name}’s code, its default branch, and whenever its checks run.`,
+            expects: use.expects,
+            results: standing?.results ?? {},
+            running,
+            standing,
+            action,
+            error: here.relyErrors.get(use.id),
+          });
+        }));
+    };
+
     // As a run goes on, only its cards are drawn again, in place, so the canvas keeps its place.
-    const painted = { contract: contractCard(), log: logCard(), history: historyCard() };
-    const makers = { contract: contractCard, log: logCard, history: historyCard };
+    const painted = { contract: contractCard(), log: logCard(), history: historyCard(), reliedOn: reliedOnCard() };
+    const makers = { contract: contractCard, log: logCard, history: historyCard, reliedOn: reliedOnCard };
     here.paintRun = () => {
       for (const [name, make] of Object.entries(makers)) {
         const next = make();
+        if (!painted[name] || !next) continue;
         painted[name].replaceWith(next);
         painted[name] = next;
       }
@@ -1156,7 +1236,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // A handle after each card widens or narrows it (the user's choice); see sizedColumns below.
     const world = h('div', { className: 'test-world' }, ...sizedColumns([
       ['implementation', implementation], ['secrets', secrets], ['workspace', workspaceCard],
-      ['contract', painted.contract], ['history', painted.history], ['log', painted.log],
+      ['contract', painted.contract], ['relied-on', painted.reliedOn], ['relies', reliesCard()], ['history', painted.history], ['log', painted.log],
     ], () => Number(/scale\(([\d.]+)\)/.exec(world.style.transform)?.[1] ?? 1)));
     const size = { width: 1600, height: 1000 };
     new ResizeObserver(() => {
@@ -1392,13 +1472,29 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
     const when = new Date(state.endedAt ?? state.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const took = state.endedAt ? ` in ${Math.max(1, Math.round((state.endedAt - state.startedAt) / 1000))} s` : '';
-    const by = state.by === 'ai' ? ' by your AI' : '';
+    const by = state.by === 'ai' ? ' by your AI' : state.by === 'auto' ? ' by itself' : '';
     const stale = state.stale ? ' The proposal has changed since, so these results are out of date.' : '';
     if (state.outcome === 'error' && state.detail) return `At ${when}${by ? `,${by}` : ''}, tried${against}: ${state.detail}${stale}`;
-    const { passed = 0, failed = 0, error: unchecked = 0 } = state.counts ?? {};
-    const ran = passed + failed + unchecked;
-    const parts = [`${passed} passed`, failed && `${failed} failed`, unchecked && `${unchecked} couldn’t be run`].filter(Boolean).join(', ');
-    return `At ${when}${by ? `,${by}` : ''}, ran ${ran} ${ran === 1 ? 'check' : 'checks'}${state.only ? ` of ${nameOf(state.only)}` : ''}${against}${took}: ${parts}.${stale}`;
+    if (!state.consumers?.length) {
+      const { passed = 0, failed = 0, error: unchecked = 0 } = state.counts ?? {};
+      const ran = passed + failed + unchecked;
+      const parts = [`${passed} passed`, failed && `${failed} failed`, unchecked && `${unchecked} couldn’t be run`].filter(Boolean).join(', ');
+      return `At ${when}${by ? `,${by}` : ''}, ran ${ran} ${ran === 1 ? 'check' : 'checks'}${state.only ? ` of ${nameOf(state.only)}` : ''}${against}${took}: ${parts}.${stale}`;
+    }
+    // Its own checks counted apart from what those depending on it rely on (run with them).
+    const tally = (theirs) => {
+      const outcomes = Object.entries(state.results ?? {}).filter(([key]) => key.startsWith('use:') === theirs).map(([, result]) => result.outcome);
+      const count = (outcome) => outcomes.filter((one) => one === outcome).length;
+      return { ran: outcomes.length, words: [(count('passed') || outcomes.length === 0) && `${count('passed')} passed`, count('failed') && `${count('failed')} failed`, count('error') && `${count('error')} couldn’t be run`].filter(Boolean).join(', ') };
+    };
+    const names = [...new Set((state.consumers ?? []).map((one) => `“${one.name}”`))];
+    const relied = names.length && `what ${names.length < 3 ? names.join(' and ') : `${names.length} schematics`} ${names.length === 1 ? 'relies' : 'rely'} on`;
+    const own = tally(false);
+    const theirs = tally(true);
+    const checks = (count) => `${count} ${count === 1 ? 'check' : 'checks'}`;
+    if (!own.ran && theirs.ran) return `At ${when}${by ? `,${by}` : ''}, ran ${checks(theirs.ran)} of ${relied}${against}${took}: ${theirs.words}.${stale}`;
+    const also = theirs.ran ? `; and ${checks(theirs.ran)} of ${relied}: ${theirs.words}` : '';
+    return `At ${when}${by ? `,${by}` : ''}, ran ${checks(own.ran)}${state.only ? ` of ${nameOf(state.only)}` : ''}${against}${took}: ${own.words}${also}.${stale}`;
   }
 
   // Which code the contract is run against and shown for (the user's choices: any code, the AI or
@@ -1505,8 +1601,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       const row = h('button', { type: 'button', className: `run-row ${run.running ? 'running' : run.outcome === 'passed' ? 'passing' : run.outcome === 'failed' ? 'failing' : 'error'}`, 'aria-pressed': String(here.viewRun === run.id) },
         h('span', { className: 'clause-dot', 'aria-hidden': 'true' }),
         h('span', { className: 'run-when' }, when(run)),
-        h('span', { className: 'run-who' }, run.by === 'ai' ? 'AI' : 'You'),
-        h('span', { className: 'run-contract' }, `${contractOf(run)}${run.only ? `, ${contractPartName(shown.contract, run.only)}` : ''}${run.stale ? ' (since changed)' : ''}`),
+        h('span', { className: 'run-who', title: run.by === 'auto' ? 'Started by itself, as a contract changed' : null }, run.by === 'ai' ? 'AI' : run.by === 'auto' ? 'Auto' : 'You'),
+        h('span', { className: 'run-contract' }, `${contractOf(run)}${run.only ? `, ${run.only.startsWith('use:') ? `what ${run.consumers?.[0]?.name ?? 'another schematic'} relies on` : contractPartName(shown.contract, run.only)}` : ''}${run.stale ? ' (since changed)' : ''}`),
         h('span', { className: 'run-what' }, historyLine(run)));
       row.addEventListener('click', () => {
         here.viewRun = here.viewRun === run.id ? null : run.id;
@@ -3095,6 +3191,16 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     const here = top();
     // Home's pills say how each schematic's checks stand: drawn again once a run ends.
     if (!here && !run.running) return render();
+    // A run of something this schematic embeds: what it relies on, and that one's status, may have
+    // changed, so drawn again once it ends (and now and then while it runs, in Test mode).
+    if (here && here.schemaId !== schemaId && here.embeds?.has(schemaId)) {
+      if (!run.running) {
+        clearTimeout(runRender);
+        runRender = null;
+        render();
+      } else if (modes.mode() === 'test' && run.consumers?.some((one) => one.schemaId === here.schemaId)) runRender ??= setTimeout(() => { runRender = null; render(); }, 600);
+      return;
+    }
     if (!here || here.schemaId !== schemaId) return;
     if (modes.mode() === 'test' && here.paintRun) {
       here.paintRun();

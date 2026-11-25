@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { clausesOf, contractJob } from './contract.js';
+import { clausesOf, contractJob, expectationsJob, isUseKey, useKey } from './contract.js';
 import { WORKSPACE_KINDS } from './implementation.js';
 import { DEFAULT_TARGET, WORKSPACE_TARGET, refOf, runLine, targetLabel, targetOf, viewOf } from './test-history.js';
 
@@ -22,6 +22,11 @@ const LOG_LINES = 1500;
 const SAVED_LOG_LINES = 300;
 const SEND_EVERY = 120;
 
+// What a use relies on, as run: a run's results for it count only while it's the same.
+const useBasis = (use) => createHash('sha256').update(JSON.stringify([use.expects ?? null, use.with ?? {}])).digest('hex');
+// A run started by itself is for a change made in the last few minutes only, never one found
+// waiting after a restart.
+const AUTO_WITHIN_MS = 10 * 60_000;
 const basisOf = (record) => createHash('sha256').update(JSON.stringify([record.contract ?? '', record.implementation ?? null])).digest('hex');
 
 // A repository's branches and tags, and its default branch (what its HEAD names), read from it
@@ -72,6 +77,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
   const heads = new Map();
   const readHeadOf = readHead ?? (async (url, branch) => headCommit(url, branch, { ...process.env, PATH: await userPath() }));
   const history = new Map(); // schemaId → Map(runId → run)
+  const autoTried = new Set(); // the changes runs have been started for by themselves (see auto)
   const waiting = new Map(); // runId → [told when it ends]
   const safe = (text) => text.replace(/[^\w-]/g, '_');
 
@@ -194,8 +200,40 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
       ...(run.stale ? { stale: 'The proposal has changed since this was run.' } : {}),
       counts: { passed: passed.length, failed: problems.filter((one) => one.outcome === 'failed').length, couldnt_be_run: problems.filter((one) => one.outcome !== 'failed').length, not_run: notRun.length },
       problems, passed, not_run: notRun,
+      ...(dependents(run, results).length ? { dependents: dependents(run, results) } : {}),
       ...(run.outcome === 'error' && !run.running ? { log: run.log.slice(-40).map((one) => one.text) } : {}),
     };
+  }
+
+  // How what each schematic depending on it relies on went in a run (`results`, the run's or what
+  // its runs add up to), for the AI: [{ schematic_id, schematic, use, counts, problems }].
+  function dependents(run, results) {
+    const line = (request) => `${request.method} ${request.path}${request.body !== undefined ? ` ${JSON.stringify(request.body)}` : ''}`;
+    return (run.consumers ?? []).map((one) => {
+      const prefix = useKey(one.schemaId, one.use);
+      const titles = new Map(clausesOf(one.expects).map(({ clause }) => [`${prefix}${clause.id}`, clause.title]));
+      const { checks } = expectationsJob(one.expects, { ownerId: one.schemaId, useId: one.use });
+      const problems = [];
+      let passed = 0;
+      let notRun = 0;
+      for (const check of checks) {
+        const result = results[check.key];
+        if (!result) notRun++;
+        else if (result.outcome === 'passed') passed++;
+        else problems.push({ key: check.key.slice(prefix.length), outcome: result.outcome === 'error' ? 'couldn\'t be run' : 'failed', relies_on: titles.get(check.clause), ...(check.title ? { check: check.title } : {}), request: line(check.request), expect: check.expect, detail: result.detail });
+      }
+      return { schematic_id: one.schemaId, schematic: one.name, use: one.use, ...(one.version === 'proposal' ? { from_its_proposal: true } : {}), counts: { passed, failed: problems.filter((p) => p.outcome === 'failed').length, couldnt_be_run: problems.filter((p) => p.outcome !== 'failed').length, not_run: notRun }, problems };
+    });
+  }
+
+  // How a set of keys stands in what some runs add up to: { status, total, failed, unchecked, notRun }.
+  function standingOf(view, keys) {
+    const outcomes = keys.map((key) => view?.results[key]?.outcome);
+    const failed = outcomes.filter((one) => one === 'failed').length;
+    const unchecked = outcomes.filter((one) => one === 'error').length;
+    const notRun = outcomes.filter((one) => !one).length;
+    const status = failed ? 'failing' : unchecked ? 'cant-run' : notRun ? (view && !view.running && view.outcome === 'error' && notRun === keys.length ? 'cant-run' : 'implemented') : 'passing';
+    return { status, total: keys.length, failed, unchecked, notRun, running: Boolean(view?.running), ...(view ? { code: view.code?.label ?? targetLabel(view.target), at: view.startedAt } : {}) };
   }
 
   // A draft's (the latest unless named) or the proposal's record and version.
@@ -209,14 +247,43 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
     // Runs the checks of a schematic's draft or proposal (`version`), all of them or a branch's or
     // clause's (`only`, its id), against some code (`target`, see test-history.js); `by` who asked.
     // Resolves with the run once it has started.
-    async start(schemaId, version, { only = null, target = DEFAULT_TARGET, by = 'user' } = {}) {
+    // `ownerVersion`, for a use's own run: the owner's draft or proposal whose expects to run.
+    async start(schemaId, version, { only = null, target = DEFAULT_TARGET, by = 'user', ownerVersion = null } = {}) {
       const runs = runsOf(schemaId);
       if (runningOn(schemaId, version, target)) throw new Error(`Its checks against ${targetLabel(target)} are already running: stop them first, or wait for them to finish.`);
       const record = await recordOf(schemaId, version);
       if (!record) throw new Error('There\'s no proposal waiting to run the checks of.');
       if (!record.implementation) throw new Error(`${record.name} has no implementation, so there's nothing to run its checks against. Ask your AI to add one, telling it where the code is.`);
-      const { checks, shapes } = contractJob(record.contract, only);
-      if (!checks.length) throw new Error(only ? 'There are no checks there to run.' : `${record.name}'s contract has no checks to run yet.`);
+      // Its own checks (all, or a branch's or clause's), and what those depending on it rely on (see
+      // expectationsJob in contract.js), run against the same code: a run of a branch runs none of
+      // theirs, and one of a use's (`only`, use:<owner>/<use>) none of its own.
+      const ofUse = only && isUseKey(only);
+      const own = contractJob(record.contract, ofUse ? null : only);
+      const checks = ofUse ? [] : own.checks;
+      const shapes = { ...own.shapes };
+      const consumers = [];
+      if (!only || ofUse) {
+        const latestId = record.line?.at(-1) ?? null;
+        const follows = (use) => (use.pin ? use.pin === version : version === 'proposal' || version === latestId);
+        const chosen = new Map();
+        const dependents = store.dependentsOf ? await store.dependentsOf(schemaId).catch(() => []) : [];
+        for (const one of dependents) {
+          const prefix = useKey(one.ownerId, one.use.id);
+          if (ofUse ? !prefix.startsWith(`${only.replace(/\/$/, '')}/`) : !follows(one.use)) continue;
+          // An owner's accepted draft, unless its proposal is the one asked for.
+          const kept = chosen.get(prefix);
+          const wanted = ofUse && ownerVersion ? one.version === ownerVersion : one.version !== 'proposal';
+          if (!kept || (wanted && !kept.wanted)) chosen.set(prefix, { ...one, wanted });
+        }
+        for (const one of chosen.values()) {
+          const job = expectationsJob(one.use.expects, { ownerId: one.ownerId, useId: one.use.id, values: one.use.with ?? {} });
+          if (!job.checks.length) continue;
+          Object.assign(shapes, job.shapes, own.shapes);
+          checks.push(...job.checks);
+          consumers.push({ schemaId: one.ownerId, name: one.ownerName, version: one.version, use: one.use.id, basis: useBasis(one.use), expects: one.use.expects });
+        }
+      }
+      if (!checks.length) throw new Error(ofUse ? 'There\'s nothing relied on there to run.' : only ? 'There are no checks there to run.' : `${record.name}'s contract has no checks to run yet.`);
       const kind = record.implementation.source.kind;
       if (target !== DEFAULT_TARGET && !WORKSPACE_KINDS.includes(kind)) throw new Error(`Its code is ${kind === 'running' ? 'something already running' : kind === 'image' ? 'a Docker image' : 'an archive'}, so there's no branch, commit or workspace to choose: run it as the schematic says.`);
       const workdir = target === WORKSPACE_TARGET ? workspaces?.pathFor(schemaId, record.name) : null;
@@ -232,7 +299,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
       const startedAt = Date.now();
       const run = {
         id: `${startedAt.toString(36)}-${Math.random().toString(36).slice(2, 6)}`, schemaId, version, target, by, only,
-        basis: basisOf(record), stale: false,
+        basis: basisOf(record), stale: false, consumers,
         running: true, phase: 'starting', startedAt, endedAt: null,
         outcome: null, detail: null, counts: null, results: {}, pending: checks.map((check) => check.key), log: [], buffer: '', checked: false,
         code: null,
@@ -343,6 +410,26 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
       return 'passing';
     },
 
+    // How what a schematic (`ownerId`) relies on from one it embeds (`use`, its `expects`) stands
+    // against the embedded one's code, for the draft of it the use shows (`version`, its record
+    // `record`): its runs against the default branch that ran this use's expects as they are now.
+    // { status, total, failed, unchecked, notRun, running, code, at }, or null with nothing to run;
+    // status 'design-only' while it has no code.
+    expectationsOf(schemaId, version, record, ownerId, use) {
+      let keys = [];
+      try { keys = expectationsJob(use.expects, { ownerId, useId: use.id }).checks.map((check) => check.key); } catch { /* none */ }
+      if (!keys.length) return null;
+      if (!record?.implementation) return { status: 'design-only', total: keys.length, failed: 0, unchecked: 0, notRun: keys.length, running: false };
+      const basis = useBasis(use);
+      const runs = [...runsOf(schemaId).values()].filter((run) => run.consumers?.some((one) => one.schemaId === ownerId && one.use === use.id && one.basis === basis));
+      const view = viewOf(runs, version, DEFAULT_TARGET);
+      // Its results by the keys its own tree has (`clause/check`), and what's running, for drawing it.
+      const prefix = useKey(ownerId, use.id);
+      const results = Object.fromEntries(Object.entries(view?.results ?? {}).filter(([key]) => key.startsWith(prefix)).map(([key, result]) => [key.slice(prefix.length), result]));
+      const pending = (view?.running ? view.pending ?? [] : []).filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
+      return { ...standingOf(view, keys), results, pending };
+    },
+
     // Every run of a schematic, newest first, for its windows.
     stateOf(schemaId) {
       return [...runsOf(schemaId).values()].sort((a, b) => b.startedAt - a.startedAt).map(publicRun);
@@ -351,6 +438,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
     // A schematic changed: a proposal's runs are out of date once what was run changes, and are the
     // new draft's once it's accepted as it was (else they stay, out of date, in the history).
     async changed(schemaId) {
+      if (schemaId) this.auto(schemaId).catch(() => {});
       const ids = schemaId ? [schemaId] : [...history.keys()];
       for (const id of ids) {
         const proposalRuns = [...runsOf(id).values()].filter((run) => run.version === 'proposal' && !run.running);
@@ -462,23 +550,80 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
     // never blocks, as a contract can be written ahead of its code): its latest run's code, and what
     // its runs against that code add up to. { state: 'none' | 'not-run' | 'running' | 'didnt-run' |
     // 'failing' | 'passing', total, failed, unchecked, code, detail }.
+    // `dependents`, how what each schematic depending on it relies on stands in those runs:
+    // [{ name, use, failed, unchecked, notRun, total, broken: [what it relies on that fails now, and
+    // didn't on the latest draft], already: [what failed there too] }].
     async proposalStanding(schemaId) {
       const proposal = await store.getProposal(schemaId).catch(() => null);
       if (!proposal?.implementation) return { state: 'none' };
       const total = contractJob(proposal.contract).checks.length;
-      if (!total) return { state: 'none' };
       const runs = [...runsOf(schemaId).values()].filter((run) => run.version === 'proposal' && !run.stale).sort((a, b) => b.startedAt - a.startedAt);
-      if (!runs.length) return { state: 'not-run', total };
-      const view = viewOf(runs, 'proposal', runs[0].target);
+      const view = runs.length ? viewOf(runs, 'proposal', runs[0].target) : null;
+      // What already failed on the latest draft, against its default branch, isn't this change's doing.
+      const latestId = proposal.line?.at(-1) ?? null;
+      const failedBefore = (one, key) => {
+        const before = [...runsOf(schemaId).values()].filter((run) => run.consumers?.some((other) => other.schemaId === one.schemaId && other.use === one.use && other.basis === one.basis));
+        const result = latestId ? viewOf(before, latestId, DEFAULT_TARGET)?.results[key] : null;
+        return Boolean(result) && result.outcome !== 'passed';
+      };
+      const deps = (view?.consumers ?? []).map((one) => {
+        const prefix = useKey(one.schemaId, one.use);
+        const titles = new Map(clausesOf(one.expects).map(({ clause }) => [`${prefix}${clause.id}`, clause.title]));
+        const checks = expectationsJob(one.expects, { ownerId: one.schemaId, useId: one.use }).checks;
+        const standing = standingOf(view, checks.map((check) => check.key));
+        const failing = checks.filter((check) => view.results[check.key] && view.results[check.key].outcome !== 'passed');
+        const broken = [...new Set(failing.filter((check) => !failedBefore(one, check.key)).map((check) => titles.get(check.clause)))];
+        const already = [...new Set(failing.filter((check) => failedBefore(one, check.key)).map((check) => titles.get(check.clause)))].filter((title) => !broken.includes(title));
+        return { name: one.name, use: one.use, ...standing, broken, already };
+      });
+      const also = deps.length ? { dependents: deps } : {};
+      if (!total) return { state: 'none', ...also };
+      if (!runs.length) return { state: 'not-run', total, ...also };
       const code = view.code?.label ?? targetLabel(view.target);
-      if (view.running) return { state: 'running', total, code };
+      if (view.running) return { state: 'running', total, code, ...also };
       const outcomes = contractJob(proposal.contract).checks.map((check) => view.results[check.key]?.outcome);
       const failed = outcomes.filter((one) => one === 'failed').length;
       const unchecked = outcomes.filter((one) => one === 'error').length;
       const missing = outcomes.filter((one) => !one).length;
-      if (!failed && !unchecked && missing === total) return { state: 'didnt-run', total, code, detail: view.detail };
-      if (failed || unchecked || missing) return { state: 'failing', total, failed, unchecked, missing, code };
-      return { state: 'passing', total, code };
+      if (!failed && !unchecked && missing === total) return { state: 'didnt-run', total, code, detail: view.detail, ...also };
+      if (failed || unchecked || missing) return { state: 'failing', total, failed, unchecked, missing, code, ...also };
+      return { state: 'passing', total, code, ...also };
+    },
+
+    // Runs started by themselves, as a schematic changes (the user's choice, 2026-11-25: a change to
+    // a contract should show what it breaks for the schematics depending on it, with nothing to
+    // start). Each is tried once, for a change made in the last few minutes, and never asks: one that
+    // can't start (a secret not set, no code) is left for the user to run.
+    // - A proposal that changes the contract, its code the accepted (the AI may run only that, so
+    //   it does by itself only that): its checks and its dependents', against the workspace where
+    //   there's one, else the default branch.
+    // - A new draft whose contract changed: the same, against the default branch, unless the
+    //   proposal's run became its own on accepting.
+    // - A new draft of a schematic that changed what it relies on from one it embeds: those checks,
+    //   against that one's code.
+    async auto(schemaId) {
+      const fresh = (at) => at && Date.now() - new Date(at).getTime() < AUTO_WITHIN_MS;
+      const once = (key) => (autoTried.has(key) ? false : (autoTried.add(key), true));
+      const go = (id, version, options) => this.start(id, version, { ...options, by: 'auto' }).catch(() => null);
+      const latest = await store.getSchema(schemaId).catch(() => null);
+      const proposal = await store.getProposal(schemaId).catch(() => null);
+      const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      if (proposal?.implementation && latest && fresh(proposal.createdAt ?? latest.proposal?.createdAt) && same(latest.implementation, proposal.implementation) && !same(latest.contract || null, proposal.contract || null) && once(`${schemaId} proposal ${basisOf(proposal)}`)) {
+        const kind = proposal.implementation.source?.kind;
+        const cloned = workspaces && WORKSPACE_KINDS.includes(kind) ? (await workspaces.info(schemaId, proposal.name).catch(() => null))?.cloned : false;
+        const target = cloned ? WORKSPACE_TARGET : DEFAULT_TARGET;
+        if (!runningOn(schemaId, 'proposal', target)) await go(schemaId, 'proposal', { target });
+      }
+      if (!latest || !fresh(latest.createdAt)) return;
+      const before = latest.line.length > 1 ? await store.getSchema(schemaId, { draftId: latest.line.at(-2) }).catch(() => null) : null;
+      const ran = [...runsOf(schemaId).values()].some((run) => run.version === latest.draftId);
+      if (latest.implementation && !ran && !same(before?.contract || null, latest.contract || null) && once(`${schemaId} draft ${latest.draftId}`)) await go(schemaId, latest.draftId, {});
+      for (const use of latest.uses ?? []) {
+        if (!use.expects || use.missing) continue;
+        const was = before?.uses?.find((one) => one.id === use.id);
+        if (was && same(was.expects, use.expects) && same(was.with, use.with) && was.schemaId === use.schemaId) continue;
+        if (once(`${schemaId} use ${use.id} ${useBasis(use)}`)) await go(use.schemaId, use.draftId, { only: useKey(schemaId, use.id).slice(0, -1) });
+      }
     },
 
     // The branches and tags a draft's or the proposal's code can be run at, for the window's Branch

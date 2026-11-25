@@ -416,3 +416,96 @@ describe('a schematic\'s status', () => {
     assert.equal(statusWith([{ id: 'r1', version: 'd2', startedAt: 1, outcome: 'passed', results: { 'a-works/ok': passed }, only: 'a', code }]).status(), 'implemented');
   });
 });
+
+describe('what depending schematics rely on', () => {
+  // Shop embeds Thing and relies on /a answering, and on /b (broken).
+  const relies = (paths) => ({ clauses: paths.map((one) => ({ id: `needs${one.replace('/', '-')}`, title: `${one} answers`, checks: [check('ok', one)] })) });
+  const withShop = (store, paths = ['/a', '/b'], extra = {}) => Object.assign(store, {
+    dependentsOf: async () => [{ ownerId: 'shop', ownerName: 'Shop', version: 's-d1', use: { id: 'thing', schemaId: 's1', with: {}, expects: relies(paths), ...extra } }],
+  });
+
+  test('run with its own checks, against its code, kept apart and given to the AI', { timeout: 30_000 }, async () => {
+    const store = withShop(fakeStore());
+    const { testRuns, next } = runsWith(store);
+    const done = next();
+    const started = await testRuns.start('s1', 'd1');
+    assert.deepEqual(started.pending, ['a-works/ok', 'b-works/ok', 'use:shop/thing/needs-a/ok', 'use:shop/thing/needs-b/ok']);
+    const run = await done;
+    assert.equal(run.results['use:shop/thing/needs-b/ok'].outcome, 'failed');
+    const use = (await store.dependentsOf())[0].use;
+    const standing = testRuns.expectationsOf('s1', 'd1', store.state.drafts.d1, 'shop', use);
+    assert.equal(standing.status, 'failing');
+    assert.equal(standing.total, 2);
+    assert.equal(standing.failed, 1);
+    const results = await testRuns.resultsFor('s1', {});
+    assert.equal(results.counts.passed, 1, 'its own counts are its own');
+    assert.equal(results.dependents.length, 1);
+    assert.equal(results.dependents[0].schematic, 'Shop');
+    assert.deepEqual(results.dependents[0].counts, { passed: 1, failed: 1, couldnt_be_run: 0, not_run: 0 });
+    assert.equal(results.dependents[0].problems[0].relies_on, '/b answers');
+    // Changed since, what was run says nothing about it.
+    assert.equal(testRuns.expectationsOf('s1', 'd1', store.state.drafts.d1, 'shop', { ...use, expects: relies(['/a']) }).status, 'implemented');
+  });
+
+  test('a branch runs none of theirs, and a use\'s run only its own', { timeout: 30_000 }, async () => {
+    const store = withShop(fakeStore());
+    const { testRuns, next } = runsWith(store);
+    let done = next();
+    assert.deepEqual((await testRuns.start('s1', 'd1', { only: 'a' })).pending, ['a-works/ok']);
+    await done;
+    done = next();
+    assert.deepEqual((await testRuns.start('s1', 'd1', { only: 'use:shop/thing' })).pending, ['use:shop/thing/needs-a/ok', 'use:shop/thing/needs-b/ok']);
+    await done;
+  });
+
+  test('a pinned use is run only with the draft it\'s pinned to', { timeout: 30_000 }, async () => {
+    const store = withShop(fakeStore(), ['/a'], { pin: 'd0' });
+    const { testRuns, next } = runsWith(store);
+    const done = next();
+    assert.deepEqual((await testRuns.start('s1', 'd1')).pending, ['a-works/ok', 'b-works/ok']);
+    await done;
+  });
+
+  test('a proposal changing the contract runs them by itself, and accepting says what it breaks', { timeout: 30_000 }, async () => {
+    const store = withShop(fakeStore());
+    store.getSchema = ((get) => async (...args) => ({ ...(await get(...args)), createdAt: new Date(0).toISOString() }))(store.getSchema);
+    const { testRuns, next } = runsWith(store);
+    store.state.proposal = { name: 'Thing', createdAt: new Date().toISOString(), contract: { children: [contract().children[0]] }, implementation: { source: { kind: 'running', url } } };
+    const done = next();
+    await testRuns.changed('s1');
+    const run = await done;
+    assert.equal(run.by, 'auto');
+    assert.equal(run.version, 'proposal');
+    const standing = await testRuns.proposalStanding('s1');
+    assert.equal(standing.state, 'passing');
+    assert.equal(standing.dependents[0].name, 'Shop');
+    assert.equal(standing.dependents[0].status, 'failing');
+    assert.deepEqual(standing.dependents[0].broken, ['/b answers']);
+    // Once: the same proposal changing again in some other way starts nothing more.
+    await testRuns.changed('s1');
+    assert.equal(testRuns.stateOf('s1').length, 1);
+  });
+
+  test('what already failed on the latest draft isn\'t put down to the change', { timeout: 30_000 }, async () => {
+    const store = withShop(fakeStore());
+    const { testRuns, next } = runsWith(store);
+    let done = next();
+    await testRuns.start('s1', 'd1');
+    await done;
+    store.state.proposal = { name: 'Thing', contract: contract(), implementation: { source: { kind: 'running', url } } };
+    done = next();
+    await testRuns.start('s1', 'proposal');
+    await done;
+    const [one] = (await testRuns.proposalStanding('s1')).dependents;
+    assert.deepEqual(one.broken, []);
+    assert.deepEqual(one.already, ['/b answers']);
+  });
+
+  test('a proposal whose code isn\'t the accepted isn\'t run by itself', async () => {
+    const store = withShop(fakeStore());
+    const { testRuns } = runsWith(store);
+    store.state.proposal = { name: 'Thing', createdAt: new Date().toISOString(), contract: { children: [] }, implementation: { source: { kind: 'running', url: 'http://127.0.0.1:1' } } };
+    await testRuns.auto('s1');
+    assert.equal(testRuns.stateOf('s1').length, 0);
+  });
+});

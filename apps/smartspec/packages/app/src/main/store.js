@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as folders from './folders.js';
-import { brokenParts, contractPartName, contractParts, contractText } from './contract.js';
+import { brokenParts, checkContract, contractPartName, contractParts, contractText, shapeIds, shapesNamed } from './contract.js';
 import { checkImplementation } from './implementation.js';
 import { CONTRACT, IMPLEMENTATION, checkItem, checkLinks, connectionDetails, itemChanges, linkGraph, parseLink, partName, partsOf } from './items.js';
 
@@ -73,6 +73,9 @@ function plainText(thing) {
 
 export function createStore(root, { events = new EventEmitter() } = {}) {
   let statusOf = () => STATUS; // a version's status (see setStatusOf and test-runs.js)
+  // How what a use relies on (its `expects`) stands against the code of the draft it shows (see
+  // setExpectationsOf and test-runs.js): { status, total, failed, unchecked, notRun }, or null.
+  let expectationsOf = () => null;
   const schemaDir = (id) => {
     if (!FILE_ID.test(id)) throw new Error(`No schematic ${id}.`);
     return path.join(root, 'schemas', id);
@@ -169,7 +172,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   // What a schema shows for a record (a draft or a proposal): its items listed but not their
   // content, the links between them, and each use collapsed, or with `depth` levels opened.
   // `earlier` is for a draft that's no longer its schema's latest (see draftOfUse).
-  async function describe(record, depth, earlier = false) {
+  async function describe(record, depth, earlier = false, owner = null) {
     return {
       name: record.name,
       summary: record.summary,
@@ -183,7 +186,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       status: STATUS,
       items: record.items.map(itemBrief),
       links: linkGraph(record),
-      uses: await Promise.all(record.uses.map((use) => describeUse(use, depth, earlier))),
+      uses: await Promise.all(record.uses.map((use) => describeUse(use, depth, earlier, owner))),
     };
   }
 
@@ -200,7 +203,16 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
   // Whether a draft is no longer its schema's latest.
   const isEarlier = (schema, draft) => schema.line.at(-1) !== draft.id;
 
-  async function describeUse(use, depth, earlier = false) {
+  // A use's status: the embedded schematic's own, for the draft it shows (a use with code of its own
+  // isn't run yet), or what it relies on (`expectations`) if that's worse.
+  const worse = (a, b) => (ATTENTION.includes(b) && (!ATTENTION.includes(a) || ATTENTION.indexOf(b) < ATTENTION.indexOf(a)) ? b : a);
+  function useStanding(use, draftId, draft, owner) {
+    const own = use.implementation ? 'implemented' : statusOf(use.schemaId, draftId, draft);
+    const expectations = use.expects && owner ? expectationsOf(use.schemaId, draftId, draft, owner, use) : null;
+    return { status: worse(own, expectations?.status), own, expectations };
+  }
+
+  async function describeUse(use, depth, earlier = false, owner = null) {
     const schema = await readSchema(use.schemaId);
     const draftId = schema && await draftOfUse(use, schema, earlier);
     const draft = draftId && await readDraft(use.schemaId, draftId);
@@ -226,22 +238,24 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       // schematic's own, if it has one: `implemented` says whether it does).
       implementation: use.implementation ?? null,
       implemented: Boolean(draft.implementation),
-      // A use with code of its own isn't run yet; else the embedded schematic's, for the draft shown.
-      status: use.implementation ? 'implemented' : statusOf(use.schemaId, draftId, draft),
+      // A use with code of its own isn't run yet; else the embedded schematic's, for the draft shown;
+      // or, if it's worse, how what this schematic relies on from it stands (`expectations`).
+      ...(({ status, expectations }) => ({ status, ...(use.expects && { expects: use.expects, expectations }) }))(useStanding(use, draftId, draft, owner)),
       newerDraftId: use.pin && latest !== draftId ? latest : null,
-      within: await withinOf(draft, earlier || isEarlier(schema, draft)),
+      within: await withinOf(draft, earlier || isEarlier(schema, draft), new Map(), new Set(), use.schemaId),
     };
     if (depth <= 0) return collapsed;
-    const { parameters, items, links, uses } = await describe(draft, depth - 1, earlier || isEarlier(schema, draft));
+    const { parameters, items, links, uses } = await describe(draft, depth - 1, earlier || isEarlier(schema, draft), use.schemaId);
     return { ...collapsed, parameters, items, links, uses };
   }
 
   // The schematics a record embeds, at any depth, whose status needs attention (failing, cant-run,
   // out-of-date), worst first: [{ schemaId, draftId, name, status, via }], `via` naming the
   // schematics between (empty for one embedded directly). Each is the draft its use shows, and a
-  // use with code of its own isn't run yet, so says nothing. Status rolls up so a fault deep down
-  // shows at the top (the user's choice). `cache` keeps what's worked out during one call.
-  async function withinOf(record, earlier = false, cache = new Map(), stack = new Set()) {
+  // use with code of its own isn't run yet, so says nothing; what `owner` (the record's schematic)
+  // relies on from one counts too, `expectations` saying how that stands. Status rolls up so a fault
+  // deep down shows at the top (the user's choice). `cache` keeps what's worked out during one call.
+  async function withinOf(record, earlier = false, cache = new Map(), stack = new Set(), owner = null) {
     const found = new Map();
     for (const use of record.uses ?? []) {
       const schema = await readSchema(use.schemaId);
@@ -250,11 +264,12 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       if (!draftId || stack.has(key)) continue;
       const draft = await readDraft(use.schemaId, draftId);
       if (!draft) continue;
-      const status = use.implementation ? 'implemented' : statusOf(use.schemaId, draftId, draft);
-      if (ATTENTION.includes(status)) found.set(key, { schemaId: use.schemaId, draftId, name: draft.name, status, via: [] });
+      const { status, own, expectations } = useStanding(use, draftId, draft, owner);
+      const relied = ATTENTION.includes(expectations?.status) && expectations.status === status ? { expectations: expectations.status, ...(ATTENTION.includes(own) && { own }) } : {};
+      if (ATTENTION.includes(status)) found.set(key, { schemaId: use.schemaId, draftId, name: draft.name, status, via: [], ...relied });
       if (!cache.has(key)) {
         stack.add(key);
-        cache.set(key, await withinOf(draft, earlier || isEarlier(schema, draft), cache, stack));
+        cache.set(key, await withinOf(draft, earlier || isEarlier(schema, draft), cache, stack, use.schemaId));
         stack.delete(key);
       }
       for (const deeper of cache.get(key)) {
@@ -298,7 +313,17 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         if (!declared.has(key)) throw new Error(`${draft.name} has no parameter "${key}". A use can only set the parameters its schematic declares: ${[...declared].join(', ') || 'it has none'}.`);
       }
       checkImplementation(use.implementation, `Use ${use.id}'s implementation`);
-      checked.push({ id: use.id, schemaId: use.schemaId, ...(use.draftId && { pin: use.draftId }), with: use.with ?? {}, ...(use.implementation && { implementation: use.implementation }) });
+      // What this schematic relies on from it: checks in its contract's format, run against its code
+      // (see expectationsJob in contract.js), able to name its shapes and use this use's parameters.
+      if (use.expects !== undefined && use.expects !== null) {
+        if (typeof use.expects !== 'object' || Array.isArray(use.expects)) throw new Error(`Use ${use.id}'s expects should be a tree, as a contract is: clauses with checks, and setup, shapes and child nodes if it needs them.`);
+        try {
+          checkContract(use.expects, { shapes: shapeIds(draft.contract), known: Object.keys(use.with ?? {}) });
+        } catch (error) {
+          throw new Error(`Use ${use.id}'s expects: ${error.message.replace(/^The contract/, 'Its root')}`);
+        }
+      }
+      checked.push({ id: use.id, schemaId: use.schemaId, ...(use.draftId && { pin: use.draftId }), with: use.with ?? {}, ...(use.implementation && { implementation: use.implementation }), ...(use.expects && { expects: use.expects }) });
     }
     return checked;
   }
@@ -322,10 +347,52 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       const undeclared = [...new Set(following.flatMap((use) => Object.keys(use.with ?? {}).filter((key) => !declared.has(key))))];
       const useIds = new Set(following.map((use) => use.id));
       const linked = records.flatMap((one) => linkGraph(one).map(({ to }) => parseLink(to)).filter(({ target, part }) => useIds.has(target) && part && part !== CONTRACT).map(({ part }) => part));
+      // The shapes what they rely on from it names (see expectationsJob in contract.js).
+      for (const use of following) if (use.expects) linked.push(...shapesNamed(use.expects));
       const breaks = before ? brokenParts(before, record.contract, linked) : [];
       out.push({ id, name: records.at(-1).name, uses: [...useIds], ...(undeclared.length && { undeclared }), ...(breaks.length && { breaks }) });
     }
     return out;
+  }
+
+  // Who relies on a schematic: each use of it with `expects` in another's latest draft and its
+  // proposal (the same use the same in both counted once), as test-runs.js runs them against its
+  // code. [{ ownerId, ownerName, version: a draft id or 'proposal', use }].
+  async function dependentsOf(schemaId) {
+    const out = [];
+    const names = await readdir(path.join(root, 'schemas')).catch(() => []);
+    for (const id of names) {
+      if (id === schemaId) continue;
+      const schema = await readSchema(id);
+      if (!schema) continue;
+      const latest = await latestRecord(schema);
+      const proposal = await readProposal(id);
+      const seen = new Set();
+      for (const [record, version] of [[latest, schema.line.at(-1)], [proposal, 'proposal']]) {
+        for (const use of record?.uses ?? []) {
+          if (use.schemaId !== schemaId || !use.expects) continue;
+          const same = JSON.stringify([use.id, use.pin ?? null, use.with ?? {}, use.expects]);
+          if (seen.has(same)) continue;
+          seen.add(same);
+          out.push({ ownerId: id, ownerName: record.name, version, use });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Who relies on a version of a schematic (a draft's id, or 'proposal'): those of its dependents
+  // (see dependentsOf) whose use shows that version, each once (an owner's accepted draft rather
+  // than its proposal), for its Test mode: [{ ownerId, ownerName, version, use }].
+  async function dependentsShowing(schemaId, version, latestId) {
+    const chosen = new Map();
+    for (const one of await dependentsOf(schemaId)) {
+      const follows = one.use.pin ? one.use.pin === version : version === 'proposal' || version === latestId;
+      if (!follows) continue;
+      const key = `${one.ownerId}/${one.use.id}`;
+      if (!chosen.has(key) || chosen.get(key).version === 'proposal') chosen.set(key, one);
+    }
+    return [...chosen.values()];
   }
 
   // Each use's public names (its contract's clauses and shapes), from the draft it shows, by its id.
@@ -461,6 +528,15 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     setStatusOf(fn) {
       statusOf = fn;
     },
+    setExpectationsOf(fn) {
+      expectationsOf = fn;
+    },
+    dependentsOf,
+    // The draft a use shows now (its pin, else the latest), for running what it relies on.
+    async draftOfUse(use) {
+      const schema = await readSchema(use.schemaId);
+      return schema ? draftOfUse(use, schema, false) : null;
+    },
 
     async list() {
       const cache = new Map();
@@ -483,7 +559,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
           latestDraftId: latest ?? null,
           proposal: brief(proposal),
           status: statusOf(id, latest ?? 'proposal', record),
-          within: await withinOf(record, false, cache),
+          within: await withinOf(record, false, cache, new Set(), id),
           group: groups.has(schema.group) ? schema.group : null,
           updatedAt: schema.updatedAt,
         };
@@ -696,9 +772,10 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         number: schema.line.indexOf(which) + 1,
         total: schema.line.length,
         line: schema.line,
-        ...(await describe(record, depth, isEarlier(schema, record))),
+        ...(await describe(record, depth, isEarlier(schema, record), id)),
         status: statusOf(id, which, record),
-        within: await withinOf(record, isEarlier(schema, record)),
+        within: await withinOf(record, isEarlier(schema, record), new Map(), new Set(), id),
+        dependents: await dependentsShowing(id, which, schema.line.at(-1)),
         comments: await openCount(id, which),
         proposal: brief(proposal),
       };
@@ -717,9 +794,10 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         basedOn: proposal.basedOn,
         total: schema.line.length,
         line: schema.line,
-        ...(await describe(proposal, depth)),
+        ...(await describe(proposal, depth, false, id)),
         status: statusOf(id, 'proposal', proposal),
-        within: await withinOf(proposal),
+        within: await withinOf(proposal, false, new Map(), new Set(), id),
+        dependents: await dependentsShowing(id, 'proposal', schema.line.at(-1)),
         comments: await openCount(id, ON_PROPOSAL),
         forTheAi: await commentsWaiting(id, proposal),
         changes,

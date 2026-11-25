@@ -77,6 +77,37 @@ describe('proposing and accepting', () => {
     assert.deepEqual((await store.getSchema(shop.schema)).within.map((one) => one.name), ['Billing']);
   });
 
+  test('a use says what it relies on from what it embeds, checked, and how that stands', async () => {
+    const store = newStore();
+    const token = { id: 'token', schema: { type: 'object' } };
+    const auth = await accepted(store, { name: 'Auth', parameters: [{ name: 'client' }], contract: { shapes: [token] } });
+    const needs = { clauses: [{ id: 'gives-token', title: 'Gives Shop a token', checks: [{ id: 'ok', kind: 'http', request: { method: 'POST', path: '/token', body: { client: '{client}' } }, expect: { status: 200, shape: 'token' } }] }] };
+    const use = { id: 'auth', schemaId: auth.schema, with: { client: 'shop' }, expects: needs };
+    // Checked as a contract is, able to use the use's parameters and the embedded schematic's shapes.
+    await assert.rejects(store.propose(proposal({ name: 'Shop', uses: [{ ...use, with: {} }] })), /Use auth's expects: Check gives-token\/ok uses \{client\}/);
+    await assert.rejects(store.propose(proposal({ name: 'Shop', uses: [{ ...use, expects: { ...needs, shapes: [token] } }] })), /id of one of the embedded schematic's shapes/);
+    const shop = await accepted(store, { name: 'Shop', uses: [use] });
+    assert.deepEqual((await store.dependentsOf(auth.schema)).map((one) => [one.ownerId, one.ownerName, one.use.id]), [[shop.schema, 'Shop', 'auth']]);
+    assert.deepEqual(await store.dependentsOf(shop.schema), []);
+    // How it stands is the test runs' (here, made up): the use's status is the worse of the two.
+    const asked = [];
+    store.setStatusOf(() => 'passing');
+    store.setExpectationsOf((id, version, record, owner, one) => {
+      asked.push([id, owner, one.id]);
+      return { status: 'failing', total: 1, failed: 1, unchecked: 0, notRun: 0 };
+    });
+    const shown = await store.getSchema(shop.schema);
+    const described = shown.uses[0];
+    assert.deepEqual(described.expects, needs);
+    assert.equal(described.expectations.status, 'failing');
+    assert.equal(described.status, 'failing');
+    assert.deepEqual(asked[0], [auth.schema, shop.schema, 'auth']);
+    assert.deepEqual(shown.within.map(({ name, status, expectations, own }) => ({ name, status, expectations, own })), [{ name: 'Auth', status: 'failing', expectations: 'failing', own: undefined }]);
+    // A new draft of Auth that changes a shape Shop's checks name says so.
+    const made = await store.propose({ ...proposal({ name: 'Auth', parameters: [{ name: 'client' }] }), schemaId: auth.schema, contract: { shapes: [{ ...token, schema: { type: 'string' } }] } });
+    assert.deepEqual(made.usedBy[0].breaks, [{ part: 'token', change: 'changed' }]);
+  });
+
   test('a change sends only what changes, and earlier drafts stay', async () => {
     const store = newStore();
     const { schema, draft: first } = await accepted(store, { contract: 'Promise', items: [doc('a'), doc('b')] });
