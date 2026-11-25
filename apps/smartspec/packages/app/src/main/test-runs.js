@@ -507,7 +507,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
         if (!error.missingSecrets) throw error;
         const random = (record.implementation.secrets ?? []).filter((one) => error.missingSecrets.includes(one.name) && one.random).map((one) => one.name);
         const entered = error.missingSecrets.filter((name) => !random.includes(name));
-        throw new Error(`The checks weren't run: ${record.name} needs secrets not set on the user's Mac: ${error.missingSecrets.join(', ')}. ${random.length ? `${random.join(', ')} can be made at random: generate_secrets makes ${random.length === 1 ? 'it' : 'them'} (you never see the values). ` : ''}${entered.length ? `Only the user can enter ${entered.join(', ')}: ask them to, in Test mode under Implementation › Secrets.` : 'Then run the checks again.'}`);
+        throw new Error(`The checks weren't run: ${record.name} needs secrets not set on the user's Mac: ${error.missingSecrets.join(', ')}. ${random.length ? `${random.join(', ')} can be made at random: generate_secrets makes ${random.length === 1 ? 'it' : 'them'} (you never see the values). ` : ''}${entered.length ? `Only the user can enter ${entered.join(', ')}: ask them to, in Test mode under Implementation › Secrets, where they can also have it use a shared secret.` : 'Then run the checks again.'}`);
       });
       const ended = new Promise((resolve) => waiting.set(run.id, [...(waiting.get(run.id) ?? []), (state) => {
         resolve(true);

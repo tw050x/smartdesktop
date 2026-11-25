@@ -76,6 +76,52 @@ describe('secrets kept on this Mac', () => {
     assert.deepEqual(changed, ['s1', 's1']);
   });
 
+  test('can be shared: one named value used by several schematics, managed apart from them', () => {
+    const changed = [];
+    let sharedTold = 0;
+    const dir = path.join(temp, 'shared');
+    const secrets = createSecrets(dir, { cipher, onChange: (id) => changed.push(id), onShared: () => sharedTold++ });
+    const implementation = git([{ name: 'db', env: 'DB' }]);
+    const staging = secrets.createShared({ name: 'Staging database', value: 'shared-pass' });
+    assert.throws(() => secrets.createShared({ name: 'staging DATABASE', value: 'x' }), /already a shared secret called Staging database/);
+    assert.throws(() => secrets.createShared({ name: 'Empty' }), /needs a value/);
+    secrets.set('s1', 'db', 'own-pass');
+    secrets.useShared('s1', 'db', staging);
+    secrets.useShared('s2', 'db', staging);
+    assert.equal(secrets.valuesFor('s1', implementation).values[0].value, 'shared-pass', 'in place of its own');
+    assert.equal(secrets.valuesFor('s2', implementation).values[0].value, 'shared-pass');
+    assert.deepEqual(secrets.statusOf('s1', implementation)[0].shared, { id: staging, name: 'Staging database' });
+    assert.equal(readFileSync(path.join(dir, 'secrets.json'), 'utf8').includes('own-pass'), false);
+    assert.equal(Object.keys(JSON.parse(readFileSync(path.join(dir, 'secrets.json'), 'utf8')).values).length, 1, 'its own value went');
+    assert.throws(() => secrets.set('s1', 'db', 'x'), /uses a shared secret/);
+    // Changed once, for every schematic using it, each told.
+    changed.length = 0;
+    secrets.setShared(staging, 'new-pass');
+    assert.equal(secrets.valuesFor('s2', implementation).values[0].value, 'new-pass');
+    assert.deepEqual(changed.sort(), ['s1', 's2']);
+    const [listed] = secrets.sharedList();
+    assert.equal(listed.name, 'Staging database');
+    assert.deepEqual(listed.usedBy.map((one) => one.schemaId).sort(), ['s1', 's2']);
+    assert.equal(JSON.stringify(secrets.sharedList()).includes('new-pass'), false);
+    secrets.renameShared(staging, 'Staging DB');
+    assert.equal(secrets.statusOf('s2', implementation)[0].shared.name, 'Staging DB');
+    // Stopping using it leaves it not set; the shared secret stays for the rest.
+    secrets.clear('s2', 'db');
+    assert.equal(secrets.statusOf('s2', implementation)[0].set, false);
+    assert.equal(secrets.valuesFor('s1', implementation).values[0].value, 'new-pass');
+    // A schematic's own value made shared, then used by another.
+    secrets.set('s3', 'db', 'third-pass');
+    const third = secrets.shareOwn('s3', 'db', 'Third');
+    secrets.useShared('s4', 'db', third);
+    assert.equal(secrets.valuesFor('s4', implementation).values[0].value, 'third-pass');
+    // Deleted: those using it aren't set, and its value is gone.
+    assert.deepEqual(secrets.deleteShared(staging), [{ schemaId: 's1', name: 'db' }]);
+    assert.equal(secrets.statusOf('s1', implementation)[0].set, false);
+    assert.equal(createSecrets(dir, { cipher }).valuesFor('s4', implementation).values[0].value, 'third-pass', 'kept after a restart');
+    assert.equal(Object.keys(JSON.parse(readFileSync(path.join(dir, 'secrets.json'), 'utf8')).values).length, 1);
+    assert.ok(sharedTold >= 6);
+  });
+
   test('aren\'t kept when the Keychain can\'t be used', () => {
     const secrets = createSecrets(path.join(temp, 'locked'), { cipher: { ...cipher, available: () => false } });
     assert.throws(() => secrets.set('s1', 'db', 'x'), /Keychain isn't available/);

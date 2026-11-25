@@ -1432,20 +1432,78 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       return h('div', { className: 'secret-entry' }, field, save,
         h('button', { type: 'button', className: 'side-by-side', onclick: () => { here.secretEntering = null; render(); } }, 'Cancel'));
     };
+    // Picking a shared secret for it (Settings › Shared Secrets keeps them): each by name, the one
+    // it uses marked.
+    const picker = (secret) => {
+      const shared = here.sharedSecrets;
+      const stop = () => { here.secretPicking = null; render(); };
+      if (!shared) return h('p', { className: 'secret-how muted' }, 'Reading the shared secrets…');
+      return h('div', { className: 'secret-pick' },
+        shared.length
+          ? h('p', { className: 'secret-how muted' }, `Use a shared secret for ${secret.name}${secret.set && !secret.shared ? ', in place of its own value' : ''}:`)
+          : h('p', { className: 'secret-how muted' }, 'There are no shared secrets yet: make one in Settings › Shared Secrets (⌘,).'),
+        shared.length > 0 && h('div', { className: 'secret-pick-list' }, ...shared.map((one) => h('button', {
+          type: 'button', className: `side-by-side${secret.shared?.id === one.id ? ' current' : ''}`, disabled: secret.shared?.id === one.id,
+          title: one.usedBy.length ? `Used by ${one.usedBy.map((use) => use.schematic).join(', ')}` : 'Not used by any schematic yet',
+          onclick: () => {
+            here.secretPicking = null;
+            act(api.useSharedSecret(here.schemaId, secret.name, one.id), `The secret ${secret.name} uses the shared secret “${one.name}”`);
+          },
+        }, one.name))),
+        h('div', { className: 'secret-entry' }, h('button', { type: 'button', className: 'side-by-side', onclick: stop }, 'Cancel')));
+    };
+    const pick = (secret) => {
+      here.secretPicking = secret.name;
+      here.secretEntering = null;
+      here.sharedSecrets = null;
+      render();
+      api.sharedSecrets().then((list) => { here.sharedSecrets = list; render(); }, (error) => { here.secretError = error.message; here.secretPicking = null; render(); });
+    };
+    // Its own value made a shared secret, named here, for other schematics to use too.
+    const sharing = (secret) => {
+      const field = h('input', { type: 'text', className: 'secret-field', placeholder: 'A name for it, such as Staging database password', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'The shared secret’s name' });
+      const done = () => {
+        if (!field.value.trim()) return;
+        here.secretSharing = null;
+        act(api.shareSecret(here.schemaId, secret.name, field.value.trim()), `Made the secret ${secret.name} a shared secret, “${field.value.trim()}”`);
+      };
+      field.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') done();
+        if (event.key === 'Escape') { event.stopPropagation(); here.secretSharing = null; render(); }
+      });
+      requestAnimationFrame(() => field.focus());
+      return h('div', { className: 'secret-entry' }, field,
+        h('button', { type: 'button', className: 'side-by-side', onclick: done }, 'Share'),
+        h('button', { type: 'button', className: 'side-by-side', onclick: () => { here.secretSharing = null; render(); } }, 'Cancel'));
+    };
     const rowOf = (secret) => {
       const entering = here.secretEntering === secret.name;
-      const buttons = entering ? null : h('div', { className: 'secret-actions' },
-        h('button', { type: 'button', className: `side-by-side${secret.set ? '' : ' primary'}`, onclick: () => { here.secretEntering = secret.name; render(); } }, secret.set ? 'Replace…' : 'Enter…'),
-        secret.random && h('button', { type: 'button', className: 'side-by-side', title: secret.set ? 'Replace its value with a new random one' : 'Make a random value for it', onclick: () => act(api.generateSecret(here.schemaId, version, secret.name), `Made a random value for the secret ${secret.name}`) }, secret.set ? 'New Random Value' : 'Make Random'),
-        secret.set && h('button', { type: 'button', className: 'side-by-side', onclick: () => act(api.clearSecret(here.schemaId, secret.name), `Cleared the secret ${secret.name}`) }, 'Clear'));
+      const picking = here.secretPicking === secret.name;
+      const sharingIt = here.secretSharing === secret.name;
+      const busy = entering || picking || sharingIt;
+      const usePick = h('button', { type: 'button', className: 'side-by-side', title: 'Use a value kept once for several schematics (Settings › Shared Secrets)', onclick: () => pick(secret) }, secret.shared ? 'Change…' : 'Use Shared…');
+      const buttons = busy ? null : secret.shared
+        ? h('div', { className: 'secret-actions' }, usePick,
+          h('button', { type: 'button', className: 'side-by-side', title: 'It goes back to having no value: enter one, or pick another shared secret', onclick: () => act(api.clearSecret(here.schemaId, secret.name), `The secret ${secret.name} stopped using a shared secret`) }, 'Stop Using'))
+        : h('div', { className: 'secret-actions' },
+          h('button', { type: 'button', className: `side-by-side${secret.set ? '' : ' primary'}`, onclick: () => { here.secretEntering = secret.name; render(); } }, secret.set ? 'Replace…' : 'Enter…'),
+          secret.random && h('button', { type: 'button', className: 'side-by-side', title: secret.set ? 'Replace its value with a new random one' : 'Make a random value for it', onclick: () => act(api.generateSecret(here.schemaId, version, secret.name), `Made a random value for the secret ${secret.name}`) }, secret.set ? 'New Random Value' : 'Make Random'),
+          api.useSharedSecret && usePick,
+          secret.set && api.shareSecret && h('button', { type: 'button', className: 'side-by-side', title: 'Keep its value as a shared secret, for other schematics to use too', onclick: () => { here.secretSharing = secret.name; render(); } }, 'Make Shared…'),
+          secret.set && h('button', { type: 'button', className: 'side-by-side', onclick: () => act(api.clearSecret(here.schemaId, secret.name), `Cleared the secret ${secret.name}`) }, 'Clear'));
+      const state = !secret.set ? 'Not set'
+        : secret.shared ? `Uses “${secret.shared.name}”`
+          : secret.by === 'random' ? `Made at random, ${when(secret.at)}` : `Set ${when(secret.at)}`;
       return h('li', { className: `secret${secret.set ? ' set' : ' missing'}` },
         h('div', { className: 'secret-head' },
           h('code', { className: 'secret-name' }, secret.name),
-          h('span', { className: `secret-state ${secret.set ? 'set' : 'missing'}` }, secret.set ? (secret.by === 'random' ? `Made at random, ${when(secret.at)}` : `Set ${when(secret.at)}`) : 'Not set'),
+          h('span', { className: `secret-state ${secret.set ? 'set' : 'missing'}${secret.shared ? ' shared' : ''}`, title: secret.shared ? 'A shared secret: its value is changed in Settings › Shared Secrets, for every schematic using it' : '' }, state),
           buttons),
         secret.description && h('p', { className: 'secret-what' }, secret.description),
         h('p', { className: 'secret-how muted' }, ...how(secret).flat(3).filter(Boolean)),
-        entering && entry(secret));
+        entering && entry(secret),
+        picking && picker(secret),
+        sharingIt && sharing(secret));
     };
     return h('section', { className: 'impl-local impl-secrets' },
       h('h3', { className: 'pane-subhead' }, 'Secrets'),
@@ -3203,7 +3261,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // this tab shows it, unless a value is being entered here.
   api.onSecretsChanged?.((schemaId) => {
     const here = top();
-    if (here?.schemaId === schemaId && !here.secretEntering) render();
+    if (here?.schemaId === schemaId && !here.secretEntering && !here.secretSharing) render();
   });
   // A run moving on: the contract's card drawn again in Test mode; anywhere else showing that
   // version, drawn again once it ends (and now and then while it runs).

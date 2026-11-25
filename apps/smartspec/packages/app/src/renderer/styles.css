@@ -1762,6 +1762,17 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 .secret-entry { display: flex; gap: 6px; margin-top: 8px; }
 .secret-field { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .secret-field:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.shared-secret-list:not(:empty) { margin-top: 12px; }
+.shared-secret .secret-actions { margin: 8px 0 0; }
+.shared-secret-name { font-size: 13px; }
+.shared-secret-adding { margin-top: 12px; }
+.shared-secret-adding .secret-entry:first-child { margin-top: 0; }
+.shared-secret-actions { margin-top: 12px; }
+.secret-pick { margin-top: 8px; }
+.secret-pick-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.secret-pick-list .current { border-color: var(--accent); color: var(--accent); }
+.secret-actions { flex-wrap: wrap; justify-content: flex-end; }
+.shared-trouble { color: light-dark(#8a5a00, #e3b341); }
 /* Secrets and the workspace are cards of their own in Test mode, their heads their titles. */
 .test-card > .impl-local { margin-top: 0; padding-top: 0; border-top: 0; }
 .test-card > .impl-local > .pane-subhead { display: none; }

@@ -558,7 +558,7 @@ const schemasFor = (session, tab) => ({
       ? await workspaces.info(id, shown.name).then(({ dir, cloned, branch, changes }) => ({ path: dir, cloned, ...(cloned ? { branch, changes } : {}) }))
       : null;
     // How its secrets stand on this Mac: set or not, never a value (see secrets.js).
-    const kept = shown.implementation?.secrets?.length ? secrets.statusOf(id, shown.implementation).map((one) => ({ name: one.name, set: one.set, ...(one.random ? { random: true } : {}) })) : null;
+    const kept = shown.implementation?.secrets?.length ? secrets.statusOf(id, shown.implementation).map((one) => ({ name: one.name, set: one.set, ...(one.random ? { random: true } : {}), ...(one.shared ? { shared: one.shared.name } : {}) })) : null;
     return { ...shown, icon: itemIcons.get(id)?.icon ?? null, ...(workspace ? { workspace } : {}), ...(kept ? { secrets: kept } : {}) };
   },
   // The AI having random values made for secrets that can be random (generate_secrets): which were
@@ -591,7 +591,7 @@ const schemasFor = (session, tab) => ({
     return {
       made, ...(alreadySet.length ? { already_set: alreadySet } : {}), ...(notRandom.length ? { not_random: notRandom } : {}),
       still_missing: missing,
-      message: missing.length ? `Still not set: ${missing.join(', ')}. Only the user can enter ${missing.length === 1 ? 'it' : 'them'}, in Test mode under Implementation › Secrets: ask them to.` : 'Every secret is set, so its checks can be run.',
+      message: missing.length ? `Still not set: ${missing.join(', ')}. Only the user can enter ${missing.length === 1 ? 'it' : 'them'}, in Test mode under Implementation › Secrets, or have it use a shared secret there: ask them to.` : 'Every secret is set, so its checks can be run.',
     };
   },
   // The AI asking to start a workspace again (start_workspace_again): the user is asked first, in
@@ -835,6 +835,7 @@ const secrets = createSecrets(app.getPath('userData'), {
     decrypt: (data) => safeStorage.decryptString(data),
   },
   onChange: (schemaId) => broadcast('secrets-changed', schemaId),
+  onShared: () => broadcast('shared-secrets-changed'),
 });
 const testRuns = createTestRuns({
   dir: path.join(app.getPath('userData'), 'test-results'),
@@ -862,7 +863,7 @@ handle('test-branches', (_ctx, schemaId, version) => testRuns.branchesOf(schemaI
 // A schematic's secrets on this Mac (see secrets.js): how each of a draft's or the proposal's
 // (`version`) stands, and the user entering, generating or clearing one. Values only ever come in.
 const secretRecord = async (schemaId, version) => (version === 'proposal' ? store.getProposal(schemaId) : store.getSchema(schemaId, { draftId: version }));
-handle('secrets', async (_ctx, schemaId, version) => secrets.statusOf(schemaId, (await secretRecord(schemaId, version))?.implementation).map(({ name, description, env, files, random, set, by, at }) => ({ name, description, env, files, random: Boolean(random), set, by, at })));
+handle('secrets', async (_ctx, schemaId, version) => secrets.statusOf(schemaId, (await secretRecord(schemaId, version))?.implementation).map(({ name, description, env, files, random, set, by, at, shared }) => ({ name, description, env, files, random: Boolean(random), set, by, at, shared })));
 handle('secret-set', (_ctx, schemaId, name, value) => secrets.set(schemaId, name, value));
 handle('secret-generate', async (_ctx, schemaId, version, name) => {
   const secret = secrets.statusOf(schemaId, (await secretRecord(schemaId, version))?.implementation).find((one) => one.name === name);
@@ -870,6 +871,35 @@ handle('secret-generate', async (_ctx, schemaId, version, name) => {
   secrets.generate(schemaId, secret);
 });
 handle('secret-clear', (_ctx, schemaId, name) => secrets.clear(schemaId, name));
+handle('secret-use-shared', (_ctx, schemaId, name, sharedId) => secrets.useShared(schemaId, name, sharedId));
+handle('secret-share', (_ctx, schemaId, name, sharedName) => secrets.shareOwn(schemaId, name, sharedName));
+// Shared secrets (Settings › Shared Secrets): one value, named, used by several schematics' secrets.
+// Each with the schematics using it, by name; never a value.
+handle('shared-secrets', async () => {
+  const names = new Map((await store.list()).map((one) => [one.id, one.name]));
+  return secrets.sharedList().map((one) => ({ ...one, usedBy: one.usedBy.map((use) => ({ ...use, schematic: names.get(use.schemaId) ?? 'A deleted schematic' })) }));
+});
+handle('shared-secret-create', (_ctx, { name, value = null, random = false }) => secrets.createShared({ name, value, random: random ? {} : null }));
+handle('shared-secret-set', (_ctx, sharedId, value) => secrets.setShared(sharedId, value));
+handle('shared-secret-generate', (_ctx, sharedId) => secrets.generateShared(sharedId));
+handle('shared-secret-rename', (_ctx, sharedId, name) => secrets.renameShared(sharedId, name));
+// Deleting one: asked first while schematics use it, naming them, as they'd be left not set.
+handle('shared-secret-delete', async (ctx, sharedId) => {
+  const one = secrets.sharedList().find((each) => each.id === sharedId);
+  if (!one) return false;
+  if (one.usedBy.length) {
+    const names = new Map((await store.list()).map((each) => [each.id, each.name]));
+    const choice = await confirm(ctx?.win ?? null, {
+      title: `Delete the shared secret “${one.name}”?`,
+      message: `Its value goes, and ${one.usedBy.length === 1 ? 'the secret using it is' : `the ${one.usedBy.length} secrets using it are`} left not set, until you enter a value or pick another shared secret:`,
+      points: one.usedBy.map((use) => `${use.name}, in “${names.get(use.schemaId) ?? 'a deleted schematic'}”`),
+      buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Delete', choice: 'delete', kind: 'primary' }],
+    });
+    if (choice !== 'delete') return false;
+  }
+  secrets.deleteShared(sharedId);
+  return true;
+});
 // A schematic's workspace: where it is and how it stands, and showing it in the Finder (made
 // first if its first run hasn't cloned it yet, so there's somewhere to show).
 handle('workspace', async (_ctx, schemaId, name) => workspaces.info(schemaId, name));

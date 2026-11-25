@@ -142,6 +142,15 @@ export const APP_MARKUP = `
       </div>
       <p class="setting-note">System matches your Mac’s appearance.</p>
     </section>
+    <!-- Shared secrets: named values several schematics' secrets use, kept on this Mac (see
+         settings.js, main/secrets.js). Hidden where there are none to keep (the website's demo). -->
+    <section class="setting" id="shared-secrets-setting" hidden>
+      <h3 class="setting-title">Shared Secrets</h3>
+      <p class="setting-note shared-intro">A value several schematics need, such as a staging database’s password, kept once. A schematic’s secret uses one from Test mode’s Secrets card. Kept in this Mac’s Keychain; your AI never sees them.</p>
+      <p class="setting-note shared-trouble" id="shared-secrets-trouble" hidden></p>
+      <ul class="secret-list shared-secret-list" id="shared-secret-list"></ul>
+      <div id="shared-secret-new"></div>
+    </section>
     <!-- The app's version, in beta. Its updates show in the update toast (update-toast.js), and the
          app menu's Check for Updates… looks for one now. -->
     <section class="setting">
