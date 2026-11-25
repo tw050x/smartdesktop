@@ -159,7 +159,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
   // What the AI is given for a run of a contract (`record`), or what some runs add up to: how it
   // went, the code it ran against (named, so the AI can correct it), each check that failed or
   // couldn't be run in full, and those passing or not run by key.
-  function summary(schemaId, record, version, run, results) {
+  function summary(schemaId, record, version, run, results, uses = null) {
     const where = version === 'proposal' ? 'the proposal' : `draft ${record.number ?? '?'} of ${record.total ?? '?'}`;
     const titles = new Map(clausesOf(record.contract).map(({ clause, node }) => [clause.id, { clause: clause.title, part: node.name ?? null }]));
     const { checks } = contractJob(record.contract);
@@ -183,6 +183,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
       }
     }
     const code = run.code ?? null;
+    const moved = run.target === DEFAULT_TARGET && !run.running && movedOn(schemaId, record, run);
     return {
       schematic_id: schemaId, contract: where, ran: true, run_id: run.id, running: run.running,
       code: code ? code.label : targetLabel(run.target),
@@ -198,16 +199,19 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
       ...(run.detail ? { detail: run.detail } : {}),
       ...(run.only ? { last_run_was_only: run.only } : {}),
       ...(run.stale ? { stale: 'The proposal has changed since this was run.' } : {}),
+      ...(moved ? { out_of_date: `Its default branch has moved on since this ran (${code.ref} isn't at ${code.commit.slice(0, 7)} any more): run the checks again to check the code as it is now.` } : {}),
       counts: { passed: passed.length, failed: problems.filter((one) => one.outcome === 'failed').length, couldnt_be_run: problems.filter((one) => one.outcome !== 'failed').length, not_run: notRun.length },
       problems, passed, not_run: notRun,
-      ...(dependents(run, results).length ? { dependents: dependents(run, results) } : {}),
+      ...(dependents(run, results, { moved, uses }).length ? { dependents: dependents(run, results, { moved, uses }) } : {}),
       ...(run.outcome === 'error' && !run.running ? { log: run.log.slice(-40).map((one) => one.text) } : {}),
     };
   }
 
   // How what each schematic depending on it relies on went in a run (`results`, the run's or what
   // its runs add up to), for the AI: [{ schematic_id, schematic, use, counts, problems }].
-  function dependents(run, results) {
+  // Each is out of date (`out_of_date`, why) once the code has moved on (`moved`), or what it relies
+  // on has changed since (`uses`, the dependents' uses now, by `owner/use`, when known).
+  function dependents(run, results, { moved = false, uses = null } = {}) {
     const line = (request) => `${request.method} ${request.path}${request.body !== undefined ? ` ${JSON.stringify(request.body)}` : ''}`;
     return (run.consumers ?? []).map((one) => {
       const prefix = useKey(one.schemaId, one.use);
@@ -222,7 +226,11 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
         else if (result.outcome === 'passed') passed++;
         else problems.push({ key: check.key.slice(prefix.length), outcome: result.outcome === 'error' ? 'couldn\'t be run' : 'failed', relies_on: titles.get(check.clause), ...(check.title ? { check: check.title } : {}), request: line(check.request), expect: check.expect, detail: result.detail });
       }
-      return { schematic_id: one.schemaId, schematic: one.name, use: one.use, ...(one.version === 'proposal' ? { from_its_proposal: true } : {}), counts: { passed, failed: problems.filter((p) => p.outcome === 'failed').length, couldnt_be_run: problems.filter((p) => p.outcome !== 'failed').length, not_run: notRun }, problems };
+      const now = uses?.get(`${one.schemaId}/${one.use}`) ?? [];
+      const changed = uses && !now.some((use) => useBasis(use) === one.basis);
+      const outOfDate = changed ? (now.length ? 'What it relies on has changed since this ran: run the checks again.' : 'It no longer relies on this schematic as it did when this ran.')
+        : moved ? 'The default branch has moved on since this ran.' : null;
+      return { schematic_id: one.schemaId, schematic: one.name, use: one.use, ...(one.version === 'proposal' ? { from_its_proposal: true } : {}), ...(outOfDate ? { out_of_date: outOfDate } : {}), counts: { passed, failed: problems.filter((p) => p.outcome === 'failed').length, couldnt_be_run: problems.filter((p) => p.outcome !== 'failed').length, not_run: notRun }, problems };
     });
   }
 
@@ -521,12 +529,18 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
     // code it was last run against), as they add up across its runs.
     async resultsFor(schemaId, { draftId, proposal = false, ref = null, workspace = false, runId = null } = {}) {
       const runs = runsOf(schemaId);
+      // What depends on it now, by `owner/use` (a draft's and a proposal's), to tell what's changed.
+      const uses = store.dependentsOf ? new Map() : null;
+      for (const one of store.dependentsOf ? await store.dependentsOf(schemaId).catch(() => []) : []) {
+        const key = `${one.ownerId}/${one.use.id}`;
+        uses.set(key, [...(uses.get(key) ?? []), one.use]);
+      }
       if (runId) {
         const run = runs.get(runId);
         if (!run) throw new Error(`There's no run ${runId} of that schematic: list_test_runs gives them.`);
         const record = await recordOf(schemaId, run.version).catch(() => null);
         if (!record) throw new Error(`Run ${runId} was of a proposal that's gone: its contract can't be read any more.`);
-        return summary(schemaId, record, run.version, run, run.results);
+        return summary(schemaId, record, run.version, run, run.results, uses);
       }
       const { record, version } = await contractOf(schemaId, { draftId, proposal });
       const asked = ref || workspace ? targetOf({ ref, workspace }) : null;
@@ -541,7 +555,7 @@ export function createTestRuns({ runner, store, dir = null, workspaces = null, s
             : `It has no implementation, so its checks can't be run: propose one (where the code is and how to start it) first, asking the user where the code is.`,
         };
       }
-      return summary(schemaId, record, version, view, view.results);
+      return summary(schemaId, record, version, view, view.results, uses);
     },
 
     // For the AI (list_test_runs): the runs of a schematic, newest first, each in a line.

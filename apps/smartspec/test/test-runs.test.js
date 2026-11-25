@@ -447,6 +447,9 @@ describe('what depending schematics rely on', () => {
     const changed = testRuns.expectationsOf('s1', 'd1', store.state.drafts.d1, 'shop', { ...use, expects: relies(['/a']) });
     assert.equal(changed.status, 'out-of-date');
     assert.equal(changed.stale, 'expects');
+    assert.equal(results.dependents[0].out_of_date, undefined);
+    withShop(store, ['/a']);
+    assert.match((await testRuns.resultsFor('s1', {})).dependents[0].out_of_date, /relies on has changed/);
   });
 
   test('are out of date once the code moves on, or only an earlier draft was run', async () => {
