@@ -16,6 +16,9 @@ export async function readFile(file) {
 export async function writeFile(file, text) {
   files.set(clean(file), String(text));
 }
+export async function appendFile(file, text) {
+  files.set(clean(file), (files.get(clean(file)) ?? '') + String(text));
+}
 export async function mkdir() {}
 export async function rename(from, to) {
   const text = files.get(clean(from));
@@ -48,4 +51,4 @@ export function restore(saved) {
   for (const [key, text] of saved ?? []) files.set(key, text);
 }
 
-export default { readFile, writeFile, mkdir, rename, rm, readdir };
+export default { readFile, writeFile, appendFile, mkdir, rename, rm, readdir };
