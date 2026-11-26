@@ -5,7 +5,7 @@ import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 import { createIconPicker } from '@smartdesktop/ui/renderer/icon-picker.js';
 import { createAds } from './ads.js';
 import { createServerStatus } from '@smartdesktop/ui/renderer/server-status.js';
-import { createSettings } from './settings.js';
+import { createSettings } from '@smartdesktop/ui/renderer/settings.js';
 import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 
 // The window's interface, given the API it works through (window.smartad, from the preload
@@ -44,7 +44,7 @@ export function startApp(api) {
   });
   const serverStatus = createServerStatus({ api, name: 'SmartAd', kind: 'smartad', askFor: 'design an ad in SmartAd' });
   api.onAiControl((name) => serverStatus.setAiControl(name));
-  createSettings({ dialog: document.getElementById('settings-dialog'), api });
+  createSettings({ dialog: document.getElementById('settings-dialog'), api, name: 'SmartAd' });
   createUpdateToast({ api, name: 'SmartAd' });
   const chat = startChat(api);
   createAds({ el: document.getElementById('content'), adView: document.getElementById('ad-view'), bottomBar: document.getElementById('review-bar'), draftNav: document.getElementById('draft-nav'), api, onShown: chat.shown, onCards: chat.cards, onNote: chat.note, onChooseIcon: (request) => iconPicker.open(request) });

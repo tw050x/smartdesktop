@@ -6,7 +6,7 @@ import { createIconPicker } from '@smartdesktop/ui/renderer/icon-picker.js';
 import { createTopics } from './topics.js';
 import './picking.js';
 import { createServerStatus } from '@smartdesktop/ui/renderer/server-status.js';
-import { createSettings } from './settings.js';
+import { createSettings } from '@smartdesktop/ui/renderer/settings.js';
 import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 
 // The window's interface, given the API it works through (window.smartprep, from the preload
@@ -45,7 +45,7 @@ export function startApp(api) {
   });
   const serverStatus = createServerStatus({ api, name: 'SmartPrep', kind: 'smartprep', askFor: 'help you prepare in SmartPrep' });
   api.onAiControl((name) => serverStatus.setAiControl(name));
-  createSettings({ dialog: document.getElementById('settings-dialog'), api });
+  createSettings({ dialog: document.getElementById('settings-dialog'), api, name: 'SmartPrep' });
   createUpdateToast({ api, name: 'SmartPrep' });
   const chat = startChat(api);
   createTopics({ el: document.getElementById('content'), bottomBar: document.getElementById('review-bar'), goal: document.getElementById('topic-goal'), api, onShown: chat.shown, onCards: chat.cards, onNote: chat.note, onAsk: chat.ask, onChooseIcon: (request) => iconPicker.open(request) });

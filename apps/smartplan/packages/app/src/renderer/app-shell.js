@@ -5,7 +5,7 @@ import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 import { createIconPicker } from '@smartdesktop/ui/renderer/icon-picker.js';
 import { createBoards } from './boards.js';
 import { createServerStatus } from '@smartdesktop/ui/renderer/server-status.js';
-import { createSettings } from './settings.js';
+import { createSettings } from '@smartdesktop/ui/renderer/settings.js';
 import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 
 // The window's interface, given the API it works through (window.smartplan, from the preload
@@ -44,7 +44,7 @@ export function startApp(api) {
   });
   const serverStatus = createServerStatus({ api, name: 'SmartPlan', kind: 'smartplan', askFor: 'plan something in SmartPlan' });
   api.onAiControl((name) => serverStatus.setAiControl(name));
-  createSettings({ dialog: document.getElementById('settings-dialog'), api });
+  createSettings({ dialog: document.getElementById('settings-dialog'), api, name: 'SmartPlan' });
   createUpdateToast({ api, name: 'SmartPlan' });
   const chat = startChat(api);
   createBoards({ el: document.getElementById('content'), bottomBar: document.getElementById('review-bar'), goal: document.getElementById('board-goal'), api, onShown: chat.shown, onCards: chat.cards, onNote: chat.note, onChooseIcon: (request) => iconPicker.open(request) });
