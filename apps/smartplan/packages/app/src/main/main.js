@@ -155,9 +155,7 @@ const tabsShowing = (boardId) => [...windows.values()].filter((t) => !t.home && 
 // boardId, name, card }: `card` to open), beside the tab it came from.
 async function openInTab(from, request) {
   const { host } = from;
-  const tab = createTab(host);
-  host.tabs.splice(host.tabs.indexOf(tab), 1);
-  host.tabs.splice(host.tabs.indexOf(from) + 1, 0, tab);
+  const tab = createTab(host, { after: from });
   await tab.ready;
   tab.contents.send('open-board', request);
   activateTab(tab);

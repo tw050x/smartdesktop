@@ -253,6 +253,9 @@ const tabs = createTabs({
   family: createFamily(familyFolder(app)),
   guestOpen: (ctx) => (projectOf(ctx) ? { projectId: projectOf(ctx), name: ctx.name } : null),
   guestOpened: (ctx, request) => ctx.contents.send('open-project', request),
+  // With SmartDesktop running, SmartStudio has no windows of its own: its tabs are in SmartDesktop's
+  // (the user's choice, 2026-11-26), and it has no Dock icon.
+  windowless: true,
 });
 // A menu or a question over a tab's window (in a guest tab, the window showing it shows them).
 const { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
@@ -267,9 +270,7 @@ const tabsShowing = (projectId) => [...windows.values()].filter((t) => !t.home &
 // projectId, name }), beside the tab it came from.
 async function openInTab(from, request) {
   const { host } = from;
-  const tab = createTab(host);
-  host.tabs.splice(host.tabs.indexOf(tab), 1);
-  host.tabs.splice(host.tabs.indexOf(from) + 1, 0, tab);
+  const tab = createTab(host, { after: from });
   await tab.ready;
   tab.contents.send('open-project', request);
   activateTab(tab);
@@ -429,8 +430,9 @@ async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
   // The window SmartStudio opened as it started, if the AI started it: its tab on home, untouched.
   const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
-  const host = lastFocused?.host ?? createWindow({ focus: false }).host;
-  const ctx = launched ? launched.tabs[0] : createTab(host);
+  // (With no windows of its own, the tab is SmartDesktop's to place: no window is made for it here.)
+  const host = tabs.inSmartDesktop() ? null : lastFocused?.host ?? createWindow({ focus: false }).host;
+  const ctx = launched ? launched.tabs[0] : createTab(host, { focus: Boolean(fromDesktop(session)) });
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
@@ -606,7 +608,7 @@ async function confirmAddToClaudeDesktop(ctx) {
 // Downloads is offered a move to Applications (which opens it again from there).
 async function offerMoveToApplications(ctx) {
   if (!app.isPackaged || process.platform !== 'darwin' || app.isInApplicationsFolder()) return;
-  const { response } = await dialog.showMessageBox(ctx.win, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: 'Move SmartStudio to your Applications folder?',
     detail: 'Your agent opens SmartStudio from where it’s installed, so it works best in Applications.',
@@ -808,8 +810,6 @@ app.whenReady().then(async () => {
   // The app is in beta, and its About panel says so (as Settings does).
   app.setAboutPanelOptions({ credits: 'SmartStudio is in beta, so it may change significantly from one version to the next.' });
   serveMedia();
-  const first = createWindow();
-  await startMcp();
   // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here, its
   // calls run by the same handlers, and its takes' files as media (take/<project>/<file>, as
   // studio-media:// serves them here); and other apps' tabs shown in its windows.
@@ -819,6 +819,9 @@ app.whenReady().then(async () => {
     // (A project's id is letters, digits and dashes: nothing else, from a URL, reaches its folder.)
     media: ([kind, projectId, file]) => (kind === 'take' && /^[\w-]+$/.test(projectId ?? '') && file ? store.mediaPath(projectId, file) : null),
   }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
+  if (tabs.inSmartDesktop()) app.dock?.hide();
+  const first = createWindow();
+  await startMcp();
   updates.start();
   // The generation server: how it is now and every minute (Settings and the tabs show it), how far
   // along its jobs are, and the takes it was making when the app last quit.

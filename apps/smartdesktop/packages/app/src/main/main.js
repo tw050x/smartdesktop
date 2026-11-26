@@ -1005,7 +1005,19 @@ function setAppMenu() {
     // A tab of each app running (the other apps' front ends, in an app window: see app-windows.js);
     // with an app's tab in front, that app's menus.
     ...(appMenus ?? [{ label: 'File', submenu: [...openApps, { type: 'separator' }, { role: 'close' }] }]),
-    { role: 'editMenu' },
+    // Edit: the standard items, and the app's own (SmartDoc's Find, say).
+    { label: 'Edit', submenu: [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { role: 'pasteAndMatchStyle' },
+      { role: 'delete' },
+      { role: 'selectAll' },
+      ...(theirs?.edit?.some((one) => !one.separator) ? [{ type: 'separator' }, ...template(theirs.edit)] : []),
+    ] },
     { label: 'Window', role: 'windowMenu', submenu: [
       { label: 'New Chat Window', accelerator: 'CmdOrCtrl+N', click: newChatWindow },
       { label: 'Show the Chat', accelerator: 'Shift+CmdOrCtrl+C', click: showHere },

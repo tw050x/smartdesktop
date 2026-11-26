@@ -280,7 +280,11 @@ export function createTabs({
     // `waiting`: opened to show something, and not showing it yet (the app clears it).
     const ctx = { id, host, get home() { return isHome(this); }, waiting: !home, view, contents, get win() { return this.host.win; }, ready: null, session: null, untouched: true, where: home ? 'home' : null, name: null, history: { back: false, forward: false } };
     windows.set(contents.id, ctx);
-    host.tabs.push(ctx);
+    // At the end, or just after `after` (a tab in the same window: "open in a new tab" puts it beside
+    // the one it came from).
+    const after = options.after && host.tabs.indexOf(options.after);
+    if (after >= 0) host.tabs.splice(after + 1, 0, ctx);
+    else host.tabs.push(ctx);
     // SmartDesktop is told the tab is on home: what happens there goes to no chat.
     if (home) desktop().window(id, { home: true, title: 'Home' });
     view.setVisible(false);

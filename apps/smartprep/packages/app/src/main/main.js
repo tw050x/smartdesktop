@@ -143,6 +143,9 @@ const tabs = createTabs({
   family: createFamily(familyFolder(app)),
   guestOpen: (ctx) => (topicOf(ctx) ? { topicId: topicOf(ctx), name: ctx.name } : null),
   guestOpened: (ctx, request) => ctx.contents.send('open-topic', request),
+  // With SmartDesktop running, SmartPrep has no windows of its own: its tabs are in SmartDesktop's
+  // (the user's choice, 2026-11-26), and it has no Dock icon.
+  windowless: true,
 });
 // A menu or a question over a tab's window (in a guest tab, the window showing it shows them).
 const { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
@@ -157,9 +160,7 @@ const tabsShowing = (topicId) => [...windows.values()].filter((t) => !t.home && 
 // topicId, name, card }: `card` to bring to the middle), beside the tab it came from.
 async function openInTab(from, request) {
   const { host } = from;
-  const tab = createTab(host);
-  host.tabs.splice(host.tabs.indexOf(tab), 1);
-  host.tabs.splice(host.tabs.indexOf(from) + 1, 0, tab);
+  const tab = createTab(host, { after: from });
   await tab.ready;
   tab.contents.send('open-topic', request);
   activateTab(tab);
@@ -312,8 +313,9 @@ async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
   // The window SmartPrep opened as it started, if the AI started it: its tab on home, untouched.
   const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
-  const host = lastFocused?.host ?? createWindow({ focus: false }).host;
-  const ctx = launched ? launched.tabs[0] : createTab(host);
+  // (With no windows of its own, the tab is SmartDesktop's to place: no window is made for it here.)
+  const host = tabs.inSmartDesktop() ? null : lastFocused?.host ?? createWindow({ focus: false }).host;
+  const ctx = launched ? launched.tabs[0] : createTab(host, { focus: Boolean(fromDesktop(session)) });
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
@@ -490,7 +492,7 @@ async function confirmAddToClaudeDesktop(ctx) {
 // Downloads is offered a move to Applications (which opens it again from there).
 async function offerMoveToApplications(ctx) {
   if (!app.isPackaged || process.platform !== 'darwin' || app.isInApplicationsFolder()) return;
-  const { response } = await dialog.showMessageBox(ctx.win, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: 'Move SmartPrep to your Applications folder?',
     detail: 'Your agent opens SmartPrep from where it’s installed, so it works best in Applications.',
@@ -669,11 +671,12 @@ handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 app.whenReady().then(async () => {
   // The app is in beta, and its About panel says so (as Settings does).
   app.setAboutPanelOptions({ credits: 'SmartPrep is in beta, so it may change significantly from one version to the next.' });
-  const first = createWindow();
-  await startMcp();
   // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here, its
   // calls run by the same handlers; and other apps' tabs shown in its windows.
   await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
+  if (tabs.inSmartDesktop()) app.dock?.hide();
+  const first = createWindow();
+  await startMcp();
   updates.start();
   await first.ready;
   offerMoveToApplications(first);

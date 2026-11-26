@@ -238,6 +238,9 @@ const tabs = createTabs({
   },
   guestOpened: (ctx, { docId, variationId, draftId, tool } = {}) => context.run(ctx, () => ctx.workspace.openDraft(docId, variationId, draftId, tool))
     .catch((error) => console.error('A guest tab couldn’t open its document:', error.message)),
+  // With SmartDesktop running, SmartDoc has no windows of its own: its tabs are in SmartDesktop's
+  // (the user's choice, 2026-11-26), and it has no Dock icon.
+  windowless: true,
 });
 // A menu, a question, a sheet, the file picker or the save panel over a tab's window (in a guest
 // tab, the window showing it shows them).
@@ -291,9 +294,7 @@ async function tabToOpenIn() {
   const here = current();
   if (here?.home) return here;
   const { host } = here;
-  const tab = createTab(host);
-  host.tabs.splice(host.tabs.indexOf(tab), 1);
-  host.tabs.splice(host.tabs.indexOf(here) + 1, 0, tab);
+  const tab = createTab(host, { after: here });
   activateTab(tab);
   await tab.ready;
   return tab;
@@ -956,8 +957,9 @@ async function showSession(session) {
   // The window SmartDoc opened as it started, if the AI started it: its tab on home, untouched, gives
   // way to the AI's.
   const launched = session.startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
-  const host = launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
-  const ctx = createTab(host, { workspace: from?.workspace ?? null });
+  // (With no windows of its own, the tab is SmartDesktop's to place: no window is made for it here.)
+  const host = tabs.inSmartDesktop() ? null : launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
+  const ctx = createTab(host, { workspace: from?.workspace ?? null, focus: Boolean(launched || fromDesktop(session)) });
   if (launched) closeTab(launched.tabs[0]);
   if (from) {
     headless.delete(from);
@@ -1579,13 +1581,15 @@ app.on('open-file', (event, filePath) => {
 app.whenReady().then(async () => {
   // The app is in beta, and its About panel says so (as Settings does).
   app.setAboutPanelOptions({ credits: 'SmartDoc is in beta, so it may change significantly from one version to the next.' });
+  // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here (its
+  // own workspace), its calls run by the same handlers; and other apps' tabs shown in its windows.
+  // Served first: with SmartDesktop running, its first tab is one there, made through the server.
+  await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
+  if (tabs.inSmartDesktop()) app.dock?.hide();
   const first = createWindow();
   await first.workspace.loadRecent();
   context.run(first, updateMenu);
   await startMcp();
-  // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here (its
-  // own workspace), its calls run by the same handlers; and other apps' tabs shown in its windows.
-  await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
   if (pendingOpen) importFile(pendingOpen);
   updates.start();
   await first.ready;
