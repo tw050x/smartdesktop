@@ -608,7 +608,7 @@ button:disabled { opacity: 0.5; cursor: default; }
    controls (see page-view.js). */
 .board-full > .focus-body.sheet-body { padding: 16px 16px 56px; background: var(--window-bg); }
 /* A page is fitted to its card's width, so the scrollbar's room is always kept: a page just tall
-   enough to scroll at one width and not at the other (6px narrower with its scrollbar) was fitted
+   enough to scroll at one width and not at the other (4px narrower with its scrollbar) was fitted
    again and again, every frame, juddering for good (seen in a half of the focus area). */
 .focus-body.sheet-body { scrollbar-gutter: stable; }
 .page-controls { z-index: 2; }
@@ -777,11 +777,19 @@ button.focus-neighbour:focus-visible { outline: 2px solid var(--accent); outline
    writing needs more. */
 .document-sheet { display: flow-root; flex: none; width: 794px; min-height: 1123px; box-sizing: border-box; margin: 0 auto; padding: 60px; zoom: var(--page-zoom, 1); border-radius: var(--card-radius); background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06); font-size: 16px; line-height: 1.6; }
 .document-sheet .markdown { font-size: inherit; line-height: inherit; }
+/* Everything that scrolls has a thin scrollbar with no track to see, as in SmartSpec (the user's
+   choice: the system's was too wide, track and all). An element with scrollbar-width of its own
+   (none, say) keeps it: Chromium then ignores these. */
+::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border-radius: 2px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 60%, transparent); }
+::-webkit-scrollbar-corner { background: transparent; }
 /* Anything that scrolls in an item has a thin scrollbar, its track stopping short of the card's
    rounded corners (the open view is scaled as a whole, so its corners are --card-radius inside it). */
-.board-item ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+.board-item ::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
 .board-item ::-webkit-scrollbar-track { margin: var(--card-radius); background: transparent; }
-.board-item ::-webkit-scrollbar-thumb { border-radius: 3px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+.board-item ::-webkit-scrollbar-thumb { border-radius: 2px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
 .board-item ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 60%, transparent); }
 .board-item ::-webkit-scrollbar-corner { background: transparent; }
 .link-button { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
