@@ -43,10 +43,21 @@ jobs:
       - name: Test each package
         run: |
           for package in packages/*/; do
+            [ -f "$package/package.json" ] || continue # (the installer is Swift: built below)
             echo "::group::$package"
             (cd "$package" && npm test)
             echo "::endgroup::"
           done
+
+  installer:
+    name: Installer
+    # The per-app installer is a small native Mac app (packages/installer): built for one app, so a
+    # change can't leave it unbuildable.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the installer
+        run: packages/installer/build.sh smartplan SmartPlan dist
 
   prerequisites:
     name: ${{ matrix.app }}
