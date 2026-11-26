@@ -93,3 +93,29 @@ test('a guest tab’s calls are run as the app’s, only its API’s, and what i
     guests.stop();
   }
 });
+
+test('another app’s tab dragged over this one is asked about, and shown only by an app that shows guests', async () => {
+  const asked = [];
+  // In front where y < 300 (used after the dragging app's window, `front`, 100), its top bar where y < 50.
+  const over = (point, front) => {
+    asked.push([point, front]);
+    const inFront = Boolean(point && point.y < 300 && 200 > front);
+    return { over: inFront && point.y < 50, front: inFront };
+  };
+  const showing = await startGuestServer({ open() {}, close() {}, call() {}, host: async () => {}, over });
+  const serving = await startGuestServer({ files: os.tmpdir(), api: API, open() {}, close() {}, call() {} });
+  try {
+    const ask = (server, point, front) => fetch(`${server.url}/over`, { method: 'POST', body: JSON.stringify({ point, front }) }).then((r) => r.json());
+    assert.deepEqual(await ask(showing, { x: 10, y: 20 }, 100), { over: true, front: true });
+    assert.deepEqual(await ask(showing, { x: 10, y: 200 }, 100), { over: false, front: true });
+    assert.deepEqual(await ask(showing, { x: 10, y: 20 }, 300), { over: false, front: false });
+    assert.deepEqual(await ask(showing, { x: 10, y: 400 }), { over: false, front: false });
+    assert.deepEqual(await ask(showing, null), { over: false, front: false });
+    assert.deepEqual(asked.map(([, front]) => front), [100, 100, 300, 0, 0]);
+    assert.deepEqual(await ask(serving, { x: 10, y: 20 }, 0), { over: false, front: false });
+    assert.equal((await fetch(`${showing.url}/api`)).status, 404);
+  } finally {
+    showing.stop();
+    serving.stop();
+  }
+});

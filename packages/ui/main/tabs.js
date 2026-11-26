@@ -317,11 +317,18 @@ export function createTabs({
   // Another app asks this one to show its tab (guests.js's `host`): in the window last used, at the
   // end of its tabs, showing, the window brought forward. Only an app of the family's that's running,
   // from its own server on this Mac.
-  async function hostGuest({ app: guestApp, url, open = null }) {
+  async function hostGuest({ app: guestApp, url, open = null, at = null }) {
     const known = family?.get(guestApp);
     if (!known?.serving || known.url !== url || !localServer(url)) throw new Error('Not an app of the family');
-    const host = lastFocused?.host ?? [...hosts][0] ?? createWindow().host;
+    // Dropped on a top bar: there, where it was let go; else the window last used.
+    dropOver(null);
+    const target = at ? foreignTarget(at) : null;
+    const host = target?.host ?? lastFocused?.host ?? [...hosts][0] ?? createWindow().host;
     const ctx = await createGuestTab(host, { app: guestApp, name: known.name, url, open });
+    if (target) {
+      host.tabs.splice(host.tabs.indexOf(ctx), 1);
+      host.tabs.splice(Math.max(1, Math.min(target.index, host.tabs.length)), 0, ctx);
+    }
     activateTab(ctx);
     host.win.show();
     host.win.focus();
@@ -329,12 +336,47 @@ export function createTabs({
     return ctx;
   }
 
-  // Moves this app's tab to another app's window (`other`: its family entry), as a guest there: the
-  // tab here closes once it's open there.
-  async function moveToApp(ctx, other) {
+  // Another app's tab dragged over this one's windows (guests.js's `over`): the top bar under the
+  // point shows where it would go, as for a tab of its own. Only top bars count: dropped anywhere
+  // else, the app it's from makes a window of its own for it.
+  const tabDragShared = createTabDrag({ topBar });
+  const hostsByFront = () => [...hosts].sort((a, b) => (b.focusedAt ?? 0) - (a.focusedAt ?? 0));
+  // This app's window in front under `point` (any part of it, or just above it), when it last had the
+  // focus (`at`, for comparing with other apps' windows there: which is in front isn't known across
+  // apps, so the one used last counts as in front), and where in its top bar a tab would go, if it's
+  // over that (`target`).
+  function underPoint(point, dragId = null) {
+    for (const host of hostsByFront()) {
+      const { win: w } = host;
+      if (w.isDestroyed() || !w.isVisible() || w.isMinimized()) continue;
+      const b = w.getContentBounds();
+      if (point.x < b.x || point.x >= b.x + b.width || point.y < b.y - 24 || point.y >= b.y + b.height) continue;
+      return { at: host.focusedAt ?? 0, target: tabDragShared.targetAt(point, [host], dragId) };
+    }
+    return null;
+  }
+  const foreignTarget = (point) => underPoint(point)?.target ?? null;
+  let foreignOver = null; // the target a dragged tab of another app's is shown over
+  // `front`: when the dragging app's own window under the point last had the focus (0 if none):
+  // this app's is in front only if used since.
+  function dropOver(point, front = 0) {
+    const under = point ? underPoint(point) : null;
+    const inFront = Boolean(under && under.at > front);
+    const target = inFront ? under.target : null;
+    const before = foreignOver;
+    foreignOver = target;
+    if (before && before.host !== target?.host && !before.host.win.isDestroyed()) before.host.win.webContents.send('tab-drop', null);
+    if (target && (target.host !== before?.host || target.index !== before.index || target.x !== before.x)) target.host.win.webContents.send('tab-drop', { id: null, index: target.index, x: target.x });
+    return { over: Boolean(target), front: inFront };
+  }
+
+  // Moves this app's tab to another app's window (`other`: its family entry), as a guest there
+  // (`at`: where on the screen it was dropped, for its top bar): the tab here closes once it's open
+  // there.
+  async function moveToApp(ctx, other, at = null) {
     const open = guestOpen(ctx);
     if (!open || !guestUrl) return;
-    const result = await post(`${other.url}/host`, { app: appId, url: guestUrl, open }).catch((error) => ({ ok: false, error: error.message }));
+    const result = await post(`${other.url}/host`, { app: appId, url: guestUrl, open, at }).catch((error) => ({ ok: false, error: error.message }));
     if (result.ok) closeTab(ctx);
     else console.error(`Couldn’t move the tab to ${other.name}:`, result.error);
   }
@@ -360,6 +402,7 @@ export function createTabs({
       close: (ctx) => removeGuest(ctx),
       call: (ctx, channel, args) => run(ctx, channel, args),
       host: (request) => hostGuest(request),
+      over: (point, front) => dropOver(point, front),
     });
     guestUrl = server.url;
     family?.announce({ app: appId, name, url: server.url, hosting: true, serving });
@@ -603,12 +646,57 @@ export function createTabs({
     });
     const hostsInFront = () => [...hosts].sort((a, b) => (b.focusedAt ?? 0) - (a.focusedAt ?? 0));
     function dragOver(point) {
-      const target = tabDrag.targetAt(point, hostsInFront(), dragging.tab.id);
+      const under = underPoint(point, dragging.tab.id);
+      // Another app's window in front here (as last asked): none of this app's takes it.
+      const target = dragging.behind ? null : under?.target ?? null;
       const before = dragging.target;
       dragging.target = target;
       if (before && before.host !== target?.host && !before.host.win.isDestroyed()) before.host.win.webContents.send('tab-drop', null);
       if (target && (target.host !== before?.host || target.index !== before.index || target.x !== before.x)) target.host.win.webContents.send('tab-drop', { id: dragging.tab.id, index: target.index, x: target.x });
       tabDrag.move(point);
+      askOthers(dragging, point, under?.at ?? 0);
+    }
+    // The other apps of the family that show guests are asked about the pointer: whether a window
+    // of theirs is in front of this app's there (`front`: when this app's there last had the focus),
+    // and over its top bar (each showing where the tab would go, if it is). One question at a time,
+    // the latest point asked next. Only a tab that can be a guest is dropped in another app; any
+    // other still makes a window of its own under another app's window.
+    function askOthers(drag, point, front) {
+      if (!drag.others) drag.others = guestUrl && family ? family.others(appId).filter((other) => other.hosting) : [];
+      if (!drag.others.length) return;
+      const movable = !drag.tab.hosted && Boolean(guestOpen(drag.tab));
+      drag.ask = { point, front };
+      if (drag.asking) return;
+      drag.asking = (async () => {
+        while (drag.ask) {
+          const { point: at, front: own } = drag.ask;
+          drag.ask = null;
+          let foreign = null;
+          let behind = false;
+          for (const other of drag.others) {
+            // Asked with no point, an app stops showing where the tab would go.
+            const clear = () => post(`${other.url}/over`, { point: null }).catch(() => {});
+            if (behind || !at) {
+              if (drag.shown?.has(other)) await clear();
+              drag.shown?.delete(other);
+              continue;
+            }
+            const answer = await post(`${other.url}/over`, { point: at, front: own }).catch(() => ({ over: false, front: false }));
+            if (answer.front) behind = true;
+            if (answer.over && movable) foreign = other;
+            else if (answer.over) await clear();
+            drag.shown ??= new Set();
+            if (answer.over && movable) drag.shown.add(other);
+            else drag.shown.delete(other);
+          }
+          drag.foreign = foreign;
+          if (behind !== Boolean(drag.behind)) {
+            drag.behind = behind;
+            if (dragging === drag) dragOver(drag.point);
+          }
+        }
+        drag.asking = null;
+      })();
     }
     handle('tab-drag-start', async (ctx, id, { chip, offset, point } = {}) => {
       const host = ctx?.host;
@@ -628,7 +716,7 @@ export function createTabs({
       dragging.point = point;
       dragOver(point);
     });
-    handle('tab-drag-end', (_ctx, point) => {
+    handle('tab-drag-end', async (_ctx, point) => {
       const drag = dragging;
       if (!drag) return;
       if (point) {
@@ -637,10 +725,14 @@ export function createTabs({
       }
       dragging = null;
       tabDrag.hide();
-      const { tab, target } = drag;
-      if (target && !target.host.win.isDestroyed()) target.host.win.webContents.send('tab-drop', null);
+      const { tab } = drag;
+      if (drag.target && !drag.target.host.win.isDestroyed()) drag.target.host.win.webContents.send('tab-drop', null);
+      // Whether it was let go over another app's window, in front: the last question answered.
+      await drag.asking;
+      const target = drag.behind ? null : drag.target;
       if (!windows.has(tab.contents.id)) return; // closed meanwhile
       if (target) return moveTab(tab, target.host, target.index);
+      if (drag.foreign) return moveToApp(tab, drag.foreign, drag.point);
       // Over no top bar: a new window, the size of the one it came from, its tab under the pointer
       // where it was let go (the window may run off the screen, but never its top bar).
       const from = tab.host;
