@@ -1,4 +1,4 @@
-import { createChatPanel } from './chat-panel.js';
+import { createChatPanel } from '@smartdesktop/ui/renderer/chat-panel.js';
 import { trackAiProgress } from '@smartdesktop/ui/renderer/ai-progress.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';

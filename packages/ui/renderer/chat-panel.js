@@ -1,7 +1,10 @@
-import { customScrollbar } from '@smartdesktop/ui/renderer/scrollbar.js';
-import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
-import { failureText } from '@smartdesktop/ui/renderer/ai-progress.js';
+import { customScrollbar } from './scrollbar.js';
+import { rubberBand } from './rubber-band.js';
+import { failureText } from './ai-progress.js';
 
+// SmartDesktop's chat panel, shared with SmartDoc's and SmartSpec's website demos, which draw the
+// chat with it (their chat-window.js), so the sites show the chat as it is.
+//
 // A chat: where the user works with their own Claude or ChatGPT (see main/agent.js) on what's open
 // in its own tabs in SmartDoc and SmartSpec (each chat owns at most one tab in each). The chat
 // window holds several, each in a tab, in columns side by side (chat.js); this is one of them, the
