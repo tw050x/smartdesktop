@@ -349,7 +349,6 @@ struct InstallerView: View {
       if !installation.canInstallForEveryone {
         Text("You can’t add apps to Applications for everyone on this Mac, so they go in your own.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
-      Text("Installs in \(installation.installDir.path)").font(.caption).foregroundStyle(.secondary)
     case .installation:
       Text(installation.finished ? "Installed" : installation.running ? "Installing…" : "Ready to install").font(.title2).fontWeight(.semibold)
       VStack(alignment: .leading, spacing: 14) {
