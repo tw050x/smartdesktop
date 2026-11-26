@@ -21,7 +21,15 @@ for json in "$here"/apps/*/packages/*/package.json; do
   if npx -y npm@11 trust list "$name" 2>/dev/null | grep -q "tw050x/smartdesktop"; then
     echo "$name trusts tw050x/smartdesktop already"
   else
-    npx -y npm@11 trust github "$name" --repository tw050x/smartdesktop --file release.yml --allow-publish --yes ${otp:+--otp="$otp"}
-    echo "$name now trusts tw050x/smartdesktop's release.yml"
+    # (npm refuses a second trusted publisher that could match the same token: one already set, from
+    # an earlier run, counts as done.)
+    if output=$(npx -y npm@11 trust github "$name" --repository tw050x/smartdesktop --file release.yml --allow-publish --yes ${otp:+--otp="$otp"} 2>&1); then
+      echo "$name now trusts tw050x/smartdesktop's release.yml"
+    elif printf '%s' "$output" | grep -q "already exists"; then
+      echo "$name has a trusted publisher already (from an earlier run): check it's tw050x/smartdesktop's on npmjs.com if unsure"
+    else
+      printf '%s\n' "$output" >&2
+      exit 1
+    fi
   fi
 done
