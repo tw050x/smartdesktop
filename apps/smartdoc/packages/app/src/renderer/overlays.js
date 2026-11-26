@@ -1,5 +1,5 @@
 import { anchorRects, lineExtent, pageContent, pageNumbers, pageText, spanAt } from './anchors.js';
-import { diffText } from './word-diff.js';
+import { diffText } from '@smartdesktop/ui/renderer/word-diff.js';
 
 // The review's marks on the pages: each item's text tinted in its colour. Where several items'
 // text overlaps, the shared part is striped in all their colours. While a deck is hovered (the

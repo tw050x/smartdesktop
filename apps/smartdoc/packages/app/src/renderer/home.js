@@ -26,7 +26,7 @@ import { takeOverNote } from './take-over-note.js';
 import { levelOf } from './home-level.js';
 import { actionFor, firstTodo, todoOf } from '../main/home-review-state.js';
 import { LABEL_COLORS, NO_LABELS, labelsOn, labelsToChoose } from '../main/labels.js';
-import { arrowKeysIn } from './menu-keys.js';
+import { arrowKeysIn } from '@smartdesktop/ui/renderer/menu-keys.js';
 
 const icon = (paths, size = 14) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const arrowIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16.18,13H4V11H16.18l-5.6-5.6L12,4l8,8l-8,8l-1.42-1.4l5.6-5.6Z"/></svg>';

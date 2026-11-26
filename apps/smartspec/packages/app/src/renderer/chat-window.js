@@ -1,5 +1,5 @@
 import { createChatPanel } from './chat-panel.js';
-import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgress } from './ai-progress.js';
+import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgress } from '@smartdesktop/ui/renderer/ai-progress.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 import { CHAT_TITLE } from './demo/scenario.js';
 

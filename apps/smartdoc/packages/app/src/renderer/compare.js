@@ -1,7 +1,7 @@
 import { getDocument } from './pdf-engine.js';
 import { pageModel, rangeRects } from './anchors.js';
 import { drawPage, fitPageTo } from './pdf-page.js';
-import { diffPages } from './word-diff.js';
+import { diffPages } from '@smartdesktop/ui/renderer/word-diff.js';
 
 // The AI's preview beside the draft it was written from, as pages side by side scrolling together:
 // removed text marked on the left, added text on the right. The marks exist only here, on this

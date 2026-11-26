@@ -1,5 +1,5 @@
 import { createChatPanel } from './chat-panel.js';
-import { trackAiProgress } from './ai-progress.js';
+import { trackAiProgress } from '@smartdesktop/ui/renderer/ai-progress.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 import { createUpdateToast } from './update-toast.js';
 import { createHistoryPanel } from './history-panel.js';

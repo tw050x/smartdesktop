@@ -1,4 +1,4 @@
-import { diffText } from './word-diff.js';
+import { diffText } from '@smartdesktop/ui/renderer/word-diff.js';
 
 // Marks what changed between two versions of some writing, in the writing as drawn (Markdown
 // rendered into elements): added words green, removed ones red. In one view (markInline) the

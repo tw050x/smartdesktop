@@ -16,7 +16,7 @@ import { markScrolling } from './scroll-marks.js';
 import { diffOf, sideDiff } from './item-diffs.js';
 import { CROSS, openCompare } from './compare-view.js';
 import { CHEVRON, createModeSwitcher } from './mode-switcher.js';
-import { arrowKeysIn } from './menu-keys.js';
+import { arrowKeysIn } from '@smartdesktop/ui/renderer/menu-keys.js';
 import { plainText, renderMarkdown } from './markdown.js';
 import { levelOf } from './home-level.js';
 import { contractPlain, contractStanding, renderContract } from './contract-view.js';

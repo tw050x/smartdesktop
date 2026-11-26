@@ -3,7 +3,7 @@ import { pinOffset } from './canvas-view.js';
 import { hideHoverCard, showHoverCard } from './hover-card.js';
 import { GROUP_WORDS, layoutFlow, layoutSequence } from './layout.js';
 import { inlineMarkdown, renderMarkdown } from './markdown.js';
-import { diffText } from './word-diff.js';
+import { diffText } from '@smartdesktop/ui/renderer/word-diff.js';
 
 // Each kind of item's way of rendering. Whatever the kind, a part that can be linked to has
 // data-part, and one that links elsewhere has an arrow that calls `onLink` (see linkPart). Labels are drawn as plain text, so a

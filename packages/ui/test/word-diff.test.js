@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { diffPages } from '../packages/app/src/renderer/word-diff.js';
+import { diffPages, diffText } from '../renderer/word-diff.js';
 
 const slice = (pages, ranges) => ranges.map((r) => pages[r.page - 1].slice(r.start, r.end));
 
@@ -105,5 +105,30 @@ describe('comparing drafts', () => {
     const changes = diffPages(before, after);
     assert.equal(changes.length, 1);
     assert.deepEqual(slice(before, changes[0].removed), before);
+  });
+});
+
+describe('marking changes in the new text', () => {
+  test('says what was removed, what was added, and where the removed text was', () => {
+    const before = 'Prices are fixed when checkout starts.';
+    const after = 'Prices are locked when checkout starts, and kept.';
+    const changes = diffText(before, after);
+    const parts = changes.flatMap((change) => change.parts);
+    const removed = parts.filter((part) => part.removed).map((part) => before.slice(part.removed.start, part.removed.end));
+    const added = parts.filter((part) => part.added).map((part) => after.slice(part.added.start, part.added.end));
+    assert.deepEqual(removed, ['fixed']);
+    assert.deepEqual(added, ['locked', ', and kept']);
+    assert.equal(after.slice(parts[0].at).startsWith('locked'), true);
+  });
+
+  test('a removal at the end belongs at the end', () => {
+    const [change] = diffText('Keep this. Drop that.', 'Keep this.');
+    const [part] = change.parts;
+    assert.equal(part.added, null);
+    assert.equal(part.at, 'Keep this.'.length);
+  });
+
+  test('the same text has no changes', () => {
+    assert.deepEqual(diffText('Same words\nhere', 'Same   words here'), []);
   });
 });

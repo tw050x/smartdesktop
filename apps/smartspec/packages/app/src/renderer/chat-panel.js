@@ -1,6 +1,6 @@
 import { customScrollbar } from './scrollbar.js';
 import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
-import { failureText } from './ai-progress.js';
+import { failureText } from '@smartdesktop/ui/renderer/ai-progress.js';
 
 // A chat: where the user works with their own Claude or ChatGPT (see main/agent.js) on what's open
 // in its own tabs in SmartDoc and SmartSpec (each chat owns at most one tab in each). The chat

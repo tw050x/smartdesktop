@@ -1,4 +1,4 @@
-import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgress } from './ai-progress.js';
+import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgress } from '@smartdesktop/ui/renderer/ai-progress.js';
 
 // The setup window (see main.js): the AIs the chat runs, a row each with its name, where it stands
 // and the one thing to do next, installed with its maker's own installer and signed in to in the

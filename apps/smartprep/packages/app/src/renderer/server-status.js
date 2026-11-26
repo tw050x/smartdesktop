@@ -7,7 +7,7 @@
 // server's details and, folded away, how to connect another AI app by hand. Connect an AI in the menu opens it too. The panel's drag handle, at its right
 // edge, resizes it, and closes it when dragged below the minimum width.
 
-import { arrowKeysIn } from './menu-keys.js';
+import { arrowKeysIn } from '@smartdesktop/ui/renderer/menu-keys.js';
 
 const PANEL_MIN = 300;
 const PANEL_MAX_SHARE = 0.66;
