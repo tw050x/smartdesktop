@@ -14,6 +14,9 @@
 //                                         only the channels in `api.calls`
 //   GET  /<token>/tabs/<id>/open          what the tab shows, as this app's own request for opening it
 //                                         ({ open }, null if it can't be moved), for moving it on
+//   POST /<token>/tabs/<id>/answer        the window showing the tab answers what this app asked it
+//                                         to show ({ ask, value }: a menu's choice, a message box's
+//                                         response; asked as `guest-ui` events)
 //   POST /<token>/tabs/<id>/return        the tab comes back to this app, as a tab of its own
 //                                         ({ at }: where on the screen it was dropped, or null)
 //   POST /<token>/host                    asks this app to show another's tab in its window
@@ -29,7 +32,8 @@
 // What a tab is sent before its stream is open waits for it. The app makes and removes the guest
 // tabs (`open(send, { open })` → its tab, `close(tab)`) and runs their calls (`call(tab, channel,
 // args)`), as its own handlers do for its own tabs, says what one shows (`opening(tab)`) and takes one
-// back (`returned(tab, at)`); and shows others' (`host(request)`, `over(point)`). Without
+// back (`returned(tab, at)`), hearing what its window answered (`answered(tab, ask, value)`); and
+// shows others' (`host(request)`, `over(point)`). Without
 // `api` it serves no pages (it only shows others'); without `host` it shows none.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -39,7 +43,7 @@ import path from 'node:path';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json', '.wasm': 'application/wasm' };
 const MOST_BODY = 8 * 1024 * 1024; // a call's arguments, at most
 
-export function startGuestServer({ files = null, api = null, open, close, call, opening = () => null, returned = null, host = null, over = null, port = 0 }) {
+export function startGuestServer({ files = null, api = null, open, close, call, opening = () => null, returned = null, answered = () => {}, host = null, over = null, port = 0 }) {
   const token = randomBytes(24).toString('hex');
   const tabs = new Map(); // id → { tab, stream, waiting: [] }
   const root = files && path.resolve(files);
@@ -129,6 +133,11 @@ export function startGuestServer({ files = null, api = null, open, close, call, 
         return;
       }
       if (req.method === 'GET' && what === 'open') return json(res, 200, { open: opening(entry.tab) ?? null });
+      if (req.method === 'POST' && what === 'answer') {
+        const { ask, value = null } = JSON.parse((await body(req)) || '{}');
+        answered(entry.tab, ask, value);
+        return json(res, 200, { ok: true });
+      }
       if (req.method === 'POST' && what === 'return') {
         if (!returned) return json(res, 200, { ok: false, error: 'This app doesn’t take tabs back' });
         const { at = null } = JSON.parse((await body(req)) || '{}');

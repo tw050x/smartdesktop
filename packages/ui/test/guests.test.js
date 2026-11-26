@@ -120,7 +120,7 @@ test('another app’s tab dragged over this one is asked about, and shown only b
   }
 });
 
-test('a guest tab says what it shows, and comes back to its app', async () => {
+test('a guest tab says what it shows, hears its window’s answers, and comes back to its app', async () => {
   const back = [];
   const guests = await startGuestServer({
     files: os.tmpdir(),
@@ -130,6 +130,7 @@ test('a guest tab says what it shows, and comes back to its app', async () => {
     call() {},
     opening: (tab) => ({ thing: tab.id }),
     returned: async (tab, at) => back.push([tab.id, at]),
+    answered: (tab, ask, value) => back.push([tab.id, ask, value]),
   });
   try {
     const { id } = await (await fetch(`${guests.url}/tabs`, { method: 'POST' })).json();
@@ -137,6 +138,9 @@ test('a guest tab says what it shows, and comes back to its app', async () => {
     const returned = await fetch(`${guests.url}/tabs/${id}/return`, { method: 'POST', body: JSON.stringify({ at: { x: 5, y: 6 } }) });
     assert.deepEqual(await returned.json(), { ok: true });
     assert.deepEqual(back, [['g-1', { x: 5, y: 6 }]]);
+    // What its window answered (a menu's choice, say).
+    await fetch(`${guests.url}/tabs/${id}/answer`, { method: 'POST', body: JSON.stringify({ ask: 3, value: 'delete' }) });
+    assert.deepEqual(back.at(-1), ['g-1', 3, 'delete']);
   } finally {
     guests.stop();
   }

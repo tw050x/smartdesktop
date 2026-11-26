@@ -139,7 +139,8 @@ const tabs = createTabs({
   guestOpen: (ctx) => (boardOf(ctx) ? { boardId: boardOf(ctx), name: ctx.name } : null),
   guestOpened: (ctx, request) => ctx.contents.send('open-board', request),
 });
-const { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
+// A menu or a question over a tab's window (in a guest tab, the window showing it shows them).
+const { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
 
 // Where a tab is: 'home', or the id of the board it shows, as the tab says (chat-shows).
 const boardOf = (ctx) => (ctx.where && ctx.where !== 'home' ? ctx.where : null);
@@ -476,7 +477,7 @@ async function showConnectAi() {
 
 async function confirmAddToClaudeDesktop(ctx) {
   const status = await claudeDesktopStatus();
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: status.state === 'different' ? 'Update SmartPlan in Claude Desktop?' : 'Add SmartPlan to Claude Desktop?',
     detail: 'SmartPlan adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
@@ -590,7 +591,7 @@ async function deleteBoard(ctx, boardId) {
   const board = (await store.list()).find((one) => one.id === boardId);
   if (!board) return false;
   const cards = board.cards === 1 ? 'its card' : board.cards ? `its ${board.cards} cards` : null;
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'warning',
     message: `Delete “${board.name}”?`,
     detail: `${cards ? `${cards.charAt(0).toUpperCase()}${cards.slice(1)} go${board.cards === 1 ? 'es' : ''} with it. ` : ''}This can't be undone.`,
@@ -613,12 +614,7 @@ handle('move-card', (_ctx, id, cardId, listId, position) => store.moveCards(id, 
 handle('rename-board', (_ctx, id, name) => store.rename(id, { name }));
 handle('delete-board', (ctx, id) => deleteBoard(ctx, id));
 // A right-click menu on home, as SmartDoc's: the chosen item's id, or null if none was chosen.
-handle('home-menu', (ctx, items) => new Promise((resolve) => {
-  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
-    window: ctx?.win ?? undefined,
-    callback: () => setTimeout(() => resolve(null), 100),
-  });
-}));
+handle('home-menu', (ctx, items) => popupMenu(ctx, Array.isArray(items) ? items : []));
 handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', ({ session }) => {

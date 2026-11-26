@@ -17,7 +17,7 @@
 // this fills and empties, and hears which tab has the focus (`onFocused`); everything that's the
 // app's own (what a tab shows, its title and icon, the AI working in it, the app's status) comes from
 // its options, asked for when needed, so they can name things the app sets up later.
-import { app as electronApp, BrowserWindow, ipcMain, Menu, screen, shell, WebContentsView } from 'electron';
+import { app as electronApp, BrowserWindow, dialog, ipcMain, Menu, screen, shell, WebContentsView } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createTabDrag } from './tab-drag.js';
@@ -315,6 +315,7 @@ export function createTabs({
       if (ctx.host.active === ctx) page.send('tab-lines', ctx.host.lines ?? null);
     });
     listen(`${url}/tabs/${gid}/events`, controller.signal, ({ channel, value }) => {
+      if (channel === 'guest-ui') return showForGuest(ctx, value);
       if (channel === 'guest-tab') {
         ctx.hosted.state = value;
         ctx.history = { back: Boolean(value?.back), forward: Boolean(value?.forward) };
@@ -470,6 +471,7 @@ export function createTabs({
       open: (send, options) => createGuest(send, options),
       close: (ctx) => removeGuest(ctx),
       opening: (ctx) => guestOpen(ctx),
+      answered: (ctx, ask, value) => answered(ctx, ask, value),
       returned: (ctx, at) => returnGuest(ctx, at),
       call: (ctx, channel, args) => run(ctx, channel, args),
       host: (request) => hostGuest(request),
@@ -533,7 +535,58 @@ export function createTabs({
   }
   function removeGuest(ctx) {
     if (!windows.has(ctx.contents.id)) return;
+    // What it asked its window to show goes unanswered.
+    for (const [ask, waiting] of asks) {
+      if (waiting.ctx !== ctx) continue;
+      asks.delete(ask);
+      waiting.resolve(null);
+    }
     disposeTab(ctx);
+  }
+
+  // A menu over a tab's window (`items`: { id, label, enabled, separator }), giving the id chosen or
+  // null; and a message box (Electron's options), giving its { response, checkboxChecked }. A guest
+  // tab has no window here: the window showing it (another app's) shows them, and answers.
+  const asks = new Map(); // ask → { ctx, resolve }
+  let asked = 0;
+  function askWindow(ctx, kind, value) {
+    return new Promise((resolve) => {
+      const ask = ++asked;
+      asks.set(ask, { ctx, resolve });
+      ctx.contents.send('guest-ui', { ask, kind, value });
+    });
+  }
+  function answered(ctx, ask, value) {
+    const waiting = asks.get(ask);
+    if (!waiting || waiting.ctx !== ctx) return;
+    asks.delete(ask);
+    waiting.resolve(value);
+  }
+  function popupMenu(ctx, items) {
+    if (ctx?.guest) return askWindow(ctx, 'menu', { items });
+    return new Promise((resolve) => {
+      const template = (items ?? []).map((item) => (item.separator ? { type: 'separator' } : { label: String(item.label), enabled: item.enabled !== false, click: () => resolve(item.id ?? null) }));
+      Menu.buildFromTemplate(template).popup({ window: ctx?.win ?? undefined, callback: () => setTimeout(() => resolve(null), 100) });
+    });
+  }
+  async function messageBox(ctx, options) {
+    if (ctx?.guest) return (await askWindow(ctx, 'message', options)) ?? { response: options.cancelId ?? 0, checkboxChecked: false };
+    return dialog.showMessageBox(ctx?.win ?? undefined, options);
+  }
+  // A guest tab here asks for one: shown over this window, and the answer sent back to its app.
+  async function showForGuest(ctx, { ask, kind, value } = {}) {
+    let answer = null;
+    try {
+      if (kind === 'menu') answer = await popupMenu(ctx, value?.items);
+      else if (kind === 'message') {
+        const { response, checkboxChecked } = await dialog.showMessageBox(ctx.win, value);
+        answer = { response, checkboxChecked };
+      }
+    } catch {
+      answer = null;
+    }
+    const { url, gid } = ctx.hosted;
+    await post(`${url}/tabs/${gid}/answer`, { ask, value: answer }).catch(() => {});
   }
 
   // Closes a tab: the tab beside it shows instead, and closing a window's last tab closes the window.
@@ -605,7 +658,7 @@ export function createTabs({
       const tab = host.active;
       if (tab) {
         const { title: name, icon, ai } = tabState(tab);
-        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null, back: Boolean(tab.history.back), forward: Boolean(tab.history.forward) });
+        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null, back: Boolean(tab.history.back), forward: Boolean(tab.history.forward), doc: docOf(tab) });
       }
       return;
     }
@@ -673,7 +726,15 @@ export function createTabs({
       const host = ctx?.host;
       const tab = host?.tabs.find((t) => t.id === id);
       if (!tab) return;
-      const docId = docOf(tab);
+      // A guest tab's document is its app's, which draws the card (and keeps the icon).
+      const docId = tab.hosted ? tab.hosted.state?.doc ?? null : docOf(tab);
+      const { title: tabName, icon: tabIcon } = stateOf(tab);
+      const chooseIcon = () => {
+        const request = { docId, current: tabIcon, name: tab.name ?? tabName, at: { left: box.left, top: 6 } };
+        // Drawn by the tab showing (under its tab); a guest's by its own page.
+        if (host.active?.hosted || tab.hosted) activateTab(tab);
+        (tab.hosted ? tab.view.webContents : host.active.contents).send('icon-picker', request);
+      };
       Menu.buildFromTemplate([
         // The chat that owns it, if one does; and Open Chat (only with SmartDesktop installed: the
         // user's choice), as its chat button: this tab's chat, or a new one for it (from Home, the
@@ -683,7 +744,7 @@ export function createTabs({
         // Another app of the family's running, which can show it as a guest (the trial: this app's
         // tab in that app's window).
         ...moveItems(tab),
-        { label: 'Change Icon…', enabled: Boolean(docId), click: () => host.active.contents.send('icon-picker', { docId, current: tabState(tab).icon, name: tab.name ?? tabState(tab).title, at: { left: box.left, top: 6 } }) },
+        { label: 'Change Icon…', enabled: Boolean(docId), click: chooseIcon },
         { type: 'separator' },
         { label: 'Close Tab', click: () => closeTab(tab) },
       ]).popup({ window: host.win });
@@ -849,5 +910,5 @@ export function createTabs({
     });
   }
 
-  return { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp };
+  return { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp };
 }
