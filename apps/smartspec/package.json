@@ -1,0 +1,23 @@
+{
+  "name": "smartspec",
+  "version": "0.1.2",
+  "description": "Plan systems and define the contracts between them, with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @smartspec/app",
+    "start": "npm start -w @smartspec/app",
+    "dist": "npm run dist -w @smartspec/app",
+    "demo": "npm run demo -w @smartspec/app",
+    "shots": "node scripts/shots.mjs",
+    "share-image": "node scripts/share-image.mjs",
+    "site": "npm run demo && npm run shots && node scripts/serve-site.mjs",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs",
+    "server-snapshot": "node scripts/server-snapshot.mjs"
+  }
+}
