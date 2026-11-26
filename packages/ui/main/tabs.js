@@ -25,6 +25,7 @@ import { startGuestServer } from './guests.js';
 import { confirm } from './confirm/confirm.js';
 import { decode, encode } from './wire.js';
 import { toData } from './menu-wire.js';
+import { askToReinstall } from './desktop-missing/desktop-missing.js';
 
 // The family's preload (preload.cjs), for an app that gives its pages' API as data (`api`), and a
 // guest tab's (guest-preload.cjs), another app's page shown here.
@@ -421,6 +422,17 @@ export function createTabs({
     if (there) electronApp.dock?.hide();
     else electronApp.dock?.show();
     return there;
+  }
+  // SmartDesktop gone from this Mac (an installed app, with no windows of its own, that can't find it):
+  // the window saying so, with Reinstall (desktop-missing/). Gives whether it's there now, its tabs
+  // going there; else (Use Without It) the app opens a window of its own. SMARTDESKTOP_PRETEND_MISSING
+  // shows it in a development build, for checking it.
+  async function offerReinstall() {
+    if (!windowless) return false;
+    const missing = electronApp.isPackaged ? desktop()?.installed?.() === false : Boolean(process.env.SMARTDESKTOP_PRETEND_MISSING);
+    if (!missing) return false;
+    const choice = await askToReinstall(name);
+    return choice === 'installed' && ensureSmartDesktop();
   }
   // The app opened again (from the Finder, say): one of its tabs in SmartDesktop brought forward, the
   // one last used, if it has any there. Gives whether it had one.
@@ -1079,5 +1091,5 @@ export function createTabs({
     });
   }
 
-  return { setMenu, ensureSmartDesktop, showTabs, inSmartDesktop: () => Boolean(shell()), popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
+  return { setMenu, ensureSmartDesktop, offerReinstall, showTabs, inSmartDesktop: () => Boolean(shell()), popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
 }

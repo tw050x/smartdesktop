@@ -824,8 +824,9 @@ app.whenReady().then(async () => {
   }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
   // Its MCP server first: SmartDesktop is told it as the app says hello (for the chat's AI's tools).
   await startMcp();
-  // Its tabs are SmartDesktop's, which it starts if it isn't running (else a window of its own).
-  await tabs.ensureSmartDesktop();
+  // Its tabs are SmartDesktop's, which it starts if it isn't running; gone from this Mac, it offers to
+  // reinstall it (else a window of its own).
+  if (!(await tabs.ensureSmartDesktop())) await tabs.offerReinstall();
   const first = createWindow();
   updates.start();
   // The generation server: how it is now and every minute (Settings and the tabs show it), how far
@@ -839,7 +840,7 @@ app.whenReady().then(async () => {
   // Opened again (from the Finder, say): its tabs are in SmartDesktop (started if need be), the one
   // last used brought forward, or a new one on home; without SmartDesktop, a window of its own.
   app.on('activate', async () => {
-    if (await tabs.ensureSmartDesktop()) {
+    if ((await tabs.ensureSmartDesktop()) || (await tabs.offerReinstall())) {
       if (!tabs.showTabs()) createWindow();
     } else if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

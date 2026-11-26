@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>SmartDesktop</title>
+  <link rel="stylesheet" href="../confirm/page.css">
+  <style>
+    .progress { margin-top: 14px; }
+    .progress[hidden] { display: none; }
+    .progress-step { color: var(--muted); font-size: 12px; }
+    .progress-bar { height: 4px; margin-top: 6px; border-radius: 2px; background: var(--border); overflow: hidden; }
+    .progress-bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s ease; }
+    .problem { margin-top: 10px; color: light-dark(#b3261e, #f19a9a); }
+    .problem[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <h1 id="title"></h1>
+  <p id="message"></p>
+  <div class="progress" id="progress" hidden><div class="progress-step" id="step"></div><div class="progress-bar"><span id="bar"></span></div></div>
+  <p class="problem" id="problem" hidden></p>
+  <div class="buttons" id="buttons">
+    <button type="button" class="secondary push-left" id="without">Use Without It</button>
+    <button type="button" class="primary" id="install">Reinstall SmartDesktop</button>
+  </div>
+  <script type="module" src="./page.js"></script>
+</body>
+</html>
