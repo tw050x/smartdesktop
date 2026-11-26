@@ -204,10 +204,38 @@ export function createTabs({
     sendTabs(host);
   }
 
+  // A guest tab: one of this app's pages shown in another app's window (guests.js serves it), which
+  // counts here as a tab of its own in a window of its own that has nothing else: `send` is how
+  // what this app would send its page reaches it (over the guest server's stream). Its title and
+  // icon go to the window showing it (`guest-tab`), as a top bar's tabs do, and closing it asks that
+  // window to (`guest-close`). An AI can't work in one yet: it has no window here.
+  function createGuest(send) {
+    const id = `g-${randomUUID().slice(0, 4)}`;
+    const host = { guest: true, win: null, tabs: [], active: null };
+    const contents = { id: `guest:${id}`, send, focus() {}, isDestroyed: () => false };
+    const ctx = { id, guest: true, host, home: false, view: null, contents, win: null, ready: Promise.resolve(), session: null, untouched: true, where: null, name: null, history: { back: false, forward: false } };
+    host.tabs.push(ctx);
+    host.active = ctx;
+    windows.set(contents.id, ctx);
+    setupTab(ctx, {});
+    tabReady(ctx);
+    changed();
+    return ctx;
+  }
+  function removeGuest(ctx) {
+    if (!windows.has(ctx.contents.id)) return;
+    disposeTab(ctx);
+  }
+
   // Closes a tab (Home only closes with its window). The tab beside it shows instead. A workspace an
-  // AI works in with no tab (SmartDoc's `headless`) has nothing to close.
+  // AI works in with no tab (SmartDoc's `headless`) has nothing to close; a guest tab asks the window
+  // showing it to close it.
   function closeTab(ctx) {
     if (ctx.headless) return;
+    if (ctx.guest) {
+      ctx.contents.send('guest-close', null);
+      return removeGuest(ctx);
+    }
     const { host } = ctx;
     if (ctx.home) return host.win.close();
     const at = host.tabs.indexOf(ctx);
@@ -258,6 +286,15 @@ export function createTabs({
   // with the AI working in it and the chat owning it), back and forward for the active tab, and the
   // app's status.
   function sendTabs(host) {
+    // A guest tab's window is another app's: it hears the tab's title and icon, for its top bar.
+    if (host?.guest) {
+      const tab = host.active;
+      if (tab) {
+        const { title: name, icon, ai } = tabState(tab);
+        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null });
+      }
+      return;
+    }
     if (!host || host.win.isDestroyed()) return;
     const state = {
       tabs: host.tabs.map((t) => {
@@ -426,5 +463,5 @@ export function createTabs({
     });
   }
 
-  return { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, tabBounds, handlers, strips };
+  return { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest };
 }

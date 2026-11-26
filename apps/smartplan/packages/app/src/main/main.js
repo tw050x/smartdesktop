@@ -7,6 +7,7 @@ import { guessIcon, isIcon } from '@smartdesktop/ui/main/icons.js';
 import { createItemIcons } from './item-icons.js';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
 import { API } from './api.js';
+import { startGuestServer } from '@smartdesktop/ui/main/guests.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -560,14 +561,20 @@ async function chatWhere(where = 'home', opened = null) {
 
 // --- Window requests ---------------------------------------------------------------------
 
-// Whatever a window asks for, it asks about itself: each handler gets that window first.
-const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+// Whatever a window asks for, it asks about itself: each handler gets that window first. Each is
+// kept by its channel too, for a guest tab's calls (see the guest server below).
+const handlers = new Map(); // channel → handler
+const run = async (ctx, channel, args) => {
   try {
-    return { ok: true, value: await fn(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, ...args) };
+    return { ok: true, value: await handlers.get(channel)(ctx, ...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
-});
+};
+const handle = (channel, fn) => {
+  handlers.set(channel, fn);
+  ipcMain.handle(channel, (event, ...args) => run(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, channel, args));
+};
 
 // Setup for each AI app, shown and copied for pasting (see connect.js).
 async function mcpSetup(target) {
@@ -663,6 +670,27 @@ handle('get-desktop', () => shell.openExternal('https://github.com/tw050x/smartd
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 
+// --- Guest tabs ------------------------------------------------------------------------------
+// SmartPlan's pages shown in another app's window (@smartdesktop/ui's main/guests.js): served from
+// here, each a tab of its own here (tabs.createGuest), its calls run by the same handlers as a tab's
+// own. Where it can be reached is kept in guest-server.json, in the app's data, while it runs.
+let guestServer = null;
+const guestFile = path.join(app.getPath('userData'), 'guest-server.json');
+async function startGuests() {
+  guestServer = await startGuestServer({
+    files: path.join(dirname, '../../build/renderer'),
+    api: API,
+    open: (send) => tabs.createGuest(send),
+    close: (ctx) => tabs.removeGuest(ctx),
+    call: (ctx, channel, args) => run(ctx, channel, args),
+  });
+  fs.writeFileSync(guestFile, JSON.stringify({ app: API.id, url: guestServer.url, pid: process.pid }), { mode: 0o600 });
+}
+app.on('will-quit', () => {
+  guestServer?.stop();
+  fs.rmSync(guestFile, { force: true });
+});
+
 // --- App lifecycle -----------------------------------------------------------------------
 
 app.whenReady().then(async () => {
@@ -670,6 +698,7 @@ app.whenReady().then(async () => {
   app.setAboutPanelOptions({ credits: 'SmartPlan is in beta, so it may change significantly from one version to the next.' });
   const first = createWindow();
   await startMcp();
+  await startGuests().catch((error) => console.error('Guest tabs can’t be served:', error.message));
   updates.start();
   await first.ready;
   offerMoveToApplications(first);
