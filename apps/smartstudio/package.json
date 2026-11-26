@@ -1,0 +1,20 @@
+{
+  "name": "smartstudio",
+  "version": "0.1.0",
+  "description": "Make music and video with your own AI, on your own generation server.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @smartstudio/app",
+    "start": "npm start -w @smartstudio/app",
+    "dist": "npm run dist -w @smartstudio/app",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs",
+    "server-snapshot": "node scripts/server-snapshot.mjs",
+    "share-image": "node scripts/share-image.mjs"
+  }
+}
