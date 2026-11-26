@@ -43,6 +43,13 @@ contextBridge.exposeInMainWorld('smartdesktop', {
   chatFocus: (chatId) => call('chat-focus', chatId),
   chatRename: (chatId, title) => call('chat-rename', chatId, title),
   chatTabMenu: (chatId) => call('chat-tab-menu', chatId),
+  // The history panel: every chat (or those a search finds), opening one (`how`: 'open' where it
+  // is, else here; 'here', moved here; 'window', a window of its own), a chat's right-click menu,
+  // and Window › Chat History (`onHistoryToggle`: { open: true }, or { open: null } to toggle).
+  chatHistory: (query) => call('chat-history', query),
+  chatHistoryOpen: (chatId, how) => call('chat-history-open', chatId, how),
+  chatHistoryMenu: (chatId) => call('chat-history-menu', chatId),
+  onHistoryToggle: on('chat-history-toggle'),
   // A tab dragged out of its window (see main.js): its picture taken as it starts (`box`, its place
   // in the page; `offset`, where the pointer has it), then the pointer on the screen and whether
   // it's inside its own window, and where it was let go outside it (or null inside). The window it's

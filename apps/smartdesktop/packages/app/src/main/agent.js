@@ -14,6 +14,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describeStep } from './steps.js';
+import { byUse, search as searchChat } from './chat-history.js';
 
 const home = os.homedir();
 
@@ -474,6 +475,32 @@ export function createAgent({ userData, onEvent, trial = null }) {
     return all.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }
 
+  // The history panel's list (chat-history.js): every chat, or those a search finds, as summaries,
+  // most recently used first. Chats not open are read from their files without being kept in
+  // memory, so the panel doesn't hold every conversation there has ever been.
+  async function history(query = '') {
+    await migrate();
+    let files = [];
+    try {
+      files = (await fs.promises.readdir(chatsDir)).filter((f) => f.endsWith('.json'));
+    } catch {}
+    const found = [];
+    for (const file of files) {
+      const id = file.replace(/\.json$/, '');
+      let chat = cache.get(id);
+      if (!chat) {
+        try {
+          chat = JSON.parse(await readFile(chatFile(id), 'utf8'));
+        } catch {
+          continue;
+        }
+      }
+      const entry = searchChat({ ...chat, id: chat.id ?? id }, query);
+      if (entry) found.push(entry);
+    }
+    return found.sort(byUse);
+  }
+
   // The user names a chat: the AI's name never replaces it.
   async function rename(id, title) {
     const chat = await need(id);
@@ -628,5 +655,5 @@ export function createAgent({ userData, onEvent, trial = null }) {
     tell(chat);
   }
 
-  return { status, signIn, install, create, list, load, rename, send, newSession, note, stop, isRunning: (id) => running.has(id) };
+  return { status, signIn, install, create, list, history, load, rename, send, newSession, note, stop, isRunning: (id) => running.has(id) };
 }

@@ -2,6 +2,7 @@ import { createChatPanel } from './chat-panel.js';
 import { trackAiProgress } from './ai-progress.js';
 import { installTooltips } from './tooltips.js';
 import { createUpdateToast } from './update-toast.js';
+import { createHistoryPanel } from './history-panel.js';
 
 // A chat window (see main.js; there can be several, each with chats of its own, the user's choice):
 // under its top bar (the traffic lights), chats in tabs, in a row of columns side by side, each with
@@ -23,6 +24,9 @@ document.body.classList.add(`platform-${api.platform}`);
 installTooltips();
 trackAiProgress(api);
 createUpdateToast({ api, name: 'SmartDesktop' });
+// Every chat there has been, to open again (history-panel.js), from the top bar's right end.
+// The chat opened takes the typing.
+const history = createHistoryPanel({ api, button: document.getElementById('history-button'), onOpened: () => setTimeout(() => focusTyping()) });
 
 const MIN_COLUMN = 280;
 const EDGE = 0.15; // the share of a column's width at either edge that splits it
@@ -73,7 +77,17 @@ function emptyState() {
   button.className = 'primary-button';
   button.textContent = 'New Chat';
   button.addEventListener('click', () => api.chatNew(0));
-  box.append(button);
+  const past = document.createElement('button');
+  past.type = 'button';
+  past.className = 'secondary-button';
+  past.textContent = 'Chat History';
+  past.addEventListener('click', (event) => {
+    event.stopPropagation();
+    document.getElementById('history-button').click();
+  });
+  const buttons = div('chat-empty-window-buttons');
+  buttons.append(button, past);
+  box.append(buttons);
   return box;
 }
 
@@ -339,7 +353,8 @@ function showTarget(target) {
 // the window comes forward or its tab is clicked, and anything typed with the focus elsewhere in the
 // window (not in a box of its own, such as a tab being renamed) goes to it.
 const typingBox = (node) => node instanceof Element && node.closest('textarea, input, [contenteditable="true"]');
-const focusTyping = () => state.focused && panels.get(state.focused)?.focus();
+// (While the history is open, its search has it.)
+const focusTyping = () => (history.isOpen() ? history.focus() : state.focused && panels.get(state.focused)?.focus());
 addEventListener('keydown', (event) => {
   // (Printable keys, and Backspace and Delete to take text out of it.)
   if (event.metaKey || event.ctrlKey || event.altKey || typingBox(event.target)) return;
@@ -372,11 +387,15 @@ function setState(next) {
   const focusedBefore = state.focused;
   state = next;
   if (!dragging) render();
+  history.changed();
   // A chat newly given the focus (a new one, say) takes the typing.
-  if (state.focused && state.focused !== focusedBefore) panels.get(state.focused)?.focus();
+  if (state.focused && state.focused !== focusedBefore && !history.isOpen()) panels.get(state.focused)?.focus();
 }
 api.onChatState(setState);
-api.onAgentEvent((event) => panels.get(event.chatId)?.agentEvent(event));
+api.onAgentEvent((event) => {
+  panels.get(event.chatId)?.agentEvent(event);
+  if (event.type === 'messages' || event.type === 'title' || event.type === 'running') history.changed();
+});
 // A request for a chat's AI from an app (a shortcut there): that chat sends it.
 api.onChatAsk(({ chatId, text }) => {
   const send = () => panelFor(chatId).ask(text);
