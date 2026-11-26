@@ -44,8 +44,9 @@ import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
+import { decode, encode } from './wire.js';
 
-const TYPES = { '.flac': 'audio/flac', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json', '.wasm': 'application/wasm' };
+const TYPES = { '.flac': 'audio/flac', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.pdf': 'application/pdf', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json', '.wasm': 'application/wasm' };
 const MOST_BODY = 8 * 1024 * 1024; // a call's arguments, at most
 
 export function startGuestServer({ files = null, api = null, open, close, call, media = null, opening = () => null, returned = null, answered = () => {}, host = null, over = null, port = 0 }) {
@@ -75,7 +76,7 @@ export function startGuestServer({ files = null, api = null, open, close, call, 
   function openTab(options) {
     const entry = { tab: null, stream: null, waiting: [] };
     const send = (channel, value) => {
-      const event = `data: ${JSON.stringify({ channel, value: value ?? null })}\n\n`;
+      const event = `data: ${JSON.stringify({ channel, value: encode(value ?? null) })}\n\n`;
       if (entry.stream) entry.stream.write(event);
       else entry.waiting.push(event);
     };
@@ -173,9 +174,10 @@ export function startGuestServer({ files = null, api = null, open, close, call, 
         return json(res, 200, { ok: true });
       }
       if (req.method === 'POST' && what === 'call') {
-        const { channel, args = [] } = JSON.parse(await body(req));
+        // (Bytes come and go as base64: see wire.js.)
+        const { channel, args = [] } = decode(JSON.parse(await body(req)));
         if (!Object.values(api.calls).includes(channel)) return json(res, 200, { ok: false, error: `${channel} isn’t one of this app’s calls` });
-        return json(res, 200, await call(entry.tab, channel, Array.isArray(args) ? args : []));
+        return json(res, 200, encode(await call(entry.tab, channel, Array.isArray(args) ? args : [])));
       }
       json(res, 404, { error: 'Not found' });
     } catch (error) {

@@ -10,7 +10,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'src/renderer/index.html',
-        'confirm-replace': 'src/renderer/confirm-replace.html',
         tabs: 'src/renderer/tabs.html',
       },
     },

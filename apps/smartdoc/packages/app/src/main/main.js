@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { confirmReplace } from './confirm-replace.js';
+import { createFamily, familyFolder } from '@smartdesktop/ui/main/family.js';
 import { CONVERTED, convertFile, EXTENSIONS, inspect } from './convert.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
@@ -227,8 +227,37 @@ const tabs = createTabs({
     ctx.workspace.events.removeAllListeners(); // nothing left to tell
     ctx.workspace.close();
   },
+  // Guest tabs: a document's tab can be shown in another app's window (SmartDesktop's, say),
+  // opening the same draft there, on the same variation and tool; and SmartDoc's windows show other
+  // apps' tabs.
+  name: 'SmartDoc',
+  family: createFamily(familyFolder(app)),
+  guestOpen: (ctx) => {
+    const doc = ctx.workspace?.document;
+    return doc ? { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: ctx.workspace.tool } : null;
+  },
+  guestOpened: (ctx, { docId, variationId, draftId, tool } = {}) => context.run(ctx, () => ctx.workspace.openDraft(docId, variationId, draftId, tool))
+    .catch((error) => console.error('A guest tab couldn’t open its document:', error.message)),
 });
-const { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, openChatFor, strips } = tabs;
+// A menu, a question, a sheet, the file picker or the save panel over a tab's window (in a guest
+// tab, the window showing it shows them).
+const { popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, openChatFor, strips } = tabs;
+
+// Something gone wrong, said over the tab it's about (or the window showing it, for a guest tab).
+const warn = (message, detail) => messageBox(current(), { type: 'warning', message, detail, buttons: ['OK'] });
+// A right-click menu of SmartDoc's own (`template`: { label, enabled, click } and { type:
+// 'separator' }), over the tab's window (a guest tab's too): the item chosen does its click.
+async function chooseFrom(template) {
+  const chosen = await popupMenu(current(), template.map((item, i) => (item.type === 'separator' ? { separator: true } : { id: i, label: item.label, enabled: item.enabled !== false })));
+  if (chosen !== null && chosen !== undefined) await template[chosen]?.click?.();
+}
+// Asking whether to open a file the AI asked for (it was a window of SmartDoc's own,
+// confirm-replace.js; the family's sheet now): 'replace' or 'cancel'.
+const replaceQuestion = ({ current: open, next, source }) => ({
+  title: `Let your AI open “${next}”?`,
+  message: `Your AI asked to open this file from ${source}. It will be able to read the file’s text.${open ? ` “${path.basename(open)}” will be closed.` : ''}`,
+  buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Open', choice: 'replace', kind: 'primary' }],
+});
 
 // A new tab's workspace (`workspace`, one moved into it, or a new one), and what it tells the tab.
 // A tab shows home or a document, going between them as a browser tab goes between pages (the
@@ -511,14 +540,14 @@ async function importFile(filePath) {
   try {
     checked = await checkImportable(filePath);
   } catch (error) {
-    dialog.showErrorBox('Couldn’t open the file', error.message);
+    warn('Couldn’t open the file', error.message);
     return;
   }
   const tab = await tabToOpenIn();
   try {
     await openIn(tab, () => tab.workspace.importAndOpen(checked.path, { converted: checked.converted }));
   } catch {
-    dialog.showErrorBox('Couldn’t open the file', `${filePath} could not be read.`);
+    warn('Couldn’t open the file', `${filePath} could not be read.`);
     return;
   }
   tellConversion(checked);
@@ -528,8 +557,8 @@ async function importFile(filePath) {
 // in for, things not drawn yet): said once, as it opens. The AI reads it in get_document_info.
 function tellConversion(checked) {
   const notes = checked?.converted?.notes;
-  if (!notes?.length || !win()) return;
-  dialog.showMessageBox(win(), {
+  if (!notes?.length || !current()) return;
+  messageBox(current(), {
     type: 'info',
     message: `${path.basename(checked.path)} was turned into a PDF`,
     detail: `Opening Word, Excel and PowerPoint files is experimental. The original is kept with the document.\n\n${notes.join('\n\n')}`,
@@ -545,7 +574,7 @@ async function openDocument(docId) {
 }
 
 async function pickPdf() {
-  const { canceled, filePaths } = await dialog.showOpenDialog(win() ?? undefined, {
+  const { canceled, filePaths } = await openDialog(current(), {
     properties: ['openFile'],
     filters: experimental().convert ? [{ name: 'Documents', extensions: EXTENSIONS }] : [{ name: 'PDF', extensions: ['pdf'] }],
   });
@@ -568,6 +597,8 @@ const AI_OPEN_WAIT_MS = 45 * 1000;
 // current().aiOpen: { name, state: 'waiting' | 'opened' | 'cancelled' | 'failed', error, done }
 
 async function bringToFront() {
+  // A guest tab: its window (another app's) shows what's asked over it.
+  if (current()?.guest) return;
   await ensureWindow();
   // An AI working without a tab asks in the window last used.
   const front = win() ?? lastFocused?.win ?? createWindow().host.win;
@@ -697,7 +728,7 @@ const documentsForAi = {
       const name = path.basename(resolved);
       const waiting = waitOnUser(name, async () => {
         await bringToFront();
-        const choice = await confirmReplace(win(), { current: workspace.document?.name, next: name, unsaved: false, source: path.dirname(resolved) });
+        const choice = await confirmSheet(current(), replaceQuestion({ current: workspace.document?.name, next: name, source: path.dirname(resolved) }));
         if (choice === 'cancel') return false;
         await workspace.importAndOpen(resolved, { converted: checked.converted });
         tellConversion(checked);
@@ -935,7 +966,7 @@ async function showSession(session) {
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
-  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
   sendTabs(ctx.host);
   return ctx;
 }
@@ -1124,7 +1155,7 @@ async function saveDraftAs() {
   if (!doc) return;
   const number = doc.line.indexOf(doc.currentDraftId);
   const base = doc.name.replace(/\.pdf$/i, '').replace(/[/\\:]/g, '-'); // a name can hold what a file's can't
-  const { canceled, filePath } = await dialog.showSaveDialog(win(), {
+  const { canceled, filePath } = await saveDialog(current(), {
     defaultPath: number === 0 ? `${base}.pdf` : `${base} – Draft ${number}.pdf`,
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
@@ -1175,7 +1206,7 @@ const showConnectAi = () => send('show-connect');
 
 async function confirmAddToClaudeDesktop() {
   const status = await claudeDesktopStatus();
-  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+  const { response } = await messageBox(current(), {
     type: 'question',
     message: status.state === 'different' ? 'Update SmartDoc in Claude Desktop?' : 'Add SmartDoc to Claude Desktop?',
     detail: 'SmartDoc adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
@@ -1217,13 +1248,19 @@ app.on('before-quit', () => mcp?.endWaits(updates.restarting));
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself.
-const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => context.run(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused ?? {}, async () => {
+// (Each is kept by its channel too, for a guest tab's calls: see the guest server below.)
+const handlers = new Map(); // channel → handler
+const run = (ctx, channel, args) => context.run(ctx ?? {}, async () => {
   try {
-    return { ok: true, value: await fn(...args) };
+    return { ok: true, value: await handlers.get(channel)(...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
-}));
+});
+const handle = (channel, fn) => {
+  handlers.set(channel, fn);
+  ipcMain.handle(channel, (event, ...args) => run(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, channel, args));
+};
 
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', () => {
@@ -1254,22 +1291,22 @@ handle('draft-menu', async ({ docId, variationId, draftId, draft }) => {
   const { name, variations } = await workspace.variationsOf(docId);
   const variation = variations.find((v) => v.id === variationId);
   if (!variation) return;
-  Menu.buildFromTemplate([
+  await chooseFrom([
     { label: 'New Variation…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
     { label: 'New Document from Draft', click: () => documentFromDraft(docId, variationId, draftId) },
     { label: 'Add Label…', click: () => send('label-requested', [docId, variationId, draftId]) },
     { type: 'separator' },
     { label: 'Delete this draft', enabled: await workspace.canDeleteDraft(docId, variationId, draftId), click: () => deleteDraft(docId, variationId, draftId, draft) },
-  ]).popup({ window: win() });
+  ]);
 });
 // Asks first, since a deleted draft can't be got back.
 async function deleteDraft(docId, variationId, draftId, number) {
   const elsewhere = [...windows.values()].some((c) => c !== current() && c.workspace.document?.id === docId && c.workspace.document.currentDraftId === draftId);
   if (elsewhere) {
-    dialog.showErrorBox('This draft is open in another window', 'Move that window to another draft first, then delete this one.');
+    warn('This draft is open in another window', 'Move that window to another draft first, then delete this one.');
     return;
   }
-  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+  const { response } = await messageBox(current(), {
     type: 'warning',
     message: `Delete Draft ${number}?`,
     detail: 'Its PDF and its reviews are deleted, and can’t be got back. Any later drafts stay, and are renumbered.',
@@ -1287,19 +1324,19 @@ handle('variation-menu', async ({ docId, variationId }) => {
   if (!variation) return;
   // Drafts come newest first, numbered from the original (0).
   const draft = variation.drafts.length - 1;
-  Menu.buildFromTemplate([
+  await chooseFrom([
     ...(variationId === 'original' ? [] : [{ label: 'Rename', click: () => send('rename-variation', { docId, variationId }) }]),
     { label: 'New Variation from Latest Draft…', click: () => send('variation-requested', { docId, docName: name, variationId, variationName: variation.name, draft }) },
     { label: 'Add Label…', click: () => send('label-requested', [docId, variationId]) },
     ...(variationId === 'original' ? [] : [{ type: 'separator' }, { label: 'Delete Variation…', click: () => deleteVariation(docId, variationId) }]),
-  ]).popup({ window: win() });
+  ]);
 });
 // Asks first, since a deleted variation can't be got back. Not while a tab shows it (an AI may
 // be working there), as a draft isn't deleted while another window shows it.
 async function deleteVariation(docId, variationId) {
   const showing = [...windows.values()].some((c) => c.workspace.document?.id === docId && c.workspace.document.variationId === variationId);
   if (showing) {
-    dialog.showErrorBox('This variation is open in a tab', 'Close that tab, or move it to another variation, then delete this one.');
+    warn('This variation is open in a tab', 'Close that tab, or move it to another variation, then delete this one.');
     return;
   }
   const about = await workspace.variationToDelete(docId, variationId);
@@ -1308,7 +1345,7 @@ async function deleteVariation(docId, variationId) {
     : `Its ${about.drafts === 1 ? 'draft' : `${about.drafts} drafts`} and ${about.drafts === 1 ? 'its' : 'their'} reviews are deleted, and can’t be got back.`;
   const names = about.keeping.map((name) => `“${name}”`);
   const kept = !names.length ? '' : ` The drafts it shares with ${names.length < 2 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`} stay.`;
-  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+  const { response } = await messageBox(current(), {
     type: 'warning',
     message: `Delete “${about.name}”?`,
     detail: `${drafts}${kept}`,
@@ -1321,12 +1358,7 @@ async function deleteVariation(docId, variationId) {
 // A right-click menu on the home screen's document list: the window says what's on it, and gets
 // back the id of the item chosen, or null. The click can come after the menu closes, so closing
 // waits a moment for it.
-handle('home-menu', (items) => new Promise((resolve) => {
-  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
-    window: win(),
-    callback: () => setTimeout(() => resolve(null), 100),
-  });
-}));
+handle('home-menu', (items) => popupMenu(current(), Array.isArray(items) ? items : []));
 handle('folders', () => workspace.folders);
 handle('labels', () => workspace.labels);
 handle('add-label', (item, name) => workspace.addLabel(item, name));
@@ -1353,7 +1385,7 @@ const openElsewhere = (docId) => [...windows.values(), ...headless].some((c) => 
 // default, and there's no way to stop it asking.
 async function askToDeleteDocument(name, from = null) {
   const consequence = 'The document, all its drafts and variations, and their reviews are deleted, and can’t be got back. The PDF you imported it from isn’t touched.';
-  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+  const { response } = await messageBox(current(), {
     type: 'warning',
     message: `Delete “${name}”?`,
     detail: from ? `${from}\n\n${consequence}` : consequence,
@@ -1371,7 +1403,7 @@ handle('delete-document', async (docId) => {
   const entry = workspace.recent.find((r) => r.id === docId);
   if (!entry) return;
   if (openElsewhere(docId)) {
-    dialog.showErrorBox('This document is open in another window', 'Close it there first, then delete it.');
+    warn('This document is open in another window', 'Close it there first, then delete it.');
     return;
   }
   if (await askToDeleteDocument(entry.name)) await workspace.deleteDocument(docId);
@@ -1393,7 +1425,7 @@ handle('accept-preview', async () => {
   if (undecided.length) {
     const titles = undecided.slice(0, 5).map((i) => `• ${i.title}`);
     if (undecided.length > titles.length) titles.push(`and ${undecided.length - titles.length} more`);
-    const { response } = await dialog.showMessageBox(win() ?? undefined, {
+    const { response } = await messageBox(current(), {
       type: 'warning',
       message: undecided.length === 1 ? 'You haven’t decided on 1 finding. Accept anyway?' : `You haven’t decided on ${undecided.length} findings. Accept anyway?`,
       detail: `Your AI wrote this draft preview without your decision on:\n${titles.join('\n')}\n\nCheck the draft preview to see what it did with them.`,
@@ -1404,14 +1436,14 @@ handle('accept-preview', async () => {
     if (response !== 1) return;
   }
   if (uncommented) {
-    const { response } = await dialog.showMessageBox(win() ?? undefined, { type: 'warning', ...uncommented, buttons: ['Cancel', 'Accept Anyway'], defaultId: 0, cancelId: 0 });
+    const { response } = await messageBox(current(), { type: 'warning', ...uncommented, buttons: ['Cancel', 'Accept Anyway'], defaultId: 0, cancelId: 0 });
     if (response !== 1) return;
   }
   await workspace.acceptPreview();
 });
 // Asks first, since the AI would have to write it again.
 handle('discard-preview', async () => {
-  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+  const { response } = await messageBox(current(), {
     type: 'warning',
     message: 'Discard this draft preview?',
     detail: 'Your decisions stay as they are, and your AI can write another draft preview from them. Any comments you made on this draft preview are removed with it.',
@@ -1443,7 +1475,7 @@ const HIGHLIGHTS_RESET = {
 async function resetReview(step) {
   const reset = workspace.review?.type === 'highlights' ? step === 1 && HIGHLIGHTS_RESET : RESETS[step];
   if (!reset) return false;
-  const { response } = await dialog.showMessageBox(win() ?? undefined, {
+  const { response } = await messageBox(current(), {
     type: 'warning',
     message: reset.message,
     detail: reset.detail,
@@ -1479,11 +1511,7 @@ tabs.handlers((channel, fn) => handle(channel, (...args) => fn(current(), ...arg
 // The bottom bar's menu of what to ask the AI (see margin-review.js): the menu, by its labels, gives
 // back the one chosen; and the request goes to the AI working on what the tab shows, a chat's in
 // SmartDesktop (or the chat owning the tab, or a new one).
-handle('ai-actions-menu', (labels) => new Promise((resolve) => {
-  const host = current()?.host;
-  Menu.buildFromTemplate(labels.map((label, i) => (label === '-' ? { type: 'separator' } : { label, click: () => resolve(i) })))
-    .popup({ window: host?.win, callback: () => setTimeout(() => resolve(null), 100) });
-}));
+handle('ai-actions-menu', (labels) => popupMenu(current(), (Array.isArray(labels) ? labels : []).map((label, i) => (label === '-' ? { separator: true } : { id: i, label }))));
 // An AI connected by hand (Claude Code, Claude Desktop) can't be sent a message: the request is
 // copied for the user to paste to it, as it is with no SmartDesktop to send it.
 handle('ask-ai', async (text) => {
@@ -1554,6 +1582,9 @@ app.whenReady().then(async () => {
   await first.workspace.loadRecent();
   context.run(first, updateMenu);
   await startMcp();
+  // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here (its
+  // own workspace), its calls run by the same handlers; and other apps' tabs shown in its windows.
+  await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
   if (pendingOpen) importFile(pendingOpen);
   updates.start();
   await first.ready;

@@ -173,3 +173,29 @@ test('an app’s media is served in the ranges a player asks for', async () => {
     guests.stop();
   }
 });
+
+test('bytes cross a guest tab’s connection as bytes, both ways', async () => {
+  const { encode, decode } = await import('../main/wire.js');
+  const pdf = new Uint8Array([37, 80, 68, 70, 0, 255]);
+  const round = decode(JSON.parse(JSON.stringify(encode({ view: { pdf, pages: [1, 2] }, font: pdf.buffer, name: 'x' }))));
+  assert.deepEqual([...round.view.pdf], [...pdf]);
+  assert.deepEqual([...round.font], [...pdf]);
+  assert.deepEqual(round.view.pages, [1, 2]);
+  assert.equal(round.name, 'x');
+
+  const guests = await startGuestServer({
+    files: os.tmpdir(),
+    api: API,
+    open: (send) => ({ id: 'g-1', send }),
+    close() {},
+    call: async (_tab, _channel, args) => ({ ok: true, value: { got: [...args[0]], back: new Uint8Array([9, 8]) } }),
+  });
+  try {
+    const { id } = await (await fetch(`${guests.url}/tabs`, { method: 'POST' })).json();
+    const answer = decode(await (await fetch(`${guests.url}/tabs/${id}/call`, { method: 'POST', body: JSON.stringify(encode({ channel: 'list-things', args: [new Uint8Array([1, 2, 3])] })) })).json());
+    assert.deepEqual(answer.value.got, [1, 2, 3]);
+    assert.deepEqual([...answer.value.back], [9, 8]);
+  } finally {
+    guests.stop();
+  }
+});

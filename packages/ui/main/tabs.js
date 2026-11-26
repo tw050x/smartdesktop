@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { createTabDrag } from './tab-drag.js';
 import { startGuestServer } from './guests.js';
 import { confirm } from './confirm/confirm.js';
+import { decode, encode } from './wire.js';
 
 // The family's preload (preload.cjs), for an app that gives its pages' API as data (`api`), and a
 // guest tab's (guest-preload.cjs), another app's page shown here.
@@ -56,7 +57,8 @@ async function listen(url, signal, heard) {
     while ((at = text.indexOf('\n\n')) >= 0) {
       const data = text.slice(0, at).split('\n').find((line) => line.startsWith('data: '));
       text = text.slice(at + 2);
-      if (data) heard(JSON.parse(data.slice(6)));
+      // (Bytes come as base64: see wire.js.)
+      if (data) heard(decode(JSON.parse(data.slice(6))));
     }
   }
 }
@@ -118,7 +120,7 @@ export function createTabs({
     const hosted = windows.get(event.sender.id)?.hosted;
     if (!hosted) return { ok: false, error: 'Not a guest tab' };
     try {
-      return await post(`${hosted.url}/tabs/${hosted.gid}/call`, { channel, args });
+      return decode(await post(`${hosted.url}/tabs/${hosted.gid}/call`, { channel, args: encode(args) }));
     } catch {
       return { ok: false, error: `${hosted.name} can’t be reached` };
     }
@@ -599,6 +601,17 @@ export function createTabs({
     if (ctx?.guest) return (await askWindow(ctx, 'confirm', question)) ?? 'cancel';
     return confirm(ctx?.win ?? null, question);
   }
+  // The Mac's file picker and save panel (Electron's options; { canceled, filePaths } and
+  // { canceled, filePath }), over the tab's window or the window showing a guest tab: the paths are
+  // on this Mac either way.
+  async function openDialog(ctx, options) {
+    if (ctx?.guest) return (await askWindow(ctx, 'open', options)) ?? { canceled: true, filePaths: [] };
+    return dialog.showOpenDialog(...(ctx?.win ? [ctx.win] : []), options);
+  }
+  async function saveDialog(ctx, options) {
+    if (ctx?.guest) return (await askWindow(ctx, 'save', options)) ?? { canceled: true, filePath: undefined };
+    return dialog.showSaveDialog(...(ctx?.win ? [ctx.win] : []), options);
+  }
   async function messageBox(ctx, options) {
     if (ctx?.guest) return (await askWindow(ctx, 'message', options)) ?? { response: options.cancelId ?? 0, checkboxChecked: false };
     return dialog.showMessageBox(ctx?.win ?? undefined, options);
@@ -609,6 +622,13 @@ export function createTabs({
     try {
       if (kind === 'menu') answer = await popupMenu(ctx, value?.items);
       else if (kind === 'confirm') answer = await confirm(ctx.win, value);
+      else if (kind === 'open') {
+        const { canceled, filePaths } = await dialog.showOpenDialog(ctx.win, value);
+        answer = { canceled, filePaths };
+      } else if (kind === 'save') {
+        const { canceled, filePath } = await dialog.showSaveDialog(ctx.win, value);
+        answer = { canceled, filePath };
+      }
       else if (kind === 'message') {
         const { response, checkboxChecked } = await dialog.showMessageBox(ctx.win, value);
         answer = { response, checkboxChecked };
@@ -946,5 +966,5 @@ export function createTabs({
     });
   }
 
-  return { popupMenu, messageBox, confirmSheet, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
+  return { popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
 }
