@@ -212,7 +212,7 @@ export function createDirector({ api }) {
     api.setAiControl(null);
     closeAll();
     // Home: the Home tab in the window's top bar (see tab-strip.js).
-    if (!document.querySelector('.browser-column')) (await waitFor(() => document.querySelector('.tab-strip .tab-home'), id)).click();
+    if (!document.querySelector('.browser-column')) (await waitFor(() => document.querySelector('.tab-strip .home-button'), id)).click();
     await waitFor(() => document.querySelector('.groups-column .browser-row'), id);
     await frame();
   }

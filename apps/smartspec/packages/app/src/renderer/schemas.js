@@ -205,12 +205,11 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   let moving = false; // the next drawing animates, as the browser can, to what it shows next
   const top = () => path.at(-1);
 
-  // Which tab this is (see main.js): Home, the only one showing home, which opens a schematic in a
-  // tab of its own; or a schematic's, which never shows home (going home shows the Home tab). The
-  // website's demo is neither: a whole window, going between home and a schematic as it did.
-  const inHome = api.tabKind === 'home';
-  const inTab = api.tabKind === 'document';
-  let hadSchema = false; // a schematic's tab has shown its schematic (and closes once it's gone)
+  // A tab shows home or a schematic, going between them as a browser tab goes between pages (the
+  // user's choice, 2026-11-26): the window's Home button takes it home. One opened to show a
+  // schematic waits for it (`document`), rather than showing home first. The website's demo is a
+  // whole window, as a tab is.
+  let waiting = api.tabKind === 'document';
 
   // Back and forward: where this tab has been, as a browser keeps it. Each stop is the levels open,
   // the item each shows, and whether that was in focus or on the overview. Choosing somewhere new
@@ -218,8 +217,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   // tab to go back or forward (`onHistoryStep`) and is told when it can (`historyState`).
   const HISTORY_LIMIT = 200;
   const stop = () => JSON.stringify({ layout: path.length ? layout : null, path: path.map(({ schemaId, draftId, proposal, label, item, full }) => ({ schemaId, draftId, proposal, label, item, full })) });
-  // (A schematic's tab starts with nothing: its first stop is its schematic, never home.)
-  let visited = inTab ? [] : [stop()];
+  // (A tab opened for a schematic starts with nothing: its first stop is its schematic.)
+  let visited = waiting ? [] : [stop()];
   let visiting = visited.length - 1;
   let historyShown = null;
   const showHistory = () => {
@@ -316,7 +315,8 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     // The same thing drawn again keeps its place. Anything else starts at its top, once it shows.
     const place = placeShowing();
     const scroll = place === showingPlace ? el.scrollTop : 0;
-    const view = path.length ? await schemaView(top()) : inTab ? waitingView() : await homeView();
+    if (path.length) waiting = false;
+    const view = path.length ? await schemaView(top()) : waiting ? waitingView() : await homeView();
     if (ticket !== rendering) return;
     // Home's columns scroll on their own, and keep their place when it's drawn again.
     const lists = [...el.querySelectorAll('.browser-list')].map((list) => list.scrollTop);
@@ -335,6 +335,9 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
       if (!path.length && !homeShowing) view.classList.add('arriving');
       homeShowing = !path.length;
       document.body.classList.toggle('has-schematic', path.length > 0);
+      // What the tab is now (its page's styles): waiting for a schematic, or on home.
+      document.body.classList.toggle('document-tab', waiting);
+      document.body.classList.toggle('home-tab', !path.length && !waiting);
       el.replaceChildren(view);
       showBar(view.bottomBar);
       onCards(view.bottomBar?.cards ?? [], view.bottomBar?.shortcuts ?? []);
@@ -398,14 +401,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   }
 
   function go(next) {
-    // Home opens a schematic in a tab of its own (see main.js), and a schematic's tab goes home by
-    // showing the Home tab.
-    if (inHome && next.length) {
-      selected = next[0].schemaId;
-      api.openInTab({ path: next.map(({ schemaId, draftId, proposal, label, item }) => ({ schemaId, draftId, proposal, label, item })), layout });
-      return render();
-    }
-    if (inTab && !next.length) return api.goHome();
+    waiting = false;
     // Back home, the schema you were in is the one selected.
     if (!next.length && path.length) selected = path[0].schemaId;
     path = next;
@@ -978,17 +974,13 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     }
     if (!shown) shown = await api.getSchema(here.schemaId, here.draftId).catch(() => null);
     if (!shown) {
-      // It was discarded: back to the level above. A schematic's tab with nothing left in it closes.
+      // It was discarded: back to the level above, or home.
       const at = path.indexOf(here);
       if (at >= 0) path = path.slice(0, at);
       if (path.length) return schemaView(top());
-      if (inTab) {
-        if (hadSchema) api.tabClose();
-        return waitingView();
-      }
+      waiting = false;
       return homeView();
     }
-    hadSchema = true;
     here.label = shown.name;
     const opened = here.proposal ? (shown.total ? `Reviewing the proposed changes to “${shown.name}”` : `Reviewing the new schematic “${shown.name}”`) : `Opened “${shown.name}”, draft ${shown.number} of ${shown.total}`;
     onShown({ chatId: `${here.schemaId}/${here.proposal ? shown.basedOn ?? 'new' : shown.draftId}`, name: shown.name, line: { text: opened, detail: `${opened} (schematic_id ${here.schemaId})` } });
@@ -3322,7 +3314,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
   api.aiWaiting?.().then(heardWaiting, () => {});
   api.onAiWaiting?.(heardWaiting);
   api.onNewSchema(newSchema);
-  // A schematic opened from Home, in this tab (see go and main.js's openInTab), as it was there.
+  // A schematic opened in this tab (see main.js's openInTab): in a new tab, as it was where it came from.
   api.onOpenLevel?.(({ path: next = [], layout: chosen = null } = {}) => {
     if (!next.length) return;
     if (chosen && chosen !== layout && ['focus', 'overview'].includes(chosen)) {
@@ -3334,7 +3326,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
     remember();
     render();
   });
-  // Home, from the website demo's top bar (in the app it's a tab of its own).
+  // The window's Home button: home, here.
   api.onGoHome?.(() => go([]));
   // An AI's proposal, in the window it works in.
   // A proposal the AI has just made, shown to review: in Design, where proposals are reviewed (the

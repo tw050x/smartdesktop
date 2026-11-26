@@ -39,11 +39,10 @@ export function createAds({ el, adView, bottomBar, draftNav, api, onShown = () =
   let aiWaiting = []; // the proposals an AI in another app is waiting on (`smartad wait`)
   let showingKey = null; // what the stage shows, so it's drawn again only when that changes
 
-  // Which tab this is (see main.js): Home, the only one showing home, which opens an ad in a tab of
-  // its own; or an ad's, which never shows home (going home shows the Home tab).
-  const inHome = api.tabKind === 'home';
-  const inTab = api.tabKind === 'document';
-  let hadAd = false; // an ad's tab has shown its ad (and closes once it's gone)
+  // A tab shows home or an ad, going between them as a browser tab goes between pages (the user's
+  // choice, 2026-11-26): the window's Home button takes it home. One opened to show an ad waits for
+  // it (`document`), rather than showing home first.
+  let waiting = api.tabKind === 'document';
 
   const drafts = createDraftPicker({
     listDrafts: (id) => api.listDrafts(id),
@@ -61,8 +60,8 @@ export function createAds({ el, adView, bottomBar, draftNav, api, onShown = () =
   // when it can (`historyState`).
   const HISTORY_LIMIT = 200;
   const stop = () => JSON.stringify(here && { adId: here.adId, draftId: here.draftId, proposal: here.proposal, name: here.name });
-  // (An ad's tab starts with nothing: its first stop is its ad, never home.)
-  let visited = inTab ? [] : [stop()];
+  // (A tab opened for an ad starts with nothing: its first stop is its ad.)
+  let visited = waiting ? [] : [stop()];
   let visiting = visited.length - 1;
   let historyShown = null;
   const showHistory = () => {
@@ -96,13 +95,13 @@ export function createAds({ el, adView, bottomBar, draftNav, api, onShown = () =
     else if (event.key === ']') travel(1);
   });
 
-  // Shows an ad: from Home, in a tab of its own (the one already showing it, unless `newTab`);
-  // in an ad's tab, here.
+  // Shows an ad, here, or in a new tab beside this one (`newTab`).
   function open(next, { newTab = false } = {}) {
-    if (inHome) {
-      api.openInTab({ ...next, newTab });
+    if (newTab) {
+      api.openInTab({ adId: next.adId, draftId: next.draftId ?? null, proposal: Boolean(next.proposal), name: next.name ?? '' });
       return;
     }
+    waiting = false;
     here = { adId: next.adId, draftId: next.draftId ?? null, proposal: Boolean(next.proposal), name: next.name ?? '' };
     remember();
     render();
@@ -110,19 +109,22 @@ export function createAds({ el, adView, bottomBar, draftNav, api, onShown = () =
 
   async function render() {
     const ticket = ++rendering;
-    const view = here ? await adPage(here) : inTab ? waitingView() : await homeView();
+    const view = here ? await adPage(here) : waiting ? waitingView() : await homeView();
     if (ticket !== rendering) return;
     // Home's list keeps its place when it's drawn again.
     const listTop = el.querySelector('.browser-list')?.scrollTop ?? 0;
     const focused = document.activeElement?.dataset?.ad && `[data-ad="${CSS.escape(document.activeElement.dataset.ad)}"]`;
     const showingAd = Boolean(here && view.shown);
     document.body.classList.toggle('has-ad', showingAd);
+    // What the tab is now (its page's styles): waiting for an ad, or on home.
+    document.body.classList.toggle('document-tab', waiting);
+    document.body.classList.toggle('home-tab', !here && !waiting);
     adView.hidden = !showingAd;
     el.hidden = showingAd;
     if (!showingAd) {
       // Home arriving (at launch): its column rises in, as SmartDoc's and SmartSpec's do.
-      if (!homeShowing && !inTab) view.classList.add('arriving');
-      homeShowing = !inTab;
+      if (!homeShowing && !waiting) view.classList.add('arriving');
+      homeShowing = !waiting;
       el.replaceChildren(view);
       const list = el.querySelector('.browser-list');
       if (list) {
@@ -302,12 +304,11 @@ export function createAds({ el, adView, bottomBar, draftNav, api, onShown = () =
       if (shown) at.proposal = true;
     }
     if (!shown) {
-      // It's gone (discarded, or deleted): an ad's tab with nothing left in it closes.
-      if (inTab && hadAd) api.tabClose();
+      // It's gone (discarded, or deleted): the tab goes home.
       here = null;
-      return inTab ? waitingView() : homeView();
+      waiting = false;
+      return homeView();
     }
-    hadAd = true;
     at.name = shown.name;
     const isNew = at.proposal && !shown.total;
     const opened = at.proposal ? (isNew ? `Reviewing the new ad “${shown.name}”` : `Reviewing the proposed changes to “${shown.name}”`) : `Opened “${shown.name}”, draft ${shown.number} of ${shown.total}`;
@@ -411,10 +412,18 @@ export function createAds({ el, adView, bottomBar, draftNav, api, onShown = () =
   api.aiWaiting?.().then(heardWaiting, () => {});
   api.onAiWaiting?.(heardWaiting);
   api.onNewAd(newAd);
-  // An ad opened from Home, or an AI's proposal, in this tab (see main.js's openInTab).
+  // The window's Home button: home, here.
+  api.onGoHome?.(() => {
+    if (!here && !waiting) return;
+    waiting = false;
+    here = null;
+    remember();
+    render();
+  });
+  // An ad opened in this tab: in a new tab from home (see main.js's openInTab), or an AI's proposal.
   api.onOpenAd?.((request) => {
     if (!request?.adId) return;
-    if (inHome) return open(request);
+    waiting = false;
     here = { adId: request.adId, draftId: request.draftId ?? null, proposal: Boolean(request.proposal), name: request.name ?? '' };
     remember();
     render();

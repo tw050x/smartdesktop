@@ -57,8 +57,10 @@ export function startApp(appApi) {
   });
   const { platform, openDroppedFile, onFullScreenChange } = api;
   document.body.classList.add(`platform-${platform}`);
-  // Which tab this is: Home (the only one showing home) or a document's (see main.js). The website's
-  // demo is neither: it's a whole window, and draws the window's top bar itself (tab-strip.js).
+  // A tab shows home or a document, as a browser tab shows pages (see main.js); one opened for a
+  // document waits for it (`document-tab`, until it has one). The website's demo is a whole window,
+  // and draws the window's top bar itself (tab-strip.js).
+  let waiting = api.tabKind === 'document';
   if (api.tabKind) document.body.classList.add(`${api.tabKind}-tab`);
   else {
     const stripEl = document.getElementById('tab-strip');
@@ -101,8 +103,8 @@ export function startApp(appApi) {
   // the draft it was written from.
   let atDraft = null; // { docId, variationId, draftId } of the draft last opened, not a preview
   function noteWhereAt() {
-    // (A document's tab never shows home: with no document, it's waiting for one.)
-    if (!current.doc) return api.tabKind === 'document' ? undefined : historyNav.observe({ home: true });
+    // (A tab opened for a document, with none yet, is waiting for it: not a stop.)
+    if (!current.doc) return waiting ? undefined : historyNav.observe({ home: true });
     if (!atDraft || atDraft.docId !== current.doc.id) return;
     const focus = current.tool === 'highlights' && current.review?.type === 'highlights' ? current.review.id : null;
     historyNav.observe({ ...atDraft, tool: current.tool, focus, preview: Boolean(current.preview) });
@@ -897,6 +899,12 @@ export function startApp(appApi) {
     if (document.body.classList.contains('has-document') === on) return;
     document.body.classList.add('switching-document');
     document.body.classList.toggle('has-document', on);
+    // Once it has had a document, the tab is no longer waiting for one: without one it's on home.
+    if (on && waiting) {
+      waiting = false;
+      document.body.classList.remove('document-tab');
+    }
+    if (api.tabKind) document.body.classList.toggle('home-tab', !on && !waiting);
     requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('switching-document')));
   }
 

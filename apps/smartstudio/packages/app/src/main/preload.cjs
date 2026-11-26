@@ -19,8 +19,9 @@ contextBridge.exposeInMainWorld('smartstudio', {
   // (`onTabs`), choosing and closing a tab (the tab asking, without an id), stepping back or forward
   // in the active tab, and opening the status panel there. A tab says when back and forward change
   // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
-  // (`onToggleStatus`). Home opens a project in a tab of its own (`openInTab`: { projectId, name }),
-  // which hears it (`onOpenProject`), as it does an AI's takes; going home shows the Home tab.
+  // (`onToggleStatus`). A project opened in a new tab (`openInTab`: { projectId, name }), which hears
+  // it (`onOpenProject`), as it does an AI's takes; the Home button (`goHome`, heard by the active tab
+  // as `onGoHome`) and + (`newTab`).
   onTabs: on('tabs'),
   tabsState: () => call('tabs-state'),
   tabActivate: (id) => call('tab-activate', id),
@@ -55,6 +56,8 @@ contextBridge.exposeInMainWorld('smartstudio', {
   openInTab: (request) => call('open-in-tab', request),
   onOpenProject: on('open-project'),
   goHome: () => call('go-home'),
+  onGoHome: on('go-home'),
+  newTab: () => call('tab-new'),
   onAiControl: on('ai-control'),
   releaseAiControl: () => call('ai-control-release'),
   // The projects (see store.js): home's list and a project in full (its takes, each with how far

@@ -244,30 +244,23 @@ const tabs = createTabs({
     if (ctx.session) ctx.session.ctx = null;
   },
 });
-const { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, strips } = tabs;
+const { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
 
 // Where a tab is: 'home', or the id of the project it shows, as the tab says (chat-shows).
 const projectOf = (ctx) => (ctx.where && ctx.where !== 'home' ? ctx.where : null);
 // The tab showing a project (in the window of `host`) that no chat owns, if one does.
-const tabShowing = (host, projectId) => host.tabs.find((t) => !t.home && !t.chat && projectOf(t) === projectId);
 const tabsShowing = (projectId) => [...windows.values()].filter((t) => !t.home && projectOf(t) === projectId);
 
-// A project opened from Home goes to its own tab (the one already showing it, if one is, unless the
-// user asked for a new tab), with what to open there (`request`: { projectId, name, newTab });
-// an AI working in Home goes with it.
-async function openInTab(home, { newTab = false, ...request }) {
-  // A chat's AI gets a tab of its own, even with the project open in another (the same project can be
-  // open in several tabs, each a different chat's); the user, the tab showing it that no chat owns,
-  // if there is one.
-  const reuse = !newTab && !fromDesktop(home.session) && tabShowing(home.host, request.projectId);
-  const tab = reuse || createTab(home.host);
+// A project opened in a new tab (the user asked for one: a project opened from home otherwise opens
+// in the tab showing home, as a browser's page does), with what to open there (`request`: {
+// projectId, name }), beside the tab it came from.
+async function openInTab(from, request) {
+  const { host } = from;
+  const tab = createTab(host);
+  host.tabs.splice(host.tabs.indexOf(tab), 1);
+  host.tabs.splice(host.tabs.indexOf(from) + 1, 0, tab);
   await tab.ready;
   tab.contents.send('open-project', request);
-  const { session } = home;
-  if (session && session.ctx === home) {
-    releaseWindow(session);
-    if (!tab.session) setSessionWindow(session, tab);
-  }
   activateTab(tab);
   return tab;
 }
@@ -338,19 +331,24 @@ async function startMcp() {
 function updateMenu() {
   Menu.setApplicationMenu(buildMenu({
     hasWindow: windows.size > 0,
-    inHome: Boolean(lastFocused?.home),
     actions: {
       newWindow: () => createWindow(),
-      // A project's tab, or the window from Home (its pinned tab can't close).
+      newTab: () => newTab(),
+      // The tab (a window's last closes the window).
       close: () => lastFocused && closeTab(lastFocused),
       nextTab: (delta) => stepTab(delta),
       showChat: () => lastFocused && desktop.chat(lastFocused.id, true),
-      // A new project, empty, in a tab of its own: named after the first take asked for in it.
+      // A new project, empty, named after the first take asked for in it: in the tab on home, else
+      // in a new tab.
       newProject: async () => {
         const ctx = lastFocused ?? createWindow();
         await ctx.ready;
         const made = await store.create({});
-        openInTab(homeOf(ctx), { projectId: made.project, name: made.name });
+        const request = { projectId: made.project, name: made.name };
+        if (ctx.home) {
+          ctx.contents.send('open-project', request);
+          activateTab(ctx);
+        } else openInTab(ctx, request);
       },
       showConnectAi,
       showSettings: () => lastFocused?.contents.send('show-settings'),
@@ -417,9 +415,10 @@ function releaseWindow(session) {
 // working with it).
 async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
-  const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && !h.tabs[0].session);
-  const host = launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
-  const ctx = createTab(host);
+  // The window SmartStudio opened as it started, if the AI started it: its tab on home, untouched.
+  const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
+  const host = lastFocused?.host ?? createWindow({ focus: false }).host;
+  const ctx = launched ? launched.tabs[0] : createTab(host);
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
@@ -471,7 +470,6 @@ const projectsFor = (session, tab) => {
       }
     }
     const ctx = await tab();
-    if (ctx.home) return openInTab(ctx, request);
     ctx.contents.send('open-project', request);
     if (!ctx.win.isVisible()) ctx.win.showInactive();
     return ctx;
@@ -779,11 +777,10 @@ handle('desktop-status', () => desktop.status);
 tabs.handlers(handle);
 // The user's choice of a project's icon, which the AI never replaces.
 handle('set-icon', (_ctx, projectId, icon) => itemIcons.set(projectId, icon, 'user'));
-// A project opened from Home, in a tab of its own (see openInTab): `request` is { projectId, name,
-// newTab }.
+// A project opened from home in a new tab (see openInTab): `request` is { projectId, name }.
 handle('open-in-tab', (ctx, request) => {
-  if (!request?.projectId) return null;
-  openInTab(homeOf(ctx), request);
+  if (!request?.projectId || !ctx) return null;
+  openInTab(ctx, request);
   return null;
 });
 // Opens SmartDesktop's page, to download it.

@@ -11,8 +11,8 @@ export const API = {
     // The top bar (tab-strip.js): the window's tabs, back and forward, and the app's status
     // (`onTabs`), choosing and closing a tab (the tab asking, without an id), stepping back or forward
     // in the active tab, and opening the status panel there. A tab says when back and forward change
-    // (`historyState`). Home opens a board in a tab of its own (`openInTab`: { boardId, name, card });
-    // going home shows the Home tab.
+    // (`historyState`). A board opened in a new tab (`openInTab`: { boardId, name, card }); the Home
+    // button (`goHome`, heard by the active tab as `onGoHome`) and + (`newTab`).
     tabsState: 'tabs-state',
     tabActivate: 'tab-activate',
     tabClose: 'tab-close',
@@ -39,6 +39,7 @@ export const API = {
     tabLines: 'tab-lines',
     openInTab: 'open-in-tab',
     goHome: 'go-home',
+    newTab: 'tab-new',
     releaseAiControl: 'ai-control-release',
     // The boards (see store.js): home's list, a board in full (its lists and their cards), a card
     // the user has opened, and a card the user dragged to a list (`position` among the cards that
@@ -82,6 +83,7 @@ export const API = {
     onTabs: 'tabs',
     onTabDrop: 'tab-drop',
     onIconPicker: 'icon-picker',
+    onGoHome: 'go-home',
     // The top bar's back and forward, and its status pill, heard by the active tab.
     onHistoryStep: 'history-step',
     onStripTip: 'strip-tip',

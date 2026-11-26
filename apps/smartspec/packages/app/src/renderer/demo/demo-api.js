@@ -56,10 +56,13 @@ export function createDemoApi() {
   // The window's top bar (see onTabs).
   let shownTab = { where: 'home', name: null };
   let tabbed = false;
+  // One tab, as the demo is one page: on home, or the schematic it shows (the chat owning it once one
+  // has been opened).
   const tabs = () => ({
     tabs: [
-      { id: 'home', home: true, title: 'Home', active: shownTab.where === 'home' },
-      ...(tabbed ? [{ id: 'schematic', title: shownTab.name ?? 'Schematic', icon: guessIcon(shownTab.name, 'layers'), active: shownTab.where !== 'home', chat: { title: chatTitle() } }] : []),
+      shownTab.where === 'home'
+        ? { id: 'tab', home: true, title: 'Home', active: true, chat: tabbed ? { title: chatTitle() } : null }
+        : { id: 'tab', title: shownTab.name ?? 'Schematic', icon: guessIcon(shownTab.name, 'layers'), active: true, chat: { title: chatTitle() } },
     ],
     back: false,
     forward: false,
@@ -239,16 +242,15 @@ export function createDemoApi() {
       if (where !== 'home') tabbed = true;
       emit('tabs', tabs());
     },
-    // The window's top bar, drawn in the demo's page (see tab-strip.js): Home, and the schematic's
-    // tab once one has been opened, the one showing as the window is; back and forward off, as the
-    // demo's director drives it; and the app ready. Home on it goes home; its pill opens the panel.
+    // The window's top bar, drawn in the demo's page (see tab-strip.js): its one tab, on home or a
+    // schematic, as the window is; back and forward off, as the demo's director drives it; and the
+    // app ready. Its Home button goes home; its pill opens the panel.
     onTabs(callback) {
       on('tabs')(callback);
       callback(tabs());
     },
-    tabActivate: async (id) => {
-      if (id === 'home') emit('go-home');
-    },
+    tabActivate: async () => {},
+    goHome: async () => emit('go-home'),
     onGoHome: on('go-home'),
     tabClose: async () => {},
     // A tab's menu, and choosing an icon: nothing to keep in the demo.

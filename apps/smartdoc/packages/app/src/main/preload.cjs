@@ -79,6 +79,7 @@ contextBridge.exposeInMainWorld('smartdoc', {
   discardPreview: () => call('discard-preview'),
   showVariationMenu: (variation) => call('variation-menu', variation),
   goHome: () => call('go-home'),
+  newTab: () => call('tab-new'),
   showHomeMenu: (items) => call('home-menu', items),
   folders: () => call('folders'),
   onFolders: on('folders'),

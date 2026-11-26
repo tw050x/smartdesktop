@@ -83,7 +83,7 @@ body {
   flex: 0 1 200px; min-width: 40px; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 4px 0 10px;
   border-radius: 8px; color: var(--text-2); cursor: default; -webkit-app-region: no-drag;
 }
-.tab.tab-home { flex: none; min-width: 0; width: 34px; padding: 0; justify-content: center; }
+.tabs > .tab-new { flex: none; -webkit-app-region: no-drag; }
 /* Each tab has a background of its own, so it doesn't get lost in the bar (the user's choice): a
    shade darker than the bar, darker again while pointed at; the tab showing has the page's. */
 .tab { background: var(--button-hover); }

@@ -19,8 +19,9 @@ contextBridge.exposeInMainWorld('smartprep', {
   // (`onTabs`), choosing and closing a tab (the tab asking, without an id), stepping back or forward
   // in the active tab, and opening the status panel there. A tab says when back and forward change
   // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
-  // (`onToggleStatus`). Home opens a topic in a tab of its own (`openInTab`: { topicId, name, card }),
-  // which hears it (`onOpenTopic`), as it does an AI's cards; going home shows the Home tab.
+  // (`onToggleStatus`). A topic opened in a new tab (`openInTab`: { topicId, name, card }), which
+  // hears it (`onOpenTopic`), as it does an AI's cards; the Home button (`goHome`, heard by the active
+  // tab as `onGoHome`) and + (`newTab`).
   onTabs: on('tabs'),
   tabsState: () => call('tabs-state'),
   tabActivate: (id) => call('tab-activate', id),
@@ -57,6 +58,8 @@ contextBridge.exposeInMainWorld('smartprep', {
   // A card the AI shows the user, brought to the middle of the board ({ topicId, card }).
   onShowCard: on('show-card'),
   goHome: () => call('go-home'),
+  onGoHome: on('go-home'),
+  newTab: () => call('tab-new'),
   onAiControl: on('ai-control'),
   releaseAiControl: () => call('ai-control-release'),
   // The topics (see store.js): home's list, a topic's board and its cards in full, a card the user

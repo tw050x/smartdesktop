@@ -159,30 +159,22 @@ const tabs = createTabs({
     if (ctx.session) ctx.session.ctx = null;
   },
 });
-const { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, strips } = tabs;
+const { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
 
 // Where a tab is: 'home', or `<ad>/<draft>`, `<ad>/new` (a new ad's first proposal) or
 // `<ad>/proposal` (a proposal to change it), as the tab says (chat-shows).
 const adOf = (ctx) => (ctx.where && ctx.where !== 'home' ? ctx.where.split('/')[0] : null);
 // The tab showing an ad (in the window of `host`) that no chat owns, if one does.
-const tabShowing = (host, adId) => host.tabs.find((t) => !t.home && !t.chat && adOf(t) === adId);
-
-// An ad opened from Home goes to its own tab (the one already showing it, if one is, unless the
-// user asked for a new tab), with what to open there (`request`: { adId, draftId, proposal, name,
-// newTab }); an AI working in Home goes with it.
-async function openInTab(home, { newTab = false, ...request }) {
-  // A chat's AI gets a tab of its own, even with the ad open in another (the same ad can be open in
-  // several tabs, each a different chat's); the user, the tab showing it that no chat owns, if
-  // there is one.
-  const reuse = !newTab && !fromDesktop(home.session) && tabShowing(home.host, request.adId);
-  const tab = reuse || createTab(home.host);
+// An ad opened from home in a new tab (the user asked for one: an ad opened from home otherwise
+// opens in the tab showing home, as a browser's page does), with what to open there (`request`: {
+// adId, draftId, proposal, name }), beside the tab it came from.
+async function openInTab(from, request) {
+  const { host } = from;
+  const tab = createTab(host);
+  host.tabs.splice(host.tabs.indexOf(tab), 1);
+  host.tabs.splice(host.tabs.indexOf(from) + 1, 0, tab);
   await tab.ready;
   tab.contents.send('open-ad', request);
-  const { session } = home;
-  if (session && session.ctx === home) {
-    releaseWindow(session);
-    if (!tab.session) setSessionWindow(session, tab);
-  }
   activateTab(tab);
   return tab;
 }
@@ -252,10 +244,10 @@ async function startMcp() {
 function updateMenu() {
   Menu.setApplicationMenu(buildMenu({
     hasWindow: windows.size > 0,
-    inHome: Boolean(lastFocused?.home),
     actions: {
       newWindow: () => createWindow(),
-      // An ad's tab, or the window from Home (its pinned tab can't close).
+      newTab: () => newTab(),
+      // The tab (a window's last closes the window).
       close: () => lastFocused && closeTab(lastFocused),
       nextTab: (delta) => stepTab(delta),
       showChat: () => lastFocused && desktop.chat(lastFocused.id, true),
@@ -329,9 +321,10 @@ function releaseWindow(session) {
 // working with it).
 async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
-  const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && !h.tabs[0].session);
-  const host = launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
-  const ctx = createTab(host);
+  // The window SmartAd opened as it started, if the AI started it: its tab on home, untouched.
+  const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
+  const host = lastFocused?.host ?? createWindow({ focus: false }).host;
+  const ctx = launched ? launched.tabs[0] : createTab(host);
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
@@ -473,11 +466,10 @@ const adsFor = (session, tab) => ({
     const made = await store.propose(rest);
     sessions.claim(session, adClaim(made.ad));
     if (icon && !itemIcons.get(made.ad)) itemIcons.set(made.ad, icon, 'ai');
-    // In the AI's tab; or, from Home (SmartDesktop's chat, the user being there), in a tab of its own.
+    // In the AI's tab (on home, it goes there, as a browser tab goes to a page).
     const request = { adId: made.ad, proposal: true, name: (await store.list()).find((one) => one.id === made.ad)?.name ?? '' };
     const ctx = await tab();
-    if (ctx.home) await openInTab(ctx, request);
-    else ctx.contents.send('open-ad', request);
+    ctx.contents.send('open-ad', request);
     if (!ctx.win.isVisible()) ctx.win.showInactive();
     const { warnings = [] } = aboutAd(checkAd(rest.content));
     return {
@@ -762,11 +754,10 @@ handle('desktop-status', () => desktop.status);
 tabs.handlers(handle);
 // The user's choice of an ad's icon, which the AI never replaces.
 handle('set-icon', (_ctx, adId, icon) => itemIcons.set(adId, icon, 'user'));
-// An ad opened from Home, in a tab of its own (see openInTab): `request` is { adId, draftId,
-// proposal, name, newTab }.
+// An ad opened from home in a new tab (see openInTab): `request` is { adId, draftId, proposal, name }.
 handle('open-in-tab', (ctx, request) => {
-  if (!request?.adId) return null;
-  openInTab(homeOf(ctx), request);
+  if (!request?.adId || !ctx) return null;
+  openInTab(ctx, request);
   return null;
 });
 // Opens SmartDesktop's page, to download it.

@@ -1,10 +1,12 @@
 // Windows of tabs, the same in every app with them (taken from SmartPlan's main.js, which SmartSpec's,
 // SmartAd's, SmartPrep's and SmartStudio's matched but for names). A window holds tabs (the user's
-// choice: working in tabs rather than in many windows, though more windows are still allowed). The
-// first is Home, pinned: it can't be closed, and only it shows home. Each other tab shows one
-// document (a board, a schematic, a topic…), and never home. Each tab is what a window was: its own
-// history and AI session (`ctx`, with the tab's id, which a copied prompt names so an AI can take it
-// over).
+// choice: working in tabs rather than in many windows, though more windows are still allowed), as
+// a browser does (the user's choice, 2026-11-26: Home was a pinned first tab): each shows home or a
+// document (a board, a schematic, a topic…), going between them as a browser tab goes between pages;
+// the top bar's Home button takes the tab showing home (`go-home`), + or ⌘T opens a new tab on home
+// (`newTab`), and closing a window's last tab closes the window. `ctx.home` says whether a tab shows
+// home now (its `where`, as the tab says). Each tab is what a window was: its own history and AI
+// session (`ctx`, with the tab's id, which a copied prompt names so an AI can take it over).
 //
 // The window's own page is the top bar across it (tabs.html: the traffic lights, back and forward,
 // the tabs and the app's status, see renderer/tab-strip.js); each tab's page (index.html) is a view
@@ -30,6 +32,7 @@ const GUEST_PRELOAD = fileURLToPath(new URL('./guest-preload.cjs', import.meta.u
 // else (this app's server status, its settings, its documents changing) is this app's, not the
 // guest's, whose own come from its app.
 const SHELL_CHANNELS = new Set(['tab-lines', 'strip-tip', 'full-screen', 'history-step', 'toggle-status']);
+// (Not `go-home`: a guest tab gives way to this app's own home, see the handler.)
 
 // JSON over a guest server (guests.js).
 async function post(url, value) {
@@ -91,6 +94,8 @@ export function createTabs({
   family = null, // the other apps running (family.js), for guest tabs
   guestOpen = () => null, // (ctx) => what another app's window is to show of this tab, as a guest (the app's own request), or null if it can't
   guestOpened = () => {}, // (ctx, request): a guest tab of this app's is to show what guestOpen gave (sent it as the app's own tabs are)
+  isHome = (ctx) => ctx.where === 'home', // (ctx) => whether a tab shows home now (SmartDoc's: no document, and not waiting for one)
+  goHome = (ctx) => ctx.contents.send('go-home', null), // (ctx): the Home button, in a tab not on home (SmartDoc closes its document)
 }) {
   let guestUrl = null; // this app's guest server's, once it runs (setGuestServer)
   // With its API as data, every page (the top bar's and each tab's) has the family's preload, which
@@ -130,8 +135,9 @@ export function createTabs({
     for (const tab of host.tabs) tab.view.setBounds(tabBounds(host));
   };
 
-  // `bounds`, where to put it (a tab dragged out of a window makes one where it's dropped).
-  function createWindow({ focus = true, bounds = null } = {}) {
+  // `bounds`, where to put it (a tab dragged out of a window makes one where it's dropped). It opens
+  // with a tab on home, or `empty` for a tab about to be moved into it (giving { host }).
+  function createWindow({ focus = true, bounds = null, empty = false } = {}) {
     const colour = colours();
     const frame = process.platform === 'darwin'
       ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: (topBar - trafficLights) / 2 } }
@@ -194,9 +200,19 @@ export function createTabs({
       if (lastFocused?.host === host) focused([...windows.values()].at(-1) ?? null);
       changed();
     });
+    if (empty) return { host };
     const home = createTab(host, { home: true });
     activateTab(home);
     return home;
+  }
+
+  // A new tab on home (the top bar's +, File › New Tab), in the window last used, or a new window.
+  function newTab(host = lastFocused?.host) {
+    if (!host || host.win.isDestroyed()) return createWindow();
+    const ctx = createTab(host, { home: true });
+    activateTab(ctx);
+    host.win.focus();
+    return ctx;
   }
 
   function createTab(host, options = {}) {
@@ -213,11 +229,13 @@ export function createTabs({
     });
     view.setBackgroundColor(colours().background);
     const contents = view.webContents;
-    const ctx = { id, host, home, view, contents, get win() { return this.host.win; }, ready: null, session: null, untouched: true, where: null, name: null, history: { back: false, forward: false } };
+    // On home (`home`), or about to be sent what to show (its page waits for it, rather than showing
+    // home first).
+    // `waiting`: opened to show something, and not showing it yet (the app clears it).
+    const ctx = { id, host, get home() { return isHome(this); }, waiting: !home, view, contents, get win() { return this.host.win; }, ready: null, session: null, untouched: true, where: home ? 'home' : null, name: null, history: { back: false, forward: false } };
     windows.set(contents.id, ctx);
-    if (home) host.tabs.unshift(ctx);
-    else host.tabs.push(ctx);
-    // SmartDesktop is told which tab is Home: what happens there goes to no chat.
+    host.tabs.push(ctx);
+    // SmartDesktop is told the tab is on home: what happens there goes to no chat.
     if (home) desktop().window(id, { home: true, title: 'Home' });
     view.setVisible(false);
     host.win.contentView.addChildView(view);
@@ -328,11 +346,11 @@ export function createTabs({
     // Dropped on a top bar: there, where it was let go; else the window last used.
     dropOver(null);
     const target = at ? foreignTarget(at) : null;
-    const host = target?.host ?? lastFocused?.host ?? [...hosts][0] ?? createWindow().host;
+    const host = target?.host ?? lastFocused?.host ?? [...hosts][0] ?? createWindow({ empty: true }).host;
     const ctx = await createGuestTab(host, { app: guestApp, name: known.name, url, open });
     if (target) {
       host.tabs.splice(host.tabs.indexOf(ctx), 1);
-      host.tabs.splice(Math.max(1, Math.min(target.index, host.tabs.length)), 0, ctx);
+      host.tabs.splice(Math.max(0, Math.min(target.index, host.tabs.length)), 0, ctx);
     }
     activateTab(ctx);
     host.win.show();
@@ -417,11 +435,11 @@ export function createTabs({
     if (!open) throw new Error('It can’t be moved');
     dropOver(null);
     const target = at ? foreignTarget(at) : null;
-    const host = target?.host ?? lastFocused?.host ?? [...hosts][0] ?? createWindow().host;
+    const host = target?.host ?? lastFocused?.host ?? [...hosts][0] ?? createWindow({ empty: true }).host;
     const ctx = createTab(host);
     if (target) {
       host.tabs.splice(host.tabs.indexOf(ctx), 1);
-      host.tabs.splice(Math.max(1, Math.min(target.index, host.tabs.length)), 0, ctx);
+      host.tabs.splice(Math.max(0, Math.min(target.index, host.tabs.length)), 0, ctx);
     }
     activateTab(ctx);
     host.win.show();
@@ -466,12 +484,10 @@ export function createTabs({
     return server;
   }
 
-  // A window a tab has moved out of (to another window, or another app's), left with only Home, closes
-  // (the user's choice: such windows piled up), unless it's the app's only one. One whose last tab the
-  // user closed keeps its Home.
+  // A window its last tab has moved out of (to another window, or another app's) closes, as one whose
+  // last tab is closed does.
   function leftEmpty(host) {
-    if (!host || host.guest || host.win.isDestroyed() || host.tabs.length > 1) return;
-    if ([...hosts].filter((other) => other !== host && !other.win.isDestroyed()).length === 0) return;
+    if (!host || host.guest || host.win.isDestroyed() || host.tabs.length) return;
     host.win.close();
   }
 
@@ -505,7 +521,7 @@ export function createTabs({
     const id = `g-${randomUUID().slice(0, 4)}`;
     const host = { guest: true, win: null, tabs: [], active: null };
     const contents = { id: `guest:${id}`, send, focus() {}, isDestroyed: () => false };
-    const ctx = { id, guest: true, host, home: false, view: null, contents, win: null, ready: Promise.resolve(), session: null, untouched: true, where: null, name: null, history: { back: false, forward: false } };
+    const ctx = { id, guest: true, host, get home() { return isHome(this); }, view: null, contents, win: null, ready: Promise.resolve(), session: null, untouched: true, where: null, name: null, history: { back: false, forward: false } };
     host.tabs.push(ctx);
     host.active = ctx;
     windows.set(contents.id, ctx);
@@ -520,9 +536,9 @@ export function createTabs({
     disposeTab(ctx);
   }
 
-  // Closes a tab (Home only closes with its window). The tab beside it shows instead. A workspace an
-  // AI works in with no tab (SmartDoc's `headless`) has nothing to close; a guest tab asks the window
-  // showing it to close it.
+  // Closes a tab: the tab beside it shows instead, and closing a window's last tab closes the window.
+  // A workspace an AI works in with no tab (SmartDoc's `headless`) has nothing to close; a guest tab
+  // asks the window showing it to close it.
   function closeTab(ctx) {
     if (ctx.headless) return;
     if (ctx.guest) {
@@ -530,14 +546,17 @@ export function createTabs({
       return removeGuest(ctx);
     }
     const { host } = ctx;
-    if (ctx.home) return host.win.close();
     const at = host.tabs.indexOf(ctx);
     if (at < 0) return;
     host.tabs.splice(at, 1);
-    if (host.active === ctx) activateTab(host.tabs[at] ?? host.tabs[at - 1] ?? host.tabs[0]);
+    if (host.active === ctx) {
+      host.active = null;
+      if (host.tabs.length) activateTab(host.tabs[at] ?? host.tabs[at - 1] ?? host.tabs[0]);
+    }
     disposeTab(ctx);
     host.win.contentView.removeChildView(ctx.view);
     ctx.contents.close();
+    if (!host.tabs.length) return host.win.close();
     sendTabs(host);
   }
 
@@ -551,18 +570,18 @@ export function createTabs({
     changed();
   }
 
-  // Moves a tab to `index` among a window's tabs (never before Home): in its own window, or into
+  // Moves a tab to `index` among a window's tabs: in its own window, or into
   // another (its page, and all it holds, go with it: what it shows, its history, an AI working in
   // it), where it shows.
   function moveTab(ctx, to, index) {
     const from = ctx.host;
     const at = from.tabs.indexOf(ctx);
-    if (ctx.home || at < 0 || to.win.isDestroyed()) return;
+    if (at < 0 || to.win.isDestroyed()) return;
     from.tabs.splice(at, 1);
     if (from !== to) {
       if (from.active === ctx) {
         from.active = null;
-        activateTab(from.tabs[at] ?? from.tabs[at - 1] ?? from.tabs[0]);
+        if (from.tabs.length) activateTab(from.tabs[at] ?? from.tabs[at - 1] ?? from.tabs[0]);
       }
       from.win.contentView.removeChildView(ctx.view);
       ctx.host = to;
@@ -572,12 +591,12 @@ export function createTabs({
       sendTabs(from);
       leftEmpty(from);
     }
-    to.tabs.splice(Math.max(1, Math.min(index, to.tabs.length)), 0, ctx);
+    to.tabs.splice(Math.max(0, Math.min(index, to.tabs.length)), 0, ctx);
     activateTab(ctx);
     if (from !== to) to.win.focus();
   }
 
-  // The top bar's state for each window: its tabs (Home first; each other by its name and icon,
+  // The top bar's state for each window: its tabs (each by its name and icon, or Home,
   // with the AI working in it and the chat owning it), back and forward for the active tab, and the
   // app's status.
   function sendTabs(host) {
@@ -613,8 +632,6 @@ export function createTabs({
     for (const host of hosts) sendTabs(host);
   };
 
-  // Home, of the window a tab is in.
-  const homeOf = (ctx) => ctx?.host?.tabs[0] ?? null;
 
   // The next or previous tab in the window (the menu's Show Next Tab and Show Previous Tab).
   function stepTab(delta) {
@@ -667,7 +684,8 @@ export function createTabs({
         // tab in that app's window).
         ...moveItems(tab),
         { label: 'Change Icon…', enabled: Boolean(docId), click: () => host.active.contents.send('icon-picker', { docId, current: tabState(tab).icon, name: tab.name ?? tabState(tab).title, at: { left: box.left, top: 6 } }) },
-        ...(tab.home ? [] : [{ type: 'separator' }, { label: 'Close Tab', click: () => closeTab(tab) }]),
+        { type: 'separator' },
+        { label: 'Close Tab', click: () => closeTab(tab) },
       ]).popup({ window: host.win });
     });
     handle('tab-chat', (_ctx, id) => {
@@ -764,7 +782,7 @@ export function createTabs({
     handle('tab-drag-start', async (ctx, id, { chip, offset, point } = {}) => {
       const host = ctx?.host;
       const tab = host?.tabs.find((t) => t.id === id);
-      if (!tab || tab.home || dragging || !chip || !offset || !point) return false;
+      if (!tab || dragging || !chip || !offset || !point) return false;
       const drag = { tab, offset, chip, point, target: null };
       dragging = drag;
       const box = { x: Math.round(chip.x), y: Math.round(chip.y), width: Math.max(1, Math.round(chip.width)), height: Math.max(1, Math.round(chip.height)) };
@@ -800,21 +818,36 @@ export function createTabs({
       // where it was let go (the window may run off the screen, but never its top bar).
       const from = tab.host;
       const { width, height } = from.win.getBounds();
-      const first = from.tabBoxes?.[1]?.left ?? 120; // where a window's first tab after Home starts
+      const first = from.tabBoxes?.[0]?.left ?? 160; // where a window's first tab starts
       const area = screen.getDisplayNearestPoint({ x: Math.round(drag.point.x), y: Math.round(drag.point.y) }).workArea;
       const KEEP = 160; // of the window, kept on the screen across
       const x = Math.round(Math.min(Math.max(drag.point.x - first - drag.offset.x, area.x + KEEP - width), area.x + area.width - KEEP));
       const y = Math.round(Math.min(Math.max(drag.point.y - drag.chip.y - drag.offset.y, area.y), area.y + area.height - 2 * topBar));
-      const home = createWindow({ bounds: { x, y, width, height } });
-      moveTab(tab, home.host, 1);
+      const { host: made } = createWindow({ bounds: { x, y, width, height }, empty: true });
+      moveTab(tab, made, 0);
     });
 
-    // Home is a tab of its own: going home shows it.
+    // The Home button: the tab showing goes home, as a browser tab goes to a page (its page keeps
+    // where it's been, for Back). A guest tab (another app's page) gives way to a tab of this app's
+    // own on home, in its place.
     handle('go-home', (ctx) => {
-      const home = homeOf(ctx);
-      if (home && home !== ctx) activateTab(home);
+      if (!ctx || ctx.home) return;
+      if (ctx.hosted) {
+        const { host } = ctx;
+        const at = host.tabs.indexOf(ctx);
+        const home = createTab(host, { home: true });
+        host.tabs.splice(host.tabs.indexOf(home), 1);
+        host.tabs.splice(at, 0, home);
+        activateTab(home);
+        return closeTab(ctx);
+      }
+      goHome(ctx);
+    });
+    // The top bar's +: a new tab on home, in this window.
+    handle('tab-new', (ctx) => {
+      newTab(ctx?.host);
     });
   }
 
-  return { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp };
+  return { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp };
 }

@@ -19,8 +19,9 @@ contextBridge.exposeInMainWorld('smartspec', {
   // (`onTabs`), choosing and closing a tab (the tab asking, without an id), stepping back or forward
   // in the active tab, and opening the status panel there. A tab says when back and forward change
   // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
-  // (`onToggleStatus`). Home opens a schematic in a tab of its own (`openInTab`: { path, layout }),
-  // which hears it (`onOpenLevel`); going home shows the Home tab.
+  // (`onToggleStatus`). A schematic opened in a new tab (`openInTab`: { path, layout }), which hears
+  // it (`onOpenLevel`); the Home button (`goHome`, heard by the active tab as `onGoHome`) and +
+  // (`newTab`).
   onTabs: on('tabs'),
   tabsState: () => call('tabs-state'),
   tabActivate: (id) => call('tab-activate', id),
@@ -56,6 +57,8 @@ contextBridge.exposeInMainWorld('smartspec', {
   openSchematicTab: (request) => call('open-schematic-tab', request),
   onOpenLevel: on('open-level'),
   goHome: () => call('go-home'),
+  onGoHome: on('go-home'),
+  newTab: () => call('tab-new'),
   onAiControl: on('ai-control'),
   releaseAiControl: () => call('ai-control-release'),
   // The schemas (see store.js): what there is, and the user's answer to a proposal.

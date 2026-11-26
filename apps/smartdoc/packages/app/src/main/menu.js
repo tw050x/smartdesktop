@@ -19,6 +19,7 @@ export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBac
   const fileMenu = {
     label: 'File',
     submenu: [
+      { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: actions.newTab },
       { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: actions.showOpenDialog },
       {
         label: 'Open Recent',
@@ -33,9 +34,8 @@ export function buildMenu({ hasWindow, hasDocument, hasDraft, review, canStepBac
       { label: 'New Variation…', enabled: hasDraft, click: actions.newVariation },
       { label: 'New Document from Draft', enabled: hasDraft, click: actions.documentFromDraft },
       { type: 'separator' },
-      // One step at a time: a document back to the home screen, then the window itself.
-      // A document's tab, or the window from Home (its pinned tab can't close).
-      { label: hasDocument ? 'Close Tab' : 'Close Window', accelerator: 'CmdOrCtrl+W', enabled: hasWindow, click: actions.close },
+      // The tab (a window's last closes the window).
+      { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', enabled: hasWindow, click: actions.close },
     ],
   };
 

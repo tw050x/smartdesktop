@@ -62,18 +62,17 @@ export function createBoards({ el, bottomBar, goal: goalEl, api, onShown = () =>
   let homeShowing = false; // home's column rises in only as it arrives, not each time it's drawn again
   let dragging = null; // { cardId, title, fromList } while the user drags a card
 
-  // Which tab this is (see main.js): Home, the only one showing home, which opens a board in a tab
-  // of its own; or a board's, which never shows home (going home shows the Home tab).
-  const inHome = api.tabKind === 'home';
-  const inTab = api.tabKind === 'document';
-  let hadBoard = false; // a board's tab has shown its board (and closes once it's gone)
+  // A tab shows home or a board, going between them as a browser tab goes between pages (the user's
+  // choice, 2026-11-26): the window's Home button takes it home. One opened to show a board waits
+  // for it (`document`), rather than showing home first.
+  let waiting = api.tabKind === 'document';
 
   // Back and forward: where this tab has been, as a browser keeps it: each stop is the board and
   // the card open on it (dragging isn't a step). The buttons are in the window's top bar
   // (tab-strip.js), which asks this tab to go back or forward and is told when it can.
   const HISTORY_LIMIT = 200;
   const stop = () => JSON.stringify(here && { boardId: here.boardId, name: here.name, card: here.card ?? null });
-  let visited = inTab ? [] : [stop()];
+  let visited = waiting ? [] : [stop()];
   let visiting = visited.length - 1;
   let historyShown = null;
   const showHistory = () => {
@@ -105,21 +104,29 @@ export function createBoards({ el, bottomBar, goal: goalEl, api, onShown = () =>
     else if (event.key === ']') travel(1);
   });
 
-  // Shows a board: from Home, in a tab of its own (the one already showing it, unless `newTab`); in
-  // a board's tab, here. `card` is opened.
+  // Shows a board, here (`card` opened), or in a new tab beside this one (`newTab`).
   function open(next, { newTab = false } = {}) {
-    if (inHome) {
-      api.openInTab({ ...next, newTab });
+    if (newTab) {
+      api.openInTab({ boardId: next.boardId, name: next.name, card: next.card ?? null });
       return;
     }
+    waiting = false;
     here = { boardId: next.boardId, name: next.name ?? '', card: next.card ?? null };
     remember();
     render();
   }
+  // The window's Home button: home, here.
+  api.onGoHome?.(() => {
+    if (!here && !waiting) return;
+    waiting = false;
+    here = null;
+    remember();
+    render();
+  });
 
   async function render() {
     const ticket = ++rendering;
-    const view = here ? await boardView(here) : inTab ? h('div', { className: 'tab-waiting-view' }) : await homeView();
+    const view = here ? await boardView(here) : waiting ? h('div', { className: 'tab-waiting-view' }) : await homeView();
     if (ticket !== rendering) return;
     // Each list keeps where it was scrolled, and the board where it was scrolled across.
     const across = el.querySelector('.kanban')?.scrollLeft ?? 0;
@@ -127,9 +134,12 @@ export function createBoards({ el, bottomBar, goal: goalEl, api, onShown = () =>
     const listTop = el.querySelector('.browser-list')?.scrollTop ?? 0;
     const showingBoard = Boolean(here && view.board);
     document.body.classList.toggle('has-board', showingBoard);
+    // What the tab is now (its page's styles): waiting for a board, or on home.
+    document.body.classList.toggle('document-tab', waiting);
+    document.body.classList.toggle('home-tab', !here && !waiting);
     if (!showingBoard) {
-      if (!homeShowing && !inTab) view.classList.add('arriving');
-      homeShowing = !inTab;
+      if (!homeShowing && !waiting) view.classList.add('arriving');
+      homeShowing = !waiting;
     } else homeShowing = false;
     el.replaceChildren(view);
     const kanban = el.querySelector('.kanban');
@@ -277,12 +287,11 @@ export function createBoards({ el, bottomBar, goal: goalEl, api, onShown = () =>
   async function boardView(at) {
     const board = await api.getBoard(at.boardId).catch(() => null);
     if (!board) {
-      // It's gone (deleted): a board's tab with nothing left in it closes.
-      if (inTab && hadBoard) api.tabClose();
+      // It's gone (deleted): the tab goes home.
       here = null;
-      return inTab ? h('div', { className: 'tab-waiting-view' }) : homeView();
+      waiting = false;
+      return homeView();
     }
-    hadBoard = true;
     at.name = board.name;
     const cards = board.lists.flatMap((list) => list.cards);
     if (at.card && !cards.some((card) => card.id === at.card)) at.card = null;
@@ -440,13 +449,10 @@ export function createBoards({ el, bottomBar, goal: goalEl, api, onShown = () =>
 
   api.onBoardsChanged(() => render());
   api.onNewBoard(newBoard);
-  // A board opened from Home, or an AI's cards, in this tab (see main.js's openInTab).
+  // A board opened in this tab: in a new tab from home (see main.js's openInTab), or an AI's cards.
   api.onOpenBoard?.((request) => {
     if (!request?.boardId) return;
-    if (inHome) return open(request);
-    here = { boardId: request.boardId, name: request.name ?? '', card: request.card ?? null };
-    remember();
-    render();
+    open(request);
   });
   // A card the AI shows the user (show_card), opened.
   api.onShowCard?.(({ boardId, card } = {}) => {

@@ -19,9 +19,9 @@ contextBridge.exposeInMainWorld('smartad', {
   // (`onTabs`), choosing and closing a tab (the tab asking, without an id), stepping back or forward
   // in the active tab, and opening the status panel there. A tab says when back and forward change
   // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
-  // (`onToggleStatus`). Home opens an ad in a tab of its own (`openInTab`: { adId, draftId,
-  // proposal, name }), which hears it (`onOpenAd`), as it does an AI's proposal; going home shows
-  // the Home tab.
+  // (`onToggleStatus`). An ad opened in a new tab (`openInTab`: { adId, draftId, proposal, name }),
+  // which hears it (`onOpenAd`), as it does an AI's proposal; the Home button (`goHome`, heard by
+  // the active tab as `onGoHome`) and + (`newTab`).
   onTabs: on('tabs'),
   tabsState: () => call('tabs-state'),
   tabActivate: (id) => call('tab-activate', id),
@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld('smartad', {
   openInTab: (request) => call('open-in-tab', request),
   onOpenAd: on('open-ad'),
   goHome: () => call('go-home'),
+  onGoHome: on('go-home'),
+  newTab: () => call('tab-new'),
   onAiControl: on('ai-control'),
   releaseAiControl: () => call('ai-control-release'),
   // The ads (see store.js): what there is, and the user's answer to a proposal.

@@ -1,11 +1,12 @@
-// The top bar across a window: room for the traffic lights, back and forward (in the tab showing),
-// the window's tabs, and the app's status at its end. Home is the first tab, pinned: an icon that
-// can't be closed, and the only tab showing home; each other tab shows a document (a schematic, a
-// topic, a board…), by its name, with
-// a button to close it (shown while it's pointed at, or showing), and beside it a sparkle while an AI
-// works in it (the user's choice). The window has tabs rather than
-// opening more windows (the user's choice; more windows are still allowed). The status pill opens
-// the status panel (server-status.js) in the tab showing.
+// The top bar across a window: room for the traffic lights, back, forward and Home (in the tab
+// showing), the window's tabs and a + for a new one, and the app's status at its end. Home is a
+// button, as in a browser (the user's choice, 2026-11-26: it was a pinned first tab, the only one
+// showing home): it takes the tab showing home, and any tab can show home or a document (a
+// schematic, a topic, a board…). Each tab has its name (Home, on home) and a button to close it,
+// and beside it a sparkle while an AI works in it (the user's choice). The + (and ⌘T) opens a new
+// tab on home. The window has tabs rather than opening more windows (the user's choice; more
+// windows are still allowed). The status pill opens the status panel (server-status.js) in the tab
+// showing.
 //
 // The tab showing has a blue pill under it, centred on the line between the top bar and the page
 // below, and pointing at a tab shows one under it too, in place of a tooltip (the user's choice). In
@@ -16,10 +17,10 @@
 // narrow, the name gives way and the icon stays, so a tab can still be told apart (the user's
 // choice). Its right-click menu changes the icon.
 //
-// A tab (not Home) is dragged to move it (the user's choice): along the top bar, into another
-// window's, or out of them all to a window of its own. Its picture follows the pointer meanwhile, in
-// a window of its own over everything (main/tab-drag.js), and the top bar it's over shows a line
-// where it would go. Home stays first.
+// A tab is dragged to move it (the user's choice): along the top bar, into another window's (or
+// another app's), or out of them all to a window of its own. Its picture follows the pointer
+// meanwhile, in a window of its own over everything (main/tab-drag.js), and the top bar it's over
+// shows a line where it would go.
 //
 // The app draws it in the window's own page (tabs.html, see tabs.js), above the tabs' pages, from
 // what the main process sends (`onTabs`: { tabs, back, forward, status }); the website's demo draws
@@ -32,6 +33,7 @@ const HOME_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" s
 const AI_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2.5c.5 4.6 2.9 7 7.5 7.5-4.6.5-7 2.9-7.5 7.5-.5-4.6-2.9-7-7.5-7.5 4.6-.5 7-2.9 7.5-7.5Z"/><path d="M19 15.5c.25 2 1.25 3 3.25 3.25-2 .25-3 1.25-3.25 3.25-.25-2-1.25-3-3.25-3.25 2-.25 3-1.25 3.25-3.25Z"/></svg>';
 // A chat in SmartDesktop owning the tab: a speech bubble, a button beside its close button.
 const CHAT_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
+const PLUS_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 const BACK_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>';
 const FORWARD_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
@@ -41,6 +43,7 @@ export function createTabStrip({ el, api }) {
     <div class="history-nav" role="group" aria-label="History">
       <button class="icon-button" data-step="-1" type="button" aria-label="Back" title="Back" disabled>${BACK_ICON}</button>
       <button class="icon-button" data-step="1" type="button" aria-label="Forward" title="Forward" disabled>${FORWARD_ICON}</button>
+      <button class="icon-button home-button" type="button" aria-label="Home" title="Home">${HOME_ICON}</button>
     </div>
     <div class="tabs" role="tablist" aria-label="Tabs"></div>
     <div class="top-bar-end">
@@ -54,6 +57,16 @@ export function createTabStrip({ el, api }) {
   const back = el.querySelector('[data-step="-1"]');
   const forward = el.querySelector('[data-step="1"]');
   const tabsEl = el.querySelector('.tabs');
+  const homeButton = el.querySelector('.home-button');
+  homeButton.addEventListener('click', () => api.goHome?.());
+  // A new tab, on home: after the last tab, so it moves along as they come and go.
+  const newTab = document.createElement('button');
+  newTab.type = 'button';
+  newTab.className = 'icon-button tab-new';
+  newTab.innerHTML = PLUS_ICON;
+  newTab.setAttribute('aria-label', 'New Tab');
+  newTab.title = 'New Tab';
+  newTab.addEventListener('click', () => api.newTab?.());
   const pill = el.querySelector('.server-pill');
   // The pills: under the tab showing (`active`), and under the tab pointed at (`hover`), each a box
   // in this page ({ left, width }) or null.
@@ -121,7 +134,7 @@ export function createTabStrip({ el, api }) {
   const DRAG_START = 5;
   tabsEl.addEventListener('pointerdown', (event) => {
     const tab = event.target.closest('.tab');
-    if (event.button !== 0 || !api.tabDragStart || !tab || tab.classList.contains('tab-home') || event.target.closest('button')) return;
+    if (event.button !== 0 || !api.tabDragStart || !tab || event.target.closest('button')) return;
     press = { id: tab.dataset.id, x: event.clientX, y: event.clientY, pointerId: event.pointerId, dragging: false, point: null };
   });
   tabsEl.addEventListener('pointermove', (event) => {
@@ -208,9 +221,10 @@ export function createTabStrip({ el, api }) {
     readerSwitch.setAttribute('aria-checked', String(readerOn));
     back.disabled = !canBack;
     forward.disabled = !canForward;
+    homeButton.disabled = Boolean(tabs.find((tab) => tab.active)?.home);
     tabsEl.replaceChildren(...tabs.map((tab) => {
       const node = document.createElement('div');
-      node.className = `tab${tab.home ? ' tab-home' : ''}${tab.ai ? ' tab-ai' : ''}`;
+      node.className = `tab${tab.home ? ' tab-on-home' : ''}${tab.ai ? ' tab-ai' : ''}`;
       node.setAttribute('role', 'tab');
       node.setAttribute('aria-selected', String(tab.active));
       node.dataset.noTip = '';
@@ -218,7 +232,7 @@ export function createTabStrip({ el, api }) {
       if (press?.dragging && press.id === tab.id && tabsEl.querySelector('.tab.dragging')) node.classList.add('dragging');
       node.addEventListener('mousedown', (event) => {
         // The middle button closes it, as in a browser.
-        if (event.button === 1 && !tab.home) {
+        if (event.button === 1) {
           event.preventDefault();
           api.tabClose?.(tab.id);
         }
@@ -231,13 +245,10 @@ export function createTabStrip({ el, api }) {
         const r = node.getBoundingClientRect();
         api.tabMenu?.(tab.id, { left: Math.round(r.left), width: Math.round(r.width) });
       });
-      if (tab.home) {
-        node.innerHTML = HOME_ICON;
-        node.setAttribute('aria-label', 'Home');
-      } else {
+      {
         const icon = document.createElement('span');
         icon.className = 'tab-icon';
-        icon.innerHTML = iconSvg(tab.icon, 15);
+        icon.innerHTML = tab.home ? HOME_ICON.replace(/width="16" height="16"/, 'width="15" height="15"') : iconSvg(tab.icon, 15);
         node.append(icon);
         const title = document.createElement('span');
         title.className = 'tab-title';
@@ -270,7 +281,7 @@ export function createTabStrip({ el, api }) {
         node.append(close);
       }
       return node;
-    }));
+    }), newTab);
     // The tabs moved or changed: where they are now, at once (a window behind another may get no
     // animation frames, and a tab can be dragged into it meanwhile), and the pills follow.
     sendBoxes();

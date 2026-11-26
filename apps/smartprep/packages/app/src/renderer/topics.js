@@ -90,11 +90,10 @@ export function createTopics({ el, bottomBar, goal: goalEl, api, onShown = () =>
   let moving = false; // the next drawing animates, as the browser can, to what it shows next
   let desktopStatus = 'off'; // where SmartDesktop stands: 'missing' means a request is copied instead
 
-  // Which tab this is (see main.js): Home, the only one showing home, which opens a topic in a tab
-  // of its own; or a topic's, which never shows home (going home shows the Home tab).
-  const inHome = api.tabKind === 'home';
-  const inTab = api.tabKind === 'document';
-  let hadTopic = false; // a topic's tab has shown its topic (and closes once it's gone)
+  // A tab shows home or a topic, going between them as a browser tab goes between pages (the user's
+  // choice, 2026-11-26): the window's Home button takes it home. One opened to show a topic waits
+  // for it (`document`), rather than showing home first.
+  let waiting = api.tabKind === 'document';
 
   // Back and forward: where this tab has been, as a browser keeps it: each stop is the card brought
   // to the middle and whether it was full screen (dragging isn't a step). Choosing somewhere new drops
@@ -102,8 +101,8 @@ export function createTopics({ el, bottomBar, goal: goalEl, api, onShown = () =>
   // back or forward (`onHistoryStep`) and is told when it can (`historyState`).
   const HISTORY_LIMIT = 200;
   const stop = () => JSON.stringify(here && { topicId: here.topicId, name: here.name, item: here.item ?? null, full: Boolean(here.full) });
-  // (A topic's tab starts with nothing: its first stop is its topic, never home.)
-  let visited = inTab ? [] : [stop()];
+  // (A tab opened for a topic starts with nothing: its first stop is its topic.)
+  let visited = waiting ? [] : [stop()];
   let visiting = visited.length - 1;
   let historyShown = null;
   const showHistory = () => {
@@ -143,13 +142,13 @@ export function createTopics({ el, bottomBar, goal: goalEl, api, onShown = () =>
     else if (event.key === ']') travel(1);
   });
 
-  // Shows a topic: from Home, in a tab of its own (the one already showing it, unless `newTab`); in
-  // a topic's tab, here. `card` is brought to the middle.
+  // Shows a topic, here (`card` brought to the middle), or in a new tab beside this one (`newTab`).
   function open(next, { newTab = false } = {}) {
-    if (inHome) {
-      api.openInTab({ ...next, newTab });
+    if (newTab) {
+      api.openInTab({ topicId: next.topicId, name: next.name, card: next.card ?? null });
       return;
     }
+    waiting = false;
     here = { topicId: next.topicId, name: next.name ?? '', item: next.card ?? null, full: false, bring: Boolean(next.card), focus: null };
     remember();
     render();
@@ -183,7 +182,7 @@ export function createTopics({ el, bottomBar, goal: goalEl, api, onShown = () =>
   async function render() {
     const ticket = ++rendering;
     const place = placeShowing();
-    const view = here ? await topicView(here) : inTab ? waitingView() : await homeView();
+    const view = here ? await topicView(here) : waiting ? waitingView() : await homeView();
     if (ticket !== rendering) return;
     const show = () => {
       // Home's list keeps its place when it's drawn again.
@@ -192,10 +191,13 @@ export function createTopics({ el, bottomBar, goal: goalEl, api, onShown = () =>
       const scrolled = place === showingPlace ? itemScrolls() : new Map();
       const showingTopic = Boolean(here && view.topic);
       document.body.classList.toggle('has-topic', showingTopic);
+      // What the tab is now (its page's styles): waiting for a topic, or on home.
+      document.body.classList.toggle('document-tab', waiting);
+      document.body.classList.toggle('home-tab', !here && !waiting);
       if (!showingTopic) {
         // Home arriving (at launch): its column rises in, as SmartDoc's and SmartSpec's do.
-        if (!homeShowing && !inTab) view.classList.add('arriving');
-        homeShowing = !inTab;
+        if (!homeShowing && !waiting) view.classList.add('arriving');
+        homeShowing = !waiting;
       } else homeShowing = false;
       el.replaceChildren(view);
       showingPlace = place;
@@ -397,12 +399,11 @@ export function createTopics({ el, bottomBar, goal: goalEl, api, onShown = () =>
       api.listQuestions(at.topicId).catch(() => []),
     ]);
     if (!topic || !cards) {
-      // It's gone (deleted): a topic's tab with nothing left in it closes.
-      if (inTab && hadTopic) api.tabClose();
+      // It's gone (deleted): the tab goes home.
       here = null;
-      return inTab ? waitingView() : homeView();
+      waiting = false;
+      return homeView();
     }
-    hadTopic = true;
     at.name = topic.name;
     if (at.item && !cards.some((card) => card.id === at.item)) {
       at.item = null;
@@ -904,10 +905,18 @@ export function createTopics({ el, bottomBar, goal: goalEl, api, onShown = () =>
   api.desktopStatus?.().then(heardDesktop, () => {});
   api.onDesktopStatus?.(heardDesktop);
   api.onNewTopic(newTopic);
-  // A topic opened from Home, or an AI's cards, in this tab (see main.js's openInTab).
+  // The window's Home button: home, here.
+  api.onGoHome?.(() => {
+    if (!here && !waiting) return;
+    waiting = false;
+    here = null;
+    remember();
+    render();
+  });
+  // A topic opened in this tab: in a new tab from home (see main.js's openInTab), or an AI's cards.
   api.onOpenTopic?.((request) => {
     if (!request?.topicId) return;
-    if (inHome) return open(request);
+    waiting = false;
     const same = here?.topicId === request.topicId;
     here = { topicId: request.topicId, name: request.name ?? '', item: request.card ?? (same ? here.item : null), full: false, bring: Boolean(request.card), focus: null };
     remember();
