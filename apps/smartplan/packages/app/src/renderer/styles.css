@@ -586,3 +586,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 .card-checklist li { display: flex; align-items: flex-start; gap: 8px; user-select: text; }
 .card-checklist li.done span { color: var(--muted); text-decoration: line-through; }
 .card-checklist input { margin: 2px 0 0; }
+
+/* Everything that scrolls has a thin scrollbar with no track to see, as in SmartSpec (the user's
+   choice: the system's was too wide, track and all). An element with scrollbar-width of its own
+   (none, say) keeps it: Chromium then ignores these. */
+::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border-radius: 2px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 60%, transparent); }
+::-webkit-scrollbar-corner { background: transparent; }
