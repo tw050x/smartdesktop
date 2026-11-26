@@ -9,6 +9,7 @@ import { createDesktop } from './desktop.js';
 import { guessIcon, isIcon } from '@smartdesktop/ui/main/icons.js';
 import { createItemIcons } from './item-icons.js';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
+import { API } from './api.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -217,8 +218,9 @@ const hosts = new Set(); // { win, tabs: [home, …], active }
 const tabs = createTabs({
   id: 'smartstudio',
   title: WINDOW_TITLE,
+  // The pages' API as data (api.js), which the family's preload builds `window.smartstudio` from.
+  api: API,
   pages: {
-    preload: path.join(dirname, 'preload.cjs'),
     tabs: path.join(dirname, '../../build/renderer/tabs.html'),
     index: path.join(dirname, '../../build/renderer/index.html'),
   },

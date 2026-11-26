@@ -15,6 +15,7 @@ import { createItemIcons } from './item-icons.js';
 import { firstTodo, todoOf } from './home-review-state.js';
 import { readPdfText } from './pdf-text.js';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
+import { API } from './api.js';
 import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { describeStep } from '@smartdesktop/ui/main/steps/smartdoc.js';
@@ -183,8 +184,9 @@ const hosts = new Set(); // { win, tabs: [home, …], active }
 const tabs = createTabs({
   id: 'smartdoc',
   title: WINDOW_TITLE,
+  // The pages' API as data (api.js), which the family's preload builds `window.smartdoc` from.
+  api: API,
   pages: {
-    preload: path.join(dirname, 'preload.cjs'),
     tabs: path.join(dirname, '../../build/renderer/tabs.html'),
     index: path.join(dirname, '../../build/renderer/index.html'),
   },

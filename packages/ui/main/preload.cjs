@@ -2,8 +2,10 @@
 // tabs.js's `api`): it asks the main process for that list as it starts (synchronously, as a
 // sandboxed preload can load no file of its own), and makes `window.<app>` from it, each call
 // resolving with its value or rejecting with the main process's error, and each event taking a
-// callback. With `platform`, `windowId` and `tabKind` from the page's arguments, as before.
-const { contextBridge, ipcRenderer } = require('electron');
+// callback. With `platform`, `windowId` and `tabKind` from the page's arguments, as before; and
+// `pathForFile(file)`, a dropped file's place on this Mac, which only the desktop can give (a page in
+// a browser has none).
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const { id, calls, events } = ipcRenderer.sendSync('preload-api');
 
@@ -15,7 +17,7 @@ const call = async (channel, ...args) => {
 const on = (channel) => (callback) => ipcRenderer.on(channel, (_event, value) => callback(value));
 const argument = (name) => process.argv.find((arg) => arg.startsWith(`--${id}-${name}=`))?.split('=')[1];
 
-const api = { platform: process.platform, windowId: argument('window'), tabKind: argument('tab') ?? null };
+const api = { platform: process.platform, windowId: argument('window'), tabKind: argument('tab') ?? null, pathForFile: (file) => webUtils.getPathForFile(file) };
 for (const [name, channel] of Object.entries(calls)) api[name] = (...args) => call(channel, ...args);
 for (const [name, channel] of Object.entries(events)) api[name] = on(channel);
 

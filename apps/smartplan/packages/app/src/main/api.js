@@ -1,10 +1,9 @@
-// What SmartPlan's pages can ask of the main process (`calls`: the page's name for it → its channel,
-// every argument passed on as it is) and hear from it (`events`: the page's name → its channel), as
-// data: the family's preload (@smartdesktop/ui's main/preload.cjs) builds `window.smartplan` from
-// it, with `platform`, `windowId` (which a copied prompt names so the AI can take the window over)
-// and `tabKind` ('home', the pinned first tab, the only one showing home; 'document', a board's; none
-// for the top bar's own page). Kept as data so a page shown in another app's window (a guest tab)
-// can have the same API, its calls sent back here.
+// SmartPlan's page API as data: every call a page can make (name → the channel its handler answers)
+// and every event it can hear (name → channel). The family's preload (@smartdesktop/ui's
+// main/preload.cjs) builds `window.smartplan` from it; a guest tab, or later a web client, builds the
+// same from the same list. A page talks to its app only through these (with `platform`, `windowId`,
+// `tabKind` and `pathForFile`, which the preload adds), so it can work with Electron behind it now
+// and a web server later.
 export const API = {
   id: 'smartplan',
   calls: {

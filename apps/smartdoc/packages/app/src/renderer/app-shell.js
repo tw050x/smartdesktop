@@ -55,7 +55,10 @@ export function startApp(appApi) {
       if (box) Object.assign(tabLines[i].style, { left: `${box.left}px`, width: `${box.width}px` });
     });
   });
-  const { platform, openDroppedFile, onFullScreenChange } = api;
+  const { platform, onFullScreenChange } = api;
+  // A dropped file, opened from its place on this Mac (only the desktop has one); the website's demo
+  // gives its own.
+  const openDroppedFile = api.openDroppedFile ?? ((file) => api.openPath(api.pathForFile(file)));
   document.body.classList.add(`platform-${platform}`);
   // A tab shows home or a document, as a browser tab shows pages (see main.js); one opened for a
   // document waits for it (`document-tab`, until it has one). The website's demo is a whole window,
