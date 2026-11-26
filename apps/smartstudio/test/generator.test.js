@@ -94,7 +94,9 @@ test('a take the server can\'t make fails with why', async () => {
 });
 
 test('a take the user stops says so, and a server that refuses a take says why', async () => {
-  const comfy = standIn({ steps: 1000 });
+  // Held: it never finishes by itself (polls are only a setImmediate apart, so a number of steps
+  // could all pass before it's stopped on a fast machine).
+  const comfy = standIn({ held: true });
   await withGenerator(comfy, async ({ store, generator }) => {
     const { project } = await store.create({});
     const take = await generator.generate(project, { kind: 'music', prompt: 'x', seconds: 5 });
