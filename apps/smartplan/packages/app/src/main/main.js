@@ -138,6 +138,9 @@ const tabs = createTabs({
   family: createFamily(familyFolder(app)),
   guestOpen: (ctx) => (boardOf(ctx) ? { boardId: boardOf(ctx), name: ctx.name } : null),
   guestOpened: (ctx, request) => ctx.contents.send('open-board', request),
+  // With SmartDesktop running, SmartPlan has no windows of its own: its tabs are in SmartDesktop's
+  // (the user's choice, 2026-11-26), and it has no Dock icon.
+  windowless: true,
 });
 // A menu or a question over a tab's window (in a guest tab, the window showing it shows them).
 const { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
@@ -305,8 +308,9 @@ async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
   // The window SmartPlan opened as it started, if the AI started it: its tab on home, untouched.
   const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
-  const host = lastFocused?.host ?? createWindow({ focus: false }).host;
-  const ctx = launched ? launched.tabs[0] : createTab(host);
+  // (With no windows of its own, the tab is SmartDesktop's to place: no window is made for it here.)
+  const host = tabs.inSmartDesktop() ? null : lastFocused?.host ?? createWindow({ focus: false }).host;
+  const ctx = launched ? launched.tabs[0] : createTab(host, { focus: Boolean(fromDesktop(session)) });
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
@@ -494,7 +498,7 @@ async function confirmAddToClaudeDesktop(ctx) {
 // Downloads is offered a move to Applications (which opens it again from there).
 async function offerMoveToApplications(ctx) {
   if (!app.isPackaged || process.platform !== 'darwin' || app.isInApplicationsFolder()) return;
-  const { response } = await dialog.showMessageBox(ctx.win, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: 'Move SmartPlan to your Applications folder?',
     detail: 'Your agent opens SmartPlan from where it’s installed, so it works best in Applications.',
@@ -675,9 +679,11 @@ const startGuests = () => tabs.serveGuests({ files: path.join(dirname, '../../bu
 app.whenReady().then(async () => {
   // The app is in beta, and its About panel says so (as Settings does).
   app.setAboutPanelOptions({ credits: 'SmartPlan is in beta, so it may change significantly from one version to the next.' });
+  // Served first: with SmartDesktop running, its first tab is one there, made through the server.
+  await startGuests().catch((error) => console.error('Guest tabs can’t be served:', error.message));
+  if (tabs.inSmartDesktop()) app.dock?.hide();
   const first = createWindow();
   await startMcp();
-  await startGuests().catch((error) => console.error('Guest tabs can’t be served:', error.message));
   updates.start();
   await first.ready;
   offerMoveToApplications(first);

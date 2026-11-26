@@ -17,6 +17,7 @@
 //                                         only the channels in `api.calls`
 //   GET  /<token>/tabs/<id>/open          what the tab shows, as this app's own request for opening it
 //                                         ({ open }, null if it can't be moved), for moving it on
+//   POST /<token>/tabs/<id>/focused       the window showing the tab says it's the one the user is in
 //   POST /<token>/tabs/<id>/answer        the window showing the tab answers what this app asked it
 //                                         to show ({ ask, value }: a menu's choice, a message box's
 //                                         response; asked as `guest-ui` events)
@@ -25,7 +26,9 @@
 //   POST /<token>/host                    asks this app to show another's tab in its window
 //                                         ({ app, url, open }: that app, its server, and what to
 //                                         show; `at`, where on the screen it was dropped, if it
-//                                         was) → { ok } or { ok: false, error }
+//                                         was; or `gid`, a guest tab that app made itself, with
+//                                         its `kind` and whether to bring it forward, `focus`) →
+//                                         { ok } or { ok: false, error }
 //   POST /<token>/over                    another app's tab is dragged over `point` (on the screen,
 //                                         or null once it's gone; `front`, when that app's own window
 //                                         there last had the focus): { front, over } (whether a
@@ -36,7 +39,9 @@
 // tabs (`open(send, { open })` → its tab, `close(tab)`) and runs their calls (`call(tab, channel,
 // args)`), as its own handlers do for its own tabs, says what one shows (`opening(tab)`) and takes one
 // back (`returned(tab, at)`), hearing what its window answered (`answered(tab, ask, value)`); and
-// shows others' (`host(request)`, `over(point)`). `media(parts)` gives the file for a media path's
+// shows others' (`host(request)`, `over(point)`), hearing which of its tabs the user is in
+// (`focused(tab)`). The server it gives back can also make a guest tab itself (`open(options)`): an
+// app with no windows of its own (SmartDesktop showing them) makes its tabs that way. `media(parts)` gives the file for a media path's
 // parts, or null. Without
 // `api` it serves no pages (it only shows others'); without `host` it shows none.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -49,7 +54,7 @@ import { decode, encode } from './wire.js';
 const TYPES = { '.flac': 'audio/flac', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.pdf': 'application/pdf', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json', '.wasm': 'application/wasm' };
 const MOST_BODY = 8 * 1024 * 1024; // a call's arguments, at most
 
-export function startGuestServer({ files = null, api = null, open, close, call, media = null, opening = () => null, returned = null, answered = () => {}, host = null, over = null, port = 0 }) {
+export function startGuestServer({ files = null, api = null, open, close, call, focused = () => {}, media = null, opening = () => null, returned = null, answered = () => {}, host = null, over = null, port = 0 }) {
   const token = randomBytes(24).toString('hex');
   const tabs = new Map(); // id → { tab, stream, waiting: [] }
   const root = files && path.resolve(files);
@@ -162,6 +167,10 @@ export function startGuestServer({ files = null, api = null, open, close, call, 
         return;
       }
       if (req.method === 'GET' && what === 'open') return json(res, 200, { open: opening(entry.tab) ?? null });
+      if (req.method === 'POST' && what === 'focused') {
+        focused(entry.tab);
+        return json(res, 200, { ok: true });
+      }
       if (req.method === 'POST' && what === 'answer') {
         const { ask, value = null } = JSON.parse((await body(req)) || '{}');
         answered(entry.tab, ask, value);
@@ -193,6 +202,10 @@ export function startGuestServer({ files = null, api = null, open, close, call, 
         url: `http://127.0.0.1:${listening}/${token}`,
         port: listening,
         token,
+        // A guest tab made by the app itself (with `open`'s options), for a window elsewhere to show.
+        open(options = {}) {
+          return tabs.get(openTab(options)).tab;
+        },
         // Every guest tab closes (the app is quitting).
         stop() {
           for (const id of [...tabs.keys()]) closeTab(id);
