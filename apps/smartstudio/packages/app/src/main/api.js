@@ -39,7 +39,8 @@ export const API = {
     // lyrics, seconds, seed }), stopping one, saying the user has seen one the AI asked for, and
     // showing a take's file in Finder. How far along each take is comes as it changes
     // (`onTakeProgress`: { projectId, takeId, value, max }); its file plays from
-    // studio-media://take/<project id>/<file>.
+    // studio-media://take/<project id>/<file>, or in a guest tab (another app's window, a browser)
+    // from the guest server's media/take/<project id>/<file>.
     listProjects: 'list-projects',
     getProject: 'get-project',
     createProject: 'create-project',

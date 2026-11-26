@@ -9,6 +9,7 @@ import { createDesktop } from './desktop.js';
 import { guessIcon, isIcon } from '@smartdesktop/ui/main/icons.js';
 import { createItemIcons } from './item-icons.js';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
+import { createFamily, familyFolder } from '@smartdesktop/ui/main/family.js';
 import { API } from './api.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
@@ -245,8 +246,16 @@ const tabs = createTabs({
   release: (ctx) => {
     if (ctx.session) ctx.session.ctx = null;
   },
+  // Guest tabs: a project's tab can be shown in another app's window (SmartDesktop's, say), opening
+  // the same project there (its takes played from the guest server); and SmartStudio's windows show
+  // other apps' tabs.
+  name: 'SmartStudio',
+  family: createFamily(familyFolder(app)),
+  guestOpen: (ctx) => (projectOf(ctx) ? { projectId: projectOf(ctx), name: ctx.name } : null),
+  guestOpened: (ctx, request) => ctx.contents.send('open-project', request),
 });
-const { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
+// A menu or a question over a tab's window (in a guest tab, the window showing it shows them).
+const { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
 
 // Where a tab is: 'home', or the id of the project it shows, as the tab says (chat-shows).
 const projectOf = (ctx) => (ctx.where && ctx.where !== 'home' ? ctx.where : null);
@@ -424,7 +433,7 @@ async function windowForSession(session, startedApp) {
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
-  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
   return ctx;
 }
 
@@ -473,7 +482,8 @@ const projectsFor = (session, tab) => {
     }
     const ctx = await tab();
     ctx.contents.send('open-project', request);
-    if (!ctx.win.isVisible()) ctx.win.showInactive();
+    // (A guest tab's window is another app's.)
+    if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
     return ctx;
   }
   const withIcon = (project) => ({ ...project, icon: itemIcons.get(project.id)?.icon ?? null });
@@ -579,7 +589,7 @@ async function showConnectAi() {
 
 async function confirmAddToClaudeDesktop(ctx) {
   const status = await claudeDesktopStatus();
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: status.state === 'different' ? 'Update SmartStudio in Claude Desktop?' : 'Add SmartStudio to Claude Desktop?',
     detail: 'SmartStudio adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
@@ -663,13 +673,19 @@ async function chatWhere(where = 'home') {
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself: each handler gets that window first.
-const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+// (Each is kept by its channel too, for a guest tab's calls: see the guest server below.)
+const handlers = new Map(); // channel → handler
+const run = async (ctx, channel, args) => {
   try {
-    return { ok: true, value: await fn(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, ...args) };
+    return { ok: true, value: await handlers.get(channel)(ctx, ...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
-});
+};
+const handle = (channel, fn) => {
+  handlers.set(channel, fn);
+  ipcMain.handle(channel, (event, ...args) => run(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, channel, args));
+};
 
 // Setup for each AI app, shown and copied for pasting (see connect.js).
 async function mcpSetup(target) {
@@ -687,7 +703,7 @@ async function deleteProject(ctx, projectId) {
   const project = (await store.list()).find((one) => one.id === projectId);
   if (!project) return false;
   const takes = project.takes === 1 ? 'Its take goes' : project.takes ? `Its ${project.takes} takes go` : null;
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'warning',
     message: `Delete “${project.name}”?`,
     detail: `${takes ? `${takes} with it, and their files. ` : ''}This can't be undone.`,
@@ -737,12 +753,7 @@ handle('get-server', () => ({ url: serverUrl(), state: serverState }));
 handle('set-server', (_ctx, url) => setServerUrl(url));
 handle('check-server', () => checkServer());
 // A right-click menu on home, as SmartDoc's: the chosen item's id, or null if none was chosen.
-handle('home-menu', (ctx, items) => new Promise((resolve) => {
-  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
-    window: ctx?.win ?? undefined,
-    callback: () => setTimeout(() => resolve(null), 100),
-  });
-}));
+handle('home-menu', (ctx, items) => popupMenu(ctx, Array.isArray(items) ? items : []));
 handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', ({ session }) => {
@@ -798,6 +809,15 @@ app.whenReady().then(async () => {
   serveMedia();
   const first = createWindow();
   await startMcp();
+  // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here, its
+  // calls run by the same handlers, and its takes' files as media (take/<project>/<file>, as
+  // studio-media:// serves them here); and other apps' tabs shown in its windows.
+  await tabs.serveGuests({
+    files: path.join(dirname, '../../build/renderer'),
+    run,
+    // (A project's id is letters, digits and dashes: nothing else, from a URL, reaches its folder.)
+    media: ([kind, projectId, file]) => (kind === 'take' && /^[\w-]+$/.test(projectId ?? '') && file ? store.mediaPath(projectId, file) : null),
+  }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
   updates.start();
   // The generation server: how it is now and every minute (Settings and the tabs show it), how far
   // along its jobs are, and the takes it was making when the app last quit.

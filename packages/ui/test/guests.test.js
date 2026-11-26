@@ -145,3 +145,31 @@ test('a guest tab says what it shows, hears its window’s answers, and comes ba
     guests.stop();
   }
 });
+
+test('an app’s media is served in the ranges a player asks for', async () => {
+  const folder = mkdtempSync(path.join(os.tmpdir(), 'media-'));
+  writeFileSync(path.join(folder, 'take.flac'), '0123456789');
+  const guests = await startGuestServer({
+    files: os.tmpdir(),
+    api: API,
+    open() {},
+    close() {},
+    call() {},
+    media: ([kind, file]) => (kind === 'take' && file === 'take.flac' ? path.join(folder, file) : null),
+  });
+  try {
+    const whole = await fetch(`${guests.url}/media/take/take.flac`);
+    assert.equal(whole.status, 200);
+    assert.equal(whole.headers.get('content-type'), 'audio/flac');
+    assert.equal(await whole.text(), '0123456789');
+    const part = await fetch(`${guests.url}/media/take/take.flac`, { headers: { range: 'bytes=2-5' } });
+    assert.equal(part.status, 206);
+    assert.equal(part.headers.get('content-range'), 'bytes 2-5/10');
+    assert.equal(await part.text(), '2345');
+    assert.equal(await (await fetch(`${guests.url}/media/take/take.flac`, { headers: { range: 'bytes=-3' } })).text(), '789');
+    assert.equal((await fetch(`${guests.url}/media/take/take.flac`, { headers: { range: 'bytes=20-' } })).status, 416);
+    assert.equal((await fetch(`${guests.url}/media/take/other.flac`)).status, 404);
+  } finally {
+    guests.stop();
+  }
+});

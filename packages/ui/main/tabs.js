@@ -482,7 +482,8 @@ export function createTabs({
   // This app's guest server (guests.js): it shows other apps' tabs (hostGuest), and with `files` (its
   // built pages) and `run` (its handlers, by channel) serves its own as guests in theirs. It's
   // announced to the family while it runs.
-  async function serveGuests({ files = null, run = null } = {}) {
+  // `media(parts)`: a file of the app's its pages play or read, served too (SmartStudio's takes).
+  async function serveGuests({ files = null, run = null, media = null } = {}) {
     const serving = Boolean(files && run && api);
     const server = await startGuestServer({
       files: serving ? files : null,
@@ -493,6 +494,7 @@ export function createTabs({
       answered: (ctx, ask, value) => answered(ctx, ask, value),
       returned: (ctx, at) => returnGuest(ctx, at),
       call: (ctx, channel, args) => run(ctx, channel, args),
+      media: serving ? media : null,
       host: (request) => hostGuest(request),
       over: (point, front) => dropOver(point, front),
     });

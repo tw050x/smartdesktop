@@ -62,6 +62,16 @@ const STATUS = { queued: 'Waiting', running: 'Making…', failed: 'Failed' };
 // `onNote(note)` gives the chat a line of context for the AI, about what the user did; and
 // `onChooseIcon(request)` opens the icon picker for a project; and `onAsk(text)` sends the AI a
 // request, in the chat.
+// Where a take's file plays from: studio-media:// in SmartStudio's own window (main.js serves it);
+// shown in another app's window, or a browser, the page is served over HTTP, and so is its media,
+// beside its pages (see @smartdesktop/ui's main/guests.js).
+function takeSource(projectId, file) {
+  const take = `take/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`;
+  if (!/^https?:$/.test(location.protocol)) return `studio-media://${take}`;
+  const base = location.href.split('/page/')[0];
+  return `${base}/media/${take}`;
+}
+
 export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () => {}, onCards = () => {}, onNote = () => {}, onChooseIcon = () => {}, onAsk = () => {} }) {
   // What the tab shows: null for home, else { projectId, name }.
   let here = null;
@@ -417,7 +427,7 @@ export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () =>
     function takeTimeline(take) {
       const timeline = createTimeline({
         kind: take.kind,
-        src: `studio-media://take/${encodeURIComponent(projectId)}/${encodeURIComponent(take.file)}`,
+        src: takeSource(projectId, take.file),
         seconds: take.seconds,
         notes: take.notes,
         remade: take.from,
