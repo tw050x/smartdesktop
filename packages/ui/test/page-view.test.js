@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { leastPageZoom, PAGE_HEIGHT, PAGE_WIDTH, pageZoom, zoomPage } from '../packages/app/src/renderer/page-view.js';
+import { leastPageZoom, PAGE_HEIGHT, PAGE_WIDTH, pageZoom, zoomPage } from '../renderer/page-view.js';
 
 test('left alone, a page shrinks to fit a smaller space and is never enlarged', () => {
   assert.equal(pageZoom(PAGE_WIDTH), 1);

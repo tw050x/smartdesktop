@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fitView, pinOffset, zoomedAt } from '../packages/app/src/renderer/canvas-view.js';
+import { fitView, pinOffset, zoomedAt } from '../renderer/canvas-view.js';
 
 test('a diagram too big for the space is shrunk to fit, centred', () => {
   const view = fitView({ width: 1000, height: 2000 }, { width: 1200, height: 1048 });

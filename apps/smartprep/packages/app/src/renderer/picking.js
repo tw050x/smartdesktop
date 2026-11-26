@@ -16,7 +16,7 @@
 // asks), as in any text editor, even where nothing can be picked; a click on what's picked waits a
 // moment first, in case it's the first of a double-click. Shift-clicks, and clicks in fields and the
 // question box, keep it.
-import { longPressed } from './long-press.js';
+import { longPressed } from '@smartdesktop/ui/renderer/long-press.js';
 import { grow, sentenceAt, wordAt } from './pick-rules.js';
 
 const AREA = '.focus-body'; // a card's page: where words are picked

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { stretched } from '../packages/app/src/renderer/resizers.js';
+import { stretched } from '../renderer/resizers.js';
 
 test('a drag within the limits is followed exactly', () => {
   assert.equal(stretched(500, 420, 900), 500);

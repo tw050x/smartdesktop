@@ -2,11 +2,11 @@ import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 import { isInternalLink, linksOf, parseLink } from '../main/cards.js';
 import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
 import { focusWidth, watchBoard } from './board-view.js';
-import { watchPage } from './page-view.js';
+import { watchPage } from '@smartdesktop/ui/renderer/page-view.js';
 import { commentCard, keyOf, onOpenCard, targetAt, watchComments } from './comments.js';
 import { closeThread, openThread, refreshThread } from './comment-overlay.js';
-import { shadeScrolling } from './scroll-shade.js';
-import { watchLongPress } from './long-press.js';
+import { shadeScrolling } from '@smartdesktop/ui/renderer/scroll-shade.js';
+import { watchLongPress } from '@smartdesktop/ui/renderer/long-press.js';
 import { plainText, renderMarkdown } from './markdown.js';
 import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 

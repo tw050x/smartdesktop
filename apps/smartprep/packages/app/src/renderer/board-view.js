@@ -20,8 +20,8 @@
 // width. The width is kept for every board alike (focusWidth).
 
 import { bringToMiddle, cardnessAtEdge, choicesOf, dismissChoices, leastScale, forgetSnap, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, focusLimits, focusOf, FOCUS_WIDTH, halfBox, inMiddle, isCard, leaveHalf, MARGIN, offerChoices, offeredFor, otherSide, pickChoice, scaleAtEdge, separate, settleFilling as settle, settleSize, snapTarget, snapToHalf, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
-import { watchPage } from './page-view.js';
-import { longPressed } from './long-press.js';
+import { watchPage } from '@smartdesktop/ui/renderer/page-view.js';
+import { longPressed } from '@smartdesktop/ui/renderer/long-press.js';
 
 const RADIUS = 12; // px, an item's corners at full size (--card-radius in styles.css)
 const COMMENT_WIDTH = 260; // px, a card for a comment on the whole schematic

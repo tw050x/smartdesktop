@@ -1,5 +1,5 @@
 import { edgeId } from '../main/items.js';
-import { pinOffset } from './canvas-view.js';
+import { pinOffset } from '@smartdesktop/ui/renderer/canvas-view.js';
 import { hideHoverCard, showHoverCard } from './hover-card.js';
 import { GROUP_WORDS, layoutFlow, layoutSequence } from './layout.js';
 import { inlineMarkdown, renderMarkdown } from './markdown.js';

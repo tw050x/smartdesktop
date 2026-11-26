@@ -1,6 +1,6 @@
 import { markSides } from './diff-marks.js';
 import { markScrolling } from './scroll-marks.js';
-import { PAGE_WIDTH } from './page-view.js';
+import { PAGE_WIDTH } from '@smartdesktop/ui/renderer/page-view.js';
 
 // Writing the AI proposes to change, beside the draft it changes, across the whole window, as
 // SmartDoc compares a preview with its draft (its compare.js): two pages side by side, scrolling

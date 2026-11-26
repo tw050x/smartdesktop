@@ -1,4 +1,4 @@
-import { longPressed } from './long-press.js';
+import { longPressed } from '@smartdesktop/ui/renderer/long-press.js';
 
 // Words picked in an item are let go by a click anywhere, as in any text editor, even where nothing
 // can be picked (title bars, cards, canvases, the bars), which otherwise leaves the browser's
