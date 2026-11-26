@@ -1,8 +1,8 @@
 {
-  "name": "@smartdesktop/shell",
+  "name": "@smartdesktop/ui",
   "version": "0.1.0",
   "private": true,
-  "description": "What every app of the family shares: its windows of tabs, the top bar, and the pieces of interface they all have.",
+  "description": "The interface every SmartDesktop app shares: its windows of tabs and top bar, and the components the apps reuse.",
   "license": "MIT",
   "type": "module",
   "exports": {

@@ -1,7 +1,7 @@
-import { iconSvg } from '../main/icons.js';
+import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 import { showAd } from './ad-view.js';
 import { createDraftPicker } from './draft-picker.js';
-import { rubberBand } from '@smartdesktop/shell/renderer/rubber-band.js';
+import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 
 // The tab's content: home (the user's ads, in one column), or one ad, at a draft or the proposal
 // waiting on it. The main process owns the ads; this asks for what it shows, again whenever they

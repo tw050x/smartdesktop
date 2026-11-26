@@ -1,4 +1,4 @@
-import { ICONS } from './icons.js';
+import { ICONS } from '@smartdesktop/ui/main/icons.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 

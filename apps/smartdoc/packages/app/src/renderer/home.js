@@ -19,7 +19,7 @@
 // right-click an item to add one, typing a name or choosing one of its scope, and right-click a label
 // for its color. Labels show on everything below the item they're on (see main/labels.js).
 
-import { iconSvg } from '../main/icons.js';
+import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 import { fillFocusCard } from './focus-picker.js';
 import { TOOLS } from './tool-switcher.js';
 import { takeOverNote } from './take-over-note.js';

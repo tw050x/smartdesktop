@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { ICONS } from './icons.js';
+import { ICONS } from '@smartdesktop/ui/main/icons.js';
 import { KINDS, LIMITS } from './store.js';
 
 // The app's MCP server: its instructions and tools. Kept apart from the HTTP server (mcp-server.js)

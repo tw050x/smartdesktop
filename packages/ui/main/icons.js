@@ -1,8 +1,9 @@
-// The icons a document or schematic can have, shown on its tab and on home (the user's choice: set by
-// the user, or by the AI when it hasn't been, and until then guessed from the name: `guessIcon`).
-// The same in both apps (SmartDoc's and SmartSpec's icons.js; keep the two alike), SmartStudio's
-// adding music, film, clapperboard and mic first, for its projects. The drawings are
-// Lucide's (lucide.dev, lucide-static 0.460.0), under its licence:
+// The icons a document, schematic, board or project can have, shown on its tab and on home (the
+// user's choice: set by the user, or by the AI when it hasn't been, and until then guessed from the
+// name: `guessIcon`). One set for every app (the user's choice, 2026-11-26), with SmartStudio's
+// music, film, clapperboard and mic first, as it had them. The clapperboard isn't guessed from
+// "production", which in the other apps is more often a checklist's. The drawings are Lucide's
+// (lucide.dev, lucide-static 0.460.0), under its licence:
 //
 //   ISC License. Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of
 //   Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
@@ -22,7 +23,7 @@
 export const ICONS = [
   { name: "music", label: "Music", words: ["music", "song", "track", "album", "beat", "melody", "tune", "band"], svg: "<path d=\"M9 18V5l12-2v13\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><circle cx=\"18\" cy=\"16\" r=\"3\"/>" },
   { name: "film", label: "Video", words: ["video", "film", "movie", "clip", "trailer", "reel", "scene"], svg: "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M7 3v18\"/><path d=\"M3 7.5h4\"/><path d=\"M3 12h18\"/><path d=\"M3 16.5h4\"/><path d=\"M17 3v18\"/><path d=\"M17 7.5h4\"/><path d=\"M17 16.5h4\"/>" },
-  { name: "clapperboard", label: "Production", words: ["production", "shoot", "ad", "advert", "commercial", "music video"], svg: "<path d=\"M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z\"/><path d=\"m6.2 5.3 3.1 3.9\"/><path d=\"m12.4 3.4 3.1 4\"/><path d=\"M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z\"/>" },
+  { name: "clapperboard", label: "Production", words: ["shoot", "ad", "advert", "commercial", "music video"], svg: "<path d=\"M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z\"/><path d=\"m6.2 5.3 3.1 3.9\"/><path d=\"m12.4 3.4 3.1 4\"/><path d=\"M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z\"/>" },
   { name: "mic", label: "Voice", words: ["voice", "vocal", "podcast", "speech", "narration", "voiceover", "sing"], svg: "<path d=\"M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z\"/><path d=\"M19 10v2a7 7 0 0 1-14 0v-2\"/><line x1=\"12\" x2=\"12\" y1=\"19\" y2=\"22\"/>" },
   { name: "file-text", label: "Document", words: ["document", "doc", "report", "paper", "text", "notes"], svg: "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>" },
   { name: "contact", label: "CV", words: ["cv", "resume", "r\u00e9sum\u00e9", "profile", "bio"], svg: "<path d=\"M16 2v2\"/><path d=\"M7 22v-2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2\"/><path d=\"M8 2v2\"/><circle cx=\"12\" cy=\"11\" r=\"3\"/><rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"/>" },

@@ -170,6 +170,10 @@
             "description": "For a new ad: its icon, shown on its tab and on home (see set_icon for the list)",
             "type": "string",
             "enum": [
+              "music",
+              "film",
+              "clapperboard",
+              "mic",
               "file-text",
               "contact",
               "briefcase",
@@ -287,6 +291,10 @@
           "icon": {
             "type": "string",
             "enum": [
+              "music",
+              "film",
+              "clapperboard",
+              "mic",
               "file-text",
               "contact",
               "briefcase",
@@ -344,7 +352,7 @@
               "zap",
               "file"
             ],
-            "description": "One of: file-text (Document), contact (CV), briefcase (Work), graduation-cap (Education), scale (Legal), receipt (Invoice), landmark (Finance), presentation (Presentation), book-open (Book), newspaper (Article), mail (Letter), clipboard-list (Plan), notebook-pen (Notes), server (Service), database (Data), cloud (Cloud), network (Network), workflow (Process), blocks (Module), layers (Platform), shield (Security), key-round (Auth), lock (Privacy), user (Person), users (Team), credit-card (Payments), shopping-cart (Checkout), store (Store), package (Inventory), truck (Delivery), bell (Notifications), message-square (Messaging), globe (Web), smartphone (Mobile), monitor (Desktop), search (Search), chart-line (Analytics), calendar (Schedule), clock (Time), map-pin (Location), settings (Settings), plug (Integration), git-branch (Code), terminal (Tool), cpu (Compute), mail-check (Email), building-2 (Business), heart-pulse (Health), wallet (Wallet), ticket (Ticket), rocket (Launch), sparkles (Idea), flag (Goal), star (Favourite), zap (Events), file (File)"
+            "description": "One of: music (Music), film (Video), clapperboard (Production), mic (Voice), file-text (Document), contact (CV), briefcase (Work), graduation-cap (Education), scale (Legal), receipt (Invoice), landmark (Finance), presentation (Presentation), book-open (Book), newspaper (Article), mail (Letter), clipboard-list (Plan), notebook-pen (Notes), server (Service), database (Data), cloud (Cloud), network (Network), workflow (Process), blocks (Module), layers (Platform), shield (Security), key-round (Auth), lock (Privacy), user (Person), users (Team), credit-card (Payments), shopping-cart (Checkout), store (Store), package (Inventory), truck (Delivery), bell (Notifications), message-square (Messaging), globe (Web), smartphone (Mobile), monitor (Desktop), search (Search), chart-line (Analytics), calendar (Schedule), clock (Time), map-pin (Location), settings (Settings), plug (Integration), git-branch (Code), terminal (Tool), cpu (Compute), mail-check (Email), building-2 (Business), heart-pulse (Health), wallet (Wallet), ticket (Ticket), rocket (Launch), sparkles (Idea), flag (Goal), star (Favourite), zap (Events), file (File)"
           }
         },
         "required": [

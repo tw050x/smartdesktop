@@ -1,5 +1,5 @@
 import { customScrollbar } from './scrollbar.js';
-import { rubberBand } from '@smartdesktop/shell/renderer/rubber-band.js';
+import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 import { failureText } from './ai-progress.js';
 
 // A chat: where the user works with their own Claude or ChatGPT (see main/agent.js) on what's open

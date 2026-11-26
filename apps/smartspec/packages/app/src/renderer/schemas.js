@@ -1,4 +1,4 @@
-import { iconSvg } from '../main/icons.js';
+import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 import { CONTRACT, IMPLEMENTATION, connectedPairs, isInternalLink, neighboursOf, parseLink, partName, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
 import { makeCanvas } from './canvas-view.js';
 import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, focusOf, layoutToSave, placeNew, setFocusWidth } from './board.js';
@@ -8,7 +8,7 @@ import { drawOverview, watchOverview } from './overview-view.js';
 import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from './comments.js';
 import { closeThread, openThread, refreshThread } from './comment-overlay.js';
 import { shadeScrolling } from './scroll-shade.js';
-import { rubberBand } from '@smartdesktop/shell/renderer/rubber-band.js';
+import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 import { watchLongPress } from './long-press.js';
 import { itemView, kindLabel, sequenceKey, wipeView } from './item-views.js';
 import { markInline, markSides, readText } from './diff-marks.js';

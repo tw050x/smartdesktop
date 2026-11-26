@@ -1,5 +1,5 @@
-import { iconSvg } from '../main/icons.js';
-import { rubberBand } from '@smartdesktop/shell/renderer/rubber-band.js';
+import { iconSvg } from '@smartdesktop/ui/main/icons.js';
+import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 import { clock, createTimeline } from './timeline.js';
 
 // The tab's content: home (the user's projects, in one column), or one project: a prompt to make

@@ -61,7 +61,7 @@
     "artifactName": "smartdesktop-${version}-${os}-${arch}.${ext}"
   },
   "dependencies": {
-    "@smartdesktop/shell": "file:../../../../packages/shell",
+    "@smartdesktop/ui": "file:../../../../packages/ui",
     "electron-updater": "6.8.11"
   }
 }

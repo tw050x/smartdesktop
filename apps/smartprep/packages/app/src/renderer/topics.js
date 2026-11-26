@@ -1,4 +1,4 @@
-import { iconSvg } from '../main/icons.js';
+import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 import { isInternalLink, linksOf, parseLink } from '../main/cards.js';
 import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
 import { focusWidth, watchBoard } from './board-view.js';
@@ -8,7 +8,7 @@ import { closeThread, openThread, refreshThread } from './comment-overlay.js';
 import { shadeScrolling } from './scroll-shade.js';
 import { watchLongPress } from './long-press.js';
 import { plainText, renderMarkdown } from './markdown.js';
-import { rubberBand } from '@smartdesktop/shell/renderer/rubber-band.js';
+import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 
 // The tab's content: home (the user's topics, in one column), or one topic's board of cards, as
 // SmartSpec's Focus board is (board.js and board-view.js, the same as SmartSpec's): every card has

@@ -4,7 +4,7 @@
 // drafts.
 import fs from 'node:fs';
 import path from 'node:path';
-import { isIcon } from './icons.js';
+import { isIcon } from '@smartdesktop/ui/main/icons.js';
 
 export function createItemIcons(userData, { onChange = () => {} } = {}) {
   const file = path.join(userData, 'item-icons.json');

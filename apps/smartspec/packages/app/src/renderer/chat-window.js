@@ -1,6 +1,6 @@
 import { createChatPanel } from './chat-panel.js';
 import { clearAiProgress, failureText, progressLine, progressMark, trackAiProgress } from './ai-progress.js';
-import { installTooltips } from '@smartdesktop/shell/renderer/tooltips.js';
+import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 import { CHAT_TITLE } from './demo/scenario.js';
 
 // The website demo's chat window, standing in for SmartDesktop's (its chat.html and chat.js), the

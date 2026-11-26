@@ -23,7 +23,7 @@
 // The app draws it in the window's own page (tabs.html, see tabs.js), above the tabs' pages, from
 // what the main process sends (`onTabs`: { tabs, back, forward, status }); the website's demo draws
 // it in its page, from what its stand-in API sends.
-import { iconSvg } from '../main/icons.js';
+import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 
 const HOME_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>';
 // An AI working in the tab: a sparkle, beside its close button.

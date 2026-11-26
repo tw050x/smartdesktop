@@ -3,7 +3,7 @@
 // (set_icon); the user's own choice is never replaced by the AI's. Not part of the project.
 import fs from 'node:fs';
 import path from 'node:path';
-import { isIcon } from './icons.js';
+import { isIcon } from '@smartdesktop/ui/main/icons.js';
 
 export function createItemIcons(userData, { onChange = () => {} } = {}) {
   const file = path.join(userData, 'item-icons.json');

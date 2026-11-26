@@ -1,4 +1,4 @@
-import { ICONS, iconSvg } from '../main/icons.js';
+import { ICONS, iconSvg } from '@smartdesktop/ui/main/icons.js';
 
 // Choosing a board's icon (see main/icons.js): a card of every icon, opened from its tab's or
 // its home row's right-click menu, under the tab or beside the row. Choosing one sets it (it's the

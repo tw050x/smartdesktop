@@ -10,7 +10,7 @@
 // own; the director sets what's in it as the scene goes (setChat), and which AIs are set up.
 
 import { resolveQuote } from '../../main/anchors.js';
-import { guessIcon } from '../../main/icons.js';
+import { guessIcon } from '@smartdesktop/ui/main/icons.js';
 import { CHAT_TITLE, DOCUMENT, DRAFTS, HIGHLIGHTS, IMPROVE, VARIATION } from './scenario.js';
 
 // What the app's MCP panel shows for an installed app.

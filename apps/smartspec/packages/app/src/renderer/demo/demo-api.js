@@ -20,7 +20,7 @@
 import { EventEmitter } from 'node:events';
 import { restore, snapshot } from 'node:fs/promises';
 import { createStore } from '../../main/store.js';
-import { guessIcon } from '../../main/icons.js';
+import { guessIcon } from '@smartdesktop/ui/main/icons.js';
 import { CHAT_TITLE, CHECKOUT, CHECKOUT_GOAL, CHECKOUT_TITLE, COMMENT, DOMAINS, NOTIFICATIONS, PAYMENTS, REPLY, REVISION, SERVICE_AUTH, STOCK } from './scenario.js';
 
 // What the app's MCP panel shows for an installed app.
