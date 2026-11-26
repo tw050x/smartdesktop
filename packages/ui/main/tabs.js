@@ -94,6 +94,8 @@ export function createTabs({
   family = null, // the other apps running (family.js), for guest tabs
   guestOpen = () => null, // (ctx) => what another app's window is to show of this tab, as a guest (the app's own request), or null if it can't
   guestOpened = () => {}, // (ctx, request): a guest tab of this app's is to show what guestOpen gave (sent it as the app's own tabs are)
+  newTabIn = null, // (host) => a new tab in that window, for a window of guests only (SmartDesktop's: a tab of an app's); else one of this app's on home
+  guestsGoHomeThere = false, // the Home button in a guest tab asks its own app to take it home (SmartDesktop's), rather than putting this app's home in its place
   isHome = (ctx) => ctx.where === 'home', // (ctx) => whether a tab shows home now (SmartDoc's: no document, and not waiting for one)
   goHome = (ctx) => ctx.contents.send('go-home', null), // (ctx): the Home button, in a tab not on home (SmartDoc closes its document)
 }) {
@@ -208,6 +210,7 @@ export function createTabs({
 
   // A new tab on home (the top bar's +, File › New Tab), in the window last used, or a new window.
   function newTab(host = lastFocused?.host) {
+    if (newTabIn) return newTabIn(host && !host.win.isDestroyed() ? host : null);
     if (!host || host.win.isDestroyed()) return createWindow();
     const ctx = createTab(host, { home: true });
     activateTab(ctx);
@@ -280,7 +283,8 @@ export function createTabs({
         nodeIntegration: false,
         sandbox: true,
         // The tab's id as its app knows it (a prompt copied from its page names it).
-        additionalArguments: [`--${guestApi.id}-window=${gid}`, `--${guestApi.id}-tab=document`],
+        // (Opened with nothing to show, it's on its app's home.)
+        additionalArguments: [`--${guestApi.id}-window=${gid}`, `--${guestApi.id}-tab=${open ? 'document' : 'home'}`],
       },
     });
     view.setBackgroundColor(colours().background);
@@ -291,7 +295,7 @@ export function createTabs({
     const toPage = (channel, value) => (loaded ? page.send(channel, value) : waiting.push([channel, value]));
     const contents = { id: page.id, send: (channel, value) => SHELL_CHANNELS.has(channel) && toPage(channel, value), focus: () => page.focus(), close: () => page.close(), isDestroyed: () => page.isDestroyed() };
     const controller = new AbortController();
-    const ctx = { id, host, home: false, view, contents, get win() { return this.host.win; }, ready: null, session: null, untouched: false, where: null, name: null, history: { back: false, forward: false },
+    const ctx = { id, host, get home() { return Boolean(this.hosted?.state?.home); }, view, contents, get win() { return this.host.win; }, ready: null, session: null, untouched: false, where: null, name: null, history: { back: false, forward: false },
       hosted: { app: guestApp, name: guestName, url, gid, api: guestApi, state: null, stop: () => controller.abort() } };
     windows.set(page.id, ctx);
     host.tabs.push(ctx);
@@ -336,6 +340,19 @@ export function createTabs({
     page.loadURL(`${url}/page/index.html`);
     changed();
     sendTabs(host);
+    return ctx;
+  }
+
+  // A tab of another app's (`entry`: its family entry), opened by this app (SmartDesktop's New Tab):
+  // on that app's home, or showing `open`, in `host` (or a new window), showing, the window brought
+  // forward.
+  async function openApp(entry, { host = lastFocused?.host, open = null } = {}) {
+    if (!entry?.serving || !localServer(entry.url)) throw new Error('Not an app of the family');
+    const into = host && !host.win.isDestroyed() ? host : createWindow({ empty: true }).host;
+    const ctx = await createGuestTab(into, { app: entry.app, name: entry.name, url: entry.url, open });
+    activateTab(ctx);
+    into.win.show();
+    into.win.focus();
     return ctx;
   }
 
@@ -527,7 +544,7 @@ export function createTabs({
     const id = `g-${randomUUID().slice(0, 4)}`;
     const host = { guest: true, win: null, tabs: [], active: null };
     const contents = { id: `guest:${id}`, send, focus() {}, isDestroyed: () => false };
-    const ctx = { id, guest: true, host, get home() { return isHome(this); }, view: null, contents, win: null, ready: Promise.resolve(), session: null, untouched: true, where: null, name: null, history: { back: false, forward: false } };
+    const ctx = { id, guest: true, host, get home() { return isHome(this); }, waiting: Boolean(open), view: null, contents, win: null, ready: Promise.resolve(), session: null, untouched: true, where: open ? null : 'home', name: null, history: { back: false, forward: false } };
     host.tabs.push(ctx);
     host.active = ctx;
     windows.set(contents.id, ctx);
@@ -662,7 +679,7 @@ export function createTabs({
       const tab = host.active;
       if (tab) {
         const { title: name, icon, ai } = tabState(tab);
-        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null, chat: tab.chat ?? null, back: Boolean(tab.history.back), forward: Boolean(tab.history.forward), doc: docOf(tab) });
+        tab.contents.send('guest-tab', { title: name, icon, home: Boolean(tab.home), ai: ai ?? null, chat: tab.chat ?? null, back: Boolean(tab.history.back), forward: Boolean(tab.history.forward), doc: docOf(tab) });
       }
       return;
     }
@@ -901,6 +918,7 @@ export function createTabs({
     // own on home, in its place.
     handle('go-home', (ctx) => {
       if (!ctx || ctx.home) return;
+      if (ctx.hosted && guestsGoHomeThere) return post(`${ctx.hosted.url}/tabs/${ctx.hosted.gid}/call`, { channel: 'go-home', args: [] }).catch(() => {});
       if (ctx.hosted) {
         const { host } = ctx;
         const at = host.tabs.indexOf(ctx);
@@ -918,5 +936,5 @@ export function createTabs({
     });
   }
 
-  return { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp };
+  return { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
 }

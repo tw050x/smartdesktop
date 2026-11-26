@@ -1,0 +1,183 @@
+/* The window's top bar, the same in every app (@smartdesktop/ui's tab-strip.js and top-bar.js): its
+   colours, the bar, the tabs, back, forward and Home, the status pill, its tooltips and where a
+   dragged tab would go. Taken from SmartPlan's styles.css, which the apps' matched; SmartDesktop's
+   app windows use it, and the apps' own stylesheets can come to it in time. */
+:root {
+  /* Light or dark, as the app's Appearance setting has it (nativeTheme in main.js), or as the
+     system does; each colour below is light-dark(its light value, its dark value). */
+  color-scheme: light dark;
+  --top-bar-height: 44px;
+
+  --bg: light-dark(#ffffff, #232326); /* cards and panels */
+  --border: light-dark(#e2e2e7, #3a3a3f);
+  --border-strong: light-dark(#c4c4cb, #4a4a50);
+  --text: light-dark(#1d1d1f, #f2f2f4);
+  --text-2: light-dark(#3c3c43, #d1d1d6); /* body text on cards, a step softer than --text */
+  --muted: light-dark(#6e6e73, #a1a1a8);
+  --faint: light-dark(#aeaeb4, #5a5a60);
+  --del-bg: light-dark(#fdecec, #3a2224); /* an error in the chat */
+  --del-text: light-dark(#8a1f1f, #f19a9a);
+  --decided-text: light-dark(#1f7a45, #5cc98a); /* an AI that's ready */
+  --thumb: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.28));
+  --thumb-active: light-dark(rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.42));
+  --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
+  --hover-tint: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  --skeleton: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
+  --button-hover: light-dark(#e6e6ea, #2e2e33);
+  --button-active: light-dark(#dadadf, #38383e);
+  --window-bg: light-dark(#ebebef, #161618);
+  --top-bar-bg: light-dark(#dcdce1, #1f1f22); /* a shade apart from the background below it (and main.js's title bar overlay) */
+  --accent: light-dark(#2f6fde, #4a86ee);
+  --comment: light-dark(#c98a00, #e3b341); /* the user's comments, and what they're on */
+  --removed: light-dark(#c43c3c, #e05a5a); /* what a proposal removes */
+  --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
+  --card-radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body {
+  background: var(--window-bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+/* --- Top bar ---------------------------------------------------------------------------
+   The whole bar drags the window; buttons opt out. Windows and Linux reserve room on the right
+   for the system window controls (the env() values come from Electron's title bar overlay). */
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px; /* the same between everything in the bar: see .history-nav, .breadcrumb and .top-bar-end */
+  padding: 0 8px;
+  background: var(--top-bar-bg);
+  -webkit-app-region: drag;
+  /* Hover and press shades darker than the bar itself. */
+  --button-hover: light-dark(#cdcdd3, #2c2c31);
+  --button-active: light-dark(#c2c2c8, #36363c);
+}
+.platform-darwin:not(.full-screen) .tab-strip { padding-left: 84px; } /* the traffic lights */
+/* The window's top bar (tab-strip.js, as SmartDoc's): back and forward, the tabs, and the app's
+   status at its end. In the app it's the window's own page (tabs.html); the website's demo draws it
+   in its page. */
+.tab-strip { grid-row: 1; height: var(--top-bar-height); }
+.tab-strip[hidden] { display: none; }
+.tab-strip-body { display: block; background: var(--top-bar-bg); }
+.tab-strip-body .tab-strip { height: var(--top-bar-height); }
+.tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 4px; overflow: hidden; }
+/* A tab: its document's icon and name (Home's, on home) and a close button. The tab showing stands
+   out on the bar, as the page below it does. After the tabs, + for a new one. */
+.tab {
+  flex: 0 1 200px; min-width: 40px; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 4px 0 10px;
+  border-radius: 8px; color: var(--text-2); cursor: default; -webkit-app-region: no-drag;
+}
+.tabs > .tab-new { flex: none; -webkit-app-region: no-drag; }
+/* Each tab has a background of its own, so it doesn't get lost in the bar (the user's choice): a
+   shade darker than the bar, darker again while pointed at; the tab showing has the page's. */
+.tab { background: var(--button-hover); }
+.tab:hover { background: var(--button-active); }
+.tab[aria-selected="true"] { background: var(--window-bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.tab-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+/* The tab showing, and a tab pointed at: a blue pill under it, centred on the line between the top
+   bar and the page below (in place of a tooltip: the user's choice). The top bar draws it at its foot; in the app, the tab's
+   page draws the half below the line (.below), as the top bar's page ends there. */
+.tab-hover-pill { position: absolute; z-index: 45; top: calc(var(--top-bar-height) - 2px); height: 4px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-hover-pill[hidden] { display: none; }
+.tab-hover-pill.below { position: fixed; top: -2px; }
+.tab-strip { position: relative; }
+/* Its document's icon, before its name. As tabs narrow, the name gives way and the
+   icon stays (the user's choice): too narrow for a name, a tab is its icon, its close button
+   showing only while it's pointed at. */
+.tab { container-type: inline-size; }
+.tab-icon { flex: none; display: grid; place-items: center; color: var(--text-2); }
+.tab[aria-selected="true"] .tab-icon { color: var(--accent); }
+@container (max-width: 72px) {
+  .tab-title, .tab-ai-mark, .tab-chat-button { display: none; }
+  .tab-icon { flex: 1; }
+  .tab:not(:hover) .tab-close { display: none; }
+}
+/* A chat in SmartDesktop owning the tab: a muted speech bubble beside the close button (the sparkle
+   takes its place while the chat's AI works). */
+/* The chat owning the tab: a button bringing it forward in SmartDesktop (the sparkle while its AI works). */
+.tab-chat-button { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-chat-button:hover { background: var(--button-active); color: var(--accent); }
+.tab-chat-button.working { color: var(--accent); }
+/* An AI working in the tab: a sparkle in the accent colour, beside the close button. */
+/* An AI working in the tab: its name in a pill at the tab's start, inside it, as Chrome marks a tab
+   an AI controls (the user's choice); a chat's brings the chat forward. Too narrow for a name, the
+   tab shows the pill in its icon's place. */
+.tab-ai-pill { flex: none; height: 20px; margin: 0 2px 0 -5px; padding: 0 6px; border: 0; border-radius: 5px; background: var(--accent); color: #fff; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: default; -webkit-app-region: no-drag; }
+@container (max-width: 72px) { .tab-ai-pill + .tab-icon { display: none; } }
+.tab-ai-pill.chat { cursor: pointer; }
+.tab-ai-pill.chat:hover { filter: brightness(1.12); }
+/* Always there (the user's choice: it showed only while the tab was pointed at or showing). */
+.tab-close { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-close:hover { background: var(--button-active); color: var(--text); }
+body:not(.platform-darwin) .top-bar {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
+}
+.top-bar-end { display: flex; flex: none; align-items: center; gap: 6px; }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.icon-button:hover { background: var(--button-hover); color: var(--text); }
+.icon-button:active { background: var(--button-active); }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.server-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.server-pill:hover, .server-pill[aria-expanded="true"] { background: var(--subtle-bg); }
+.server-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.server-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0a100; } /* starting */
+.server-pill[data-state="running"] .server-dot { background: #1f9d55; }
+.server-pill[data-state="off"] .server-dot { background: #d64545; }
+
+/* Back and forward through where the tab showing has been (see tab-strip.js). */
+.history-nav { display: flex; flex: none; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
+.history-nav[hidden] { display: none; }
+.history-nav .icon-button:disabled { opacity: 1; color: light-dark(#aeaeb4, #5a5a60); cursor: default; }
+.history-nav .icon-button:disabled:hover { background: none; }
+/* The app's own tooltips (tooltips.js): a small dark card, above everything, never in the way. */
+.tooltip {
+  position: fixed; z-index: 100; max-width: 320px; padding: 4px 8px; border-radius: 6px;
+  background: light-dark(#2b2b30, #f2f2f4); color: light-dark(#f2f2f4, #1c1c1f);
+  font-size: 12px; line-height: 1.35; white-space: pre-line; pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+.tooltip[hidden] { display: none; }
+/* The window's top bar's tooltips: blue (the user's choice), hanging over the content below it. */
+.tooltip.strip-tip { background: var(--accent); color: #fff; }
+
+/* Dragging a tab (tab-strip.js): it fades where it was, and a line shows where it would go in the
+   top bar it's over. */
+.tab.dragging { opacity: 0.4; }
+.tabs.dragging-tab .tab:hover:not([aria-selected="true"]) { background: var(--button-hover); }
+.tab-drop-line { position: absolute; z-index: 46; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-drop-line[hidden] { display: none; }
+
