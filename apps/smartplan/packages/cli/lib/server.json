@@ -1,0 +1,936 @@
+{
+  "protocolVersions": [
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+    "2024-10-07"
+  ],
+  "capabilities": {
+    "tools": {
+      "listChanged": true
+    }
+  },
+  "instructions": "This server is SmartPlan: a desktop app of boards for planning work with the user, as Trello's are. A board is lists of cards in order (such as To do, Doing, Done), and each card is a piece of work: a short title, a description in Markdown, labels, a due date and a checklist, all optional but the title.\nYou write and change the cards; the user reads them and drags them between lists as the work moves on. Ask what a new board is for before making it, then create_board with its lists and first cards (with no lists, it gets To do, Doing and Done). Read get_board before changing a board: it gives every list and card by id, and each card's unread (new or updated while the user hasn't opened it yet; null once they have). Cards the user moved since you last looked were moved by them: don't move them back unless they ask.\nadd_cards adds cards to a list, update_card changes only the fields you send, and move_cards moves cards to a list (another, or the same one, to reorder it). Only remove cards or lists (remove_cards, remove_list) when the user asks.\nIf the user's prompt names a window, call use_window with it first, so that window becomes yours.\nEach board has an icon, shown on its tab and on the user's home screen so they can tell it apart at a glance: one with no icon of its own (get_board's and list_boards' icon is null) gets one from you, with create_board's icon or set_icon.",
+  "tools": [
+    {
+      "name": "use_window",
+      "description": "Takes over a SmartPlan window, when the user's prompt names one: this session then works in it. Call it first, before any other tool, or SmartPlan opens a new window for this session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "window_id": {
+            "type": "string",
+            "description": "The window named in the prompt, such as w-7f3a"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_boards",
+      "description": "Every board, most recently changed first: its id, name, description, icon (null if it has none of its own), its lists (id, name and how many cards), how many cards it has and how many the user hasn't opened since you added or changed them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "create_board",
+      "description": "Makes a new board and shows it to the user. Ask what it's for first. With no lists, it gets To do, Doing and Done. Gives the ids of its lists and cards.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "What the user will know it by, such as \"Website relaunch\""
+          },
+          "description": {
+            "description": "What it's for, in a sentence or two",
+            "type": "string",
+            "maxLength": 2000
+          },
+          "lists": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "Such as \"To do\", \"Doing\", \"Done\", or a stage of the work"
+                },
+                "cards": {
+                  "description": "The cards it starts with, in order",
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300,
+                        "description": "What the work is, in a few words"
+                      },
+                      "description": {
+                        "description": "The details, in Markdown (GitHub-flavoured: lists, tables, code)",
+                        "type": "string",
+                        "maxLength": 50000
+                      },
+                      "labels": {
+                        "maxItems": 10,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 40,
+                              "description": "A word or two, such as \"Bug\" or \"Design\""
+                            },
+                            "color": {
+                              "description": "Its colour (default grey). Use the same colour for the same label across the board",
+                              "type": "string",
+                              "enum": [
+                                "green",
+                                "yellow",
+                                "orange",
+                                "red",
+                                "purple",
+                                "blue",
+                                "grey"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        }
+                      },
+                      "due": {
+                        "description": "When it's due, YYYY-MM-DD (null for none)",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "checklist": {
+                        "description": "Steps to tick off. Send the whole list: it replaces the one there",
+                        "maxItems": 100,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 300
+                            },
+                            "done": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "title"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "icon": {
+            "description": "Its icon, shown on its tab and on home (see set_icon for the list)",
+            "type": "string",
+            "enum": [
+              "file-text",
+              "contact",
+              "briefcase",
+              "graduation-cap",
+              "scale",
+              "receipt",
+              "landmark",
+              "presentation",
+              "book-open",
+              "newspaper",
+              "mail",
+              "clipboard-list",
+              "notebook-pen",
+              "server",
+              "database",
+              "cloud",
+              "network",
+              "workflow",
+              "blocks",
+              "layers",
+              "shield",
+              "key-round",
+              "lock",
+              "user",
+              "users",
+              "credit-card",
+              "shopping-cart",
+              "store",
+              "package",
+              "truck",
+              "bell",
+              "message-square",
+              "globe",
+              "smartphone",
+              "monitor",
+              "search",
+              "chart-line",
+              "calendar",
+              "clock",
+              "map-pin",
+              "settings",
+              "plug",
+              "git-branch",
+              "terminal",
+              "cpu",
+              "mail-check",
+              "building-2",
+              "heart-pulse",
+              "wallet",
+              "ticket",
+              "rocket",
+              "sparkles",
+              "flag",
+              "star",
+              "zap",
+              "file"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_board",
+      "description": "One board in full: its name, description and icon, and its lists in order, each with its cards in order (id, title, description, labels, due, checklist, unread, createdAt, updatedAt).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rename_board",
+      "description": "Renames a board, or changes its description, straight away. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "add_lists",
+      "description": "Adds lists to a board, with any cards they start with.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "lists": {
+            "minItems": 1,
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "Such as \"To do\", \"Doing\", \"Done\", or a stage of the work"
+                },
+                "cards": {
+                  "description": "The cards it starts with, in order",
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300,
+                        "description": "What the work is, in a few words"
+                      },
+                      "description": {
+                        "description": "The details, in Markdown (GitHub-flavoured: lists, tables, code)",
+                        "type": "string",
+                        "maxLength": 50000
+                      },
+                      "labels": {
+                        "maxItems": 10,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 40,
+                              "description": "A word or two, such as \"Bug\" or \"Design\""
+                            },
+                            "color": {
+                              "description": "Its colour (default grey). Use the same colour for the same label across the board",
+                              "type": "string",
+                              "enum": [
+                                "green",
+                                "yellow",
+                                "orange",
+                                "red",
+                                "purple",
+                                "blue",
+                                "grey"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        }
+                      },
+                      "due": {
+                        "description": "When it's due, YYYY-MM-DD (null for none)",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "checklist": {
+                        "description": "Steps to tick off. Send the whole list: it replaces the one there",
+                        "maxItems": 100,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 300
+                            },
+                            "done": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "title"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "position": {
+            "description": "Where it goes, counted from 0 (default: the end)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "lists"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "update_list",
+      "description": "Renames a list, or moves it to another place on the board.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "position": {
+            "description": "Where it goes, counted from 0 (default: the end)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "list_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "remove_list",
+      "description": "Takes a list off the board, with every card in it, for good. Only use it when the user asks; move the cards first if they should stay.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "list_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "add_cards",
+      "description": "Adds cards to a list, in order. They show to the user as New until opened.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string",
+            "description": "From get_board"
+          },
+          "cards": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "description": "What the work is, in a few words"
+                },
+                "description": {
+                  "description": "The details, in Markdown (GitHub-flavoured: lists, tables, code)",
+                  "type": "string",
+                  "maxLength": 50000
+                },
+                "labels": {
+                  "maxItems": 10,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40,
+                        "description": "A word or two, such as \"Bug\" or \"Design\""
+                      },
+                      "color": {
+                        "description": "Its colour (default grey). Use the same colour for the same label across the board",
+                        "type": "string",
+                        "enum": [
+                          "green",
+                          "yellow",
+                          "orange",
+                          "red",
+                          "purple",
+                          "blue",
+                          "grey"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  }
+                },
+                "due": {
+                  "description": "When it's due, YYYY-MM-DD (null for none)",
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "checklist": {
+                  "description": "Steps to tick off. Send the whole list: it replaces the one there",
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                      },
+                      "done": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "text"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "title"
+              ]
+            }
+          },
+          "position": {
+            "description": "Where it goes, counted from 0 (default: the end)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "list_id",
+          "cards"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "update_card",
+      "description": "Changes a card: only the fields sent change. It shows to the user as Updated until opened.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "card_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "What the work is, in a few words"
+          },
+          "description": {
+            "description": "The details, in Markdown (GitHub-flavoured: lists, tables, code)",
+            "type": "string",
+            "maxLength": 50000
+          },
+          "labels": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "A word or two, such as \"Bug\" or \"Design\""
+                },
+                "color": {
+                  "description": "Its colour (default grey). Use the same colour for the same label across the board",
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "orange",
+                    "red",
+                    "purple",
+                    "blue",
+                    "grey"
+                  ]
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "due": {
+            "description": "When it's due, YYYY-MM-DD (null for none)",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checklist": {
+            "description": "Steps to tick off. Send the whole list: it replaces the one there",
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          }
+        },
+        "required": [
+          "card_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "move_cards",
+      "description": "Moves cards, in the order given, to a list: another, or the same one to reorder it. position counts among the cards that stay in that list.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "card_ids": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "position": {
+            "description": "Where it goes, counted from 0 (default: the end)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "card_ids",
+          "list_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "remove_cards",
+      "description": "Takes cards off the board, for good. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "card_ids": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "card_ids"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "set_icon",
+      "description": "Gives a board an icon, shown on its tab and on the user's home screen, so they can tell it apart at a glance (a tab too narrow for its name shows only its icon). Call it once, when the board has no icon of its own yet (get_board and list_boards give its icon, null when it has none): choose the one that best fits what it's about. The user's own choice is never replaced.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "file-text",
+              "contact",
+              "briefcase",
+              "graduation-cap",
+              "scale",
+              "receipt",
+              "landmark",
+              "presentation",
+              "book-open",
+              "newspaper",
+              "mail",
+              "clipboard-list",
+              "notebook-pen",
+              "server",
+              "database",
+              "cloud",
+              "network",
+              "workflow",
+              "blocks",
+              "layers",
+              "shield",
+              "key-round",
+              "lock",
+              "user",
+              "users",
+              "credit-card",
+              "shopping-cart",
+              "store",
+              "package",
+              "truck",
+              "bell",
+              "message-square",
+              "globe",
+              "smartphone",
+              "monitor",
+              "search",
+              "chart-line",
+              "calendar",
+              "clock",
+              "map-pin",
+              "settings",
+              "plug",
+              "git-branch",
+              "terminal",
+              "cpu",
+              "mail-check",
+              "building-2",
+              "heart-pulse",
+              "wallet",
+              "ticket",
+              "rocket",
+              "sparkles",
+              "flag",
+              "star",
+              "zap",
+              "file"
+            ],
+            "description": "One of: file-text (Document), contact (CV), briefcase (Work), graduation-cap (Education), scale (Legal), receipt (Invoice), landmark (Finance), presentation (Presentation), book-open (Book), newspaper (Article), mail (Letter), clipboard-list (Plan), notebook-pen (Notes), server (Service), database (Data), cloud (Cloud), network (Network), workflow (Process), blocks (Module), layers (Platform), shield (Security), key-round (Auth), lock (Privacy), user (Person), users (Team), credit-card (Payments), shopping-cart (Checkout), store (Store), package (Inventory), truck (Delivery), bell (Notifications), message-square (Messaging), globe (Web), smartphone (Mobile), monitor (Desktop), search (Search), chart-line (Analytics), calendar (Schedule), clock (Time), map-pin (Location), settings (Settings), plug (Integration), git-branch (Code), terminal (Tool), cpu (Compute), mail-check (Email), building-2 (Business), heart-pulse (Health), wallet (Wallet), ticket (Ticket), rocket (Launch), sparkles (Idea), flag (Goal), star (Favourite), zap (Events), file (File)"
+          }
+        },
+        "required": [
+          "icon"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "show_card",
+      "description": "Opens a card on the board, in its tab, so the user sees it. Only use it when the user asks to see it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "description": "The board (default: the one the window shows)",
+            "type": "string"
+          },
+          "card_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "card_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ],
+  "prompts": []
+}

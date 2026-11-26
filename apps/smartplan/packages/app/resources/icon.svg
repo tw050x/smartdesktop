@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- SmartPlan's app icon: a board of three lists side by side, each holding white cards, the
+       first card's line blue (the one being moved on) and a brown mark on the last list's card.
+       SmartDoc's, SmartSpec's, SmartAd's and SmartPrep's icon shape, white cards, shadows and three
+       colours. The source of icon.icns and icon.png (see scripts/make-icons.mjs). -->
+  <defs>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/></filter>
+    <filter id="paper" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity="0.16"/></filter>
+    <linearGradient id="light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f7f9"/><stop offset="1" stop-color="#dcdce3"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)" filter="url(#lift)"/>
+  <!-- The lists. -->
+  <g fill="#c9c9d2">
+    <rect x="186" y="206" width="196" height="584" rx="40"/>
+    <rect x="414" y="206" width="196" height="440" rx="40"/>
+    <rect x="642" y="206" width="196" height="300" rx="40"/>
+  </g>
+  <!-- Their cards. -->
+  <g filter="url(#paper)" fill="#fff">
+    <rect x="206" y="226" width="156" height="150" rx="28"/>
+    <rect x="206" y="396" width="156" height="150" rx="28"/>
+    <rect x="206" y="566" width="156" height="150" rx="28"/>
+    <rect x="434" y="226" width="156" height="150" rx="28"/>
+    <rect x="434" y="396" width="156" height="150" rx="28"/>
+    <rect x="662" y="226" width="156" height="150" rx="28"/>
+  </g>
+  <g fill="#c7c7cf">
+    <rect x="232" y="420" width="104" height="30" rx="15"/>
+    <rect x="232" y="590" width="80" height="30" rx="15"/>
+    <rect x="460" y="250" width="104" height="30" rx="15"/>
+    <rect x="460" y="420" width="88" height="30" rx="15"/>
+    <rect x="688" y="250" width="104" height="30" rx="15"/>
+  </g>
+  <rect x="232" y="250" width="104" height="44" rx="22" fill="#2f6fde"/>
+  <rect x="688" y="306" width="64" height="44" rx="22" fill="#b45309"/>
+</svg>
