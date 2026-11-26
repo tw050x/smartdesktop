@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, filling, fillMiddle, fills, forgetSnap, layoutToSave, leastScale, LEAST_SCALE, placeNew, scaleAtEdge, separate, SMALLEST_SCALE, settleFilling, settleSize, stagger, STAGGER, toFront, zoneAt, zoneAtEdge, zoneOf } from '../packages/app/src/renderer/board.js';
+import { balance, bringToMiddle, cardnessAtEdge, groupCards, cleanLayout, defaultLayout, fillBox, filling, fillMiddle, fills, forgetSnap, layoutToSave, leastScale, LEAST_SCALE, placeNew, scaleAtEdge, separate, SMALLEST_SCALE, settleFilling, settleSize, stagger, STAGGER, toFront, zoneAt, zoneAtEdge, zoneOf } from '../renderer/board.js';
 
 const board = { width: 1400, height: 900 };
 
@@ -15,9 +15,8 @@ test('where an item sits says how it shows', () => {
 });
 
 test('open, it shrinks steadily as its outer edge nears the side, down to its smallest', () => {
-  assert.equal(scaleAtEdge(0.3), 1);
-  assert.equal(scaleAtEdge(0.15), 1);
-  const out = [0.14, 0.12, 0.1, 0.07, 0.031].map((e) => scaleAtEdge(e));
+  assert.equal(scaleAtEdge(0.2), 1); // the usual focus area's edge
+  const out = [0.19, 0.14, 0.12, 0.1, 0.07, 0.031].map((e) => scaleAtEdge(e));
   for (let i = 1; i < out.length; i++) assert.ok(out[i] < out[i - 1]);
   assert.ok(Math.abs(scaleAtEdge(0.03) - SMALLEST_SCALE) < 1e-9);
   assert.ok(Math.abs(scaleAtEdge(-0.1) - SMALLEST_SCALE) < 1e-9);

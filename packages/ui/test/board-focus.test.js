@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bringToMiddle, choiceBoxes, choicesOf, cleanLayout, dismissChoices, fillBox, fills, focusLimits, focusOf, FOCUS_LIMITS, FOCUS_WIDTH, forgetSnap, FULL_FROM, halfBox, inMiddle, isCard, layoutToSave, leaveHalf, MARGIN, offerChoices, offeredFor, pickChoice, settleFilling, snapTarget, snapToHalf, zoneOf } from '../packages/app/src/renderer/board.js';
+import { bringToMiddle, choiceBoxes, choicesOf, cleanLayout, dismissChoices, fillBox, fills, focusLimits, focusOf, FOCUS_LIMITS, FOCUS_WIDTH, forgetSnap, fullFrom, halfBox, inMiddle, isCard, layoutToSave, leaveHalf, MARGIN, offerChoices, offeredFor, pickChoice, settleFilling, snapTarget, snapToHalf, zoneOf } from '../renderer/board.js';
 
 const board = { width: 1400, height: 900 };
 const near = (a, b) => Math.abs(a - b) < 1e-9;
@@ -15,8 +15,6 @@ test('the focus area is as wide as the user makes it, within its limits', () => 
   const [low] = focusLimits(1000);
   assert.ok(near(low, 0.42));
   assert.equal(focusOf({ width: 1000, height: 700, focus: 0.3 }), low);
-  // Nor so wide that what fills it reaches where items shrink.
-  assert.ok((1 - FOCUS_LIMITS[1]) / 2 >= FULL_FROM);
 });
 
 test('a lone item fills the focus area at its width', () => {
@@ -175,4 +173,30 @@ test('which half an item fills is kept with the board', () => {
   const back = cleanLayout(JSON.parse(JSON.stringify(layoutToSave(layout, ['d', 'a']))));
   assert.equal(back.boxes.d.half, 'right');
   assert.equal(back.boxes.a.half, undefined);
+});
+
+test('items start to shrink at the focus area\'s edge, wherever the user puts it', async () => {
+  const { scaleAtEdge, setFocusWidth, zoneAtEdge } = await import('../renderer/board.js');
+  try {
+    setFocusWidth(FOCUS_WIDTH);
+    assert.ok(near(fullFrom(), (1 - FOCUS_WIDTH) / 2));
+    setFocusWidth(0.4);
+    assert.ok(near(fullFrom(), 0.3));
+    assert.equal(scaleAtEdge(0.3), 1);
+    assert.ok(scaleAtEdge(0.25) < 1, 'just outside a narrow focus area it has started to shrink');
+    assert.equal(zoneAtEdge(0.25), 'side');
+    setFocusWidth(0.66);
+    assert.equal(scaleAtEdge(0.17), 1, 'a wide one keeps it at full size nearer the side');
+    assert.equal(zoneAtEdge(0.17), 'middle');
+    // What fills the focus area, its edge exactly at the focus area's, is in the middle at full size.
+    for (const focus of [0.3, 0.5, FOCUS_WIDTH, 0.68]) {
+      setFocusWidth(focus);
+      const fill = fillBox({ ...board, focus });
+      const edge = 0.5 - fill.w / 2;
+      assert.equal(zoneAtEdge(edge), 'middle');
+      assert.equal(scaleAtEdge(edge), 1);
+    }
+  } finally {
+    setFocusWidth(FOCUS_WIDTH);
+  }
 });

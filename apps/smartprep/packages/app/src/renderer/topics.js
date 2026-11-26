@@ -1,7 +1,7 @@
 import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 import { isInternalLink, linksOf, parseLink } from '../main/cards.js';
-import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from './board.js';
-import { focusWidth, watchBoard } from './board-view.js';
+import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from '@smartdesktop/ui/renderer/board.js';
+import { focusWidth, watchBoard } from '@smartdesktop/ui/renderer/board-view.js';
 import { watchPage } from '@smartdesktop/ui/renderer/page-view.js';
 import { commentCard, keyOf, onOpenCard, targetAt, watchComments } from './comments.js';
 import { closeThread, openThread, refreshThread } from './comment-overlay.js';

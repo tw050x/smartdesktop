@@ -1,6 +1,3 @@
-// Copied from SmartSpec as it is (keep the two alike): a schematic there is a topic here, and an
-// item a card.
-//
 // The focus view: a board the size of the window where every item in a schematic has a place the user
 // drags it to (see board.js for the layout's numbers). The middle is for working on things: there an
 // item shows at full size, filling the middle if it's there alone and hasn't been sized, and it can
@@ -19,9 +16,9 @@
 // resizes it from both sides at once, staying centred; double-clicking goes back to the usual
 // width. The width is kept for every board alike (focusWidth).
 
-import { bringToMiddle, cardnessAtEdge, choicesOf, dismissChoices, leastScale, forgetSnap, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, focusLimits, focusOf, FOCUS_WIDTH, halfBox, inMiddle, isCard, leaveHalf, MARGIN, offerChoices, offeredFor, otherSide, pickChoice, scaleAtEdge, separate, settleFilling as settle, settleSize, snapTarget, snapToHalf, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
-import { watchPage } from '@smartdesktop/ui/renderer/page-view.js';
-import { longPressed } from '@smartdesktop/ui/renderer/long-press.js';
+import { bringToMiddle, cardnessAtEdge, choicesOf, dismissChoices, leastScale, forgetSnap, groupCards, fillBox, fillMiddle, filling as fillsMiddle, fills, focusLimits, focusOf, FOCUS_WIDTH, halfBox, inMiddle, isCard, leaveHalf, MARGIN, offerChoices, offeredFor, otherSide, pickChoice, scaleAtEdge, separate, setFocusWidth, settleFilling as settle, settleSize, snapTarget, snapToHalf, stagger, toFront, zoneAt, zoneAtEdge } from './board.js';
+import { watchPage } from './page-view.js';
+import { longPressed } from './long-press.js';
 
 const RADIUS = 12; // px, an item's corners at full size (--card-radius in styles.css)
 const COMMENT_WIDTH = 260; // px, a card for a comment on the whole schematic
@@ -74,7 +71,13 @@ export function watchBoard(board, { layout: first, build, onChange = () => {}, o
   const items = () => [...board.querySelectorAll(':scope > .board-item')];
   const itemOf = (id) => board.querySelector(`:scope > .board-item[data-item="${CSS.escape(id)}"]`);
   let focus = focusWidth();
-  const size = () => ({ width: board.clientWidth, height: board.clientHeight, focus });
+  // The board's size in px, with the focus area's width; where items start to shrink follows the
+  // focus area's edge (setFocusWidth), so it's set again from whatever size is asked for.
+  const size = () => {
+    const now = { width: board.clientWidth, height: board.clientHeight, focus };
+    setFocusWidth(focusOf(now));
+    return now;
+  };
   // An item filling half the focus area, and its partner picked for the other half; the items
   // offered for that other half while the user picks one (`choosing`: { id, side }).
   let choosing = null;

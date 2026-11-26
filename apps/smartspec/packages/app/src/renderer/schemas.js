@@ -1,8 +1,8 @@
 import { iconSvg } from '@smartdesktop/ui/main/icons.js';
 import { CONTRACT, IMPLEMENTATION, connectedPairs, isInternalLink, neighboursOf, parseLink, partName, TABLE_ROWS_SHOWN, tableSummary } from '../main/items.js';
 import { makeCanvas } from '@smartdesktop/ui/renderer/canvas-view.js';
-import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, focusOf, layoutToSave, placeNew, setFocusWidth } from './board.js';
-import { focusWidth, watchBoard } from './board-view.js';
+import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, focusOf, layoutToSave, placeNew, setFocusWidth } from '@smartdesktop/ui/renderer/board.js';
+import { focusWidth, watchBoard } from '@smartdesktop/ui/renderer/board-view.js';
 import { watchPage } from '@smartdesktop/ui/renderer/page-view.js';
 import { drawOverview, watchOverview } from './overview-view.js';
 import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from './comments.js';
