@@ -11,7 +11,7 @@ import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
-import { confirm } from './confirm.js';
+import { createFamily, familyFolder } from '@smartdesktop/ui/main/family.js';
 import { createStore } from './store.js';
 import { contractPartName } from './contract.js';
 import { createLayouts } from './layouts.js';
@@ -141,8 +141,20 @@ const tabs = createTabs({
   release: (ctx) => {
     if (ctx.session) ctx.session.ctx = null;
   },
+  // Guest tabs: a schematic's tab can be shown in another app's window (SmartDesktop's, say), opening
+  // the same schematic there (its latest draft); and SmartSpec's windows show other apps' tabs.
+  name: 'SmartSpec',
+  family: createFamily(familyFolder(app)),
+  guestOpen: (ctx) => {
+    const schemaId = ctx.where && ctx.where !== 'home' ? ctx.where.split('/')[0] : null;
+    return schemaId ? { path: [{ schemaId, label: ctx.name ?? '' }] } : null;
+  },
+  guestOpened: (ctx, request) => ctx.contents.send('open-level', request),
 });
-const { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
+// A tab still there: a guest tab (another app's window shows it) or one whose window is open.
+const tabAlive = (ctx) => Boolean(ctx && (ctx.guest || !ctx.win.isDestroyed()));
+// A menu, a question or a sheet over a tab's window (in a guest tab, the window showing it shows them).
+const { popupMenu, messageBox, confirmSheet, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
 
 // A schematic opened in a new tab (the user asked for one: a schematic opened from home otherwise
 // opens in the tab showing home, as a browser's page does), beside the tab it came from, with the
@@ -308,7 +320,7 @@ async function windowForSession(session, startedApp) {
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
-  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
   return ctx;
 }
 
@@ -384,7 +396,7 @@ const schemasFor = (session, tab) => ({
     if (made.length) {
       const ctx = session.ctx;
       const text = `Your AI made random ${made.length === 1 ? 'a value' : 'values'} for ${made.join(', ')}`;
-      if (ctx && !ctx.win.isDestroyed()) desktop.note(ctx.id, { text, detail: `${text}, secrets of “${record.name}”` });
+      if (tabAlive(ctx)) desktop.note(ctx.id, { text, detail: `${text}, secrets of “${record.name}”` });
     }
     const missing = secrets.statusOf(id, record.implementation).filter((one) => !one.set).map((one) => one.name);
     return {
@@ -397,8 +409,8 @@ const schemasFor = (session, tab) => ({
   // the window it works in, or the one last used.
   async startWorkspaceAgain(id) {
     const ctx = session.ctx;
-    const result = await startWorkspaceAgain(ctx && !ctx.win.isDestroyed() ? ctx.win : lastFocused?.win ?? null, id, { by: 'ai' });
-    if (result.started_again && ctx && !ctx.win.isDestroyed()) desktop.note(ctx.id, { text: 'Your AI started the workspace again', detail: 'Your AI started the workspace again: its old folder is in the Bin' });
+    const result = await startWorkspaceAgain(tabAlive(ctx) ? ctx : lastFocused, id, { by: 'ai' });
+    if (result.started_again && tabAlive(ctx)) desktop.note(ctx.id, { text: 'Your AI started the workspace again', detail: 'Your AI started the workspace again: its old folder is in the Bin' });
     return result;
   },
   // Setting the icon of the schematic the window shows (set_icon): the user's choice is kept over
@@ -419,7 +431,7 @@ const schemasFor = (session, tab) => ({
   // The AI running the checks (run_checks); once the run ends, a line in the chat saying how it went.
   runChecks: (id, options) => testRuns.runAndWait(id, { ...options, onEnd: (state, record) => {
     const ctx = session.ctx;
-    if (ctx && !ctx.win.isDestroyed()) desktop.note(ctx.id, runNote(state, record));
+    if (tabAlive(ctx)) desktop.note(ctx.id, runNote(state, record));
   } }),
   listGroups: () => store.listGroups(),
   createGroup: (name, folderId) => store.createGroup(name, folderId),
@@ -444,7 +456,8 @@ const schemasFor = (session, tab) => ({
     const request = { schemaId: made.schema, name: proposal.name ?? '' };
     const ctx = await tab();
     ctx.contents.send('show-schema', request);
-    if (!ctx.win.isVisible()) ctx.win.showInactive();
+    // (A guest tab's window is another app's.)
+    if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
     return {
       ...made,
       status: 'waiting_for_user',
@@ -512,7 +525,7 @@ async function showConnectAi() {
 
 async function confirmAddToClaudeDesktop(ctx) {
   const status = await claudeDesktopStatus();
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: status.state === 'different' ? 'Update SmartSpec in Claude Desktop?' : 'Add SmartSpec to Claude Desktop?',
     detail: 'SmartSpec adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
@@ -604,13 +617,19 @@ async function chatWhere(chatId = 'home') {
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself: each handler gets that window first.
-const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+// (Each is kept by its channel too, for a guest tab's calls: see the guest server below.)
+const handlers = new Map(); // channel → handler
+const run = async (ctx, channel, args) => {
   try {
-    return { ok: true, value: await fn(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, ...args) };
+    return { ok: true, value: await handlers.get(channel)(ctx, ...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
-});
+};
+const handle = (channel, fn) => {
+  handlers.set(channel, fn);
+  ipcMain.handle(channel, (event, ...args) => run(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, channel, args));
+};
 
 // Setup for each AI app, shown and copied for pasting (see connect.js).
 async function mcpSetup(target) {
@@ -689,7 +708,7 @@ handle('shared-secret-delete', async (ctx, sharedId) => {
   if (!one) return false;
   if (one.usedBy.length) {
     const names = new Map((await store.list()).map((each) => [each.id, each.name]));
-    const choice = await confirm(ctx?.win ?? null, {
+    const choice = await confirmSheet(ctx, {
       title: `Delete the shared secret “${one.name}”?`,
       message: `Its value goes, and ${one.usedBy.length === 1 ? 'the secret using it is' : `the ${one.usedBy.length} secrets using it are`} left not set, until you enter a value or pick another shared secret:`,
       points: one.usedBy.map((use) => `${use.name}, in “${names.get(use.schemaId) ?? 'a deleted schematic'}”`),
@@ -703,7 +722,7 @@ handle('shared-secret-delete', async (ctx, sharedId) => {
 // A schematic's workspace: where it is and how it stands, and showing it in the Finder (made
 // first if its first run hasn't cloned it yet, so there's somewhere to show).
 handle('workspace', async (_ctx, schemaId, name) => workspaces.info(schemaId, name));
-handle('workspace-start-again', async (ctx, schemaId) => startWorkspaceAgain(ctx?.win ?? null, schemaId));
+handle('workspace-start-again', async (ctx, schemaId) => startWorkspaceAgain(ctx, schemaId));
 handle('workspace-show', async (_ctx, schemaId, name) => {
   const { dir, cloned } = await workspaces.info(schemaId, name);
   if (cloned) shell.showItemInFolder(dir);
@@ -716,8 +735,8 @@ handle('workspace-show', async (_ctx, schemaId, name) => {
 // Starting a schematic's workspace again (the user's Start Again…, or the AI's
 // start_workspace_again): asked first, naming what would go with it (uncommitted changes, commits
 // on no remote), then its folder moved to the Bin, and the next run clones it afresh. Refused while
-// its checks run. { started_again, message }.
-async function startWorkspaceAgain(parent, schemaId, { by = 'user' } = {}) {
+// its checks run. Asked over `ctx`'s window. { started_again, message }.
+async function startWorkspaceAgain(ctx, schemaId, { by = 'user' } = {}) {
   const record = await store.getSchema(schemaId);
   if (!record) throw new Error('There\'s no schematic with that id.');
   if (!record.implementation || !WORKSPACE_KINDS.includes(record.implementation.source.kind)) throw new Error(`${record.name}'s code isn't a git repository, so it has no workspace.`);
@@ -728,7 +747,7 @@ async function startWorkspaceAgain(parent, schemaId, { by = 'user' } = {}) {
     info.changes && `${info.changes} ${info.changes === 1 ? 'file' : 'files'} changed and not committed`,
     info.unpushed && `${info.unpushed} ${info.unpushed === 1 ? 'commit' : 'commits'} not pushed`,
   ].filter(Boolean);
-  const choice = await confirm(parent, {
+  const choice = await confirmSheet(ctx, {
     title: `Start the workspace of “${record.name}” again?`,
     message: `${by === 'ai' ? 'Your AI asks to start it again. ' : ''}Its folder, ${info.label}, goes to the Bin, and the next run clones the repository afresh.`,
     points: lost.length ? lost : null,
@@ -745,7 +764,7 @@ async function startWorkspaceAgain(parent, schemaId, { by = 'user' } = {}) {
 async function discardProposal(ctx, schemaId) {
   const proposal = await store.getProposal(schemaId);
   if (!proposal) return;
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'warning',
     message: proposal.total ? 'Discard this proposed change?' : `Discard “${proposal.name}”?`,
     detail: proposal.total ? 'The schematic stays as it is. Your AI would have to propose the change again.' : 'It has no accepted draft, so the schematic goes with it. Your AI would have to propose it again.',
@@ -857,7 +876,7 @@ async function acceptProposal(ctx, schemaId) {
           after: `${checksLine}${notApproved}${becomes}`,
           buttons: [{ label: 'Accept anyway', choice: 'accept', apart: true }, { label: 'Cancel', choice: 'cancel' }, { ...ask, kind: 'primary' }],
         };
-  const choice = await confirm(ctx?.win, question);
+  const choice = await confirmSheet(ctx, question);
   if (choice === 'send') {
     await store.sendComments(schemaId);
     return 'sent';
@@ -880,7 +899,7 @@ async function deleteGroup(ctx, id) {
   if (!group) return false;
   const inside = (await store.list()).filter((row) => row.group === id);
   if (!inside.length) {
-    const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+    const { response } = await messageBox(ctx, {
       type: 'warning',
       message: `Delete the domain “${group.name}”?`,
       detail: 'It has no schematics in it.',
@@ -901,7 +920,7 @@ async function deleteGroup(ctx, id) {
   const embedded = embedders.length
     ? ` ${and(embedders.map((one) => `“${one.name}”`))} ${embedders.length === 1 ? 'embeds' : 'embed'} ${inside.length === 1 ? 'it' : 'some of them'}, and will show ${inside.length === 1 ? 'it' : 'them'} as no longer available.`
     : '';
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'warning',
     message: `Delete the domain “${group.name}” and ${count}?`,
     detail: `${listed} ${inside.length === 1 ? 'is' : 'are'} deleted with it: drafts, proposals and comments too. This can't be undone.${embedded} To keep ${inside.length === 1 ? 'it' : 'them'}, move ${inside.length === 1 ? 'it' : 'them'} to another domain first.`,
@@ -931,12 +950,7 @@ handle('delete-folder', (_ctx, id) => store.deleteFolder(id));
 handle('move-folder', (_ctx, id, parentId) => store.moveFolder(id, parentId ?? null));
 handle('move-group', (_ctx, groupId, folderId) => store.moveGroup(groupId, folderId ?? null));
 // A right-click menu on home, as SmartDoc's: the chosen item's id, or null if none was chosen.
-handle('home-menu', (ctx, items) => new Promise((resolve) => {
-  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
-    window: ctx?.win ?? undefined,
-    callback: () => setTimeout(() => resolve(null), 100),
-  });
-}));
+handle('home-menu', (ctx, items) => popupMenu(ctx, Array.isArray(items) ? items : []));
 handle('list-focuses', (_ctx, id, options) => store.listFocuses(id, options));
 handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
 handle('list-drafts', (_ctx, id) => store.listDrafts(id));
@@ -1028,6 +1042,9 @@ app.whenReady().then(async () => {
   app.setAboutPanelOptions({ credits: 'SmartSpec is in beta, so it may change significantly from one version to the next.' });
   const first = createWindow();
   await startMcp();
+  // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here, its
+  // calls run by the same handlers; and other apps' tabs shown in its windows.
+  await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
   updates.start();
   await first.ready;
   offerMoveToApplications(first);

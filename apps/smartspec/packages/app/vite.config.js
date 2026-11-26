@@ -10,8 +10,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'src/renderer/index.html',
-        // A question asked in a window of its own (main/confirm.js).
-        confirm: 'src/renderer/confirm.html',
         // The window's top bar, above its tabs (main.js, tab-strip.js).
         tabs: 'src/renderer/tabs.html',
       },
