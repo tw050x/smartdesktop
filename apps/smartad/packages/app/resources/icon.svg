@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- SmartAd's app icon: a banner ad, as a landscape card: SmartDoc's and SmartSpec's icon shape,
+       white cards, shadows and three colours, the blue bar its headline, the grey line its words
+       under it, and the brown pill at its lower right its call to action, the button an ad has.
+       The bars are as high as SmartDoc's lines, so the three icons read as one family.
+       The source of icon.icns and icon.png (see scripts/make-icons.mjs). -->
+  <defs>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/></filter>
+    <filter id="paper" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/></filter>
+    <linearGradient id="light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f7f9"/><stop offset="1" stop-color="#dcdce3"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)" filter="url(#lift)"/>
+  <rect x="176" y="292" width="672" height="440" rx="60" fill="#fff" filter="url(#paper)"/>
+  <rect x="260" y="380" width="380" height="66" rx="33" fill="#2f6fde"/>
+  <rect x="260" y="490" width="252" height="40" rx="20" fill="#c7c7cf"/>
+  <rect x="560" y="582" width="204" height="66" rx="33" fill="#b45309"/>
+</svg>

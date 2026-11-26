@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:">
+  <title>SmartAd frames</title>
+  <style>html, body { margin: 0; overflow: hidden; background: transparent; } #frame { position: absolute; inset: 0; }</style>
+</head>
+<body>
+  <!-- An ad drawn at its real size, one moment at a time, for pictures of it (see frames.js). -->
+  <div id="frame"></div>
+  <script type="module" src="./frames.js"></script>
+</body>
+</html>

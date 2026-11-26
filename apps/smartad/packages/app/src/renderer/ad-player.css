@@ -1,0 +1,230 @@
+/* The ad's player and timeline (ad-player.js): the family's look, from the app's palette where it's
+   defined (--bg, --border, --muted, --accent…), with the same values standing in where it isn't.
+   Read only: quiet bars for when each layer shows, dots where its keyframes are, the playhead the one
+   thing that moves. */
+
+.ad-timeline {
+  --adt-bg: var(--bg, light-dark(#ffffff, #232326));
+  --adt-border: var(--border, light-dark(#e2e2e7, #3a3a3f));
+  --adt-text: var(--text, light-dark(#1d1d1f, #f2f2f4));
+  --adt-muted: var(--muted, light-dark(#6e6e73, #a1a1a8));
+  --adt-faint: var(--faint, light-dark(#aeaeb4, #5a5a60));
+  --adt-subtle: var(--subtle-bg, light-dark(#f4f4f6, #2a2a2e));
+  --adt-hover: var(--button-hover, light-dark(#e6e6ea, #2e2e33));
+  --adt-active: var(--button-active, light-dark(#dadadf, #38383e));
+  --adt-accent: var(--accent, light-dark(#2f6fde, #4a86ee));
+  --adt-comment: var(--comment, light-dark(#c98a00, #e3b341));
+  --adt-add: var(--change-add, light-dark(#1f9d55, #46c37b));
+  --adt-add-bg: var(--change-add-bg, light-dark(rgba(40, 175, 85, 0.16), rgba(40, 175, 85, 0.24)));
+  --adt-del: var(--change-del, light-dark(#cc3b3b, #ff7b7b));
+  --adt-del-bg: var(--change-del-bg, light-dark(rgba(226, 60, 60, 0.12), rgba(226, 60, 60, 0.18)));
+  --adt-mod: var(--change-mod, light-dark(#c98a12, #f0b443));
+  --adt-mod-bg: light-dark(rgba(201, 138, 18, 0.14), rgba(240, 180, 67, 0.18));
+  --adt-names: 96px; /* the layers' names, left of their rows */
+  --adt-pad: 10px; /* inside each lane, so 0 s and the end aren't against an edge */
+  --adt-row: 14px;
+
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  height: var(--ad-timeline-height, 96px);
+  background: var(--adt-bg);
+  border-top: 1px solid var(--adt-border);
+  color: var(--adt-text);
+  font: 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  box-sizing: border-box;
+}
+.ad-timeline[hidden] { display: none; }
+.ad-timeline *, .ad-timeline *::before, .ad-timeline *::after { box-sizing: border-box; }
+
+/* --- Controls -------------------------------------------------------------------------------- */
+.adt-controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  align-content: center;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 6px;
+  padding: 8px 10px;
+  border-right: 1px solid var(--adt-border);
+}
+.adt-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--adt-text);
+  cursor: default;
+}
+.adt-button:hover { background: var(--adt-hover); }
+.adt-button:active { background: var(--adt-active); }
+.adt-button:focus-visible { outline: 2px solid var(--adt-accent); outline-offset: 1px; }
+.adt-play { width: 30px; height: 30px; border-radius: 50%; background: var(--adt-subtle); }
+.adt-play:hover { background: var(--adt-hover); }
+.adt-loop[aria-pressed="true"] { color: var(--adt-accent); background: color-mix(in srgb, var(--adt-accent) 14%, transparent); }
+.adt-time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.adt-now { font-weight: 600; }
+.adt-total { color: var(--adt-muted); }
+.adt-steps { grid-column: 1 / -1; display: flex; gap: 2px; }
+
+/* --- Ruler, rows and playhead ------------------------------------------------------------------ */
+.adt-main {
+  position: relative;
+  display: grid;
+  grid-template-rows: 22px minmax(0, 1fr);
+  min-width: 0;
+  overflow: hidden;
+}
+.adt-head { display: grid; grid-template-columns: var(--adt-names) minmax(0, 1fr); border-bottom: 1px solid var(--adt-border); }
+.adt-ruler { position: relative; cursor: ew-resize; }
+.adt-lane { position: relative; height: 100%; margin: 0 var(--adt-pad); }
+.adt-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 3px 0 4px;
+}
+.adt-body::-webkit-scrollbar { display: none; }
+.adt-row { display: grid; grid-template-columns: var(--adt-names) minmax(0, 1fr); height: var(--adt-row); }
+.adt-row:hover { background: var(--adt-subtle); }
+.adt-name {
+  padding: 0 8px 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--adt-muted);
+  font-size: 10.5px;
+  line-height: var(--adt-row);
+}
+.adt-row.hidden .adt-name { color: var(--adt-faint); font-style: italic; }
+.adt-row.removed .adt-name { color: var(--adt-del); text-decoration: line-through; }
+
+.adt-tick { position: absolute; bottom: 0; width: 1px; height: 4px; margin-left: -0.5px; background: var(--adt-border); }
+.adt-tick.major { height: 7px; background: var(--adt-faint); }
+.adt-tick-label {
+  position: absolute;
+  bottom: 9px;
+  left: 3px;
+  color: var(--adt-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* When a layer shows, and where its keyframes are. */
+.adt-bar {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--adt-muted) 22%, transparent);
+}
+.adt-key {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--adt-muted);
+}
+
+/* A proposal's changes: tinted spans across the row, green added, red removed, amber changed. */
+.adt-change { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; min-width: 3px; }
+.adt-change.added { background: var(--adt-add-bg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--adt-add) 55%, transparent); }
+.adt-change.removed { background: var(--adt-del-bg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--adt-del) 45%, transparent); }
+.adt-change.changed { background: var(--adt-mod-bg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--adt-mod) 55%, transparent); }
+
+/* Comments: a small marker where each is, and a thin band under a span. */
+.adt-mark {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  padding: 0;
+  border: 1.5px solid var(--adt-comment);
+  border-radius: 3px;
+  background: var(--adt-comment);
+  cursor: pointer;
+}
+.adt-mark.answered { background: var(--adt-bg); }
+.adt-mark:focus-visible { outline: 2px solid var(--adt-accent); outline-offset: 1px; }
+.adt-ruler .adt-mark { top: 17px; } /* below the labels, over the ticks */
+.adt-comment-span {
+  position: absolute;
+  bottom: 1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--adt-comment);
+}
+.adt-comment-span.answered { opacity: 0.45; }
+.adt-ruler .adt-comment-span { bottom: auto; top: 16px; }
+
+/* A span being pointed at or looped, as it's dragged; the span looped. */
+.adt-select {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--adt-comment) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--adt-comment);
+  border-radius: 3px;
+}
+.adt-select.loop, .adt-loop-band { background: color-mix(in srgb, var(--adt-accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--adt-accent) 50%, transparent); }
+.adt-loop-band { position: absolute; top: 3px; bottom: 3px; border-radius: 3px; opacity: 0.55; }
+.adt-loop-band.on { opacity: 1; }
+
+.adt-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--adt-names) + var(--adt-pad) + (100% - var(--adt-names) - 2 * var(--adt-pad)) * var(--p, 0));
+  z-index: 3;
+  width: 0;
+  border-left: 1.5px solid var(--adt-accent);
+  margin-left: -0.75px;
+  pointer-events: none;
+}
+.adt-knob {
+  position: absolute;
+  top: 2px;
+  left: -6px;
+  width: 11px;
+  height: 14px;
+  border-radius: 3px 3px 6px 6px;
+  background: var(--adt-accent);
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+.ad-timeline.scrubbing, .ad-timeline.scrubbing * { cursor: ew-resize; }
+.ad-timeline.pointing, .ad-timeline.pointing * { cursor: text; }
+
+/* The ring that grows round the pointer while a long press is held (as the family's long-press.js). */
+.adt-press-ring {
+  position: fixed;
+  z-index: 10000;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 2px solid var(--comment, #c98a00);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: adt-ring 380ms ease-out forwards;
+}
+@keyframes adt-ring {
+  from { transform: scale(0.3); opacity: 0.2; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* The interface's own motion (not the ad's) stays still for those who ask. */
+@media (prefers-reduced-motion: reduce) {
+  .ad-timeline *, .adt-press-ring { transition: none !important; animation: none !important; }
+}

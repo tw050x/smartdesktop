@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ad preview</title>
+  <!-- For development only, not part of the app: the ad model, renderer and player on the sample
+       ads. Serve packages/app/src (python3 -m http.server, or npx vite src) and open
+       renderer/ad-preview.html; ?ad=still|animated&size=…&t=…&theme=light|dark&marks=0 -->
+  <link rel="stylesheet" href="./ad-player.css">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#ffffff, #232326);
+      --border: light-dark(#e2e2e7, #3a3a3f);
+      --text: light-dark(#1d1d1f, #f2f2f4);
+      --muted: light-dark(#6e6e73, #a1a1a8);
+      --faint: light-dark(#aeaeb4, #5a5a60);
+      --subtle-bg: light-dark(#f4f4f6, #2a2a2e);
+      --button-hover: light-dark(#e6e6ea, #2e2e33);
+      --button-active: light-dark(#dadadf, #38383e);
+      --window-bg: light-dark(#ebebef, #161618);
+      --accent: light-dark(#2f6fde, #4a86ee);
+      --comment: light-dark(#c98a00, #e3b341);
+    }
+    :root[data-theme="light"] { color-scheme: light; }
+    :root[data-theme="dark"] { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      background: var(--window-bg);
+      color: var(--text);
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    header { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+    header .group { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--subtle-bg); }
+    header button { border: none; background: transparent; color: var(--text); font: inherit; padding: 4px 10px; border-radius: 6px; }
+    header button[aria-pressed="true"] { background: var(--bg); box-shadow: 0 0 0 0.5px var(--border), 0 1px 2px rgba(0,0,0,0.08); }
+    header .point { margin-left: auto; color: var(--muted); font-size: 12px; }
+    #stage { position: relative; min-width: 0; min-height: 0; }
+    #timeline { grid-column: 1; }
+    aside { grid-row: 2 / 4; grid-column: 2; overflow: auto; padding: 12px; background: var(--bg); border-left: 1px solid var(--border); font-size: 11.5px; }
+    aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; }
+    aside pre { white-space: pre-wrap; margin: 0 0 14px; font: 11px/1.45 ui-monospace, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="group" id="ads"></div>
+    <div class="group" id="sizes"></div>
+    <span class="point" id="pointed">⌘-click or long-press the timeline to point</span>
+  </header>
+  <div id="stage"></div>
+  <div id="timeline"></div>
+  <aside>
+    <h2>Summary</h2><pre id="summary"></pre>
+    <h2>Checks</h2><pre id="checks"></pre>
+  </aside>
+  <script type="module" src="./ad-preview.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "name": "@smartad/cli",
+  "version": "0.1.0",
+  "description": "The smartad command: installs the SmartAd app, sets up Claude Desktop and Claude Code to use it, checks the connection, and runs SmartAd's MCP connection for agents set up with npx.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "smartad": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "mcp.js",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tw050x/smartad.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/tw050x/smartad",
+  "keywords": [
+    "mcp",
+    "advertising",
+    "display-ads",
+    "banners",
+    "claude"
+  ]
+}

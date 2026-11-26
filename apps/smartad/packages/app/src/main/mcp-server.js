@@ -1,0 +1,123 @@
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { app } from 'electron';
+import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { buildServer } from './mcp-tools.js';
+
+// Fixed, so AI apps always know where to find it. A development copy uses another, so it can run
+// beside the installed app, and tests another again (SMARTAD_PORT; ignored in packaged builds).
+export const MCP_PORT = app.isPackaged ? 47835 : Number(process.env.SMARTAD_PORT) || 47836;
+
+// The token clients send as "Authorization: Bearer <token>". Created once and kept with the app's
+// data, so a configured client keeps working.
+export async function mcpToken(userData) {
+  const file = path.join(userData, 'mcp-token');
+  try {
+    return (await readFile(file, 'utf8')).trim();
+  } catch {
+    const token = randomBytes(24).toString('hex');
+    await writeFile(file, token, { mode: 0o600 });
+    return token;
+  }
+}
+
+// Streamable HTTP on 127.0.0.1 only, stateless (a fresh server per request), JSON responses.
+// Requests carrying an Origin header come from a web page and are refused, as are requests
+// without the token. `ai` runs each tool in its session's window (see main.js).
+export async function startMcpServer(ai, userData) {
+  const token = await mcpToken(userData);
+  // The waits held open (see /mcp/wait), each answered as the app quits (`endWaits`).
+  const waiting = new Set();
+  let ending = null; // once quitting: the answer every wait gets
+  const http = createServer(async (req, res) => {
+    const deny = (code, message) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify({ error: message }));
+    if (req.headers.origin) return deny(403, 'Browser requests are not allowed.');
+    // Says what this server is, so another copy of the app that finds the port taken can tell the user.
+    if (req.url === '/whoami') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ app: 'SmartAd', development: !app.isPackaged, version: app.getVersion() }));
+    if (req.headers.authorization !== `Bearer ${token}`) return deny(401, 'Missing or wrong token.');
+    if (!req.url?.startsWith('/mcp')) return deny(404, 'Not found.');
+    if (req.method !== 'POST') return deny(405, 'Only POST is supported.');
+    // SmartDesktop's chat also names the window its AI works in, and says when each of its messages starts.
+    const caller = { session: req.headers['x-smartad-session'], client: req.headers['x-smartad-client'], startedApp: req.headers['x-smartad-started-app'] === '1', window: req.headers['x-smartad-window'] || null, turn: req.headers['x-smartad-turn'] === '1' };
+    // From the launcher, about the session itself.
+    if (req.url.startsWith('/mcp/alive') || req.url.startsWith('/mcp/end')) {
+      req.resume();
+      if (req.url.startsWith('/mcp/end')) ai.ended(caller);
+      else ai.alive(caller);
+      return res.writeHead(204).end();
+    }
+
+    let body;
+    try {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      return deny(400, 'Invalid JSON.');
+    }
+    // From `smartad wait`: answered once what it's waiting for has happened, however long that is,
+    // or when the app quits, saying whether it's restarting (`endWaits`).
+    if (req.url.startsWith('/mcp/wait')) {
+      if (ending) return res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify(ending));
+      try {
+        const wait = ai.wait(body);
+        waiting.add(res);
+        res.on('close', () => {
+          waiting.delete(res);
+          wait.cancel();
+        });
+        const result = await wait.promise;
+        if (result && !res.headersSent) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+      } catch (error) {
+        if (!res.headersSent) deny(error.status ?? 500, error.message);
+      }
+      return;
+    }
+    const server = buildServer((name, args, run) => ai.call(caller, name, args, run), { version: app.getVersion() });
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    res.on('close', () => {
+      transport.close();
+      server.close();
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, body);
+  });
+  await new Promise((resolve, reject) => {
+    http.once('error', reject);
+    http.listen(MCP_PORT, '127.0.0.1', resolve);
+  });
+  // As the app quits: every wait held open is told, so the AI knows. `restarting`: to install an
+  // update, and back in a moment, when `smartad wait` carries on by itself (older copies of it show
+  // the message, which says to wait again).
+  const endWaits = (restarting) => {
+    ending = restarting
+      ? { restarting: true, error: 'SmartAd is restarting to install an update. Run the same wait command again in a moment.' }
+      : { quit: true, error: 'SmartAd has quit. Ask the user to open it, then run the same wait command again.' };
+    for (const res of waiting) {
+      if (!res.headersSent) res.writeHead(503, { 'content-type': 'application/json', connection: 'close' }).end(JSON.stringify(ending));
+    }
+    waiting.clear();
+  };
+  return { url: `http://127.0.0.1:${MCP_PORT}/mcp`, token, close: () => http.close(), endWaits };
+}
+
+// What's listening on the port, when the server finds it taken: another SmartAd (which says so at
+// /whoami), else the name of the program holding it (from lsof), else nothing known.
+export async function portHolder(port = MCP_PORT) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/whoami`, { signal: AbortSignal.timeout(1500) });
+    const who = await res.json();
+    if (who?.app === 'SmartAd') return { kind: 'smartad', development: Boolean(who.development) };
+  } catch {}
+  const name = await new Promise((resolve) => {
+    execFile('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fc'], { timeout: 2000 }, (error, stdout) => {
+      resolve(error ? null : stdout.split('\n').find((line) => line.startsWith('c'))?.slice(1) || null);
+    });
+  });
+  // Copies of SmartAd from before /whoami still show as SmartAd (or Electron, in development).
+  if (name === 'SmartAd' || name === 'Electron') return { kind: 'smartad', development: name === 'Electron' };
+  return name ? { kind: 'other', name } : { kind: 'unknown' };
+}
