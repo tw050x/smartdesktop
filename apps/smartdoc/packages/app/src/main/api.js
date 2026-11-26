@@ -53,7 +53,6 @@ export const API = {
     discardPreview: 'discard-preview',
     showVariationMenu: 'variation-menu',
     goHome: 'go-home',
-    newTab: 'tab-new',
     showHomeMenu: 'home-menu',
     folders: 'folders',
     labels: 'labels',

@@ -3,8 +3,8 @@
 // another app's page, a guest tab (@smartdesktop/ui's main/guests.js): served by that app's backend,
 // its calls passed on to it and its events back, the app running with no window of its own for it.
 // The windows, their top bar, the tabs' dragging and moving are the family's (main/tabs.js); this
-// gives them what's SmartDesktop's: no pages of its own, + opening a tab of the app showing, and the
-// Home button asking the tab's app to take it home.
+// gives them what's SmartDesktop's: no pages of its own, each window's Home (pinned first, one a
+// window: the user's choice, 2026-11-26) the home of the app last opened there.
 import { app, ipcMain, nativeTheme } from 'electron';
 import path from 'node:path';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
@@ -64,13 +64,6 @@ export async function startAppWindows({ dirname, title, onChange = () => {} }) {
     status: () => ({ state: 'running', label: 'Ready', title: 'SmartDesktop' }),
     name: 'SmartDesktop',
     family,
-    // + opens a tab of the app the tab showing is, on its home (else the first app running).
-    newTabIn: (host) => {
-      const showing = host?.active?.hosted?.app;
-      const entry = apps().find((one) => one.app === showing) ?? apps()[0];
-      if (entry) return tabs.openApp(entry, { host });
-    },
-    guestsGoHomeThere: true,
   });
 
   // Whatever a window asks for, it asks about itself: each handler gets the tab it's from (or the
@@ -118,7 +111,7 @@ export async function startAppWindows({ dirname, title, onChange = () => {} }) {
     },
     // The tab before or after the one showing, in the app window last used (Window › Show Previous Tab).
     stepTab: (delta) => tabs.stepTab(delta),
-    // A tab of an app's, on its home, in the window last used (or a new window).
+    // An app's home, as the Home of the window last used (or a new window).
     open: (entry) => tabs.openApp(entry, { host: lastFocused?.host }),
     // A window of its own with a tab of that app.
     openInNewWindow: (entry) => tabs.openApp(entry, { host: null }),

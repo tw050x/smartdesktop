@@ -74,13 +74,13 @@ body {
 .tab-strip-body { display: block; background: var(--top-bar-bg); }
 .tab-strip-body .tab-strip { height: var(--top-bar-height); }
 .tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 4px; overflow: hidden; }
-/* A tab: its board's icon and name (Home's, on home) and a close button. The tab showing stands
-   out on the bar, as the page below it does. After the tabs, + for a new one. */
+/* A tab: Home's icon, or a board's name and a close button, shown while it's pointed at or
+   showing. The tab showing stands out on the bar, as the page below it does. */
 .tab {
   flex: 0 1 200px; min-width: 40px; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 4px 0 10px;
   border-radius: 8px; color: var(--text-2); cursor: default; -webkit-app-region: no-drag;
 }
-.tabs > .tab-new { flex: none; -webkit-app-region: no-drag; }
+.tab.tab-home { flex: none; min-width: 0; width: 34px; padding: 0; justify-content: center; }
 /* Each tab has a background of its own, so it doesn't get lost in the bar (the user's choice): a
    shade darker than the bar, darker again while pointed at; the tab showing has the page's. */
 .tab { background: var(--button-hover); }

@@ -32,7 +32,6 @@ export const API = {
     tabLines: 'tab-lines',
     openInTab: 'open-in-tab',
     goHome: 'go-home',
-    newTab: 'tab-new',
     releaseAiControl: 'ai-control-release',
     // The ads (see store.js): what there is, and the user's answer to a proposal.
     listAds: 'list-ads',
@@ -81,8 +80,8 @@ export const API = {
     // in the active tab, and opening the status panel there. A tab says when back and forward change
     // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
     // (`onToggleStatus`). An ad opened in a new tab (`openInTab`: { adId, draftId, proposal, name }),
-    // which hears it (`onOpenAd`), as it does an AI's proposal; the Home button (`goHome`, heard by
-    // the active tab as `onGoHome`) and + (`newTab`).
+    // which hears it (`onOpenAd`), as it does an AI's proposal; going home (`goHome`, showing the window's
+    // Home tab).
     onTabs: 'tabs',
     onTabDrop: 'tab-drop',
     onIconPicker: 'icon-picker',
@@ -91,7 +90,6 @@ export const API = {
     onTabLines: 'tab-lines',
     onToggleStatus: 'toggle-status',
     onOpenAd: 'open-ad',
-    onGoHome: 'go-home',
     onAiControl: 'ai-control',
     onAiWaiting: 'ai-waiting',
     onAdsChanged: 'ads-changed',

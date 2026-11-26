@@ -32,7 +32,6 @@ export const API = {
     tabLines: 'tab-lines',
     openInTab: 'open-in-tab',
     goHome: 'go-home',
-    newTab: 'tab-new',
     releaseAiControl: 'ai-control-release',
     // The topics (see store.js): home's list, a topic's board and its cards in full, a card the user
     // has read, the user's questions (asked, and marked as needing nothing more), and where each
@@ -84,8 +83,8 @@ export const API = {
     // in the active tab, and opening the status panel there. A tab says when back and forward change
     // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
     // (`onToggleStatus`). A topic opened in a new tab (`openInTab`: { topicId, name, card }), which
-    // hears it (`onOpenTopic`), as it does an AI's cards; the Home button (`goHome`, heard by the active
-    // tab as `onGoHome`) and + (`newTab`).
+    // hears it (`onOpenTopic`), as it does an AI's cards; going home (`goHome`, showing the window's
+    // Home tab).
     onTabs: 'tabs',
     onTabDrop: 'tab-drop',
     onIconPicker: 'icon-picker',
@@ -96,7 +95,6 @@ export const API = {
     onOpenTopic: 'open-topic',
     // A card the AI shows the user, brought to the middle of the board ({ topicId, card }).
     onShowCard: 'show-card',
-    onGoHome: 'go-home',
     onAiControl: 'ai-control',
     onTopicsChanged: 'topics-changed',
     onNewTopic: 'new-topic',

@@ -32,7 +32,6 @@ export const API = {
     tabLines: 'tab-lines',
     openInTab: 'open-in-tab',
     goHome: 'go-home',
-    newTab: 'tab-new',
     releaseAiControl: 'ai-control-release',
     // The projects (see store.js): home's list and a project in full (its takes, each with how far
     // along it is while it's made), and a new one. Asking for a take (`generate`: { kind, prompt,
@@ -102,8 +101,8 @@ export const API = {
     // in the active tab, and opening the status panel there. A tab says when back and forward change
     // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
     // (`onToggleStatus`). A project opened in a new tab (`openInTab`: { projectId, name }), which hears
-    // it (`onOpenProject`), as it does an AI's takes; the Home button (`goHome`, heard by the active tab
-    // as `onGoHome`) and + (`newTab`).
+    // it (`onOpenProject`), as it does an AI's takes; going home (`goHome`, showing the window's
+    // Home tab).
     onTabs: 'tabs',
     onTabDrop: 'tab-drop',
     onIconPicker: 'icon-picker',
@@ -112,7 +111,6 @@ export const API = {
     onTabLines: 'tab-lines',
     onToggleStatus: 'toggle-status',
     onOpenProject: 'open-project',
-    onGoHome: 'go-home',
     onAiControl: 'ai-control',
     onTakeProgress: 'take-progress',
     onProjectsChanged: 'projects-changed',

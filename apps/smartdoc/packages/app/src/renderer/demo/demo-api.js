@@ -121,15 +121,13 @@ export function createDemoApi() {
     return { ...r, status: p.done ? 'committed' : 'open', committedAt: p.done ? committedAt[state.tool] ?? null : null, items: r.items.slice(0, p.shown), highlights: r.highlights.slice(0, p.shown) };
   };
 
-  // The window's top bar (tab-strip.js): its one tab, on home or the document, as the screen is (the
-  // chat owning it once the document has been opened); back and forward off, as the demo can't go
-  // back; and the app ready.
+  // The window's top bar (tab-strip.js): Home, and the document's tab once it's been opened, the one
+  // showing as the screen is; back and forward off, as the demo can't go back; and the app ready.
   let tabbed = false;
   const tabs = () => ({
     tabs: [
-      state.screen === 'document'
-        ? { id: 'tab', title: DOCUMENT.name.replace(/\.pdf$/i, ''), icon: guessIcon(DOCUMENT.name, 'file-text'), active: true, chat: { title: chatTitle() } }
-        : { id: 'tab', home: true, title: 'Home', active: true, chat: tabbed ? { title: chatTitle() } : null },
+      { id: 'home', home: true, title: 'Home', active: state.screen !== 'document' },
+      ...(tabbed ? [{ id: 'document', title: DOCUMENT.name.replace(/\.pdf$/i, ''), icon: guessIcon(DOCUMENT.name, 'file-text'), active: state.screen === 'document', chat: { title: chatTitle() } }] : []),
     ],
     back: false,
     forward: false,

@@ -73,7 +73,7 @@ export function createTabDrag({ topBar }) {
   }
 
   // The top bar under `point`, and where in it the tab would go: { host, index, x } (the index
-  // among its tabs once the one dragged is out of them; `x` the pointer's in the
+  // among its tabs once the one dragged is out of them, never before Home; `x` the pointer's in the
   // window), or null over anything else. `hosts` front to back, each { win, tabBoxes: [{ id, left,
   // width }] } (its tabs, as its top bar last measured them).
   function targetAt(point, hosts, dragId) {
@@ -87,8 +87,8 @@ export function createTabDrag({ topBar }) {
       if (point.y > b.y + topBar + BELOW) return null;
       const x = point.x - b.x;
       const tabs = (host.tabBoxes ?? []).filter((t) => t.id !== dragId);
-      let index = 0;
-      for (const box of tabs) if (box.left + box.width / 2 < x) index++;
+      let index = 1;
+      for (const box of tabs.slice(1)) if (box.left + box.width / 2 < x) index++;
       return { host, index, x };
     }
     return null;

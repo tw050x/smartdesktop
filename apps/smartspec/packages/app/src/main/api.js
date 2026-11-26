@@ -33,7 +33,6 @@ export const API = {
     openInTab: 'open-in-tab',
     openSchematicTab: 'open-schematic-tab',
     goHome: 'go-home',
-    newTab: 'tab-new',
     releaseAiControl: 'ai-control-release',
     // The schemas (see store.js): what there is, and the user's answer to a proposal.
     listSchemas: 'list-schemas',
@@ -135,8 +134,7 @@ export const API = {
     // in the active tab, and opening the status panel there. A tab says when back and forward change
     // (`historyState`), and hears the top bar's (`onHistoryStep`) and its status pill
     // (`onToggleStatus`). A schematic opened in a new tab (`openInTab`: { path, layout }), which hears
-    // it (`onOpenLevel`); the Home button (`goHome`, heard by the active tab as `onGoHome`) and +
-    // (`newTab`).
+    // it (`onOpenLevel`); going home (`goHome`, showing the window's Home tab).
     onTabs: 'tabs',
     onTabDrop: 'tab-drop',
     onIconPicker: 'icon-picker',

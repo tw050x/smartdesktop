@@ -972,11 +972,12 @@ function setAppMenu() {
   const openable = appWindows?.apps() ?? [];
   // The app whose tab is in front adds its menus (the user's choice: the menu bar is SmartDesktop's,
   // the tab's app adding its items): its app menu's own items under its name, then its own menus
-  // (File first), in place of SmartDesktop's File, whose New Tab and New Window go at its File's end.
+  // (File first), in place of SmartDesktop's File, whose Open an App goes at its File's end: an app's
+  // home in the window's Home tab (one a window, the user's choice, 2026-11-26), or a new window.
   const theirs = appWindows?.frontMenu();
   const template = (items) => toTemplate(withoutOwnKeys(items), theirs.choose);
   const openApps = [
-    { label: 'New Tab', submenu: openable.length ? openable.map((entry) => ({ label: entry.name, click: () => appWindows.open(entry) })) : [{ label: 'No apps running', enabled: false }] },
+    { label: 'Home', submenu: openable.length ? openable.map((entry) => ({ label: entry.name, click: () => appWindows.open(entry) })) : [{ label: 'No apps running', enabled: false }] },
     { label: 'New Window', submenu: openable.length ? openable.map((entry) => ({ label: entry.name, click: () => appWindows.openInNewWindow(entry) })) : [{ label: 'No apps running', enabled: false }] },
   ];
   const appMenus = theirs

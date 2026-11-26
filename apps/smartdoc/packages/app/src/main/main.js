@@ -208,14 +208,6 @@ const tabs = createTabs({
   // The switch between pdf.js and SmartDoc's own reader (experimental).
   extraState: () => ({ reader: experimental().reader }),
   docOf: (ctx) => ctx.workspace?.document?.id ?? null,
-  // A tab is on home with no document open in it, unless it was opened for one still coming.
-  isHome: (ctx) => !ctx.workspace?.document && !ctx.waiting,
-  // The Home button: the tab's document closes, and it shows home.
-  goHome: (ctx) => context.run(ctx, () => {
-    ctx.waiting = false;
-    ctx.workspace.close();
-    sendTabs(ctx.host);
-  }),
   release: (ctx) => {
     // An AI's tab comes back as it was, the next time the AI needs it.
     if (ctx.session) {
@@ -245,6 +237,9 @@ const tabs = createTabs({
 // A menu, a question, a sheet, the file picker or the save panel over a tab's window (in a guest
 // tab, the window showing it shows them).
 const { popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, openChatFor, strips } = tabs;
+// A tab to open a document in, in the window `ctx` is in: a new one beside it (with SmartDesktop's
+// windows, there).
+const newTabBeside = (ctx) => createTab(ctx?.host?.guest ? null : ctx?.host ?? null, { after: ctx });
 
 // Something gone wrong, said over the tab it's about (or the window showing it, for a guest tab).
 const warn = (message, detail) => messageBox(current(), { type: 'warning', message, detail, buttons: ['OK'] });
@@ -263,8 +258,8 @@ const replaceQuestion = ({ current: open, next, source }) => ({
 });
 
 // A new tab's workspace (`workspace`, one moved into it, or a new one), and what it tells the tab.
-// A tab shows home or a document, going between them as a browser tab goes between pages (the
-// user's choice, 2026-11-26: Home was a pinned tab of its own, which handed documents on to tabs).
+// Home is a tab of its own, pinned, which hands documents on to tabs of their own (the user's choice,
+// 2026-11-26, back from a Home button that took the tab showing home).
 function setupTab(ctx, { workspace: given = null } = {}) {
   Object.assign(ctx, { workspace: given ?? createWorkspace(shared), aiOpen: null, hadDocument: Boolean(given?.document) });
   if (given?.document) ctx.waiting = false;
@@ -272,29 +267,73 @@ function setupTab(ctx, { workspace: given = null } = {}) {
   ctx.workspace.events.on('draft', inTab(() => {
     ctx.untouched = false;
     const doc = ctx.workspace.document;
-    // Its document arriving; or closing (deleted, say), when it goes home.
+    // Home never shows a document: it goes to a tab of its own.
+    if (ctx.home && doc) return moveToTab(ctx);
+    // A tab whose document has closed (deleted, say) closes too.
+    if (!ctx.home && !doc && ctx.hadDocument) return closeTab(ctx);
     if (doc) {
       ctx.waiting = false;
       ctx.hadDocument = true;
-    } else if (ctx.hadDocument) ctx.waiting = false;
+    }
     sendTabs(ctx.host);
     return sendDraft();
   }));
-  ctx.workspace.events.on('tool', inTab((tool) => send('tool', tool)));
+  ctx.workspace.events.on('tool', inTab((tool) => !(ctx.home && ctx.workspace.document) && send('tool', tool)));
   ctx.workspace.events.on('review', inTab((review) => {
+    if (ctx.home && ctx.workspace.document) return;
     send('review', review);
     updateMenu();
   }));
 }
 
-// The tab to open a document in, from the menu, a dropped file or the home screen: the one showing,
-// if it's on home (as a browser's page opens in its tab), else a new tab beside it.
+// The tab already showing a document's variation that no chat owns, which the user opening it
+// again goes to: each variation is a tab of its own (the user found one variation opening in
+// another's tab, or a tab switched to the one they hadn't clicked). In `from`'s window, or with
+// SmartDesktop's windows, any of SmartDoc's tabs there.
+const tabShowing = (from, docId, variationId) => (from.host.guest ? [...windows.values()] : from.host.tabs)
+  .find((t) => !t.home && !t.chat && !t.headless && t.workspace?.document?.id === docId && t.workspace.document.variationId === variationId);
+
+// A document opened in Home goes to its own tab (the one already showing it, if one is), and Home
+// goes back to home. An AI working in Home goes with it.
+async function moveToTab(home) {
+  if (home.moving) return home.moving;
+  const doc = home.workspace.document;
+  if (!doc) return;
+  home.moving = (async () => {
+    const at = { docId: doc.id, variationId: doc.variationId, draftId: doc.workingDraftId ?? doc.currentDraftId, tool: home.workspace.tool, preview: home.workspace.previewing };
+    const { session } = home;
+    // A chat's AI gets a tab of its own, even with the document open in another (the same document
+    // can be open in several tabs, each a different chat's); the user, the tab showing it that no
+    // chat owns, if there is one.
+    const reuse = !fromDesktop(session) && tabShowing(home, at.docId, at.variationId);
+    const tab = reuse || newTabBeside(home);
+    await tab.ready;
+    await context.run(tab, async () => {
+      await tab.workspace.openDraft(at.docId, at.variationId, at.draftId, at.tool);
+      if (at.preview) await tab.workspace.openPreview().catch(() => {});
+    });
+    // Home keeps it until the tab has it, so whatever opened it (an AI's open_document, say) can still
+    // read it meanwhile; then Home goes back to home.
+    home.workspace.close();
+    if (session && session.ctx === home) {
+      releaseWindow(session);
+      if (!tab.session) setSessionWindow(session, tab);
+    }
+    activateTab(tab);
+    return tab;
+  })().finally(() => (home.moving = null));
+  return home.moving;
+}
+
+// Where a document from the menu, a dropped file or the recent list opens: Home, which hands it to a
+// tab of its own (see moveToTab); with no Home of SmartDoc's (SmartDesktop's window showing another
+// app's), a new tab.
 async function tabToOpenIn() {
   await ensureWindow();
   const here = current();
-  if (here?.home) return here;
-  const { host } = here;
-  const tab = createTab(host, { after: here });
+  const home = here?.home ? here : tabs.homeOf(here) ?? [...windows.values()].find((t) => t.home && !t.headless);
+  if (home) return home;
+  const tab = newTabBeside(here);
   activateTab(tab);
   await tab.ready;
   return tab;
@@ -305,7 +344,7 @@ async function openIn(tab, open) {
   try {
     return await context.run(tab, open);
   } catch (error) {
-    if (tab.waiting && !tab.workspace.document) closeTab(tab);
+    if (!tab.home && tab.waiting && !tab.workspace.document) closeTab(tab);
     throw error;
   }
 }
@@ -495,7 +534,6 @@ function updateMenu() {
     recent: workspace.recent.slice(0, MENU_RECENT),
     actions: {
       newWindow: () => context.run(createWindow(), () => {}),
-      newTab: () => tabs.newTab(current()?.host),
       showOpenDialog,
       openDocument: (id) => openDocument(id),
       saveDraftAs,
@@ -536,7 +574,7 @@ function stepTab(delta) {
   activateTab(host.tabs[(at + delta + host.tabs.length) % host.tabs.length]);
 }
 
-// Opened in the tab on home, or a new one (see tabToOpenIn).
+// Opened from Home, it goes to a tab of its own (see moveToTab).
 async function importFile(filePath) {
   let checked;
   try {
@@ -568,9 +606,12 @@ function tellConversion(checked) {
   });
 }
 
-// A document from the recent list, in the tab on home, or a new one (see tabToOpenIn): open in
-// another tab too, it opens here as well (the user's choice).
+// A document from the recent list: its tab, if one shows it, or a new one.
 async function openDocument(docId) {
+  await ensureWindow();
+  const here = current();
+  const showing = (here.host.guest ? [...windows.values()] : here.host.tabs).find((t) => !t.home && !t.chat && !t.headless && t.workspace?.document?.id === docId);
+  if (showing) return activateTab(showing);
   const tab = await tabToOpenIn();
   await openIn(tab, () => tab.workspace.openDocument(docId));
 }
@@ -957,13 +998,12 @@ async function showSession(session) {
     }).catch(() => {});
     return theirs;
   }
-  // The window SmartDoc opened as it started, if the AI started it: its tab on home, untouched, gives
-  // way to the AI's.
-  const launched = session.startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
+  // The window SmartDoc opened as it started, if the AI started it: Home, untouched, and the AI's tab
+  // beside it.
+  const launched = session.startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && !h.tabs[0].session);
   // (With no windows of its own, the tab is SmartDesktop's to place: no window is made for it here.)
   const host = tabs.inSmartDesktop() ? null : launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
   const ctx = createTab(host, { workspace: from?.workspace ?? null, focus: Boolean(launched || fromDesktop(session)) });
-  if (launched) closeTab(launched.tabs[0]);
   if (from) {
     headless.delete(from);
     ctx.aiOpen = from.aiOpen;
@@ -1061,6 +1101,11 @@ const aiForServer = {
       const result = await run(ctx.workspace, documentsForAi);
       // Something for the user: the work comes into a tab.
       if (ctx.headless && showsUser(name, args) && ctx.workspace.document) await showSession(session);
+      // A document opened in Home goes to a tab of its own, and the AI with it (see moveToTab).
+      if (ctx.home && ctx.workspace.document) {
+        await moveToTab(ctx);
+        return result;
+      }
       const after = ctx.workspace.document?.id ?? null;
       if (name === 'open_document' || name === 'create_document_from_draft' || !session.docId) {
         if (before !== after) sessions.releaseClaims(session);
@@ -1182,9 +1227,9 @@ function newVariation() {
 // the top of the documents list, and the home screen shows it.
 async function documentFromDraft(docId, variationId, draftId) {
   const made = await workspace.documentFromDraft(docId, variationId, draftId);
-  // The tab on home, or a new tab on home beside the one showing.
+  // Home, in the window showing (with SmartDesktop's, SmartDoc's Home there, if it has one).
   const here = current();
-  const home = here?.home ? here : here?.host ? tabs.newTab(here.host) : null;
+  const home = here?.home ? here : tabs.homeOf(here) ?? [...windows.values()].find((t) => t.home && !t.headless);
   if (home) {
     activateTab(home);
     await home.ready;
@@ -1282,12 +1327,33 @@ handle('variations-of', (docId) => (workspace.isRecent(docId) ? workspace.variat
 // the prompt is copied.
 handle('focuses-for', (docId, variationId, draftId, type) => (workspace.isRecent(docId) ? workspace.focusesFor(docId, variationId, draftId, type) : null));
 handle('prepare-draft', (docId, variationId, draftId, tool) => (workspace.isRecent(docId) ? workspace.prepareDraft(docId, variationId, draftId, tool) : null));
-// A draft opens in the tab asking (from home, its history, or its own document's drafts), as a
-// browser tab goes to a page. `preview`: then its draft preview.
+// Another draft of the tab's document opens in the tab; another document, from Home, in its own.
+// `preview`: then its draft preview, wherever the document opens (Home hands it to a tab of its own
+// as it opens it, so asking for the preview afterwards reached Home, which no longer had it).
 handle('open-draft', async (docId, variationId, draftId, tool, { preview = false } = {}) => {
   if (!workspace.isRecent(docId)) return;
-  await workspace.openDraft(docId, variationId, draftId, tool);
-  if (preview) await workspace.openPreview().catch(() => {});
+  const here = current();
+  if (!here.home && workspace.document?.id === docId) {
+    await workspace.openDraft(docId, variationId, draftId, tool);
+    if (preview) await workspace.openPreview();
+    return;
+  }
+  // From Home, straight into the tab showing that variation, or a new one. (Opened in Home first,
+  // as a document is, it went to a tab as soon as Home had the document, on the variation it was
+  // last on, before Home had moved to the one asked for.)
+  const tab = tabShowing(here, docId, variationId) || newTabBeside(here);
+  await tab.ready;
+  try {
+    await context.run(tab, async () => {
+      await tab.workspace.openDraft(docId, variationId, draftId, tool);
+      if (preview) await tab.workspace.openPreview().catch(() => {});
+    });
+  } catch (error) {
+    // A new tab left with nothing in it would only say "Opening a document…".
+    if (!tab.workspace.document) closeTab(tab);
+    throw error;
+  }
+  activateTab(tab);
 });
 // A draft's right-click menu on the home screen: a new variation from it (the window's variation
 // card), a new document from it, or deleting it (not the original, or a draft another variation

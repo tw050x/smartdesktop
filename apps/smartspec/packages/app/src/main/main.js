@@ -157,16 +157,28 @@ const tabs = createTabs({
 // A tab still there: a guest tab (another app's window shows it) or one whose window is open.
 const tabAlive = (ctx) => Boolean(ctx && (ctx.guest || !ctx.win.isDestroyed()));
 // A menu, a question or a sheet over a tab's window (in a guest tab, the window showing it shows them).
-const { popupMenu, messageBox, confirmSheet, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
+const { popupMenu, messageBox, confirmSheet, createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, strips } = tabs;
 
-// A schematic opened in a new tab (the user asked for one: a schematic opened from home otherwise
-// opens in the tab showing home, as a browser's page does), beside the tab it came from, with the
-// levels to show (`request`: { path, layout }).
-async function openInTab(from, request) {
-  const { host } = from;
-  const tab = createTab(host, { after: from });
+// The tab showing a schematic that no chat owns, if one does: in Home's window, or with SmartDesktop's
+// windows (Home a guest tab there), any of this app's tabs.
+const tabShowing = (home, id) => (home.host.guest ? [...windows.values()] : home.host.tabs).find((t) => !t.home && !t.chat && t.where?.split('/')[0] === id);
+
+// A schematic opened from Home goes to its own tab (the one already showing it, if one is), with
+// what to open there (`request`: the message for that tab, 'open-level' with the levels to show, or
+// 'show-schema' with an AI's proposal); an AI working in Home goes with it.
+async function openInTab(home, schemaId, channel, request) {
+  // A chat's AI gets a tab of its own, even with the schematic open in another (the same schematic
+  // can be open in several tabs, each a different chat's); the user, the tab showing it that no
+  // chat owns, if there is one.
+  const reuse = !fromDesktop(home.session) && tabShowing(home, schemaId);
+  const tab = reuse || createTab(home.host.guest ? null : home.host);
   await tab.ready;
-  tab.contents.send('open-level', request);
+  tab.contents.send(channel, request);
+  const { session } = home;
+  if (session && session.ctx === home) {
+    releaseWindow(session);
+    if (!tab.session) setSessionWindow(session, tab);
+  }
   activateTab(tab);
   return tab;
 }
@@ -239,10 +251,10 @@ function updateMenu() {
   // (Through the family's tabs: with no windows of its own, SmartDesktop's menu bar shows it too.)
   tabs.setMenu(buildMenu({
     hasWindow: windows.size > 0,
+    inHome: Boolean(lastFocused?.home),
     actions: {
       newWindow: () => createWindow(),
-      newTab: () => newTab(),
-      // The tab (a window's last closes the window).
+      // A schematic's tab, or the window from Home (its pinned tab can't close).
       close: () => lastFocused && closeTab(lastFocused),
       nextTab: (delta) => stepTab(delta),
       showChat: () => lastFocused && desktop.chat(lastFocused.id, true),
@@ -318,10 +330,10 @@ async function windowForSession(session, startedApp) {
   // server stays up whether SmartDesktop is running or not).
   await tabs.ensureSmartDesktop();
   // The window SmartSpec opened as it started, if the AI started it: its tab on home, untouched.
-  const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
+  const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && !h.tabs[0].session);
   // (With no windows of its own, the tab is SmartDesktop's to place: no window is made for it here.)
-  const host = tabs.inSmartDesktop() ? null : lastFocused?.host ?? createWindow({ focus: false }).host;
-  const ctx = launched ? launched.tabs[0] : createTab(host, { focus: Boolean(fromDesktop(session)) });
+  const host = tabs.inSmartDesktop() ? null : launched || (lastFocused?.host ?? createWindow({ focus: false }).host);
+  const ctx = createTab(host, { focus: Boolean(fromDesktop(session)) });
   // A chat's AI gets a tab of its own, shown: the user is working with it.
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
@@ -460,8 +472,10 @@ const schemasFor = (session, tab) => ({
     if (icon && !itemIcons.get(made.schema)) itemIcons.set(made.schema, icon, 'ai');
     // In the AI's tab (on home, it goes there, as a browser tab goes to a page).
     const request = { schemaId: made.schema, name: proposal.name ?? '' };
+    // In the AI's tab; or, from Home (SmartDesktop's chat, the user being there), in a tab of its own.
     const ctx = await tab();
-    ctx.contents.send('show-schema', request);
+    if (ctx.home) await openInTab(ctx, made.schema, 'show-schema', request);
+    else ctx.contents.send('show-schema', request);
     // (A guest tab's window is another app's.)
     if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
     return {
@@ -1023,17 +1037,23 @@ handle('desktop-status', () => desktop.status);
 tabs.handlers(handle);
 // The user's choice of a schematic's icon, which the AI never replaces.
 handle('set-icon', (_ctx, schemaId, icon) => itemIcons.set(schemaId, icon, 'user'));
-// A schematic opened in a new tab (see openInTab): from home (`request`: { path, layout }), or a
-// schematic embedded in the one showing, from its card's Open in New Tab (`request`: { path } with
-// that schematic alone). Nothing else moves with it (an AI working in this tab stays here).
+// A schematic opened in Home, in a tab of its own (see openInTab): `request` is { path, layout }.
 handle('open-in-tab', (ctx, request) => {
-  if (!request?.path?.[0]?.schemaId || !ctx?.host) return null;
-  openInTab(ctx, request);
+  const schemaId = request?.path?.[0]?.schemaId;
+  if (!schemaId || !ctx) return null;
+  openInTab(ctx.home ? ctx : homeOf(ctx) ?? ctx, schemaId, 'open-level', request);
   return null;
 });
-handle('open-schematic-tab', (ctx, request) => {
-  if (!request?.path?.[0]?.schemaId || !ctx?.host) return null;
-  openInTab(ctx, request);
+// A schematic embedded in the one showing, opened in a tab of its own (the one already showing it,
+// if there is one), from its card's Open in New Tab: `request` is { path } with that schematic alone.
+// Nothing else moves with it (an AI working in this tab stays here).
+handle('open-schematic-tab', async (ctx, request) => {
+  const schemaId = request?.path?.[0]?.schemaId;
+  if (!schemaId || !ctx?.host) return null;
+  const tab = tabShowing(ctx, schemaId) || createTab(ctx.host.guest ? null : ctx.host);
+  await tab.ready;
+  tab.contents.send('open-level', request);
+  activateTab(tab);
   return null;
 });
 // Opens SmartDesktop's page, to download it.

@@ -6,8 +6,7 @@ export const API = {
   calls: {
     // The top bar (@smartdesktop/ui's tab-strip.js): the window's tabs, back and forward and the
     // status (`onTabs`), choosing and closing a tab, stepping back or forward in the tab showing,
-    // opening its status panel, the Home button (the tab's app takes it home) and + (a new tab of
-    // the app showing).
+    // opening its status panel, and going home (the window's Home tab).
     tabsState: 'tabs-state',
     tabActivate: 'tab-activate',
     tabClose: 'tab-close',
@@ -29,7 +28,6 @@ export const API = {
     stripTip: 'strip-tip',
     tabLines: 'tab-lines',
     goHome: 'go-home',
-    newTab: 'tab-new',
   },
   events: {
     onTabs: 'tabs',

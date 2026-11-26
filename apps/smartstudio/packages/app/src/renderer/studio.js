@@ -81,16 +81,17 @@ export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () =>
   let view = null; // the project showing: { projectId, root, update(project) }
   let server = { reachable: false, checking: true };
 
-  // A tab shows home or a project, going between them as a browser tab goes between pages (the
-  // user's choice, 2026-11-26): the window's Home button takes it home. One opened to show a project
-  // waits for it (`document`), rather than showing home first.
-  let waiting = api.tabKind === 'document';
+  // Which tab this is (see main.js): Home, the only one showing home, which opens a project in a
+  // tab of its own; or a project's, which never shows home (going home shows the Home tab).
+  const inHome = api.tabKind === 'home';
+  const inTab = api.tabKind === 'document';
+  let hadProject = false; // a project's tab has shown its project (and closes once it's gone)
 
   // Back and forward: where this tab has been, as a browser keeps it. The buttons are in the
   // window's top bar (tab-strip.js), which asks this tab to go back or forward and is told when it can.
   const HISTORY_LIMIT = 200;
   const stop = () => JSON.stringify(here && { projectId: here.projectId, name: here.name });
-  let visited = waiting ? [] : [stop()];
+  let visited = inTab ? [] : [stop()];
   let visiting = visited.length - 1;
   let historyShown = null;
   const showHistory = () => {
@@ -123,13 +124,13 @@ export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () =>
     else if (event.key === ']') travel(1);
   });
 
-  // Shows a project, here, or in a new tab beside this one (`newTab`).
+  // Shows a project: from Home, in a tab of its own (the one already showing it, unless `newTab`);
+  // in a project's tab, here.
   function open(next, { newTab = false } = {}) {
-    if (newTab) {
-      api.openInTab({ projectId: next.projectId, name: next.name ?? '' });
+    if (inHome) {
+      api.openInTab({ ...next, newTab });
       return;
     }
-    waiting = false;
     here = { projectId: next.projectId, name: next.name ?? '' };
     remember();
     render();
@@ -141,12 +142,13 @@ export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () =>
       const project = await api.getProject(here.projectId).catch(() => null);
       if (ticket !== rendering) return;
       if (!project) {
-        // It's gone (deleted): the tab goes home.
+        // It's gone (deleted): a project's tab with nothing left in it closes.
+        if (inTab && hadProject) api.tabClose();
         here = null;
         view = null;
-        waiting = false;
         return render();
       }
+      hadProject = true;
       here.name = project.name;
       if (view?.projectId !== project.id) {
         view = projectView(project);
@@ -154,7 +156,6 @@ export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () =>
       }
       view.update(project);
       document.body.classList.add('has-project');
-      document.body.classList.remove('document-tab', 'home-tab');
       homeShowing = false;
       goalEl.textContent = project.description ?? '';
       goalEl.title = project.description ?? '';
@@ -165,14 +166,11 @@ export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () =>
     }
     view = null;
     document.body.classList.remove('has-project');
-    // What the tab is now (its page's styles): waiting for a project, or on home.
-    document.body.classList.toggle('document-tab', waiting);
-    document.body.classList.toggle('home-tab', !waiting);
-    const next = waiting ? h('div', { className: 'tab-waiting-view' }) : await homeView();
+    const next = inTab ? h('div', { className: 'tab-waiting-view' }) : await homeView();
     if (ticket !== rendering) return;
     const listTop = el.querySelector('.browser-list')?.scrollTop ?? 0;
-    if (!homeShowing && !waiting) next.classList.add('arriving');
-    homeShowing = !waiting;
+    if (!homeShowing && !inTab) next.classList.add('arriving');
+    homeShowing = !inTab;
     el.replaceChildren(next);
     const list = el.querySelector('.browser-list');
     if (list) {
@@ -693,18 +691,10 @@ export function createStudio({ el, bottomBar, goal: goalEl, api, onShown = () =>
   api.onProjectsChanged((id) => {
     if (!here || !id || id === here.projectId) render();
   });
-  // The window's Home button: home, here.
-  api.onGoHome?.(() => {
-    if (!here && !waiting) return;
-    waiting = false;
-    here = null;
-    remember();
-    render();
-  });
-  // A project opened in this tab: in a new tab from home (see main.js's openInTab), or an AI's.
+  // A project opened from Home, or an AI's, in this tab (see main.js's openInTab).
   api.onOpenProject?.((request) => {
     if (!request?.projectId) return;
-    waiting = false;
+    if (inHome) return open(request);
     here = { projectId: request.projectId, name: request.name ?? '' };
     remember();
     render().then(() => view?.focus());
