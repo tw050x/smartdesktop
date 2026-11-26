@@ -2,8 +2,10 @@
 // showing), the window's tabs and a + for a new one, and the app's status at its end. Home is a
 // button, as in a browser (the user's choice, 2026-11-26: it was a pinned first tab, the only one
 // showing home): it takes the tab showing home, and any tab can show home or a document (a
-// schematic, a topic, a board…). Each tab has its name (Home, on home) and a button to close it,
-// and beside it a sparkle while an AI works in it (the user's choice). The + (and ⌘T) opens a new
+// schematic, a topic, a board…). Each tab has its name (Home, on home) and a button to close it.
+// An AI working in a tab has its name in a pill just before it, as Chrome marks a tab an AI controls
+// (the user's choice, 2026-11-26: it was a sparkle beside the close button); a chat's (SmartDesktop's)
+// brings that chat forward when clicked, any other does nothing. The + (and ⌘T) opens a new
 // tab on home. The window has tabs rather than opening more windows (the user's choice; more
 // windows are still allowed). The status pill opens the status panel (server-status.js) in the tab
 // showing.
@@ -29,8 +31,6 @@
 import { iconSvg } from '../main/icons.js';
 
 const HOME_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>';
-// An AI working in the tab: a sparkle, beside its close button.
-const AI_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2.5c.5 4.6 2.9 7 7.5 7.5-4.6.5-7 2.9-7.5 7.5-.5-4.6-2.9-7-7.5-7.5 4.6-.5 7-2.9 7.5-7.5Z"/><path d="M19 15.5c.25 2 1.25 3 3.25 3.25-2 .25-3 1.25-3.25 3.25-.25-2-1.25-3-3.25-3.25 2-.25 3-1.25 3.25-3.25Z"/></svg>';
 // A chat in SmartDesktop owning the tab: a speech bubble, a button beside its close button.
 const CHAT_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
 const PLUS_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -260,28 +260,31 @@ export function createTabStrip({ el, api }) {
         close.setAttribute('aria-label', `Close ${tab.title}`);
         close.addEventListener('click', () => api.tabClose?.(tab.id));
         node.append(title);
-        // One mark beside the close button. A tab a chat owns has a button bringing that chat forward
-        // in SmartDesktop, ready to type in (the user's choice): the chat mark, or the sparkle while
-        // its AI works. Another AI working in it (not a chat's) shows the sparkle alone.
-        if (tab.chat) {
+        // A tab a chat owns, with no AI in it now, has a button beside its close button bringing that
+        // chat forward in SmartDesktop, ready to type in (the user's choice); with its AI in it, the
+        // pill before the tab does.
+        if (tab.chat && !tab.ai) {
           const chat = document.createElement('button');
           chat.type = 'button';
-          chat.className = `tab-chat-button${tab.ai ? ' working' : ''}`;
-          chat.innerHTML = tab.ai ? AI_ICON : CHAT_ICON;
-          chat.setAttribute('aria-label', tab.ai ? `Show the chat “${tab.chat.title}”, working in this tab` : `Show the chat “${tab.chat.title}”`);
+          chat.className = 'tab-chat-button';
+          chat.innerHTML = CHAT_ICON;
+          chat.setAttribute('aria-label', `Show the chat “${tab.chat.title}”`);
           chat.addEventListener('click', () => api.tabChat?.(tab.id));
           node.append(chat);
-        } else if (tab.ai) {
-          const ai = document.createElement('span');
-          ai.className = 'tab-ai-mark';
-          ai.innerHTML = AI_ICON;
-          ai.setAttribute('aria-label', `${tab.ai} is working in this tab`);
-          node.append(ai);
         }
         node.append(close);
       }
-      return node;
-    }), newTab);
+      if (!tab.ai) return node;
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = `tab-ai-pill${tab.chat ? ' chat' : ''}`;
+      pill.textContent = tab.ai;
+      pill.dataset.noTip = '';
+      pill.title = tab.chat ? `${tab.ai} is working in this tab: show the chat “${tab.chat.title}”` : `${tab.ai} is working in this tab`;
+      pill.setAttribute('aria-label', pill.title);
+      if (tab.chat) pill.addEventListener('click', () => api.tabChat?.(tab.id));
+      return [pill, node];
+    }).flat(), newTab);
     // The tabs moved or changed: where they are now, at once (a window behind another may get no
     // animation frames, and a tab can be dragged into it meanwhile), and the pills follow.
     sendBoxes();
