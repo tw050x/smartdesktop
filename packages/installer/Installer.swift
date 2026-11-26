@@ -10,7 +10,8 @@
 // `--headless` installs with no window, saying each step (for checking it). For testing, the
 // environment can move things: INSTALL_APP_RELEASES and INSTALL_DESKTOP_RELEASES
 // (`owner/repo:tag prefix`), INSTALL_DIR, INSTALL_TEAM (an unsigned build has no team of its own),
-// and INSTALL_OPEN=0 (don't open the app after).
+// INSTALL_OPEN=0 (don't open the app after) and INSTALL_DESKTOP=1 (SmartDesktop
+// too, even if it's installed).
 import AppKit
 import CryptoKit
 import Foundation
@@ -47,6 +48,15 @@ struct Release: Decodable {
 }
 
 // The installing: what's happening, as the window shows it.
+// One app being installed, as the Installation step lists it.
+struct Item: Identifiable {
+  enum State: Equatable { case waiting, working(String), installed, skipped(String), failed }
+  let id: String // its id: smartdoc, smartdesktop
+  let name: String
+  var state: State = .waiting
+  var fraction: Double?
+}
+
 @MainActor
 final class Installation: ObservableObject {
   @Published var step = ""
@@ -54,6 +64,10 @@ final class Installation: ObservableObject {
   @Published var problem: String?
   @Published var running = false
   @Published var finished = false
+  @Published var items: [Item] = []
+  // Where it goes: /Applications, for everyone on this Mac, or ~/Applications, just for this user.
+  @Published var forEveryone = FileManager.default.isWritableFile(atPath: "/Applications")
+  var installedApp: URL?
 
   let app: String // its id: smartdoc
   let name: String // its name: SmartDoc
@@ -64,7 +78,10 @@ final class Installation: ObservableObject {
     let info = Bundle.main.infoDictionary ?? [:]
     app = environment["INSTALL_APP"] ?? (info["SmartDesktopApp"] as? String) ?? "smartdoc"
     name = environment["INSTALL_APP_NAME"] ?? (info["SmartDesktopAppName"] as? String) ?? "SmartDoc"
+    items = [Item(id: app, name: name)] + (desktopInstalled && environment["INSTALL_DESKTOP"] != "1" ? [] : [Item(id: "smartdesktop", name: "SmartDesktop")])
   }
+
+  var canInstallForEveryone: Bool { FileManager.default.isWritableFile(atPath: "/Applications") }
 
   var arch: String {
     var info = utsname()
@@ -75,7 +92,7 @@ final class Installation: ObservableObject {
 
   var installDir: URL {
     if let given = environment["INSTALL_DIR"] { return URL(fileURLWithPath: given) }
-    return FileManager.default.isWritableFile(atPath: "/Applications") ? URL(fileURLWithPath: "/Applications") : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications")
+    return forEveryone && canInstallForEveryone ? URL(fileURLWithPath: "/Applications") : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications")
   }
 
   var desktopInstalled: Bool {
@@ -83,33 +100,46 @@ final class Installation: ObservableObject {
     return places.contains { FileManager.default.fileExists(atPath: $0) }
   }
 
+  // Installs each item in turn (those already installed left as they are), each one's progress on
+  // its row. Opening the app is the Summary's (openApp), or the end of --headless.
   func install() async {
     running = true
     problem = nil
+    var current = 0
     do {
       let team = try expectedTeam()
-      let appPath = try await installLatest(Source.from("INSTALL_APP_RELEASES", fallback: "\(app)-v"), appName: name, team: team)
-      if !desktopInstalled {
-        _ = try await installLatest(Source.from("INSTALL_DESKTOP_RELEASES", fallback: "smartdesktop-v"), appName: "SmartDesktop", team: team)
-      } else {
-        show("SmartDesktop is installed already")
+      for index in items.indices where items[index].state != .installed {
+        current = index
+        let item = items[index]
+        let source = item.id == "smartdesktop" ? Source.from("INSTALL_DESKTOP_RELEASES", fallback: "smartdesktop-v") : Source.from("INSTALL_APP_RELEASES", fallback: "\(item.id)-v")
+        let path = try await installLatest(source, appName: item.name, team: team)
+        items[index].state = .installed
+        items[index].fraction = nil
+        if item.id == app { installedApp = path }
       }
-      show("Opening \(name)")
-      if environment["INSTALL_OPEN"] != "0" {
-        let configuration = NSWorkspace.OpenConfiguration()
-        _ = try await NSWorkspace.shared.openApplication(at: appPath, configuration: configuration)
-      }
+      if !items.contains(where: { $0.id == "smartdesktop" }) { say("SmartDesktop is installed already") }
       finished = true
     } catch {
       problem = error.localizedDescription
+      if items.indices.contains(current) { items[current].state = .failed }
       say("Couldn’t install: \(error.localizedDescription)")
     }
     running = false
   }
 
+  func openApp() async {
+    guard let installedApp, environment["INSTALL_OPEN"] != "0" else { return }
+    _ = try? await NSWorkspace.shared.openApplication(at: installedApp, configuration: NSWorkspace.OpenConfiguration())
+  }
+
+  // What's happening now, on the row of the item being installed.
   func show(_ text: String, _ part: Double? = nil) {
     step = text
     fraction = part
+    if let index = items.firstIndex(where: { if case .installed = $0.state { return false }; return text.hasSuffix($0.name) || text.contains("\($0.name)’s") }) {
+      items[index].state = .working(text)
+      items[index].fraction = part
+    }
     say(part.map { "\(text) \(Int(($0 * 100).rounded()))%" } ?? text)
   }
 
@@ -242,36 +272,159 @@ final class DownloadProgress: NSObject, URLSessionDownloadDelegate, @unchecked S
   }
 }
 
+// A wizard, as a Mac installer is (the user's choice): its steps listed down the left, the current
+// one marked; each step's page on the right; Go Back and Continue along the bottom.
+enum Step: Int, CaseIterable {
+  case introduction, destination, installation, summary
+  var title: String { ["Introduction", "Destination", "Installation", "Summary"][rawValue] }
+}
+
 struct InstallerView: View {
   @ObservedObject var installation: Installation
+  @State private var step = Step.introduction
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Install \(installation.name)").font(.headline)
-      Text("\(installation.name) opens in SmartDesktop, which holds the windows and the AI chat for all your apps. This installs both (SmartDesktop only if you don’t have it), checks they’re genuine, and opens \(installation.name).")
+    VStack(spacing: 0) {
+      HStack(alignment: .top, spacing: 0) {
+        // The steps.
+        VStack(alignment: .leading, spacing: 10) {
+          ForEach(Step.allCases, id: \.self) { one in
+            HStack(spacing: 8) {
+              Circle()
+                .fill(one == step ? Color.accentColor : one.rawValue < step.rawValue ? Color.secondary : Color.secondary.opacity(0.3))
+                .frame(width: 8, height: 8)
+              Text(one.title)
+                .fontWeight(one == step ? .semibold : .regular)
+                .foregroundStyle(one.rawValue <= step.rawValue ? .primary : .secondary)
+            }
+          }
+          Spacer()
+        }
+        .padding(20)
+        .frame(width: 170, alignment: .leading)
+        .frame(maxHeight: .infinity)
+        .background(.quaternary.opacity(0.5))
+        Divider()
+        // The step's page.
+        VStack(alignment: .leading, spacing: 14) {
+          page
+          Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+      }
+      Divider()
+      buttons.padding(.horizontal, 20).padding(.vertical, 14)
+    }
+    .frame(width: 640, height: 420)
+  }
+
+  @ViewBuilder var page: some View {
+    switch step {
+    case .introduction:
+      Text("Welcome to \(installation.name)").font(.title2).fontWeight(.semibold)
+      Text("\(installation.name) opens in SmartDesktop, which holds the windows and the AI chat for all your apps.")
+        .fixedSize(horizontal: false, vertical: true)
+      Text("This installs:").padding(.top, 4)
+      VStack(alignment: .leading, spacing: 6) {
+        ForEach(installation.items) { item in
+          Label(item.name, systemImage: "app.badge").labelStyle(.titleAndIcon)
+        }
+      }
+      if installation.items.count == 1 {
+        Text("SmartDesktop is installed already, so only \(installation.name) is added.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      }
+      Text("Each is downloaded from its latest release and checked to be genuine before it’s installed. After that they keep themselves up to date.")
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
-      if installation.running || installation.finished {
-        VStack(alignment: .leading, spacing: 6) {
-          Text(installation.finished ? "Done" : installation.step).font(.caption).foregroundStyle(.secondary)
-          if let part = installation.fraction { ProgressView(value: part) } else { ProgressView().progressViewStyle(.linear) }
-        }
+    case .destination:
+      Text("Where to install").font(.title2).fontWeight(.semibold)
+      Picker("", selection: $installation.forEveryone) {
+        Text("For everyone on this Mac (Applications)").tag(true)
+        Text("Just for me (Applications in your home folder)").tag(false)
+      }
+      .pickerStyle(.radioGroup)
+      .labelsHidden()
+      .disabled(!installation.canInstallForEveryone)
+      if !installation.canInstallForEveryone {
+        Text("You can’t add apps to Applications for everyone on this Mac, so they go in your own.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      }
+      Text("Installs in \(installation.installDir.path)").font(.caption).foregroundStyle(.secondary)
+    case .installation:
+      Text(installation.finished ? "Installed" : installation.running ? "Installing…" : "Ready to install").font(.title2).fontWeight(.semibold)
+      VStack(alignment: .leading, spacing: 14) {
+        ForEach(installation.items) { item in row(item) }
       }
       if let problem = installation.problem {
         Text("Couldn’t install: \(problem)").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
       }
+    case .summary:
+      Text("\(installation.name) is installed").font(.title2).fontWeight(.semibold)
+      Text("Open it to start. It opens in SmartDesktop, with your AI chat beside it.")
+        .fixedSize(horizontal: false, vertical: true)
+      Text("Both are in \(installation.installDir.path), and keep themselves up to date.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  func row(_ item: Item) -> some View {
+    VStack(alignment: .leading, spacing: 5) {
       HStack {
-        Button("Cancel") { NSApp.terminate(nil) }.keyboardShortcut(.cancelAction).disabled(installation.running)
+        Text(item.name).fontWeight(.medium)
         Spacer()
-        Button(installation.problem == nil ? "Install" : "Try Again") { Task { await installation.install() } }
-          .keyboardShortcut(.defaultAction)
-          .disabled(installation.running || installation.finished)
+        switch item.state {
+        case .installed: Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        case .failed: Label("Not installed", systemImage: "xmark.circle.fill").foregroundStyle(.red)
+        case .skipped(let why): Text(why).foregroundStyle(.secondary)
+        case .waiting: Text("Waiting").foregroundStyle(.secondary)
+        case .working(let what): Text(what).foregroundStyle(.secondary)
+        }
+      }
+      if case .working = item.state {
+        if let part = item.fraction { ProgressView(value: part) } else { ProgressView().progressViewStyle(.linear) }
       }
     }
-    .padding(22)
-    .frame(width: 460)
-    .onChange(of: installation.finished) { _, done in
-      if done { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSApp.terminate(nil) } }
+  }
+
+  @ViewBuilder var buttons: some View {
+    HStack {
+      if step == .summary {
+        Spacer()
+        Button("Close") { NSApp.terminate(nil) }.keyboardShortcut(.cancelAction)
+        Button("Open \(installation.name)") {
+          Task {
+            await installation.openApp()
+            NSApp.terminate(nil)
+          }
+        }.keyboardShortcut(.defaultAction)
+      } else {
+        Button("Cancel") { NSApp.terminate(nil) }.keyboardShortcut(.cancelAction).disabled(installation.running)
+        Spacer()
+        Button("Go Back") { step = Step(rawValue: step.rawValue - 1) ?? .introduction }
+          .disabled(step == .introduction || installation.running || installation.finished)
+        Button(continueLabel) { advance() }
+          .keyboardShortcut(.defaultAction)
+          .disabled(installation.running)
+      }
+    }
+  }
+
+  var continueLabel: String {
+    switch step {
+    case .destination: return "Install"
+    case .installation: return installation.finished ? "Continue" : installation.problem == nil ? "Install" : "Try Again"
+    default: return "Continue"
+    }
+  }
+
+  func advance() {
+    switch step {
+    case .introduction: step = .destination
+    case .destination:
+      step = .installation
+      Task { await installation.install() }
+    case .installation:
+      if installation.finished { step = .summary } else { Task { await installation.install() } }
+    case .summary: break
     }
   }
 }
@@ -279,7 +432,7 @@ struct InstallerView: View {
 struct InstallerApp: App {
   @StateObject private var installation = Installation()
   var body: some Scene {
-    Window("Install", id: "install") { InstallerView(installation: installation) }
+    Window("Install \(installation.name)", id: "install") { InstallerView(installation: installation) }
       .windowResizability(.contentSize)
   }
 }
@@ -295,6 +448,7 @@ enum Main {
       }
       await installation.install()
       let failed = await MainActor.run { installation.problem != nil }
+      if !failed { await installation.openApp() }
       exit(failed ? 1 : 0)
     }
     InstallerApp.main()

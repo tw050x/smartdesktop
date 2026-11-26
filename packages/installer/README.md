@@ -12,4 +12,7 @@ the Bin; and opens the app.
 The build is unsigned: the release workflow signs and notarises it, as it does the apps. `--headless`
 installs with no window, saying each step. For testing, the environment moves things:
 `INSTALL_APP_RELEASES` and `INSTALL_DESKTOP_RELEASES` (`owner/repo:tag prefix`), `INSTALL_DIR`,
-`INSTALL_TEAM` (an unsigned build has no team of its own) and `INSTALL_OPEN=0`.
+`INSTALL_TEAM` (an unsigned build has no team of its own), `INSTALL_OPEN=0` and `INSTALL_DESKTOP=1`
+(SmartDesktop too, even if it's installed). It's a wizard, as a Mac installer is: Introduction,
+Destination (Applications for everyone, or your own), Installation (a row for each app, its
+progress) and Summary (Open).
