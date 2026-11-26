@@ -1,0 +1,31 @@
+{
+  "name": "@smartprep/cli",
+  "version": "0.1.0",
+  "description": "The smartprep command: installs the SmartPrep app, sets up Claude Desktop and Claude Code to use it, checks the connection, and runs SmartPrep's MCP connection for agents set up with npx.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "smartprep": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "mcp.js",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tw050x/smartprep.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/tw050x/smartprep",
+  "keywords": [
+    "mcp",
+    "interview-preparation",
+    "study-notes",
+    "learning",
+    "claude"
+  ]
+}

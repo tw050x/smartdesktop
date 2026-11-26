@@ -1,0 +1,22 @@
+name: Prerequisites
+
+# Everything that must pass before a release is allowed. The Release workflow waits for
+# this workflow's run on the commit being released.
+on:
+  push:
+
+jobs:
+  prerequisites:
+    name: Prerequisites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build the interface
+        run: npm run build
