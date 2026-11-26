@@ -1776,7 +1776,7 @@ function dragOver(point) {
   dragging.target = target;
   if (before && before.host !== target?.host && !before.host.win.isDestroyed()) before.host.win.webContents.send('tab-drop', null);
   if (target && (target.host !== before?.host || target.index !== before.index || target.x !== before.x)) target.host.win.webContents.send('tab-drop', { id: dragging.tab.id, index: target.index, x: target.x });
-  tabDrag.move(point, Boolean(target));
+  tabDrag.move(point);
 }
 handle('tab-drag-start', async (id, { chip, offset, point } = {}) => {
   const host = current()?.host;
@@ -1785,12 +1785,9 @@ handle('tab-drag-start', async (id, { chip, offset, point } = {}) => {
   const drag = { tab, offset, chip, point, target: null };
   dragging = drag;
   const box = { x: Math.round(chip.x), y: Math.round(chip.y), width: Math.max(1, Math.round(chip.width)), height: Math.max(1, Math.round(chip.height)) };
-  const [chipImage, pageImage] = await Promise.all([
-    host.win.webContents.capturePage(box),
-    tab.contents.capturePage().catch(() => null), // a tab not showing gives its last picture
-  ]);
+  const chipImage = await host.win.webContents.capturePage(box);
   if (dragging !== drag) return false; // let go meanwhile
-  await tabDrag.show({ chip: chipImage, chipSize: box, page: pageImage, pageSize: tab.view.getBounds(), offset, point: drag.point, colours: windowColours() });
+  await tabDrag.show({ chip: chipImage, chipSize: box, offset, point: drag.point, colours: windowColours() });
   if (dragging === drag) dragOver(drag.point);
   return true;
 });
