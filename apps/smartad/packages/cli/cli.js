@@ -12,7 +12,7 @@ Commands:
   wait            Stay until the user has done what an AI is waiting for (wait --help)
 
 SmartAd itself is a Mac app: install it with the install command, or download it from
-https://github.com/tw050x/smartad/releases/latest.`;
+https://github.com/tw050x/smartdesktop/releases?q=smartad-v&expanded=true.`;
 
 const [command, ...rest] = process.argv.slice(2);
 

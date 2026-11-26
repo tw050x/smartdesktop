@@ -17,10 +17,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tw050x/smartstudio.git",
-    "directory": "packages/cli"
+    "url": "git+https://github.com/tw050x/smartdesktop.git",
+    "directory": "apps/smartstudio/packages/cli"
   },
-  "homepage": "https://github.com/tw050x/smartstudio",
+  "homepage": "https://github.com/tw050x/smartdesktop/tree/master/apps/smartstudio",
   "keywords": [
     "mcp",
     "music",

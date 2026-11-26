@@ -81,7 +81,7 @@ describe('opening the app', () => {
     // the app runs on macOS; on a Mac without SmartAd, that it isn't installed.
     const env = { SMARTAD_PORT: '1', SMARTAD_USER_DATA: tempDir('no-app') };
     await assert.rejects(ensureRunning({ env, execPath: '/usr/local/bin/node', platform: 'linux' }), /runs on macOS/);
-    assert.match(new NotInstalled().message, /isn't installed on this computer\. Tell the user to download it from https:\/\/github\.com\/tw050x\/smartad\/releases\/latest/);
+    assert.match(new NotInstalled().message, /isn't installed on this computer\. Tell the user to download it from https:\/\/github\.com\/tw050x\/smartdesktop\/releases\?q=smartad-v&expanded=true/);
   });
 });
 

@@ -1544,7 +1544,7 @@ handle('pictures-drawn', (id, result) => {
   answer?.(result);
 });
 // Opens SmartDesktop's page, to download it.
-handle('get-desktop', () => shell.openExternal('https://github.com/tw050x/smartdesktop/releases/latest'));
+handle('get-desktop', () => shell.openExternal('https://smartdesktop.tw050x.net/'));
 handle('step-draft', (delta) => workspace.stepDraft(delta));
 handle('draft-line', () => workspace.draftLine());
 handle('draft-pdf', (draftId) => workspace.draftPdf(draftId));

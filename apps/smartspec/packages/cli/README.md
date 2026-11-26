@@ -4,7 +4,7 @@ Plan systems and define the contracts between them, with your own AI. SmartSpec 
 
 This package is the `smartspec` command.
 
-SmartSpec must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartspec/releases/latest), drag it into Applications.
+SmartSpec must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartdesktop/releases?q=smartspec-v&expanded=true), drag it into Applications.
 
 ## Install the app
 

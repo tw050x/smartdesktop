@@ -17,10 +17,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tw050x/smartspec.git",
-    "directory": "packages/cli"
+    "url": "git+https://github.com/tw050x/smartdesktop.git",
+    "directory": "apps/smartspec/packages/cli"
   },
-  "homepage": "https://github.com/tw050x/smartspec",
+  "homepage": "https://github.com/tw050x/smartdesktop/tree/master/apps/smartspec",
   "keywords": [
     "mcp",
     "planning",

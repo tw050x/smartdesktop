@@ -1037,7 +1037,7 @@ handle('open-schematic-tab', (ctx, request) => {
   return null;
 });
 // Opens SmartDesktop's page, to download it.
-handle('get-desktop', () => shell.openExternal('https://github.com/tw050x/smartdesktop/releases/latest'));
+handle('get-desktop', () => shell.openExternal('https://smartdesktop.tw050x.net/'));
 handle('get-appearance', () => nativeTheme.themeSource);
 handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 

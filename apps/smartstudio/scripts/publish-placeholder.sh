@@ -1,7 +1,7 @@
 #!/bin/sh
 # Publishes a placeholder of @smartstudio/cli (0.0.0, nothing in it but this note) from this Mac, so
 # the package exists on npm: a package has to exist before it can trust the Release workflow to
-# publish it (scripts/trust-release-workflow.sh), and from then on the workflow publishes every
+# publish it (scripts/trust-release-workflow.sh at the repository's top), and from then on the workflow publishes every
 # real version. Sign in first (npm login), then give it a code from your authenticator:
 #
 #   sh scripts/publish-placeholder.sh 123456
@@ -25,8 +25,8 @@ cat >"$dir/package.json" <<'EOF'
   "homepage": "https://smartstudio.tw050x.net",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tw050x/smartstudio.git",
-    "directory": "packages/cli"
+    "url": "git+https://github.com/tw050x/smartdesktop.git",
+    "directory": "apps/smartstudio/packages/cli"
   },
   "files": ["README.md"]
 }
@@ -35,7 +35,7 @@ cat >"$dir/README.md" <<'EOF'
 # @smartstudio/cli
 
 A placeholder. SmartStudio's command (connecting an AI app to SmartStudio) is published from
-[tw050x/smartstudio](https://github.com/tw050x/smartstudio); use the latest version.
+[tw050x/smartdesktop](https://github.com/tw050x/smartdesktop/tree/master/apps/smartstudio); use the latest version.
 EOF
 echo "publishing $name@0.0.0 (placeholder)"
 (cd "$dir" && npm publish --access public --otp="$otp" --loglevel=warn)

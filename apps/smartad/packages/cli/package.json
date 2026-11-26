@@ -17,10 +17,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tw050x/smartad.git",
-    "directory": "packages/cli"
+    "url": "git+https://github.com/tw050x/smartdesktop.git",
+    "directory": "apps/smartad/packages/cli"
   },
-  "homepage": "https://github.com/tw050x/smartad",
+  "homepage": "https://github.com/tw050x/smartdesktop/tree/master/apps/smartad",
   "keywords": [
     "mcp",
     "advertising",

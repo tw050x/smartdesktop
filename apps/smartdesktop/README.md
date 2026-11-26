@@ -14,7 +14,7 @@ It's in beta, so it may change significantly from one version to the next.
 
 ## Using it
 
-1. Download SmartDesktop from the [latest release](https://github.com/tw050x/smartdesktop/releases/latest)
+1. Download SmartDesktop from the [latest release](https://github.com/tw050x/smartdesktop/releases?q=smartdesktop-v&expanded=true)
    and drag it into Applications, beside SmartDoc or SmartSpec.
 2. Open the chat from a SmartDoc or SmartSpec window: Window › Show the Chat (⇧⌘C), or Open Chat in
    a tab's right-click menu.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Publishes a placeholder of @smartplan/cli (0.0.0, nothing in it but this note) from this Mac, so
 # the package exists on npm: a package has to exist before it can trust the Release workflow to
-# publish it (scripts/trust-release-workflow.sh), and from then on the workflow publishes every
+# publish it (scripts/trust-release-workflow.sh at the repository's top), and from then on the workflow publishes every
 # real version. Sign in first (npm login), then give it a code from your authenticator:
 #
 #   sh scripts/publish-placeholder.sh 123456

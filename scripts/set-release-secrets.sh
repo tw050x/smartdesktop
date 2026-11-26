@@ -1,6 +1,6 @@
 #!/bin/bash
-# Sets the GitHub secrets the Release workflow signs and notarises with (see
-# .github/workflows/release.yml), asking for each value. Values are typed or pasted at hidden
+# Sets the GitHub secrets the Release workflow signs and notarises with, one set for every app of the
+# family (see .github/workflows/release.yml), asking for each value. Values are typed or pasted at hidden
 # prompts and piped straight to `gh secret set`: they're never shown or written to a file. (Two
 # checks, of the .p12's password and of the Apple details, pass a password on a command line for a
 # moment; see below.) Run it in your own terminal, from anywhere, with the Developer ID Application
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-REPO="tw050x/smartplan"
+REPO="tw050x/smartdesktop"
 
 say() { printf '\n%s\n' "$*"; }
 fail() { printf '\nStopped: %s\n' "$*" >&2; exit 1; }
@@ -58,7 +58,7 @@ if [ -n "$p12" ]; then
   # Checks the password opens it before uploading either, with macOS's own tools: the import goes
   # to a throwaway keychain that's deleted straight after. (security takes the password on its
   # command line, so it's in this Mac's process list for that moment.)
-  check_keychain=$(mktemp -u "${TMPDIR:-/tmp}/smartplan-check.XXXXXX").keychain
+  check_keychain=$(mktemp -u "${TMPDIR:-/tmp}/release-check.XXXXXX").keychain
   check_password=$(uuidgen)
   security create-keychain -p "$check_password" "$check_keychain" >/dev/null
   trap 'security delete-keychain "$check_keychain" >/dev/null 2>&1 || true' EXIT

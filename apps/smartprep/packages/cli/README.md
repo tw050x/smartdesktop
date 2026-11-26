@@ -4,7 +4,7 @@ Prepare for interviews, and learn anything unfamiliar, with your own AI. SmartPr
 
 This package is the `smartprep` command.
 
-SmartPrep must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartprep/releases/latest), drag it into Applications.
+SmartPrep must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartdesktop/releases?q=smartprep-v&expanded=true), drag it into Applications.
 
 ## Install the app
 

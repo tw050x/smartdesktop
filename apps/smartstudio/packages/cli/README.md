@@ -4,7 +4,7 @@ Make music and video with your own AI, on your own generation server. SmartStudi
 
 This package is the `smartstudio` command.
 
-SmartStudio must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartstudio/releases/latest), drag it into Applications.
+SmartStudio must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartdesktop/releases?q=smartstudio-v&expanded=true), drag it into Applications.
 
 ## Install the app
 

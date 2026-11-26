@@ -20,8 +20,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tw050x/smartdoc.git",
-    "directory": "packages/pdf"
+    "url": "git+https://github.com/tw050x/smartdesktop.git",
+    "directory": "apps/smartdoc/packages/pdf"
   },
   "homepage": "https://smartdoc.tw050x.net/",
   "keywords": [

@@ -16,7 +16,7 @@ import { APP_ID, APP_NAME, REPOSITORY } from './platform.js';
 
 const run = promisify(execFile);
 
-export const downloadBase = (env = process.env) => (env.SMARTPLAN_DOWNLOADS ?? `https://github.com/${REPOSITORY}/releases/latest/download`).replace(/\/$/, '');
+export const downloadBase = (env = process.env) => (env.SMARTPLAN_DOWNLOADS ?? `https://github.com/${REPOSITORY}/releases/download/smartplan-updates`).replace(/\/$/, '');
 
 // The release's version and files, from latest-mac.yml (the few lines electron-builder writes).
 export function parseLatest(text) {
@@ -68,7 +68,8 @@ export async function installRelease(zip, dir, { env = process.env, progress = (
   const work = await mkdtemp(path.join(os.tmpdir(), 'smartplan-install-'));
   try {
     const file = path.join(work, path.basename(zip.url));
-    const res = await get(`${downloadBase(env)}/${zip.url}`);
+    // (The feed names each file by its whole address, in the version's own release.)
+    const res = await get(/^https?:/.test(zip.url) ? zip.url : `${downloadBase(env)}/${zip.url}`);
     const total = Number(res.headers.get('content-length')) || zip.size || null;
     const hash = createHash('sha512');
     let received = 0;

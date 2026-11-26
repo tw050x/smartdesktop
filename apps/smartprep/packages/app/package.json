@@ -45,9 +45,8 @@
     ],
     "publish": [
       {
-        "provider": "github",
-        "owner": "tw050x",
-        "repo": "smartprep"
+        "provider": "generic",
+        "url": "https://github.com/tw050x/smartdesktop/releases/download/smartprep-updates"
       }
     ],
     "mac": {

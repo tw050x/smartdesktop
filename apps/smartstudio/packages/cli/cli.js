@@ -11,7 +11,7 @@ Commands:
   mcp             Run SmartStudio's MCP connection (what agents set up with npx run)
 
 SmartStudio itself is a Mac app: install it with the install command, or download it from
-https://github.com/tw050x/smartstudio/releases/latest.`;
+https://github.com/tw050x/smartdesktop/releases?q=smartstudio-v&expanded=true.`;
 
 const [command, ...rest] = process.argv.slice(2);
 

@@ -43,9 +43,8 @@
     ],
     "publish": [
       {
-        "provider": "github",
-        "owner": "tw050x",
-        "repo": "smartad"
+        "provider": "generic",
+        "url": "https://github.com/tw050x/smartdesktop/releases/download/smartad-updates"
       }
     ],
     "mac": {

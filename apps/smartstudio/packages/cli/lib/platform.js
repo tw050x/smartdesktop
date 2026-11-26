@@ -11,8 +11,10 @@ import path from 'node:path';
 
 export const APP_NAME = 'SmartStudio';
 export const APP_ID = 'com.tw050x.smartstudio';
-export const REPOSITORY = 'tw050x/smartstudio';
-export const DOWNLOAD_PAGE = 'https://github.com/tw050x/smartstudio/releases/latest';
+// The family's repo: this app's releases are tagged smartstudio-v…, and its update feed is the release
+// smartstudio-updates (the latest version's latest-mac.yml, pointing at that version's files).
+export const REPOSITORY = 'tw050x/smartdesktop';
+export const DOWNLOAD_PAGE = 'https://github.com/tw050x/smartdesktop/releases?q=smartstudio-v&expanded=true';
 export const DEFAULT_PORT = 47850;
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 

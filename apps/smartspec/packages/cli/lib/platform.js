@@ -11,8 +11,10 @@ import path from 'node:path';
 
 export const APP_NAME = 'SmartSpec';
 export const APP_ID = 'com.tw050x.smartspec';
-export const REPOSITORY = 'tw050x/smartspec';
-export const DOWNLOAD_PAGE = 'https://github.com/tw050x/smartspec/releases/latest';
+// The family's repo: this app's releases are tagged smartspec-v…, and its update feed is the release
+// smartspec-updates (the latest version's latest-mac.yml, pointing at that version's files).
+export const REPOSITORY = 'tw050x/smartdesktop';
+export const DOWNLOAD_PAGE = 'https://github.com/tw050x/smartdesktop/releases?q=smartspec-v&expanded=true';
 export const DEFAULT_PORT = 47825;
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 

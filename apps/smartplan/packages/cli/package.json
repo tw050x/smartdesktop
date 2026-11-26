@@ -17,10 +17,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tw050x/smartplan.git",
-    "directory": "packages/cli"
+    "url": "git+https://github.com/tw050x/smartdesktop.git",
+    "directory": "apps/smartplan/packages/cli"
   },
-  "homepage": "https://github.com/tw050x/smartplan",
+  "homepage": "https://github.com/tw050x/smartdesktop/tree/master/apps/smartplan",
   "keywords": [
     "mcp",
     "kanban",

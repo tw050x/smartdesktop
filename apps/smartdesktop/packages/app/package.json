@@ -31,9 +31,8 @@
     ],
     "publish": [
       {
-        "provider": "github",
-        "owner": "tw050x",
-        "repo": "smartdesktop"
+        "provider": "generic",
+        "url": "https://github.com/tw050x/smartdesktop/releases/download/smartdesktop-updates"
       }
     ],
     "mac": {

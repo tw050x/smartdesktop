@@ -4,7 +4,7 @@ Design adverts for the web with your own AI. SmartAd is a desktop app that your 
 
 This package is the `smartad` command.
 
-SmartAd must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartad/releases/latest), drag it into Applications.
+SmartAd must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartdesktop/releases?q=smartad-v&expanded=true), drag it into Applications.
 
 ## Install the app
 
