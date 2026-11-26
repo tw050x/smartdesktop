@@ -1,5 +1,5 @@
-// The app's status, first in the top bar after the traffic lights: a pill saying whether SmartPlan
-// is ready to work with an AI: Ready (green) once its server is running, Get SmartDesktop (amber)
+// The app's status, at the end of the top bar: a pill saying whether the app is ready to work with
+// an AI (every app's: each gives its name, its id and what to ask Claude for): Ready (green) once its server is running, Get SmartDesktop (amber)
 // while the app that runs the AI chat isn't installed, Starting… (amber) and Not running (red) for
 // the server. The user wanted one status for the app, not the server's alone. Clicking it dulls the
 // window with a mask (leaving the pill clear) and slides in a full-height panel from the left with
@@ -7,7 +7,7 @@
 // server's details and, folded away, how to connect another AI app by hand. Connect an AI in the menu opens it too. The panel's drag handle, at its right
 // edge, resizes it, and closes it when dragged below the minimum width.
 
-import { arrowKeysIn } from '@smartdesktop/ui/renderer/menu-keys.js';
+import { arrowKeysIn } from './menu-keys.js';
 
 const PANEL_MIN = 300;
 const PANEL_MAX_SHARE = 0.66;
@@ -16,36 +16,40 @@ const panelMax = () => Math.max(PANEL_MIN, window.innerWidth * PANEL_MAX_SHARE);
 const copyIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9,18q-0.82,0-1.41-0.59T7,16V4Q7,3.17 7.59,2.59T9,2h9q0.82,0 1.41,0.59T20,4V16q0,0.82-0.59,1.41T18,18H9Zm0-2h9V4H9V16ZM5,22q-0.83,0-1.41-0.59T3,20V6H5V20H16v2H5Zm4-6V4V16Z"/></svg>';
 const copiedIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
 
-// The pill's short label, and its tooltip saying what it's about.
+// The pill's short label, and the server's state in the panel.
 const LABELS = { starting: 'Starting…', running: 'Ready', setup: 'Get SmartDesktop', off: 'Not running' };
-const TITLES = { starting: 'SmartPlan is starting', setup: 'SmartPlan’s server is running, but SmartDesktop, which runs the AI chat, isn’t installed', off: 'SmartPlan’s server isn’t running' };
 const STATES = { starting: 'Starting…', running: 'Running', off: 'Not running' };
 
-// Why the server isn't running, for the user: what's using its port, if that's it, and what to do.
-function offReason(status) {
-  if (status.reason === 'port-in-use') {
-    const { holder, port } = status;
-    if (holder?.kind === 'smartplan') {
-      const which = holder.development ? 'A development copy of SmartPlan' : 'Another copy of SmartPlan';
-      return `${which} is already open and running the server your AI connects to, so this one can’t run its own. Your AI works with that copy. Quit it and this one takes over by itself within a few seconds.`;
+// `name` is the app's ("SmartSpec"), `kind` the id its server answers /whoami with ("smartspec"),
+// and `askFor` what to ask Claude for once it's connected ("design something in SmartSpec").
+export function createServerStatus({ api, name, kind, askFor }) {
+  // The pill's tooltip, saying what it's about.
+  const TITLES = { starting: `${name} is starting`, setup: `${name}’s server is running, but SmartDesktop, which runs the AI chat, isn’t installed`, off: `${name}’s server isn’t running` };
+
+  // Why the server isn't running, for the user: what's using its port, if that's it, and what to do.
+  function offReason(status) {
+    if (status.reason === 'port-in-use') {
+      const { holder, port } = status;
+      if (holder?.kind === kind) {
+        const which = holder.development ? `A development copy of ${name}` : `Another copy of ${name}`;
+        return `${which} is already open and running the server your AI connects to, so this one can’t run its own. Your AI works with that copy. Quit it and this one takes over by itself within a few seconds.`;
+      }
+      const who = holder?.kind === 'other' ? `Another app, ${holder.name},` : 'Another app on this Mac';
+      return `${who} is using port ${port}, which ${name}’s server needs, so your AI can’t connect. Quit that app and ${name} starts its server by itself within a few seconds.`;
     }
-    const who = holder?.kind === 'other' ? `Another app, ${holder.name},` : 'Another app on this Mac';
-    return `${who} is using port ${port}, which SmartPlan’s server needs, so your AI can’t connect. Quit that app and SmartPlan starts its server by itself within a few seconds.`;
+    if (status.reason === 'error') return `The server couldn’t start: ${status.message}`;
+    return 'The server couldn’t start.';
   }
-  if (status.reason === 'error') return `The server couldn’t start: ${status.message}`;
-  return 'The server couldn’t start.';
-}
 
-// Where Claude Desktop stands (see connect.js), and the button for it, if any.
-const CLAUDE_DESKTOP = {
-  'not-installed': { text: 'Claude Desktop isn’t on this Mac. Once it is, come back here to add SmartPlan to it.' },
-  'not-added': { text: 'SmartPlan can add itself to Claude Desktop for you.', button: 'Add to Claude Desktop' },
-  added: { text: 'SmartPlan is in Claude Desktop. If Claude Desktop was open, quit it and open it again to connect, then ask Claude to help you prepare in SmartPlan.' },
-  different: { text: 'Claude Desktop has SmartPlan set up from before (perhaps from where the app used to be).', button: 'Update Claude Desktop' },
-  unreadable: { text: 'Claude Desktop’s settings file isn’t in a form SmartPlan can safely change. Add SmartPlan yourself, below.' },
-};
+  // Where Claude Desktop stands (see connect.js), and the button for it, if any.
+  const CLAUDE_DESKTOP = {
+    'not-installed': { text: `Claude Desktop isn’t on this Mac. Once it is, come back here to add ${name} to it.` },
+    'not-added': { text: `${name} can add itself to Claude Desktop for you.`, button: 'Add to Claude Desktop' },
+    added: { text: `${name} is in Claude Desktop. If Claude Desktop was open, quit it and open it again to connect, then ask Claude to ${askFor}.` },
+    different: { text: `Claude Desktop has ${name} set up from before (perhaps from where the app used to be).`, button: 'Update Claude Desktop' },
+    unreadable: { text: `Claude Desktop’s settings file isn’t in a form ${name} can safely change. Add ${name} yourself, below.` },
+  };
 
-export function createServerStatus({ api }) {
   const pill = document.getElementById('server-pill');
   const label = document.getElementById('server-pill-label');
   const mask = document.getElementById('mcp-mask');
@@ -74,8 +78,8 @@ export function createServerStatus({ api }) {
     stateEl.textContent = STATES[status.state];
     label.textContent = LABELS[state];
     const base = status.state === 'off' && status.reason === 'port-in-use'
-      ? (status.holder?.kind === 'smartplan' ? 'Another copy of SmartPlan is running the server' : 'SmartPlan’s server port is in use by another app')
-      : state === 'running' ? 'SmartPlan is ready to work with your AI' : TITLES[state];
+      ? (status.holder?.kind === kind ? `Another copy of ${name} is running the server` : `${name}’s server port is in use by another app`)
+      : state === 'running' ? `${name} is ready to work with your AI` : TITLES[state];
     const title = aiName ? `${base}. ${aiName} works in this window.` : base;
     pill.title = title;
     pill.setAttribute('aria-label', title);
@@ -111,8 +115,8 @@ export function createServerStatus({ api }) {
     }
   });
 
-  // The chat: SmartDesktop, an app of its own, which runs the AI chat for SmartDoc, SmartSpec, SmartAd and SmartPlan and
-  // sets up the AI. Where it stands, and the one thing to do next: open the chat (which starts it),
+  // The chat: SmartDesktop, an app of its own, which runs the AI chat for every app and sets up the
+  // AI. Where it stands, and the one thing to do next: open the chat (which starts it),
   // or get it.
   const chatAppState = document.getElementById('desktop-state');
   const chatAppAction = document.getElementById('desktop-action');
@@ -120,7 +124,7 @@ export function createServerStatus({ api }) {
     connected: { text: 'Connected. Open the chat with Window › Show the Chat (⇧⌘C), or from SmartDesktop’s icon in the Dock.' },
     starting: { text: 'Starting…' },
     off: { text: 'Not running. It starts when you open the chat.', button: 'Open the Chat', run: () => api.chatToggle() },
-    missing: { text: 'Not installed. SmartDesktop runs the AI chat for SmartDoc, SmartSpec, SmartAd and SmartPlan: download it, then open the chat.', button: 'Get SmartDesktop', run: () => api.getDesktop() },
+    missing: { text: `Not installed. SmartDesktop runs the AI chat for ${name} and the other apps: download it, then open the chat.`, button: 'Get SmartDesktop', run: () => api.getDesktop() },
   };
   function showDesktop() {
     const shown = DESKTOP[desktop] ?? DESKTOP.off;

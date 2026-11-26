@@ -2,10 +2,10 @@ import { APP_MARKUP } from './app-markup.js';
 import { watchArrowKeys } from '@smartdesktop/ui/renderer/arrow-nav.js';
 import { createTabStrip } from '@smartdesktop/ui/renderer/tab-strip.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
-import { createIconPicker } from './icon-picker.js';
+import { createIconPicker } from '@smartdesktop/ui/renderer/icon-picker.js';
 import { createTopics } from './topics.js';
 import './picking.js';
-import { createServerStatus } from './server-status.js';
+import { createServerStatus } from '@smartdesktop/ui/renderer/server-status.js';
 import { createSettings } from './settings.js';
 import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 
@@ -43,7 +43,7 @@ export function startApp(api) {
       if (box) Object.assign(tabLines[i].style, { left: `${box.left}px`, width: `${box.width}px` });
     });
   });
-  const serverStatus = createServerStatus({ api });
+  const serverStatus = createServerStatus({ api, name: 'SmartPrep', kind: 'smartprep', askFor: 'help you prepare in SmartPrep' });
   api.onAiControl((name) => serverStatus.setAiControl(name));
   createSettings({ dialog: document.getElementById('settings-dialog'), api });
   createUpdateToast({ api, name: 'SmartPrep' });

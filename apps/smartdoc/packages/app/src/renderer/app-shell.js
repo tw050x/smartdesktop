@@ -8,7 +8,7 @@ import { createFindBar } from './find-bar.js';
 import { createFocusPicker } from './focus-picker.js';
 import { createHistoryNav } from './history-nav.js';
 import { createTabStrip } from '@smartdesktop/ui/renderer/tab-strip.js';
-import { createIconPicker } from './icon-picker.js';
+import { createIconPicker } from '@smartdesktop/ui/renderer/icon-picker.js';
 import { createHighlightsList } from './highlights-list.js';
 import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
 import { createDraftPicker } from './draft-picker.js';
@@ -19,7 +19,7 @@ import { RENDER_SCALE, drawPage, fitPageTo, sharpenPage } from './pdf-page.js';
 import { getDocument, getDocumentForPictures, useOwnReader, usingOwnReader } from './pdf-engine.js';
 import { parsePages } from '../main/text-stats.js';
 import { createHome } from './home.js';
-import { createServerStatus } from './server-status.js';
+import { createServerStatus } from '@smartdesktop/ui/renderer/server-status.js';
 import { createSettings } from './settings.js';
 import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 import { createToolSwitcher } from './tool-switcher.js';
@@ -69,7 +69,7 @@ export function startApp(appApi) {
   onFullScreenChange((isFullScreen) => {
     document.body.classList.toggle('full-screen', isFullScreen);
   });
-  const serverStatus = createServerStatus({ api });
+  const serverStatus = createServerStatus({ api, name: 'SmartDoc', kind: 'smartdoc', askFor: 'review your document' });
   api.onAiControl?.((name) => {
     serverStatus.setAiControl(name);
     requestAnimationFrame(placeDraftNav);
