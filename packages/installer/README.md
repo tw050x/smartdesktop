@@ -1,9 +1,9 @@
 # The installer
 
 The installer each app's website offers ("Install SmartDoc"): a small native Mac app (`Installer.swift`,
-SwiftUI, no dependencies) that downloads the latest release of its app, and of SmartDesktop if it
-isn't installed, from the family's GitHub releases (tw050x/smartdesktop, tags `<app>-v…` and
-`smartdesktop-v…`); checks each against its release's `SHA256SUMS.txt` and that it's signed by the
+SwiftUI, no dependencies) that downloads its app, and SmartDesktop if it isn't installed, from the
+family's latest GitHub release (tw050x/smartdesktop, tags `v…`: every app released together at one
+version, each app's zip `<app>-<version>-mac-<arch>.zip`); checks each against its release's `SHA256SUMS.txt` and that it's signed by the
 installer's own developer team; installs it in `/Applications` (or `~/Applications`), an old copy to
 the Bin; and opens the app.
 

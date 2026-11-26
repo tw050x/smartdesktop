@@ -11,7 +11,7 @@ Commands:
   mcp             Run SmartPlan's MCP connection (what agents set up with npx run)
 
 SmartPlan itself is a Mac app: install it with the install command, or download it from
-https://github.com/tw050x/smartdesktop/releases?q=smartplan-v&expanded=true.`;
+https://github.com/tw050x/smartdesktop/releases/latest.`;
 
 const [command, ...rest] = process.argv.slice(2);
 

@@ -11,9 +11,10 @@ import path from 'node:path';
 
 export const APP_NAME = 'SmartDoc';
 export const APP_ID = 'com.tw050x.smartdoc';
-// The family's repo: SmartDoc's releases are tagged smartdoc-v…, and its update feed is the release
-// smartdoc-updates (the latest version's latest-mac.yml, pointing at that version's files).
+// The family's repo: every app is released together, at one version, in its latest release, where
+// this app's updater reads its channel's file (smartdoc-mac.yml; SmartDesktop's is latest-mac.yml).
 export const REPOSITORY = 'tw050x/smartdesktop';
+export const FEED = 'smartdoc-mac.yml';
 export const WEBSITE = 'https://smartdoc.tw050x.net/';
 export const DEFAULT_PORT = 47815;
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;

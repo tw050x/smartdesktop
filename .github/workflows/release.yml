@@ -1,28 +1,26 @@
 name: Release
 
-# Releases one app of the family (the one chosen) from this repository, run by hand (Actions → Release
-# → Run workflow, or `gh workflow run release.yml -f app=smartplan -f publish=true`) on the branch to
-# release. It goes ahead only once the Prerequisites workflow has passed on the same commit (waiting
-# if it's still running). Without "publish" ticked it's a dry run: it builds everything and reports
-# what it would release, but creates no tag, release or npm version; publishing refuses to run unless
-# the app is signed and notarised.
+# Releases the family: every app at once, at one version (the user's choice, 2026-11-26: so whatever's
+# installed was released together; scripts/set-version.mjs sets it, scripts/check-versions.mjs checks
+# it). Run by hand (Actions → Release → Run workflow, or `gh workflow run release.yml -f publish=true`)
+# on the branch to release; it goes ahead only once the Prerequisites workflow has passed on the same
+# commit (waiting if it's still running). Without "publish" ticked it's a dry run: it builds
+# everything and reports what it would release, but creates no tag, release or npm version;
+# publishing refuses to run unless the apps are signed and notarised.
 #
-# An app's version (its packages/app/package.json; its packages' must match, its tests check) is
-# released as the tag <app>-v<version>, with:
-#   - the macOS app, signed and notarised: a disk image per architecture (<Name>-mac-<arch>.dmg) and
-#     a zip per architecture with its blockmap (what the updater and the installer download)
+# The version is released as the tag v<version>, the repository's latest release, holding for each
+# app (built side by side, one Mac runner each):
+#   - the macOS app, signed and notarised: a disk image per architecture (<Name>-mac-<arch>.dmg) and a
+#     zip per architecture with its blockmap (<app>-<version>-mac-<arch>.zip)
+#   - its update file, which its updater and its CLI's install read in the latest release: its
+#     channel's, <app>-mac.yml (SmartDesktop's latest-mac.yml, as copies of it from before read)
 #   - its installer ("Install <Name>.app", packages/installer), signed, notarised and stapled, zipped
-#     as Install-<Name>.zip (every app but SmartDesktop, which they install)
-#   - SHA256SUMS.txt
-# Then the app's update feed, the release <app>-updates (made the first time, as a pre-release so it
-# never shows as the repository's latest), gets this version's latest-mac.yml, each file named by its
-# address in <app>-v<version> (scripts/release-feed.mjs), which the app's updater and its CLI's
-# install read; and the installer, at an address that doesn't change for the website to link to
-# (…/releases/download/<app>-updates/Install-<Name>.zip). The family's apps share this repository,
-# whose single "latest" release can't be every app's, so each app reads its own feed.
-# Last, each of the app's npm packages already on npm (its CLI, and SmartDoc's PDF converter) is
-# staged on npm for a maintainer to approve: npm trusts this workflow (trusted publishing, set per
-# package on npmjs.com); a package's first version is published by hand, as it has to exist first.
+#     as Install-<Name>.zip (every app but SmartDesktop, which they install): the websites link to
+#     …/releases/latest/download/Install-<Name>.zip
+# and SHA256SUMS.txt for them all. Then each app's npm packages already on npm (its CLI, SmartDoc's
+# PDF converter) are staged on npm for a maintainer to approve: npm trusts this workflow (trusted
+# publishing, set per package on npmjs.com: scripts/trust-release-workflow.sh); a package's first
+# version is published by hand, as it has to exist first.
 #
 # Secrets, one set for every app (scripts/set-release-secrets.sh sets them): CSC_LINK (the Developer
 # ID Application certificate as a base64 .p12) and CSC_KEY_PASSWORD; APPLE_ID,
@@ -30,11 +28,6 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      app:
-        description: The app to release
-        type: choice
-        required: true
-        options: [smartdoc, smartspec, smartad, smartprep, smartplan, smartstudio, smartdesktop]
       publish:
         description: Publish the release (unticked is a dry run)
         type: boolean
@@ -44,15 +37,20 @@ permissions:
   contents: read
   actions: read
 
-env:
-  APP: ${{ inputs.app }}
-
 jobs:
   prerequisites:
     name: Wait for Prerequisites
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+      - name: Every app on one version
+        id: version
+        run: |
+          node scripts/check-versions.mjs
+          echo "version=$(node -p "require('./apps/smartdesktop/packages/app/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Check for a successful Prerequisites run on this commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,27 +78,29 @@ jobs:
           done
 
   build:
-    name: Build ${{ inputs.app }} (macOS)
+    name: Build ${{ matrix.app }} (macOS)
     needs: prerequisites
     runs-on: macos-latest
-    outputs:
-      signed: ${{ steps.signing.outputs.signed }}
+    strategy:
+      fail-fast: true
+      matrix:
+        app: [smartdoc, smartspec, smartad, smartprep, smartplan, smartstudio, smartdesktop]
+    env:
+      APP: ${{ matrix.app }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/${{ inputs.app }}/package-lock.json
+          cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
 
       - name: About the app
         id: about
-        run: |
-          echo "name=$(node -p "require('./apps/$APP/packages/app/package.json').build.productName")" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p "require('./apps/$APP/packages/app/package.json').version")" >> "$GITHUB_OUTPUT"
+        run: echo "name=$(node -p "require('./apps/$APP/packages/app/package.json').build.productName")" >> "$GITHUB_OUTPUT"
 
       - run: npm ci
-        working-directory: apps/${{ inputs.app }}
+        working-directory: apps/${{ matrix.app }}
 
       - name: Check signing
         id: signing
@@ -114,15 +114,15 @@ jobs:
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
             if [ "$PUBLISH" = true ]; then
-              echo "::error::Publishing needs the app signed and notarised: set the signing and notarising secrets first (scripts/set-release-secrets.sh)."
+              echo "::error::Publishing needs the apps signed and notarised: set the signing and notarising secrets first (scripts/set-release-secrets.sh)."
               exit 1
             fi
-            echo "::warning::Signing secrets aren't set, so this dry run builds the app unsigned."
+            echo "::warning::Signing secrets aren't set, so this dry run builds unsigned."
           fi
 
       # electron-builder signs with CSC_LINK and notarises when the APPLE_* variables are set.
       - name: Build the app
-        working-directory: apps/${{ inputs.app }}
+        working-directory: apps/${{ matrix.app }}
         # (Unsigned, the signing settings go: electron-builder reads an empty CSC_LINK as this folder.)
         run: |
           if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; fi
@@ -137,7 +137,7 @@ jobs:
 
       - name: Check the signature and notarisation
         if: steps.signing.outputs.signed == 'true'
-        working-directory: apps/${{ inputs.app }}
+        working-directory: apps/${{ matrix.app }}
         env:
           NAME: ${{ steps.about.outputs.name }}
         run: |
@@ -151,7 +151,7 @@ jobs:
 
       # The installer the app's website offers (every app but SmartDesktop, which they install).
       - name: Build the installer
-        if: inputs.app != 'smartdesktop'
+        if: matrix.app != 'smartdesktop'
         env:
           NAME: ${{ steps.about.outputs.name }}
         run: packages/installer/build.sh "$APP" "$NAME" "apps/$APP/dist/installer"
@@ -159,8 +159,8 @@ jobs:
       # Signed with the same certificate as the app (from CSC_LINK, in a keychain of its own),
       # notarised and stapled, so it opens with no warning.
       - name: Sign and notarise the installer
-        if: inputs.app != 'smartdesktop' && steps.signing.outputs.signed == 'true'
-        working-directory: apps/${{ inputs.app }}/dist/installer
+        if: matrix.app != 'smartdesktop' && steps.signing.outputs.signed == 'true'
+        working-directory: apps/${{ matrix.app }}/dist/installer
         env:
           NAME: ${{ steps.about.outputs.name }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -190,65 +190,64 @@ jobs:
           security delete-keychain "$keychain"
 
       - name: Zip the installer
-        if: inputs.app != 'smartdesktop'
-        working-directory: apps/${{ inputs.app }}/dist
+        if: matrix.app != 'smartdesktop'
+        working-directory: apps/${{ matrix.app }}/dist
         env:
           NAME: ${{ steps.about.outputs.name }}
         run: ditto -c -k --keepParent "installer/Install $NAME.app" "Install-$NAME.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release
+          name: release-${{ matrix.app }}
           path: |
-            apps/${{ inputs.app }}/dist/${{ inputs.app }}-*-mac-*.zip
-            apps/${{ inputs.app }}/dist/${{ inputs.app }}-*-mac-*.zip.blockmap
-            apps/${{ inputs.app }}/dist/*-mac-*.dmg
-            apps/${{ inputs.app }}/dist/latest-mac.yml
-            apps/${{ inputs.app }}/dist/Install-*.zip
+            apps/${{ matrix.app }}/dist/${{ matrix.app }}-*-mac-*.zip
+            apps/${{ matrix.app }}/dist/${{ matrix.app }}-*-mac-*.zip.blockmap
+            apps/${{ matrix.app }}/dist/*-mac-*.dmg
+            apps/${{ matrix.app }}/dist/*-mac.yml
+            apps/${{ matrix.app }}/dist/Install-*.zip
           if-no-files-found: error
 
   release:
-    name: ${{ inputs.publish && 'Publish' || 'Dry run (no release)' }} ${{ inputs.app }}
-    needs: build
+    name: ${{ inputs.publish && 'Publish' || 'Dry run (no release)' }}
+    needs: [prerequisites, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write # npm trusted publishing and provenance
+    env:
+      VERSION: ${{ needs.prerequisites.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # the app's earlier tags, for the release notes
+          fetch-depth: 0 # the earlier tags, for the release notes
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - uses: actions/download-artifact@v4
         with:
-          name: release
+          pattern: release-*
+          merge-multiple: true
           path: artifacts
 
       - name: Write the checksums
         working-directory: artifacts
         run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
 
-      # The app's version, whether it's free, and which of its npm packages are on npm already.
+      # Whether the version is free, and which of the apps' npm packages are on npm already.
       - name: Check the version is free
-        id: version
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(node -p "require('./apps/$APP/packages/app/package.json').version")
-          name=$(node -p "require('./apps/$APP/packages/app/package.json').build.productName")
-          tag="$APP-v$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+          tag="v$VERSION"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           problems=""
-          # A GitHub release for this version, with the app's packages unchanged since its tag, was
+          # A GitHub release for this version, with the apps' packages unchanged since its tag, was
           # made by a run that stopped before npm: this run finishes it, on npm only.
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent 2>/dev/null; then
             changed=$(gh api "repos/$GITHUB_REPOSITORY/compare/$tag...$GITHUB_SHA" \
-              --jq "[.files[]?.filename | select(startswith(\"apps/$APP/packages/\") and (startswith(\"apps/$APP/packages/app/\") | not))] | length" 2>/dev/null || echo unknown)
+              --jq '[.files[]?.filename | select(test("^apps/[^/]+/packages/") and (test("^apps/[^/]+/packages/app/") | not))] | length' 2>/dev/null || echo unknown)
             if [ "$changed" = 0 ] && gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "released=true" >> "$GITHUB_OUTPUT"
             else
@@ -257,95 +256,66 @@ jobs:
           fi
           packages=""
           missing=""
-          for json in apps/$APP/packages/*/package.json; do
+          for json in apps/*/packages/*/package.json; do
             [ "$(node -p "Boolean(require('./$json').private)")" = true ] && continue
+            [ "$(node -p "require('./$json').version")" = "$VERSION" ] || continue # (a package of its own version, not released with the apps)
             package=$(node -p "require('./$json').name")
+            app=$(echo "$json" | cut -d/ -f2)
             if npm view "$package" name >/dev/null 2>&1; then
-              packages="$packages $package"
-              if npm view "$package@$version" version >/dev/null 2>&1; then problems="$problems $package@$version is already on npm."; fi
+              packages="$packages $app:$package"
+              if npm view "$package@$VERSION" version >/dev/null 2>&1; then problems="$problems $package@$VERSION is already on npm."; fi
             else
               missing="$missing $package"
             fi
           done
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           echo "missing=$missing" >> "$GITHUB_OUTPUT"
-          echo "previous=$(git tag --list "$APP-v*" --sort=-v:refname | grep -vx "$tag" | head -1)" >> "$GITHUB_OUTPUT"
+          echo "previous=$(git tag --list 'v*' --sort=-v:refname | grep -vx "$tag" | head -1)" >> "$GITHUB_OUTPUT"
           echo "problems=$problems" >> "$GITHUB_OUTPUT"
 
       - name: Report
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
-          PACKAGES: ${{ steps.version.outputs.packages }}
-          MISSING: ${{ steps.version.outputs.missing }}
-          PROBLEMS: ${{ steps.version.outputs.problems }}
-          SIGNED: ${{ needs.build.outputs.signed }}
+          TAG: ${{ steps.check.outputs.tag }}
+          PACKAGES: ${{ steps.check.outputs.packages }}
+          MISSING: ${{ steps.check.outputs.missing }}
+          PROBLEMS: ${{ steps.check.outputs.problems }}
           PUBLISH: ${{ inputs.publish }}
-          RELEASED: ${{ steps.version.outputs.released }}
+          RELEASED: ${{ steps.check.outputs.released }}
         run: |
           {
-            if [ "$PUBLISH" = true ]; then echo "## Releasing $APP $VERSION"; else echo "## Dry run: nothing was released"; fi
+            if [ "$PUBLISH" = true ]; then echo "## Releasing $VERSION"; else echo "## Dry run: nothing was released"; fi
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- Version **$VERSION** as tag **$TAG**, and the update feed **$APP-updates**."
-            echo "- Signed and notarised: $SIGNED"
-            if [ -n "$PACKAGES" ]; then echo "- On npm (staged):$PACKAGES at $VERSION"; fi
-            if [ -n "$MISSING" ]; then echo "- Not on npm yet, so left out:$MISSING (publish each first version by hand, then trust this workflow)."; fi
+            echo "- Every app at **$VERSION**, as the tag **$TAG**, the repository's latest release."
+            if [ -n "$PACKAGES" ]; then echo "- On npm (staged):$(for one in $PACKAGES; do printf ' %s' "${one#*:}"; done) at $VERSION"; fi
+            if [ -n "$MISSING" ]; then echo "- Not on npm yet, so left out:$MISSING (publish each first version by hand, then scripts/trust-release-workflow.sh)."; fi
             if [ "$RELEASED" = true ]; then echo "- The GitHub release $TAG already exists, with the same packages: finishing it, on npm."; fi
-            if [ -n "$PROBLEMS" ]; then echo "- ⚠️$PROBLEMS Bump the version in apps/$APP's package.json files."; fi
+            if [ -n "$PROBLEMS" ]; then echo "- ⚠️$PROBLEMS Set a new version: node scripts/set-version.mjs <version>."; fi
             echo "- Files:"
             for f in artifacts/*; do echo "  - $(basename "$f")"; done
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$GITHUB_STEP_SUMMARY"
           if [ "$PUBLISH" = true ] && [ -n "$PROBLEMS" ]; then exit 1; fi
 
-      # The GitHub release comes first: the update feed and the npm packages download the app from it.
+      # The GitHub release comes first: the npm packages download the apps from it.
       - name: Create the GitHub release
-        if: inputs.publish && steps.version.outputs.released != 'true'
+        if: inputs.publish && steps.check.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          NAME: ${{ steps.version.outputs.name }}
-          VERSION: ${{ steps.version.outputs.version }}
-          PREVIOUS: ${{ steps.version.outputs.previous }}
+          TAG: ${{ steps.check.outputs.tag }}
+          PREVIOUS: ${{ steps.check.outputs.previous }}
         run: |
-          # Only SmartDesktop's releases are the repository's latest: copies of it installed before
-          # the apps moved here read this repository's latest release for updates (each app's later
-          # copies read their own feed).
-          latest=false
-          if [ "$APP" = smartdesktop ]; then latest=true; fi
-          gh release create "$TAG" artifacts/* --target "$GITHUB_SHA" --title "$NAME $VERSION" --latest=$latest \
+          gh release create "$TAG" artifacts/* --target "$GITHUB_SHA" --title "SmartDesktop $VERSION" --latest \
             --generate-notes ${PREVIOUS:+--notes-start-tag "$PREVIOUS"}
-
-      # The app's update feed: this version's latest-mac.yml, naming its files by their addresses in
-      # the release just made, and the installer at an address that doesn't change.
-      - name: Update the app's feed
-        if: inputs.publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NAME: ${{ steps.version.outputs.name }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          mkdir feed
-          node scripts/release-feed.mjs artifacts/latest-mac.yml "$APP" "$VERSION" "$GITHUB_REPOSITORY" > feed/latest-mac.yml
-          cat feed/latest-mac.yml
-          if ! gh release view "$APP-updates" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$APP-updates" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title "$NAME updates" --notes "$NAME's update feed: the latest version's latest-mac.yml, which the app's updater reads, and its installer. Each version's own release is tagged $APP-v<version>."
-          fi
-          files=(feed/latest-mac.yml)
-          for installer in artifacts/Install-*.zip; do [ -e "$installer" ] && files+=("$installer"); done
-          gh release upload "$APP-updates" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
       # Staged: the trusted publisher only allows `npm stage publish` (npm 11.15.0 or later; Node 22
       # comes with npm 10), so each version waits on npmjs.com until a maintainer approves it.
       - name: Stage on npm
-        if: inputs.publish && steps.version.outputs.packages != ''
-        working-directory: apps/${{ inputs.app }}
+        if: inputs.publish && steps.check.outputs.packages != ''
         env:
-          PACKAGES: ${{ steps.version.outputs.packages }}
+          PACKAGES: ${{ steps.check.outputs.packages }}
         run: |
           npm install -g npm@^11.15.0
-          for package in $PACKAGES; do
-            npm stage publish -w "$package" --provenance --access public
+          for one in $PACKAGES; do
+            (cd "apps/${one%%:*}" && npm stage publish -w "${one#*:}" --provenance --access public)
           done

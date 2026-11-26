@@ -11,7 +11,7 @@ Commands:
   mcp             Run SmartPrep's MCP connection (what agents set up with npx run)
 
 SmartPrep itself is a Mac app: install it with the install command, or download it from
-https://github.com/tw050x/smartdesktop/releases?q=smartprep-v&expanded=true.`;
+https://github.com/tw050x/smartdesktop/releases/latest.`;
 
 const [command, ...rest] = process.argv.slice(2);
 

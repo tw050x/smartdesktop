@@ -1,6 +1,6 @@
 {
   "name": "smartstudio",
-  "version": "0.1.0",
+  "version": "0.26.0",
   "description": "Make music and video with your own AI, on your own generation server.",
   "license": "MIT",
   "private": true,

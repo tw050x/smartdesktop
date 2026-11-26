@@ -1,7 +1,7 @@
 {
   "name": "@smartstudio/app",
   "productName": "SmartStudio",
-  "version": "0.1.0",
+  "version": "0.26.0",
   "description": "Make music and video with your own AI, on your own generation server.",
   "license": "MIT",
   "private": true,
@@ -45,8 +45,10 @@
     ],
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://github.com/tw050x/smartdesktop/releases/download/smartstudio-updates"
+        "provider": "github",
+        "owner": "tw050x",
+        "repo": "smartdesktop",
+        "channel": "smartstudio"
       }
     ],
     "mac": {

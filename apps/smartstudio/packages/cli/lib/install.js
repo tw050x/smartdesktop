@@ -7,7 +7,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
-import { APP_ID, APP_NAME, REPOSITORY } from './platform.js';
+import { APP_ID, APP_NAME, FEED, REPOSITORY } from './platform.js';
 
 // Installing the app, for the smartstudio command's install: the latest release's build for this
 // Mac, as the app's own updater finds it (latest-mac.yml lists each zip with its SHA-512), checked
@@ -16,7 +16,7 @@ import { APP_ID, APP_NAME, REPOSITORY } from './platform.js';
 
 const run = promisify(execFile);
 
-export const downloadBase = (env = process.env) => (env.SMARTSTUDIO_DOWNLOADS ?? `https://github.com/${REPOSITORY}/releases/download/smartstudio-updates`).replace(/\/$/, '');
+export const downloadBase = (env = process.env) => (env.SMARTSTUDIO_DOWNLOADS ?? `https://github.com/${REPOSITORY}/releases/latest/download`).replace(/\/$/, '');
 
 // The release's version and files, from latest-mac.yml (the few lines electron-builder writes).
 export function parseLatest(text) {
@@ -57,7 +57,7 @@ async function get(url, signal) {
 
 // What the latest release offers this Mac: { version, zip } (zip null if there's no build for it).
 export async function latestRelease({ env = process.env, arch = process.arch } = {}) {
-  const { version, files } = parseLatest(await (await get(`${downloadBase(env)}/latest-mac.yml`)).text());
+  const { version, files } = parseLatest(await (await get(`${downloadBase(env)}/${FEED}`)).text());
   if (!version) throw new Error('The latest release doesn’t say its version.');
   return { version, zip: zipFor(files, arch) };
 }
@@ -68,7 +68,7 @@ export async function installRelease(zip, dir, { env = process.env, progress = (
   const work = await mkdtemp(path.join(os.tmpdir(), 'smartstudio-install-'));
   try {
     const file = path.join(work, path.basename(zip.url));
-    // (The feed names each file by its whole address, in the version's own release.)
+    // (A file named by its whole address is fetched from there.)
     const res = await get(/^https?:/.test(zip.url) ? zip.url : `${downloadBase(env)}/${zip.url}`);
     const total = Number(res.headers.get('content-length')) || zip.size || null;
     const hash = createHash('sha512');

@@ -11,10 +11,11 @@ import path from 'node:path';
 
 export const APP_NAME = 'SmartPlan';
 export const APP_ID = 'com.tw050x.smartplan';
-// The family's repo: this app's releases are tagged smartplan-v…, and its update feed is the release
-// smartplan-updates (the latest version's latest-mac.yml, pointing at that version's files).
+// The family's repo: every app is released together, at one version, in its latest release, where
+// this app's updater reads its channel's file (smartplan-mac.yml; SmartDesktop's is latest-mac.yml).
 export const REPOSITORY = 'tw050x/smartdesktop';
-export const DOWNLOAD_PAGE = 'https://github.com/tw050x/smartdesktop/releases?q=smartplan-v&expanded=true';
+export const FEED = 'smartplan-mac.yml';
+export const DOWNLOAD_PAGE = 'https://github.com/tw050x/smartdesktop/releases/latest';
 export const DEFAULT_PORT = 47845;
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 

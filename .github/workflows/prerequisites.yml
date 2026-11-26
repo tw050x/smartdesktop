@@ -40,6 +40,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Every app on one version
+        run: node scripts/check-versions.mjs
       - name: Test each package
         run: |
           for package in packages/*/; do

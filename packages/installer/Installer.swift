@@ -1,8 +1,8 @@
 // The installer each app's website offers ("Install SmartDoc", the user's choice, 2026-11-26): one
 // small native app, built for each app by build.sh, which reads which app it's for from its
-// Info.plist (SmartDesktopApp, SmartDesktopAppName). It downloads the latest release of that app,
-// and of SmartDesktop if it isn't installed (the windows and the AI chat every app opens in), from
-// the family's GitHub releases; checks each against its release's SHA256SUMS.txt and that it's
+// Info.plist (SmartDesktopApp, SmartDesktopAppName). It downloads that app, and SmartDesktop if it
+// isn't installed (the windows and the AI chat every app opens in), from the family's latest GitHub
+// release (every app released together at one version, tagged v…: each app's files named for it); checks each against its release's SHA256SUMS.txt and that it's
 // signed by the installer's own developer team; installs it in /Applications (or ~/Applications),
 // an old copy to the Bin; and opens the app. As @smartdesktop/ui's install-desktop.js does for an
 // app that finds SmartDesktop gone.
@@ -111,8 +111,8 @@ final class Installation: ObservableObject {
       for index in items.indices where items[index].state != .installed {
         current = index
         let item = items[index]
-        let source = item.id == "smartdesktop" ? Source.from("INSTALL_DESKTOP_RELEASES", fallback: "smartdesktop-v") : Source.from("INSTALL_APP_RELEASES", fallback: "\(item.id)-v")
-        let path = try await installLatest(source, appName: item.name, team: team)
+        let source = item.id == "smartdesktop" ? Source.from("INSTALL_DESKTOP_RELEASES", fallback: "v") : Source.from("INSTALL_APP_RELEASES", fallback: "v")
+        let path = try await installLatest(source, appId: item.id, appName: item.name, team: team)
         items[index].state = .installed
         items[index].fraction = nil
         if item.id == app { installedApp = path }
@@ -172,8 +172,9 @@ final class Installation: ObservableObject {
     return String(line.dropFirst("TeamIdentifier=".count))
   }
 
-  // Finds, downloads, checks and installs the latest release of `source` (an app called `appName`).
-  func installLatest(_ source: Source, appName: String, team: String) async throws -> URL {
+  // Finds, downloads, checks and installs an app (`appId`, called `appName`) from the latest release
+  // of `source`: its zip for this Mac, <appId>-<version>-mac-<arch>.zip.
+  func installLatest(_ source: Source, appId: String, appName: String, team: String) async throws -> URL {
     show("Finding the latest \(appName)")
     var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(source.repo)/releases?per_page=50")!)
     request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -183,7 +184,7 @@ final class Installation: ObservableObject {
       .filter { !$0.draft && !$0.prerelease && $0.tag_name.hasPrefix(source.prefix) }
       .sorted { $0.published_at > $1.published_at }
     guard let release = releases.first else { throw InstallFailure("There’s no \(appName) release yet") }
-    guard let zip = release.assets.first(where: { $0.name.hasSuffix("-mac-\(arch).zip") }) else { throw InstallFailure("\(appName)’s release has nothing for this Mac") }
+    guard let zip = release.assets.first(where: { $0.name.hasPrefix("\(appId)-") && $0.name.hasSuffix("-mac-\(arch).zip") }) else { throw InstallFailure("\(appName)’s release has nothing for this Mac") }
     guard let sums = release.assets.first(where: { $0.name == "SHA256SUMS.txt" }) else { throw InstallFailure("\(appName)’s release has no SHA256SUMS.txt to check it against") }
     let (sumsData, _) = try await URLSession.shared.data(from: sums.browser_download_url)
     let expected = String(decoding: sumsData, as: UTF8.self).split(separator: "\n").compactMap { line -> String? in

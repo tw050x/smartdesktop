@@ -4,7 +4,7 @@ Plan work on boards of lists and cards, with your own AI. SmartPlan is a desktop
 
 This package is the `smartplan` command.
 
-SmartPlan must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartdesktop/releases?q=smartplan-v&expanded=true), drag it into Applications.
+SmartPlan must be installed in your Applications folder: that's where `setup` and your agents expect it. If you download it from the [releases](https://github.com/tw050x/smartdesktop/releases/latest), drag it into Applications.
 
 ## Install the app
 

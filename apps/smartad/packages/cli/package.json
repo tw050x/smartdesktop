@@ -1,6 +1,6 @@
 {
   "name": "@smartad/cli",
-  "version": "0.1.0",
+  "version": "0.26.0",
   "description": "The smartad command: installs the SmartAd app, sets up Claude Desktop and Claude Code to use it, checks the connection, and runs SmartAd's MCP connection for agents set up with npx.",
   "license": "MIT",
   "type": "module",

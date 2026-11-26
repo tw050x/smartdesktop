@@ -12,7 +12,7 @@ Commands:
   wait            Stay until the user has done what an AI is waiting for (wait --help)
 
 SmartSpec itself is a Mac app: install it with the install command, or download it from
-https://github.com/tw050x/smartdesktop/releases?q=smartspec-v&expanded=true.`;
+https://github.com/tw050x/smartdesktop/releases/latest.`;
 
 const [command, ...rest] = process.argv.slice(2);
 

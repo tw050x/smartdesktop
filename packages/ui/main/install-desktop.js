@@ -5,7 +5,8 @@
 // codesign), then put in /Applications, or ~/Applications if that can't be written to (an old copy
 // to the Bin first). Node's own fetch and crypto, and macOS's ditto and codesign: nothing else.
 //
-// Where releases come from: tw050x/smartdesktop, tags `smartdesktop-v…` (the family's repo);
+// Where releases come from: tw050x/smartdesktop, tags `v…` (the family's repo, every app released
+// together at one version, so a release holds every app's files: SmartDesktop's are smartdesktop-…);
 // SMARTDESKTOP_RELEASES (`owner/repo:tag prefix`) and SMARTDESKTOP_INSTALL_DIR move them, for testing.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -21,7 +22,7 @@ const run = promisify(execFile);
 const APP = 'SmartDesktop.app';
 
 export function releaseSource() {
-  const [repo, prefix = 'smartdesktop-v'] = (process.env.SMARTDESKTOP_RELEASES ?? 'tw050x/smartdesktop:smartdesktop-v').split(':');
+  const [repo, prefix = 'v'] = (process.env.SMARTDESKTOP_RELEASES ?? 'tw050x/smartdesktop:v').split(':');
   return { repo, prefix };
 }
 
@@ -35,9 +36,10 @@ export async function latestRelease({ repo, prefix } = releaseSource(), fetcher 
   return { version: newest.tag_name.slice(prefix.length), assets: newest.assets.map((one) => ({ name: one.name, url: one.browser_download_url, size: one.size })) };
 }
 
-// The zip for this Mac (`arch`: arm64 or x64) and the checksums, from a release's assets.
-export function pickAssets(assets, arch = process.arch) {
-  const zip = assets.find((one) => new RegExp(`-mac-${arch}\\.zip$`).test(one.name));
+// SmartDesktop's zip for this Mac (`arch`: arm64 or x64) and the checksums, from a release's assets
+// (among every app's: smartdesktop-<version>-mac-<arch>.zip).
+export function pickAssets(assets, arch = process.arch, app = 'smartdesktop') {
+  const zip = assets.find((one) => one.name.startsWith(`${app}-`) && one.name.endsWith(`-mac-${arch}.zip`));
   const sums = assets.find((one) => one.name === 'SHA256SUMS.txt');
   if (!zip) throw new Error(`The release has no zip for this Mac (${arch})`);
   if (!sums) throw new Error('The release has no SHA256SUMS.txt to check the download against');

@@ -81,7 +81,7 @@ describe('opening the app', () => {
     // the app runs on macOS; on a Mac without SmartPlan, that it isn't installed.
     const env = { SMARTPLAN_PORT: '1', SMARTPLAN_USER_DATA: tempDir('no-app') };
     await assert.rejects(ensureRunning({ env, execPath: '/usr/local/bin/node', platform: 'linux' }), /runs on macOS/);
-    assert.match(new NotInstalled().message, /isn't installed on this computer\. Tell the user to download it from https:\/\/github\.com\/tw050x\/smartdesktop\/releases\?q=smartplan-v&expanded=true/);
+    assert.match(new NotInstalled().message, /isn't installed on this computer\. Tell the user to download it from https:\/\/github\.com\/tw050x\/smartdesktop\/releases\/latest/);
   });
 });
 

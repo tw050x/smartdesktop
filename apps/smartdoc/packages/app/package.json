@@ -1,7 +1,7 @@
 {
   "name": "@smartdoc/app",
   "productName": "SmartDoc",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Review and redraft documents with your own AI.",
   "license": "MIT",
   "private": true,
@@ -57,8 +57,10 @@
     ],
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://github.com/tw050x/smartdesktop/releases/download/smartdoc-updates"
+        "provider": "github",
+        "owner": "tw050x",
+        "repo": "smartdesktop",
+        "channel": "smartdoc"
       }
     ],
     "mac": {

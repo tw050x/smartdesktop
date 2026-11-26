@@ -52,7 +52,7 @@ describe('installing', { skip: process.platform !== 'darwin' && 'macOS only (dit
     const sha512 = createHash('sha512').update(corrupt ? 'something else' : body).digest('base64');
     const yml = latest([{ url: name, sha512, size: body.length }]);
     const server = createServer((req, res) => {
-      if (req.url === '/latest-mac.yml') return res.end(yml);
+      if (req.url === '/smartplan-mac.yml') return res.end(yml);
       if (req.url === `/${name}`) return res.end(body);
       res.writeHead(404).end();
     });

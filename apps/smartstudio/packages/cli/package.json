@@ -1,6 +1,6 @@
 {
   "name": "@smartstudio/cli",
-  "version": "0.1.0",
+  "version": "0.26.0",
   "description": "The smartstudio command: installs the SmartStudio app, sets up Claude Desktop and Claude Code to use it, checks the connection, and runs SmartStudio's MCP connection for agents set up with npx.",
   "license": "MIT",
   "type": "module",

@@ -1,7 +1,7 @@
 {
   "name": "@smartspec/app",
   "productName": "SmartSpec",
-  "version": "0.13.0",
+  "version": "0.26.0",
   "description": "Plan systems and define the contracts between them, with your own AI.",
   "license": "MIT",
   "private": true,
@@ -56,8 +56,10 @@
     ],
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://github.com/tw050x/smartdesktop/releases/download/smartspec-updates"
+        "provider": "github",
+        "owner": "tw050x",
+        "repo": "smartdesktop",
+        "channel": "smartspec"
       }
     ],
     "mac": {
