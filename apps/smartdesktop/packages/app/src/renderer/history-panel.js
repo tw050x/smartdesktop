@@ -1,5 +1,5 @@
 import { period, when } from '../main/chat-history.js';
-import { customScrollbar } from './scrollbar.js';
+import { customScrollbar } from '@smartdesktop/ui/renderer/scrollbar.js';
 import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 
 // The chat history (the user's choice: a chat whose tab was closed couldn't be had back). A panel

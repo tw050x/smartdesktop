@@ -1,4 +1,4 @@
-import { customScrollbar } from './scrollbar.js';
+import { customScrollbar } from '@smartdesktop/ui/renderer/scrollbar.js';
 import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 import { failureText } from '@smartdesktop/ui/renderer/ai-progress.js';
 

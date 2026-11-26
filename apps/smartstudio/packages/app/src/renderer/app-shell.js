@@ -1,5 +1,5 @@
 import { APP_MARKUP } from './app-markup.js';
-import { watchArrowKeys } from './arrow-nav.js';
+import { watchArrowKeys } from '@smartdesktop/ui/renderer/arrow-nav.js';
 import { createTabStrip } from './tab-strip.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 import { createIconPicker } from './icon-picker.js';

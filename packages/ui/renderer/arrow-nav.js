@@ -1,8 +1,8 @@
 // Arrow keys between cards, only while one of those cards has focus. Set out in columns: up and down
 // to the card above or below in its column, left and right to the nearest card, by height, in the
-// column beside it (home's); going into home's schemas, the chosen one is where it lands. On the overview's
-// canvas: to the nearest card that way, brought to the middle if it's out of view. Elsewhere, arrows
-// do what they always do.
+// column beside it (home's); going into a column, the chosen row is where it lands. On SmartSpec's
+// overview canvas: to the nearest card that way, brought to the middle if it's out of view (the
+// other apps have none, so that part does nothing there). Elsewhere, arrows do what they always do.
 
 // Each layout: its columns, left to right, and the cards in one.
 const LAYOUTS = [

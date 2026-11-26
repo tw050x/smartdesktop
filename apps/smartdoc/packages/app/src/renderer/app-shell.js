@@ -13,7 +13,7 @@ import { createHighlightsList } from './highlights-list.js';
 import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
 import { createDraftPicker } from './draft-picker.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
-import { customScrollbar } from './scrollbar.js';
+import { customScrollbar } from '@smartdesktop/ui/renderer/scrollbar.js';
 import { redraw, revealAnchors, setMarks } from './overlays.js';
 import { RENDER_SCALE, drawPage, fitPageTo, sharpenPage } from './pdf-page.js';
 import { getDocument, getDocumentForPictures, useOwnReader, usingOwnReader } from './pdf-engine.js';
