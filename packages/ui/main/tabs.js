@@ -15,14 +15,19 @@
 // this fills and empties, and hears which tab has the focus (`onFocused`); everything that's the
 // app's own (what a tab shows, its title and icon, the AI working in it, the app's status) comes from
 // its options, asked for when needed, so they can name things the app sets up later.
-import { BrowserWindow, Menu, screen, shell, WebContentsView } from 'electron';
+import { BrowserWindow, ipcMain, Menu, screen, shell, WebContentsView } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { createTabDrag } from './tab-drag.js';
+
+// The family's preload (preload.cjs), for an app that gives its pages' API as data (`api`).
+const SHARED_PRELOAD = fileURLToPath(new URL('./preload.cjs', import.meta.url));
 
 export function createTabs({
   id: appId, // the app's id, in each tab's arguments (`--smartplan-window`, `--smartplan-tab`)
   title, // the window's name, which Mission Control shows over it
-  pages, // { preload, tabs, index }: the preload script, the top bar's page and a tab's page
+  pages, // { preload, tabs, index }: the preload script (the family's, with `api`), the top bar's page and a tab's page
+  api = null, // the pages' API as data ({ id, calls, events }: the app's main/api.js), for the family's preload
   topBar = 44, // the top bar's height
   trafficLights = 16, // the height of the area macOS reserves for the traffic lights
   windows,
@@ -40,6 +45,14 @@ export function createTabs({
   onActivate = () => {}, // (ctx): it's the tab showing in its window now (SmartDoc's represented file)
   extraState = () => ({}), // () => more for the top bar's state (SmartDoc's `reader` switch)
 }) {
+  // With its API as data, every page (the top bar's and each tab's) has the family's preload, which
+  // asks for it as it starts.
+  if (api) {
+    pages = { ...pages, preload: pages.preload ?? SHARED_PRELOAD };
+    ipcMain.on('preload-api', (event) => {
+      event.returnValue = api;
+    });
+  }
   let lastFocused = null;
   const focused = (ctx) => {
     lastFocused = ctx;
