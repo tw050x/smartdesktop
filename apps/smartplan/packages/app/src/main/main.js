@@ -310,7 +310,7 @@ async function windowForSession(session, startedApp) {
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
-  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
   return ctx;
 }
 
@@ -363,7 +363,8 @@ const boardsFor = (session, tab) => {
     }
     const ctx = await tab();
     ctx.contents.send('open-board', request);
-    if (!ctx.win.isVisible()) ctx.win.showInactive();
+    // (A guest tab's window is another app's.)
+    if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
     return ctx;
   }
   const withIcon = (board) => ({ ...board, icon: itemIcons.get(board.id)?.icon ?? null });

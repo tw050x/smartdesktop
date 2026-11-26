@@ -279,7 +279,8 @@ export function createTabs({
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        additionalArguments: [`--${guestApi.id}-window=${id}`, `--${guestApi.id}-tab=document`],
+        // The tab's id as its app knows it (a prompt copied from its page names it).
+        additionalArguments: [`--${guestApi.id}-window=${gid}`, `--${guestApi.id}-tab=document`],
       },
     });
     view.setBackgroundColor(colours().background);
@@ -495,6 +496,8 @@ export function createTabs({
 
   // Shows a tab, the others hidden behind it.
   function activateTab(ctx) {
+    // A guest tab of this app's shows as the window showing it (another app's) chooses.
+    if (ctx.guest) return;
     const { host } = ctx;
     const before = host.active;
     host.active = ctx;
@@ -518,7 +521,8 @@ export function createTabs({
   // counts here as a tab of its own in a window of its own that has nothing else: `send` is how
   // what this app would send its page reaches it (over the guest server's stream). Its title and
   // icon go to the window showing it (`guest-tab`), as a top bar's tabs do, and closing it asks that
-  // window to (`guest-close`). An AI can't work in one yet: it has no window here.
+  // window to (`guest-close`). An AI works in one as in any tab (`use_window` with its id, which its
+  // page knows), its pill and chat shown by that window; it has no window here, so nothing shows it.
   function createGuest(send, { open = null } = {}) {
     const id = `g-${randomUUID().slice(0, 4)}`;
     const host = { guest: true, win: null, tabs: [], active: null };
@@ -658,7 +662,7 @@ export function createTabs({
       const tab = host.active;
       if (tab) {
         const { title: name, icon, ai } = tabState(tab);
-        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null, back: Boolean(tab.history.back), forward: Boolean(tab.history.forward), doc: docOf(tab) });
+        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null, chat: tab.chat ?? null, back: Boolean(tab.history.back), forward: Boolean(tab.history.forward), doc: docOf(tab) });
       }
       return;
     }
@@ -666,7 +670,7 @@ export function createTabs({
     const state = {
       tabs: host.tabs.map((t) => {
         const { title: name, icon, ai } = stateOf(t);
-        return { id: t.id, home: t.home, title: name, icon: t.home ? null : icon, active: t === host.active, ai: ai ?? null, chat: t.chat ?? null };
+        return { id: t.id, home: t.home, title: name, icon: t.home ? null : icon, active: t === host.active, ai: ai ?? null, chat: (t.hosted ? t.hosted.state?.chat : t.chat) ?? null };
       }),
       back: Boolean(host.active?.history.back),
       forward: Boolean(host.active?.history.forward),
@@ -753,6 +757,8 @@ export function createTabs({
     });
     handle('tab-chat', (_ctx, id) => {
       const tab = [...windows.values()].find((t) => t.id === id);
+      // A guest tab's chat is its own app's: that app brings it forward.
+      if (tab?.hosted) return post(`${tab.hosted.url}/tabs/${tab.hosted.gid}/call`, { channel: 'tab-chat', args: [tab.hosted.gid] }).catch(() => {});
       if (tab) return openChatFor(tab);
     });
     handle('history-state', (ctx, state) => {
