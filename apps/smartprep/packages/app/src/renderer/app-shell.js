@@ -1,7 +1,7 @@
 import { APP_MARKUP } from './app-markup.js';
 import { watchArrowKeys } from './arrow-nav.js';
 import { createTabStrip } from './tab-strip.js';
-import { installTooltips } from './tooltips.js';
+import { installTooltips } from '@smartdesktop/shell/renderer/tooltips.js';
 import { createIconPicker } from './icon-picker.js';
 import { createTopics } from './topics.js';
 import './picking.js';

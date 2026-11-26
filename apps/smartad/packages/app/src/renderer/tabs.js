@@ -1,5 +1,5 @@
 import { createTabStrip } from './tab-strip.js';
-import { installTooltips } from './tooltips.js';
+import { installTooltips } from '@smartdesktop/shell/renderer/tooltips.js';
 
 // The window's own page: its top bar, above the tabs' pages (see tab-strip.js and main.js).
 const api = window.smartad;
