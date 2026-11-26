@@ -3,8 +3,9 @@
 // button, as in a browser (the user's choice, 2026-11-26: it was a pinned first tab, the only one
 // showing home): it takes the tab showing home, and any tab can show home or a document (a
 // schematic, a topic, a board…). Each tab has its name (Home, on home) and a button to close it.
-// An AI working in a tab has its name in a pill just before it, as Chrome marks a tab an AI controls
-// (the user's choice, 2026-11-26: it was a sparkle beside the close button); a chat's (SmartDesktop's)
+// An AI working in a tab has its name in a pill at the tab's start, inside it, as Chrome marks a tab
+// an AI controls (the user's choice, 2026-11-26: it was a sparkle beside the close button); a chat's
+// (SmartDesktop's)
 // brings that chat forward when clicked, any other does nothing. The + (and ⌘T) opens a new
 // tab on home. The window has tabs rather than opening more windows (the user's choice; more
 // windows are still allowed). The status pill opens the status panel (server-status.js) in the tab
@@ -274,17 +275,24 @@ export function createTabStrip({ el, api }) {
         }
         node.append(close);
       }
-      if (!tab.ai) return node;
-      const pill = document.createElement('button');
-      pill.type = 'button';
-      pill.className = `tab-ai-pill${tab.chat ? ' chat' : ''}`;
-      pill.textContent = tab.ai;
-      pill.dataset.noTip = '';
-      pill.title = tab.chat ? `${tab.ai} is working in this tab: show the chat “${tab.chat.title}”` : `${tab.ai} is working in this tab`;
-      pill.setAttribute('aria-label', pill.title);
-      if (tab.chat) pill.addEventListener('click', () => api.tabChat?.(tab.id));
-      return [pill, node];
-    }).flat(), newTab);
+      if (tab.ai) {
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = `tab-ai-pill${tab.chat ? ' chat' : ''}`;
+        pill.textContent = tab.ai;
+        pill.dataset.noTip = '';
+        pill.title = tab.chat ? `${tab.ai} is working in this tab: show the chat “${tab.chat.title}”` : `${tab.ai} is working in this tab`;
+        pill.setAttribute('aria-label', pill.title);
+        if (tab.chat) {
+          pill.addEventListener('click', (event) => {
+            event.stopPropagation();
+            api.tabChat?.(tab.id);
+          });
+        }
+        node.prepend(pill);
+      }
+      return node;
+    }), newTab);
     // The tabs moved or changed: where they are now, at once (a window behind another may get no
     // animation frames, and a tab can be dragged into it meanwhile), and the pills follow.
     sendBoxes();

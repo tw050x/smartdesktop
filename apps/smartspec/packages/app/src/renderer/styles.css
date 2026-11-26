@@ -115,9 +115,11 @@ body {
 .tab-chat-button:hover { background: var(--button-active); color: var(--accent); }
 .tab-chat-button.working { color: var(--accent); }
 /* An AI working in the tab: a sparkle in the accent colour, beside the close button. */
-/* An AI working in the tab: its name in a pill just before it, as Chrome marks a tab an AI controls
-   (the user's choice); a chat's brings the chat forward. */
-.tab-ai-pill { flex: none; height: 22px; margin-right: -2px; padding: 0 7px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: default; -webkit-app-region: no-drag; }
+/* An AI working in the tab: its name in a pill at the tab's start, inside it, as Chrome marks a tab
+   an AI controls (the user's choice); a chat's brings the chat forward. Too narrow for a name, the
+   tab shows the pill in its icon's place. */
+.tab-ai-pill { flex: none; height: 20px; margin: 0 2px 0 -5px; padding: 0 6px; border: 0; border-radius: 5px; background: var(--accent); color: #fff; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: default; -webkit-app-region: no-drag; }
+@container (max-width: 72px) { .tab-ai-pill + .tab-icon { display: none; } }
 .tab-ai-pill.chat { cursor: pointer; }
 .tab-ai-pill.chat:hover { filter: brightness(1.12); }
 /* Always there (the user's choice: it showed only while the tab was pointed at or showing). */
