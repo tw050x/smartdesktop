@@ -6,7 +6,7 @@ import { createIconPicker } from './icon-picker.js';
 import { createStudio } from './studio.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
-import { createUpdateToast } from './update-toast.js';
+import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 
 // The window's interface, given the API it works through (window.smartstudio, from the preload
 // script, talking to the main process). It fills the empty body with the window's markup first.

@@ -6,7 +6,7 @@ import { createIconPicker } from './icon-picker.js';
 import { createSchemas } from './schemas.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
-import { createUpdateToast } from './update-toast.js';
+import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 import './selection.js';
 
 // The window's interface, given the API it works through (window.smartspec, from the preload

@@ -21,7 +21,7 @@ import { parsePages } from '../main/text-stats.js';
 import { createHome } from './home.js';
 import { createServerStatus } from './server-status.js';
 import { createSettings } from './settings.js';
-import { createUpdateToast } from './update-toast.js';
+import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 import { createToolSwitcher } from './tool-switcher.js';
 import { createVariationCard } from './variation-card.js';
 import { APP_MARKUP } from './app-markup.js';

@@ -3,8 +3,8 @@
 // updates.js) shows a spinner while it looks, then what it found: up to date, or why it couldn't
 // check, put away after a moment. A new version downloading shows how much has arrived, asked for or
 // not, and once it's downloaded, Restart to Update and Later: Later puts it away until the next
-// version, or until the user checks again. The same in SmartDoc, SmartStudio and SmartDesktop apart
-// from the app's name.
+// version, or until the user checks again. One for every app (@smartdesktop/ui), the app's name
+// coming from what it's given.
 
 const SETTLE_MS = 4000; // how long "up to date" and the like stay
 

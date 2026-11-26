@@ -1,7 +1,7 @@
 import { createChatPanel } from './chat-panel.js';
 import { trackAiProgress } from '@smartdesktop/ui/renderer/ai-progress.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
-import { createUpdateToast } from './update-toast.js';
+import { createUpdateToast } from '@smartdesktop/ui/renderer/update-toast.js';
 import { createHistoryPanel } from './history-panel.js';
 
 // A chat window (see main.js; there can be several, each with chats of its own, the user's choice):
