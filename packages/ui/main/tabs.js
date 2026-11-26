@@ -302,7 +302,12 @@ export function createTabs({
         ctx.history = { back: Boolean(value?.back), forward: Boolean(value?.forward) };
         return sendTabs(ctx.host);
       }
-      if (channel === 'guest-close') return closeTab(ctx);
+      if (channel === 'guest-close') {
+        closeTab(ctx);
+        // Taken back by its app (moveToApp): it moved out of this window.
+        if (ctx.movingOut) leftEmpty(ctx.host);
+        return;
+      }
       toPage(channel, value);
     })
       // Its app has gone (quit, say): the tab goes with it.
@@ -381,8 +386,12 @@ export function createTabs({
     if (ctx.hosted) {
       const origin = ctx.hosted;
       if (other.app === origin.app) {
+        ctx.movingOut = true;
         result = await post(`${origin.url}/tabs/${origin.gid}/return`, { at }).catch(fail);
-        if (!result.ok) console.error(`Couldn’t move the tab back to ${other.name}:`, result.error);
+        if (!result.ok) {
+          ctx.movingOut = false;
+          console.error(`Couldn’t move the tab back to ${other.name}:`, result.error);
+        }
         return; // its app closes it here, as it takes it back
       }
       const { open = null } = await fetch(`${origin.url}/tabs/${origin.gid}/open`).then((res) => res.json()).catch(() => ({}));
@@ -393,8 +402,11 @@ export function createTabs({
       if (!open || !guestUrl) return;
       result = await post(`${other.url}/host`, { app: appId, url: guestUrl, open, at }).catch(fail);
     }
-    if (result.ok) closeTab(ctx);
-    else console.error(`Couldn’t move the tab to ${other.name}:`, result.error);
+    if (result.ok) {
+      const from = ctx.host;
+      closeTab(ctx);
+      leftEmpty(from);
+    } else console.error(`Couldn’t move the tab to ${other.name}:`, result.error);
   }
 
   // A tab of this app's shown in another app's window comes back (guests.js's `return`), as a tab of
@@ -452,6 +464,15 @@ export function createTabs({
       family?.withdraw(appId);
     });
     return server;
+  }
+
+  // A window a tab has moved out of (to another window, or another app's), left with only Home, closes
+  // (the user's choice: such windows piled up), unless it's the app's only one. One whose last tab the
+  // user closed keeps its Home.
+  function leftEmpty(host) {
+    if (!host || host.guest || host.win.isDestroyed() || host.tabs.length > 1) return;
+    if ([...hosts].filter((other) => other !== host && !other.win.isDestroyed()).length === 0) return;
+    host.win.close();
   }
 
   // Shows a tab, the others hidden behind it.
@@ -549,6 +570,7 @@ export function createTabs({
       ctx.view.setBounds(tabBounds(to));
       ctx.contents.send('full-screen', to.win.isFullScreen());
       sendTabs(from);
+      leftEmpty(from);
     }
     to.tabs.splice(Math.max(1, Math.min(index, to.tabs.length)), 0, ctx);
     activateTab(ctx);
