@@ -11,7 +11,7 @@ import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { buildMenu } from './menu.js';
-import { confirm } from './confirm.js';
+import { createFamily, familyFolder } from '@smartdesktop/ui/main/family.js';
 import { createStore } from './store.js';
 import { PICTURES } from './mcp-tools.js';
 import { checkAd as checkAdSizes, summarize, validateAd } from './ad-model.js';
@@ -160,8 +160,15 @@ const tabs = createTabs({
   release: (ctx) => {
     if (ctx.session) ctx.session.ctx = null;
   },
+  // Guest tabs: an ad's tab can be shown in another app's window (SmartDesktop's, say), opening the
+  // same ad there (its latest draft); and SmartAd's windows show other apps' tabs.
+  name: 'SmartAd',
+  family: createFamily(familyFolder(app)),
+  guestOpen: (ctx) => (adOf(ctx) ? { adId: adOf(ctx), name: ctx.name } : null),
+  guestOpened: (ctx, request) => ctx.contents.send('open-ad', request),
 });
-const { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
+// A menu, a question or a sheet over a tab's window (in a guest tab, the window showing it shows them).
+const { popupMenu, messageBox, confirmSheet, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
 
 // Where a tab is: 'home', or `<ad>/<draft>`, `<ad>/new` (a new ad's first proposal) or
 // `<ad>/proposal` (a proposal to change it), as the tab says (chat-shows).
@@ -330,7 +337,7 @@ async function windowForSession(session, startedApp) {
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
-  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
   return ctx;
 }
 
@@ -472,7 +479,8 @@ const adsFor = (session, tab) => ({
     const request = { adId: made.ad, proposal: true, name: (await store.list()).find((one) => one.id === made.ad)?.name ?? '' };
     const ctx = await tab();
     ctx.contents.send('open-ad', request);
-    if (!ctx.win.isVisible()) ctx.win.showInactive();
+    // (A guest tab's window is another app's.)
+    if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
     const { warnings = [] } = aboutAd(checkAd(rest.content));
     return {
       ...made,
@@ -541,7 +549,7 @@ async function showConnectAi() {
 
 async function confirmAddToClaudeDesktop(ctx) {
   const status = await claudeDesktopStatus();
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: status.state === 'different' ? 'Update SmartAd in Claude Desktop?' : 'Add SmartAd to Claude Desktop?',
     detail: 'SmartAd adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
@@ -626,13 +634,19 @@ async function chatWhere(where = 'home') {
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself: each handler gets that window first.
-const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+// (Each is kept by its channel too, for a guest tab's calls: see the guest server below.)
+const handlers = new Map(); // channel → handler
+const run = async (ctx, channel, args) => {
   try {
-    return { ok: true, value: await fn(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, ...args) };
+    return { ok: true, value: await handlers.get(channel)(ctx, ...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
-});
+};
+const handle = (channel, fn) => {
+  handlers.set(channel, fn);
+  ipcMain.handle(channel, (event, ...args) => run(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, channel, args));
+};
 
 // Setup for each AI app, shown and copied for pasting (see connect.js).
 async function mcpSetup(target) {
@@ -647,7 +661,7 @@ store.events.on('changed', () => broadcast('ads-changed'));
 async function discardProposal(ctx, adId) {
   const proposal = await store.getProposal(adId);
   if (!proposal) return;
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'warning',
     message: proposal.total ? 'Discard this proposed change?' : `Discard “${proposal.name}”?`,
     detail: proposal.total ? 'The ad stays as it is. Your AI would have to propose the change again.' : 'It has no accepted draft, so the ad goes with it. Your AI would have to propose it again.',
@@ -669,7 +683,7 @@ async function acceptProposal(ctx, adId) {
   const question = proposal.total
     ? { title: `Accept these changes to ${proposal.name}?`, message: `They become draft ${proposal.total + 1} of ${proposal.name}.` }
     : { title: `Accept ${proposal.name}?`, message: `It becomes ${proposal.name}’s first draft.` };
-  const choice = await confirm(ctx?.win, { ...question, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Accept', choice: 'accept', kind: 'primary' }] });
+  const choice = await confirmSheet(ctx, { ...question, buttons: [{ label: 'Cancel', choice: 'cancel' }, { label: 'Accept', choice: 'accept', kind: 'primary' }] });
   if (choice !== 'accept') return 'cancel';
   await store.accept(adId);
   sessions.release(adClaim(adId));
@@ -686,7 +700,7 @@ async function deleteAd(ctx, adId) {
   const going = [drafts, ad.proposal && 'the proposal waiting on it'].filter(Boolean);
   const goes = going.join(' and ');
   const plural = ad.drafts > 1 || going.length > 1;
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'warning',
     message: `Delete “${ad.name}”?`,
     detail: `${goes ? `${goes.charAt(0).toUpperCase()}${goes.slice(1)} ${plural ? 'go' : 'goes'} with it.` : ''}This can't be undone.`,
@@ -710,12 +724,7 @@ handle('rename-ad', (_ctx, id, name) => store.rename(id, name));
 handle('delete-ad', (ctx, id) => deleteAd(ctx, id));
 handle('ai-waiting', () => waits.active());
 // A right-click menu on home, as SmartDoc's: the chosen item's id, or null if none was chosen.
-handle('home-menu', (ctx, items) => new Promise((resolve) => {
-  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
-    window: ctx?.win ?? undefined,
-    callback: () => setTimeout(() => resolve(null), 100),
-  });
-}));
+handle('home-menu', (ctx, items) => popupMenu(ctx, Array.isArray(items) ? items : []));
 handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', ({ session }) => {
@@ -774,6 +783,9 @@ app.whenReady().then(async () => {
   app.setAboutPanelOptions({ credits: 'SmartAd is in beta, so it may change significantly from one version to the next.' });
   const first = createWindow();
   await startMcp();
+  // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here, its
+  // calls run by the same handlers; and other apps' tabs shown in its windows.
+  await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
   updates.start();
   await first.ready;
   offerMoveToApplications(first);

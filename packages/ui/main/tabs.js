@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createTabDrag } from './tab-drag.js';
 import { startGuestServer } from './guests.js';
+import { confirm } from './confirm/confirm.js';
 
 // The family's preload (preload.cjs), for an app that gives its pages' API as data (`api`), and a
 // guest tab's (guest-preload.cjs), another app's page shown here.
@@ -590,6 +591,12 @@ export function createTabs({
       Menu.buildFromTemplate(template).popup({ window: ctx?.win ?? undefined, callback: () => setTimeout(() => resolve(null), 100) });
     });
   }
+  // A question in a sheet of its own (confirm/confirm.js: `question` as it takes), giving the chosen
+  // button's choice, or 'cancel'.
+  async function confirmSheet(ctx, question) {
+    if (ctx?.guest) return (await askWindow(ctx, 'confirm', question)) ?? 'cancel';
+    return confirm(ctx?.win ?? null, question);
+  }
   async function messageBox(ctx, options) {
     if (ctx?.guest) return (await askWindow(ctx, 'message', options)) ?? { response: options.cancelId ?? 0, checkboxChecked: false };
     return dialog.showMessageBox(ctx?.win ?? undefined, options);
@@ -599,6 +606,7 @@ export function createTabs({
     let answer = null;
     try {
       if (kind === 'menu') answer = await popupMenu(ctx, value?.items);
+      else if (kind === 'confirm') answer = await confirm(ctx.win, value);
       else if (kind === 'message') {
         const { response, checkboxChecked } = await dialog.showMessageBox(ctx.win, value);
         answer = { response, checkboxChecked };
@@ -936,5 +944,5 @@ export function createTabs({
     });
   }
 
-  return { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
+  return { popupMenu, messageBox, confirmSheet, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
 }

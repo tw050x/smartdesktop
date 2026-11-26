@@ -1,8 +1,8 @@
-// A question in a window of its own (see main/confirm.js): what it says comes in the query string,
+// A question in a window of its own (see confirm.js beside it): what it says comes in the query string,
 // and the chosen button's choice goes back to the main process.
 const question = JSON.parse(new URLSearchParams(location.search).get('question') ?? '{}');
 
-document.title = question.title ?? 'SmartAd';
+document.title = question.title ?? 'Question';
 document.getElementById('title').textContent = question.title ?? '';
 document.getElementById('message').textContent = question.message ?? '';
 const points = document.getElementById('points');

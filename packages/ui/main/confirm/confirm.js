@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 // A question asked in a window of its own, attached to the window it's about (a sheet on macOS, a
 // modal window elsewhere), as SmartDoc asks before replacing a file. It says what's so and offers
-// buttons; the answer is the chosen button's choice, or 'cancel' if it's closed.
+// buttons; the answer is the chosen button's choice, or 'cancel' if it's closed. The family's (it was
+// SmartSpec's and SmartAd's, the same in both): its page (page.html, page.js, page.css) and preload
+// are beside it, loaded from here as they are, so any app's window can show one, a guest tab's
+// included (see tabs.js's `confirmSheet`).
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const pending = new Map(); // the asking window's webContents id → its finish
@@ -44,7 +47,7 @@ export function confirm(parent, question) {
     fullscreenable: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#232326' : '#ffffff', // as its body (confirm.css)
     webPreferences: {
-      preload: path.join(dirname, 'confirm-preload.cjs'),
+      preload: path.join(dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -60,6 +63,6 @@ export function confirm(parent, question) {
     };
     pending.set(id, finish);
     dialog.on('closed', () => pending.has(id) && finish('cancel'));
-    dialog.loadFile(path.join(dirname, '../../build/renderer/confirm.html'), { query: { question: JSON.stringify(question) } });
+    dialog.loadFile(path.join(dirname, 'page.html'), { query: { question: JSON.stringify(question) } });
   });
 }
