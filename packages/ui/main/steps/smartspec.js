@@ -1,6 +1,6 @@
-// What an AI is doing, from the SmartSpec tool it calls, as the user would say it: each step the chat
-// shows. A copy of SmartSpec's own describe-step.js (which its website's demo uses): keep the two alike.
-
+// What an AI is doing, from the SmartSpec tool it calls, as the user would say it: each step the
+// chat shows (SmartDesktop's steps.js and agent.js), and the website demo's, one file for SmartSpec
+// and SmartDesktop alike. No Node here, so the website's demo can use it too.
 
 export function describeStep(name, input = {}) {
   const tool = name.replace(/^mcp__smartspec__/, '');

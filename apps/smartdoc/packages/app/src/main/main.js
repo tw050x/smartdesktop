@@ -17,7 +17,7 @@ import { readPdfText } from './pdf-text.js';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
 import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
-import { describeStep } from './describe-step.js';
+import { describeStep } from '@smartdesktop/ui/main/steps/smartdoc.js';
 import { buildMenu } from './menu.js';
 import { createUpdates } from './updates.js';
 import { WaitRefused, createWaits } from './waits.js';

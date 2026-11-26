@@ -1,8 +1,9 @@
-import { describeStep as smartdoc } from './smartdoc-steps.js';
-import { describeStep as smartspec } from './smartspec-steps.js';
-import { describeStep as smartad } from './smartad-steps.js';
-import { describeStep as smartprep } from './smartprep-steps.js';
-import { describeStep as smartplan } from './smartplan-steps.js';
+// Each app's own words for its tools' steps (@smartdesktop/ui's main/steps, which the apps use too).
+import { describeStep as smartdoc } from '@smartdesktop/ui/main/steps/smartdoc.js';
+import { describeStep as smartspec } from '@smartdesktop/ui/main/steps/smartspec.js';
+import { describeStep as smartad } from '@smartdesktop/ui/main/steps/smartad.js';
+import { describeStep as smartprep } from '@smartdesktop/ui/main/steps/smartprep.js';
+import { describeStep as smartplan } from '@smartdesktop/ui/main/steps/smartplan.js';
 
 // Each step the chat shows, in words, by the app whose tool the AI called: Claude Code names a tool
 // `mcp__<app>__<tool>`, Codex gives the tool and its server apart.

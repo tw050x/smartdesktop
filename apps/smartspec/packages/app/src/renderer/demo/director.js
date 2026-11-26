@@ -19,7 +19,7 @@
 // show(name) resolves with the part of the window the scene is about (its focus, in the window's
 // own pixels), for the site to bring into view, or null if another scene was asked for meanwhile.
 
-import { describeStep } from '../../main/describe-step.js';
+import { describeStep } from '@smartdesktop/ui/main/steps/smartspec.js';
 import { makeCursor } from './hover.js';
 import { CHECKOUT_GOAL, COMMENT } from './scenario.js';
 

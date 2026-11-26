@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../packages/app/src/main/mcp-tools.js';
-import { describeStep } from '../packages/app/src/main/describe-step.js';
+import { describeStep } from '@smartdesktop/ui/main/steps/smartplan.js';
 
 // A client on the app's MCP server, its tools run against `boards` (as main.js's boardsFor).
 async function connect(boards) {

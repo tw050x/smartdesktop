@@ -1,6 +1,6 @@
 // What an AI is doing, from the SmartStudio tool it calls, as the user would say it: each step the
-// chat shows (SmartDesktop's agent.js, which keeps a copy of this). No Node here, so a website's
-// demo could use it too.
+// chat shows (SmartDesktop's steps.js and agent.js, once SmartDesktop connects to SmartStudio), one
+// file for both. No Node here, so a website's demo could use it too.
 
 // A stretch of a take, as minutes and seconds: 0:42–0:51.
 const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;

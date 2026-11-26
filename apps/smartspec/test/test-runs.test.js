@@ -9,7 +9,7 @@ import { after, before, describe, test } from 'node:test';
 import { createTestRuns, useBasis } from '../packages/app/src/main/test-runs.js';
 import { targetOf, viewOf } from '../packages/app/src/main/test-history.js';
 import { createWorkspaces } from '../packages/app/src/main/workspaces.js';
-import { describeStep } from '../packages/app/src/main/describe-step.js';
+import { describeStep } from '@smartdesktop/ui/main/steps/smartspec.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runner = { command: process.execPath, args: [path.join(here, '../packages/runner/cli.js')], env: {} };

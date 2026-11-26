@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { describeStep } from '../packages/app/src/main/describe-step.js';
+import { describeStep } from '@smartdesktop/ui/main/steps/smartspec.js';
 
 test('running the checks says what it runs', () => {
   assert.equal(describeStep('mcp__smartspec__run_checks', { schematic_id: 's1' }), 'Running the checks');

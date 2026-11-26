@@ -1,6 +1,6 @@
 // What an AI is doing, from the SmartPlan tool it calls, as the user would say it: each step the
-// chat shows (SmartDesktop's agent.js, which keeps a copy of this). No Node here, so a website's
-// demo could use it too.
+// chat shows (SmartDesktop's steps.js and agent.js), one file for SmartPlan and SmartDesktop alike.
+// No Node here, so a website's demo could use it too.
 
 export function describeStep(name, input = {}) {
   const tool = name.replace(/^mcp__smartplan__/, '');

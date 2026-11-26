@@ -26,7 +26,7 @@
 // screen, showing only part of its width, should centre on before the cursor's shown (narrowX):
 // where the cursor first goes, or, for the AI at work, the chat.
 
-import { describeStep } from '../../main/describe-step.js';
+import { describeStep } from '@smartdesktop/ui/main/steps/smartdoc.js';
 import { makeCursor } from './hover.js';
 import { DOCUMENT, VARIATION } from './scenario.js';
 
