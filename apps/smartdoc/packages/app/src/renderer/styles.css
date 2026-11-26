@@ -1,0 +1,1629 @@
+:root {
+  /* Light or dark, as the app's Appearance setting has it (nativeTheme in main.js), or as the
+     system does; each colour below is light-dark(its light value, its dark value), the dark ones
+     the website's. The PDF pages stay white either way: they're the document. */
+  color-scheme: light dark;
+  --top-bar-height: 44px;
+  --find-column: clamp(300px, 36vw, 416px); /* the find bar's column: the bar, and the space either side of it */
+  /* The chat, docked at the right: as wide as the user dragged it (--chat-chosen, see chat-panel.js),
+     else a share of the window, and never more than half of it. */
+  --chat-width: min(var(--chat-chosen, clamp(320px, 30vw, 440px)), 50vw);
+
+  --bg: light-dark(#ffffff, #232326); /* cards and panels */
+  --border: light-dark(#e2e2e7, #3a3a3f);
+  --border-strong: light-dark(#c4c4cb, #4a4a50);
+  --text: light-dark(#1d1d1f, #f2f2f4);
+  --text-2: light-dark(#3c3c43, #d1d1d6); /* body text on cards, a step softer than --text */
+  --muted: light-dark(#6e6e73, #a1a1a8);
+  --faint: light-dark(#aeaeb4, #5a5a60);
+  --subtle-bg: light-dark(#f4f4f6, #2a2a2e); /* code, notes, hovered and settled things */
+  --hover-tint: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  --skeleton: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
+  --button-hover: light-dark(#e6e6ea, #2e2e33);
+  --button-active: light-dark(#dadadf, #38383e);
+  --document-bg: light-dark(#ebebef, #161618);
+  --top-bar-bg: light-dark(#dcdce1, #1f1f22); /* a shade apart from the background below it (and main.js's title bar overlay) */
+  --accent: light-dark(#2f6fde, #4a86ee);
+  --compare-removed: rgba(226, 60, 60, 0.38);
+  --compare-added: rgba(40, 175, 85, 0.42);
+  --find-match: light-dark(#ffe35c, #8a6d00);
+  --mask: light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.5));
+  --thumb: light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.28));
+  --thumb-active: light-dark(rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.42));
+  /* Changes: what's removed, what's added, and settled decisions. */
+  --del-bg: light-dark(#fdecec, #3a2224);
+  --del-text: light-dark(#8a1f1f, #f19a9a);
+  --ins-bg: light-dark(#e8f6ee, #1f3328);
+  --ins-text: light-dark(#155c34, #8fdcae);
+  --decided-text: light-dark(#1f7a45, #5cc98a);
+  --decision-bg: light-dark(#f1faf4, #1d2b23);
+  --decision-border: light-dark(#cdebd9, #2c4a38);
+  --decision-border-hover: light-dark(#9fd5b5, #3f7356);
+
+  /* Shared by the PDF pages and the panels so their spacing and corners match. */
+  --card-gap: 10px;
+  --card-radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  /* The window's top bar (only the website's demo draws it here: see tab-strip.js), the document's
+     toolbar, and what's open. */
+  grid-template-rows: auto auto minmax(0, 1fr);
+  /* One column, never wider than the window, whatever a row's content would like. */
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--document-bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+/* --- Top bar ---------------------------------------------------------------------------
+   The whole bar drags the window; buttons opt out. macOS reserves room on the left for the
+   traffic lights; Windows and Linux reserve room on the right for the system window controls
+   (the env() values come from Electron's title bar overlay). */
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px; /* the same between everything in the bar: see .history-nav, .breadcrumb and .top-bar-end */
+  padding: 0 8px;
+  background: var(--top-bar-bg);
+  -webkit-app-region: drag;
+  /* Hover and press shades darker than the bar itself. */
+  --button-hover: light-dark(#cdcdd3, #2c2c31);
+  --button-active: light-dark(#c2c2c8, #36363c);
+}
+.platform-darwin:not(.full-screen) .tab-strip { padding-left: 84px; }
+/* The window's top bar (tab-strip.js): back and forward, the tabs, and the app's status at its end.
+   In the app it's the window's own page (tabs.html); the website's demo draws it in its page. */
+.tab-strip { grid-row: 1; height: var(--top-bar-height); }
+.tab-strip[hidden] { display: none; }
+.tab-strip-body { display: block; background: var(--top-bar-bg); }
+.tab-strip-body .tab-strip { height: var(--top-bar-height); }
+.tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 4px; overflow: hidden; }
+/* A tab: Home's icon, or a document's name and a close button, shown while it's pointed at or
+   showing. The tab showing stands out on the bar, as the page below it does. */
+.tab {
+  flex: 0 1 200px; min-width: 40px; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 4px 0 10px;
+  border-radius: 8px; color: var(--text-2); cursor: default; -webkit-app-region: no-drag;
+}
+.tab.tab-home { flex: none; min-width: 0; width: 34px; padding: 0; justify-content: center; }
+/* Each tab has a background of its own, so it doesn't get lost in the bar (the user's choice): a
+   shade darker than the bar, darker again while pointed at; the tab showing has the page's. */
+.tab { background: var(--button-hover); }
+.tab:hover { background: var(--button-active); }
+.tab[aria-selected="true"] { background: var(--document-bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.tab-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+/* The tab showing, and a tab pointed at: a blue pill under it, centred on the line between the top
+   bar and the page below (in place of a tooltip: the user's choice). The top bar draws it at its foot; in the app, the tab's
+   page draws the half below the line (.below), as the top bar's page ends there. */
+.tab-hover-pill { position: absolute; z-index: 45; top: calc(var(--top-bar-height) - 2px); height: 4px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-hover-pill[hidden] { display: none; }
+.tab-hover-pill.below { position: fixed; top: -2px; }
+.tab-strip { position: relative; }
+/* Its document's or schematic's icon, before its name. As tabs narrow, the name gives way and the
+   icon stays (the user's choice): too narrow for a name, a tab is its icon, its close button
+   showing only while it's pointed at. */
+.tab { container-type: inline-size; }
+.tab-icon { flex: none; display: grid; place-items: center; color: var(--text-2); }
+.tab[aria-selected="true"] .tab-icon { color: var(--accent); }
+@container (max-width: 72px) {
+  .tab-title, .tab-ai-mark, .tab-chat-button { display: none; }
+  .tab-icon { flex: 1; }
+  .tab:not(:hover) .tab-close { display: none; }
+}
+/* A chat in SmartDesktop owning the tab: a muted speech bubble beside the close button (the sparkle
+   takes its place while the chat's AI works). */
+/* The chat owning the tab: a button bringing it forward in SmartDesktop (the sparkle while its AI works). */
+.tab-chat-button { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-chat-button:hover { background: var(--button-active); color: var(--accent); }
+.tab-chat-button.working { color: var(--accent); }
+/* An AI working in the tab: a sparkle in the accent colour, beside the close button. */
+.tab-ai-mark { flex: none; display: grid; place-items: center; width: 18px; height: 20px; color: var(--accent); }
+/* Always there (the user's choice: it showed only while the tab was pointed at or showing). */
+.tab-close { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.tab-close:hover { background: var(--button-active); color: var(--text); }
+/* The document's toolbar, across the top of what's open, on its background: its tool, focus, draft
+   and view. Not in Home, nor in a tab waiting for its document. */
+.toolbar { grid-row: 2; height: var(--top-bar-height); padding: 0 12px; background: var(--document-bg); -webkit-app-region: no-drag; }
+body:not(.has-document) .toolbar { display: none; }
+.toolbar .server-pill { display: none; } /* kept for the status panel: the window's top bar shows it */
+.workspace { grid-row: 3; }
+/* A document's tab with no document yet (an AI's, opening one): it never shows home. */
+.tab-waiting { display: none; }
+.document-tab:not(.has-document) .tab-waiting { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+.document-tab .empty-state { display: none; }
+body:not(.platform-darwin) .top-bar {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
+}
+.top-bar-start, .top-bar-end { display: flex; align-items: center; gap: 6px; }
+.top-bar-end { flex: none; margin-left: auto; }
+/* Back and forward, before home (see history-nav.js): there on home too, to go back into a document. */
+.history-nav { display: flex; flex: none; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
+.history-nav .icon-button:disabled { opacity: 1; color: light-dark(#aeaeb4, #5a5a60); cursor: default; }
+.history-nav .icon-button:disabled:hover { background: none; }
+
+/* The tool switcher: the active tool's name with a chevron, opening a card of both tools, each a
+   card of its own with the active one highlighted in the accent colour. */
+.tool-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.tool-button:hover, .tool-button[aria-expanded="true"] { background: var(--button-hover); }
+.tool-button svg { color: var(--muted); }
+#tool-label { display: flex; align-items: center; gap: 6px; }
+/* Short of room (see app-shell.js): the tool shows just its icon. */
+.breadcrumb.tight .tool-name { display: none; }
+#tool-label svg { color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
+/* The breadcrumb: home, tool and focus. Only shown with a document open. Long names shrink rather
+   than push the bar's controls away. */
+.breadcrumb { flex: 0 1 auto; min-width: 0; }
+.crumb-home { flex: none; -webkit-app-region: no-drag; }
+body:not(.has-document) .breadcrumb { visibility: hidden; }
+/* The draft picker, in the top bar just after the tool and focus (placed by app-shell.js). */
+.top-bar { position: relative; }
+.draft-nav { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
+/* Pushed along by the breadcrumb (see app-shell.js): no longer centred on its left edge. */
+.draft-nav.pushed { transform: none; }
+/* Too little room: the label goes first, then the whole control. */
+.draft-nav.compact .draft-label { display: none; }
+.draft-nav.collapsed { display: none; }
+.draft-nav[hidden] { display: none; }
+.draft-label { white-space: nowrap; font-weight: 500; color: var(--text); }
+body:not(.has-document) .breadcrumb { visibility: hidden; }
+.tool-card {
+  position: fixed;
+  z-index: 40;
+  /* Under the toolbar (and, in the website's demo, the window's top bar above it). */
+  top: calc(var(--chrome-top, 0px) + var(--top-bar-height) - 4px);
+  left: 8px;
+  display: grid;
+  gap: 6px;
+  width: 320px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.16);
+}
+
+.tool-card[hidden] { display: none; }
+/* The focus picker's card: this draft's focuses, earlier drafts' to run again, and a new one. */
+.draft-card { width: 320px; max-height: calc(100vh - var(--top-bar-height) - 24px); overflow: auto; }
+.draft-option { padding: 8px 12px; }
+.draft-about { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.focus-card { width: 360px; max-height: calc(100vh - var(--top-bar-height) - 24px); overflow: auto; }
+.focus-heading { margin: 6px 4px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.focus-empty, .focus-loading { margin: 0 4px; font-size: 12px; color: var(--muted); }
+.focus-option[aria-pressed="true"] { border-color: var(--tool-color); background: color-mix(in srgb, var(--tool-color) 8%, var(--bg)); box-shadow: inset 0 0 0 1px var(--tool-color); }
+.focus-option[aria-pressed="true"] strong { color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
+.focus-goal { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tool-option-text .focus-meta { font-size: 11px; color: var(--muted); }
+/* Earlier drafts' focuses aren't on this draft: greyed, with the prompt to run them again. */
+.focus-earlier { flex-direction: column; align-items: stretch; gap: 8px; cursor: default; background: var(--subtle-bg); }
+.focus-earlier:hover { border-color: var(--border); }
+.focus-earlier strong { color: var(--muted); }
+.focus-copy { align-self: flex-start; }
+.focus-next { display: grid; gap: 8px; justify-items: start; padding: 2px 4px 4px; }
+.focus-next-text { margin: 0; font-size: 12px; }
+.focus-new { display: grid; gap: 8px; padding: 0 2px 4px; }
+.focus-goal-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; font: inherit; font-size: 12px; field-sizing: content; resize: none; min-height: calc(2lh + 14px); user-select: text; }
+.focus-goal-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.focus-button[hidden] { display: none; }
+.focus-button { min-width: 0; }
+#focus-label { max-width: 200px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tool-option {
+  display: flex;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+.tool-option:hover { border-color: var(--border-strong); }
+.tool-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tool-option[aria-checked="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tool-option[aria-checked="true"] strong { color: var(--accent); }
+.tool-option-text { display: grid; gap: 2px; flex: 1; }
+.tool-option-text span { font-size: 12px; color: var(--muted); }
+.tool-option { gap: 10px; align-items: flex-start; }
+.tool-option-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: color-mix(in srgb, var(--option-color) 12%, var(--bg)); color: light-dark(var(--option-color), color-mix(in srgb, var(--option-color) 62%, white)); }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.icon-button:hover { background: var(--button-hover); color: var(--text); }
+.icon-button:active { background: var(--button-active); }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* MCP server status: a button in the top bar, the same height and corners as the others, and the
+   popover it opens. */
+.server-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.server-pill:hover, .server-pill[aria-expanded="true"] { background: var(--subtle-bg); }
+.server-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.server-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0a100; } /* starting */
+.chat-button { -webkit-app-region: no-drag; }
+.chat-button[aria-pressed="true"] { background: var(--button-hover); color: var(--accent); }
+.server-pill[data-state="running"] .server-dot { background: #1f9d55; }
+.server-pill[data-state="off"] .server-dot { background: #d64545; }
+
+.server-pill { position: relative; z-index: 33; }
+/* The switch between pdf.js and SmartDoc's own renderer (experimental), before the status pill. */
+.reader-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.reader-switch[hidden] { display: none; }
+.reader-switch:hover { background: var(--subtle-bg); }
+.reader-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.reader-switch-track { position: relative; width: 26px; height: 16px; border-radius: 8px; background: light-dark(#c7c7cc, #48484c); transition: background-color 0.15s ease; }
+.reader-switch-knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 25%); transition: transform 0.15s ease; }
+.reader-switch[aria-checked="true"] .reader-switch-track { background: var(--accent); }
+.reader-switch[aria-checked="true"] .reader-switch-knob { transform: translateX(10px); } /* stays on top of the mask and the MCP panel */
+.server-pill { transition: background-color 0.3s ease, border-color 0.3s ease; }
+/* The two labels share a cell, so the pill is as wide as the longer one whichever is showing. */
+.server-pill-labels { display: grid; justify-items: start; white-space: nowrap; }
+.server-pill-labels > * { grid-area: 1 / 1; transition: opacity 0.3s ease; }
+#server-pill-ai { opacity: 0; }
+.server-pill[data-showing="ai"] #server-pill-ai { opacity: 1; }
+.server-pill[data-showing="ai"] #server-pill-label { opacity: 0; }
+.server-pill[data-showing="ai"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .server-pill, .server-pill-labels > * { transition: none; }
+}
+.ai-release { display: grid; gap: 8px; justify-items: start; margin-bottom: 20px; font-size: 13px; }
+.ai-release[hidden] { display: none; }
+.ai-release p { margin: 0; }
+
+/* The mask dulls the whole window, top bar included; clicking it closes the card. */
+.mcp-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--mask);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
+
+/* A full-height panel on the right, under the window's top bar (whose status pill, at its right,
+   opens it), laid over the content (which stays where it is) rather than pushing it aside. Its own
+   bar holds the close button on the right. Only the content below scrolls. It slides in from past
+   the window's right edge, and hides once it has slid back out. */
+.mcp-card {
+  position: fixed;
+  z-index: 32;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(var(--mcp-width, 380px), 100vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12);
+  transform: translateX(calc(100% + 28px)); /* past the edge, shadow included */
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
+/* Dragging the handle below the minimum slides the panel out (and lifts the mask) while the
+   handle keeps following the pointer; letting go there closes it. */
+.mcp-open.mcp-closing .mcp-card { transform: translateX(calc(100% + 28px)); }
+.mcp-open.mcp-closing .mcp-mask { opacity: 0; }
+.mcp-card-bar { flex: none; display: flex; align-items: center; justify-content: flex-end; height: var(--top-bar-height); padding: 0 8px; }
+/* The panel's titles ("MCP server", "Set up an AI app") are underlined, and a title with content
+   above it has room above it too, so each section reads as separate. */
+.mcp-card .panel h3 { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.mcp-card > .panel > h3:first-child { margin-top: 0; }
+.mcp-card > .panel > section { margin-top: 28px; }
+.mcp-card > .panel > section > h3:first-child { margin-top: 0; }
+.mcp-card > .panel { flex: 1; overflow: hidden auto; padding-top: 4px; }
+
+/* The panel's drag handle sits just outside its right edge, vertically centred on the window,
+   and slides in and out with it. Same grip as the review's. */
+.mcp-resizer {
+  position: fixed;
+  z-index: 32;
+  top: 50%;
+  right: min(var(--mcp-width, 380px), 100vw);
+  width: 14px;
+  height: 128px;
+  margin-top: -64px;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  transform: translateX(calc(min(var(--mcp-width, 380px), 100vw) + 28px));
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+  -webkit-app-region: no-drag;
+}
+.mcp-open .mcp-resizer { transform: none; visibility: visible; transition: transform 0.2s ease; }
+.mcp-resizing .mcp-resizer { transition: none; }
+.mcp-resizer::after {
+  content: "";
+  width: 4px;
+  height: 108px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: background-color 0.15s;
+}
+.mcp-resizer:hover::after, .mcp-resizing .mcp-resizer::after { background: var(--accent); }
+.mcp-resizing, .mcp-resizing * { cursor: col-resize !important; user-select: none !important; }
+.panel-hint.server-intro { margin: 0 0 12px; }
+.server-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 12px; }
+.server-details dt { color: var(--muted); }
+.server-details dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-setup[hidden] { display: none; }
+/* The AIs the chat runs, a row each (see server-status.js). */
+.ai-list { display: grid; gap: 8px; margin-top: 10px; }
+.ai-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.ai-row-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.ai-row-text span { color: var(--muted); font-size: 12px; }
+.ai-row-text .ai-row-how { margin-top: 4px; color: var(--text-2); }
+/* Installing or signing in: the step in words under the name, and the percentage done (or a
+   spinner) in the button's place (see ai-progress.js). */
+.ai-row-text .ai-progress-line { color: var(--text-2); }
+.ai-progress { flex: none; align-self: flex-start; display: flex; align-items: center; justify-content: flex-end; min-width: 36px; min-height: 18px; color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.ai-spinner { flex: none; width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: ai-spin 0.8s linear infinite; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ai-spinner { animation-duration: 2.4s; } }
+.chat-setup-progress { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+.chat-setup-progress .ai-progress-line { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); font-size: 12px; }
+.chat-setup-progress .ai-progress { align-self: center; }
+.ai-row .secondary-button { align-self: flex-start; }
+.ai-ready { flex: none; align-self: flex-start; color: var(--decided-text); font-size: 12px; font-weight: 600; line-height: 1.4; } /* level with the title */
+/* Connecting an AI app by hand, folded away. */
+.manual-setup { margin-top: 20px; }
+.manual-setup > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.manual-setup[open] > summary { margin-bottom: 4px; }
+
+/* The AI app to set up: a full-width button with its chevron at the end, opening a menu of the
+   apps below it, as wide as the button. */
+.app-picker { position: relative; display: block; }
+.app-picker-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+.app-picker-button:hover, .app-picker-button[aria-expanded="true"] { background: var(--subtle-bg); }
+.app-picker-button svg { color: var(--muted); }
+.app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app-picker-menu {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  min-width: 100%;
+  padding: 4px;
+  border-radius: 9px;
+  background: var(--bg);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.14);
+}
+.app-picker-menu[hidden] { display: none; }
+.app-picker-menu button { padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; text-align: left; white-space: nowrap; color: var(--text); cursor: pointer; }
+.app-picker-menu button:hover { background: var(--subtle-bg); }
+.app-picker-menu button[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent); font-weight: 600; }
+.tab-panel[hidden] { display: none; }
+.tab-panel { padding-top: 14px; }
+.setup-state { margin: 0 0 12px; font-size: 12px; color: var(--text-2); }
+#setup-claude-desktop > .primary-button { margin-bottom: 4px; }
+#setup-claude-desktop > .primary-button[hidden] { display: none; }
+.setup-manual { margin-top: 16px; font-size: 12px; }
+.setup-manual summary { cursor: pointer; color: var(--text-2); margin-bottom: 10px; }
+.setup-note { margin: 16px 0 0; color: var(--muted); font-size: 11px; }
+.setup-steps { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 12px; }
+.setup-steps li { padding-left: 2px; }
+.code-block { position: relative; margin-top: 6px; }
+.code-block pre {
+  margin: 0;
+  padding: 10px 44px 10px 12px; /* room on the right for the copy button */
+  min-height: 36px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--subtle-bg);
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.setup-steps .code-block code { padding: 0; background: none; font-size: inherit; }
+.code-copy { position: absolute; right: 3px; bottom: 3px; }
+.code-copy:hover { background: var(--button-hover); }
+.setup-steps code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 11px; }
+
+/* Zoom (see app-shell.js): a small bar at the bottom left of the document, over it. */
+.zoom-controls {
+  grid-area: 1 / 1; align-self: end; justify-self: start; z-index: 6; margin: 0 0 12px 12px;
+  display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+body:not(.has-document) .zoom-controls, .comparing .zoom-controls, .list-view-open .zoom-controls { display: none; }
+.zoom-controls .icon-button { width: 28px; height: 28px; }
+.zoom-controls .icon-button:disabled { color: var(--faint); background: transparent; cursor: default; }
+.zoom-level { min-width: 48px; height: 28px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.zoom-level:hover { background: var(--button-hover); }
+.zoom-divider { width: 1px; height: 18px; margin: 0 3px; background: var(--border); }
+.zoom-controls [hidden] { display: none; }
+.zoom-controls .icon-button[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* Pages two side by side, or as a printed book (see app-shell.js): two columns, each page against
+   the middle; a page alone (a book's first, and a last left-hand page) centred across both. A
+   book's facing pages touch, their inner corners square, so what's printed across them meets. */
+body.two-up #pages, body.book #pages { grid-template-columns: auto auto; }
+body.book #pages { column-gap: 0; }
+#pages .page.at-left { grid-column: 1; justify-self: end; }
+#pages .page.at-right { grid-column: 2; justify-self: start; }
+#pages .page.solo { grid-column: 1 / -1; justify-self: center; }
+body.book #pages .page.at-left { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+body.book #pages .page.at-right { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+/* Side by side, the pages aren't at the size the edge handles set, so the handles step aside. */
+.two-up .page-resizer, .book .page-resizer { display: none; }
+/* Zoomed, the pages aren't at the size the edge handles set, so the handles step aside. */
+.zoomed .page-resizer { display: none; }
+
+/* The app's own tooltips (tooltips.js): a small dark card, above everything, never in the way. */
+.tooltip {
+  position: fixed; z-index: 100; max-width: 320px; padding: 4px 8px; border-radius: 6px;
+  background: light-dark(#2b2b30, #f2f2f4); color: light-dark(#f2f2f4, #1c1c1f);
+  font-size: 12px; line-height: 1.35; white-space: pre-line; pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+.tooltip[hidden] { display: none; }
+/* Choosing a document's icon (icon-picker.js): a card of every icon. */
+.icon-picker { left: 0; width: 344px; }
+.icon-picker-title { padding: 4px 6px 2px; color: var(--muted); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.icon-picker-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.icon-picker-option { display: grid; place-items: center; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; }
+.icon-picker-option:hover { background: var(--button-hover); color: var(--text); }
+.icon-picker-option.chosen { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+/* A document's icon on home, before its name. */
+.home-doc-icon { display: inline-grid; vertical-align: -3px; margin-right: 6px; color: var(--muted); }
+/* The window's top bar's tooltips: blue (the user's choice), hanging over the content below it. */
+.tooltip.strip-tip { background: var(--accent); color: #fff; }
+
+/* --- The PDF view and the bar under it ---------------------------------------------------- */
+.workspace {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+.document { grid-area: 1 / 1; }
+body:not(.has-document) .review-bar { display: none; }
+.switching-document * { transition: none !important; }
+
+/* Custom scrollbar for the PDF view (see app-shell.js). No track is drawn: just a thin thumb
+   on the right edge, shown only when there's something to scroll. Hovering its strip for a
+   moment widens the thumb; it narrows straight away on leaving, and stays wide while dragged. */
+.document, .empty-state { scrollbar-width: none; }
+.scrollbar {
+  grid-area: 1 / 1;
+  justify-self: end;
+  position: relative;
+  width: 14px;
+  margin: var(--card-gap) 2px;
+  z-index: 3;
+  visibility: hidden;
+}
+.scrollbar.scrollable { visibility: visible; }
+.scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  right: 3px;
+  width: 4px;
+  border-radius: 4px;
+  background: var(--thumb);
+  transition: width 0.15s ease, background-color 0.15s ease;
+}
+/* Where the review's cards are, over the thumb (scrollbar.js): bright while one needs answering;
+   in the comparison, where its changes are. */
+.scrollbar-marks { position: absolute; inset: 0; pointer-events: none; }
+.scrollbar-mark {
+  position: absolute;
+  right: 1px;
+  width: 8px;
+  height: 3px;
+  margin-top: -1px;
+  border-radius: 1.5px;
+  background: var(--mark-color);
+  opacity: 0.4;
+}
+.scrollbar-mark.bright { opacity: 1; }
+/* The comparison's: the draft's changes on the left half, the preview's on the right, as the pages are. */
+.scrollbar-mark.left { right: 5px; width: 4px; border-radius: 1.5px 0 0 1.5px; }
+.scrollbar-mark.right { width: 4px; border-radius: 0 1.5px 1.5px 0; }
+.scrollbar:hover .scrollbar-thumb {
+  width: 8px;
+  transition-delay: 0.35s;
+}
+.scrollbar.dragging .scrollbar-thumb {
+  width: 8px;
+  background: var(--thumb-active);
+  transition-delay: 0s;
+}
+
+/* The handles in the gutters that resize the pages (see app-shell.js): centred in the view, each
+   just off a page edge, in the space between the page and the cards. */
+.page-resizer {
+  grid-area: 1 / 1;
+  align-self: center;
+  justify-self: center;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 10px; /* the whole of that space, so it never reaches over a card or the page */
+  height: 128px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.page-resizer.left { transform: translateX(calc(var(--page-width, 0px) / -2 - 5px)); }
+.page-resizer.right { transform: translateX(calc(var(--page-width, 0px) / 2 + 5px)); }
+.page-resizer::after {
+  content: "";
+  width: 4px;
+  height: 108px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0.3;
+  transition: background-color 0.15s, opacity 0.15s;
+}
+.page-resizer.near::after, .page-resizer:hover::after, .page-resizing .page-resizer::after { opacity: 1; }
+.page-resizer:hover::after, .page-resizing .page-resizer::after { background: var(--accent); }
+.page-resizing, .page-resizing * { cursor: col-resize !important; user-select: none !important; }
+body:not(.has-document) .page-resizer, .comparing .page-resizer, .list-view-open .page-resizer { display: none; }
+
+/* --- PDF view ---------------------------------------------------------------------------- */
+.document {
+  position: relative;
+  overflow: auto;
+  background: var(--document-bg);
+}
+/* Drop indicator: while a file is dragged over the window, everything else in the view is hidden
+   and a dashed page shows where the first page would be, at its size (placed by app-shell.js),
+   saying what dropping does. */
+.drop-zone { display: none; position: absolute; left: 50%; z-index: 5; aspect-ratio: 210 / 297; transform: translateX(-50%); flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 2px dashed var(--accent); border-radius: var(--card-radius); background: color-mix(in srgb, var(--accent) 5%, var(--document-bg)); color: var(--accent); font-size: 15px; font-weight: 600; text-align: center; pointer-events: none; }
+.drop-zone p { margin: 0; max-width: 18em; }
+.document.dragging .drop-zone { display: flex; }
+.document.dragging > :not(.drop-zone) { visibility: hidden; }
+
+/* The home screen, with no document open: three columns (documents, variations, drafts) on the
+   window's background, each list scrolling on its own. A row is shaded grey while it's hovered or
+   selected, the selected one's title in the accent colour. They rise into place when they appear: on launch and when a
+   document is closed. */
+.empty-state {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.has-document .empty-state { display: none; }
+/* With no document open, the (empty) pages would sit over the home screen and catch the pointer. */
+body:not(.has-document) .pages-wrap { display: none; }
+.home {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--card-gap);
+  height: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+/* The columns rise in one after another, left to right. */
+@keyframes home-rise {
+  from { transform: translateY(32px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.home-column { animation: home-rise 0.28s ease-out both; }
+.home-column:nth-child(2) { animation-delay: 0.06s; }
+.home-column:nth-child(3) { animation-delay: 0.12s; }
+@media (prefers-reduced-motion: reduce) {
+  .home-column { animation: none; }
+}
+.home-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.home-column-head { display: flex; align-items: center; gap: 8px; padding: 14px 10px 10px 16px; }
+.home-column h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.home-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 8px 8px; list-style: none; }
+/* A column with nothing to show yet: placeholder rows in place of its list and controls. */
+.home-skeleton { display: none; padding: 0 8px 8px; }
+.home-column-unused .home-skeleton { display: block; }
+.home-column-unused .home-list, .home-column-unused .home-sort-picker { display: none; }
+/* Each placeholder is built from a real row's parts, so it has that row's shape and size. */
+.home-skeleton .home-item { background: var(--hover-tint); }
+.home-skeleton .home-row { cursor: default; }
+.home-skeleton .home-item:nth-child(2) { opacity: 0.6; }
+.home-skeleton .home-item:nth-child(3) { opacity: 0.3; }
+.home-skeleton-bar, .home-skeleton-icon { display: inline-block; vertical-align: middle; border-radius: 4px; background: var(--skeleton); }
+.home-skeleton-bar { height: 0.75em; }
+.home-skeleton .home-review-text { flex: 1; }
+.home-skeleton-icon { flex: none; width: 16px; height: 16px; }
+/* A review line's bars take its tool's colour, as the line's text does. */
+.home-skeleton .home-review .home-skeleton-bar, .home-skeleton .home-review .home-skeleton-icon {
+  background: color-mix(in srgb, light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white)) 28%, transparent);
+}
+/* Folders: the path back, under the column's title, and a drop's targets. */
+.home-column h2 { display: flex; align-items: center; min-width: 0; min-height: 26px; }
+.home-path { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 0 10px 8px 8px; font-size: 12.5px; color: var(--muted); }
+.home-path[hidden] { display: none; }
+.home-back { flex: none; width: 26px; height: 26px; }
+.home-new-folder { flex: none; width: 26px; height: 26px; color: var(--muted); }
+.home-crumb, .home-crumb-here {
+  overflow: hidden;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: inherit;
+}
+.home-column h2 .home-crumb { margin-left: -4px; }
+.home-crumb { flex: 0 1 auto; cursor: pointer; }
+.home-crumb:hover { color: var(--text); background: var(--hover-tint); }
+.home-crumb-here { flex: 0 1 auto; font-weight: 600; color: var(--text); }
+.home-crumb-more { flex: none; padding: 0 1px; }
+.home-folder-title { display: flex; align-items: center; gap: 6px; }
+.home-folder-title svg { flex: none; color: var(--muted); }
+.home-folder-title span { overflow: hidden; text-overflow: ellipsis; }
+.home-naming { padding: 6px; }
+.home-folder-name { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+/* As every text field in both apps: the accent outline, in place of the border. */
+.home-folder-name:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+/* A document's name field, with ".pdf" faint just after the text (see nameRow in home.js): the
+   ghost lies over the field with its border and padding, its copy of the text invisible. */
+.home-name-field { position: relative; display: block; }
+.home-name-ghost { position: absolute; inset: 0; overflow: hidden; padding: 7px 9px; border: 0; font-size: 13px; white-space: pre; pointer-events: none; }
+.home-name-typed { color: transparent; }
+.home-name-suffix { color: var(--muted); }
+.home-cut, .home-dragging { opacity: 0.45; }
+.home-drop, .home-list.home-drop { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; background: var(--hover-tint); }
+.home-drag-holder { position: fixed; top: -1000px; left: -1000px; width: 300px; margin: 0; padding: 0; list-style: none; }
+.home-empty { padding: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.home-item { position: relative; border-radius: 8px; }
+.home-item + .home-item { margin-top: 2px; }
+.home-row {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 34px 8px 10px; /* room on the right for the arrow */
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+.home-item:hover, .home-item:has(.home-row[aria-pressed="true"]) { background: var(--hover-tint); }
+/* A draft preview waiting, first in the drafts, tinted as SmartSpec's proposal is. */
+.home-preview { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.home-preview:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.home-row[aria-pressed="true"] .home-title { color: var(--accent); }
+/* An arrow at the row's right slides in while it's hovered, and stays on the selected row. */
+.home-arrow {
+  position: absolute;
+  top: 8px; /* level with the title, the row's first line */
+  right: 10px;
+  display: grid;
+  color: var(--muted);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+/* A draft's open icon just appears, without sliding or fading. */
+.home-draft .home-arrow { transform: none; transition: none; }
+.home-item:hover .home-arrow, .home-row[aria-pressed="true"] .home-arrow { opacity: 1; transform: none; }
+.home-row[aria-pressed="true"] .home-arrow { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .home-arrow { transition: none; }
+}
+.home-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.home-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
+/* A title and its pills share a line only if every pill fits; otherwise they all go under the title,
+   as one group that wraps within itself. */
+.home-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.home-title-row .home-title { min-width: 0; }
+.home-pills { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.home-pill { flex: none; padding: 1px 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.home-purpose, .home-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+  opacity: 0.8;
+}
+.home-meta { font-size: 11.5px; color: var(--muted); }
+/* The labels the user gives an item, at the bottom of its row, and where one is added. */
+.home-labels { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; margin-top: 2px; }
+.home-label {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--label-color) 16%, transparent);
+  color: light-dark(var(--label-color), color-mix(in srgb, var(--label-color) 62%, white));
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.home-label-editor { display: grid; gap: 4px; padding: 0 10px 8px; }
+.home-label-choice { cursor: pointer; }
+.home-label-choice:hover { background: color-mix(in srgb, var(--label-color) 28%, transparent); }
+/* A column's sort: a button with the sort's name, then the icon, opening a menu of the sorts. */
+.home-sort {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.home-sort svg { flex: none; }
+.home-sort-text { white-space: nowrap; }
+.home-sort:hover, .home-sort[aria-expanded="true"] { background: var(--button-hover); color: var(--text); }
+.home-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Its menu: the app picker's (see .app-picker-menu), lined up with the button's right edge. */
+.home-sort-picker { position: relative; flex: none; }
+.home-sort-menu { left: auto; right: 0; }
+/* A draft's reviews, a line each under it in its tool's icon and colour. */
+.home-reviews { display: grid; gap: 2px; padding: 0 6px 8px; }
+.home-review {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white));
+  cursor: pointer;
+}
+.home-review svg { flex: none; }
+.home-review:hover { background: color-mix(in srgb, var(--review-color) 8%, transparent); }
+.home-review:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.home-review-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* No review of this kind yet: a quieter line offering to start one. */
+.home-review.start { color: color-mix(in srgb, light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white)) 55%, var(--muted)); }
+.home-review.start:hover { color: light-dark(var(--review-color), color-mix(in srgb, var(--review-color) 62%, white)); }
+
+/* The pages and the review's margin layer over them, which scrolls with them. */
+.pages-wrap { position: relative; }
+.pages {
+  display: grid;
+  justify-content: safe center; /* zoomed wider than the view, the pages start at its left and scroll */
+  gap: 16px;
+  /* Room below the last page for open cards, and the same above the first. */
+  padding: calc(var(--card-gap) + 120px) 0;
+}
+.page {
+  position: relative;
+  overflow: hidden; /* clips the drawn page to the rounded corners */
+  border-radius: var(--card-radius);
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06);
+  user-select: text;
+}
+.page-content {
+  position: relative;
+  transform-origin: 0 0;
+}
+.page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+
+/* --- Panels ------------------------------------------------------------------------------- */
+.panel { padding: 16px 16px 24px; user-select: none; }
+.panel h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600; }
+.panel h3 { margin: 20px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.panel-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.panel-hint[hidden], .panel-note[hidden] { display: none; }
+.panel-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--subtle-bg); color: var(--muted); font-size: 12px; }
+.primary-button, .secondary-button {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.primary-button { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.secondary-button { border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.secondary-button:hover { background: var(--subtle-bg); }
+.panel > .secondary-button { margin-top: 14px; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+.variation-dialog { width: 480px; padding: 20px; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); font-size: 13px; }
+.variation-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.variation-dialog h2 { margin: 0 0 6px; font-size: 15px; }
+.variation-dialog p { margin: 0 0 14px; color: var(--muted); line-height: 1.4; }
+.variation-dialog label { display: block; margin-bottom: 4px; font-weight: 500; }
+.variation-dialog textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; font: inherit; field-sizing: content; min-height: calc(4lh + 14px); max-height: 50vh; resize: none; user-select: text; }
+.variation-dialog textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.variation-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* Settings: a modal in the window, opened from the SmartDoc menu. */
+.settings-dialog { width: 560px; max-width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; flex-direction: column; border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--bg); color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 0.18); font-size: 13px; }
+.settings-dialog[open] { display: flex; }
+.settings-dialog:focus { outline: none; }
+.settings-dialog::backdrop { background: rgb(0 0 0 / 0.2); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--border); }
+.settings-head h2 { margin: 0; font-size: 15px; }
+.settings-body { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
+.setting + .setting { margin-top: 24px; }
+.setting-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.setting-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.setting-line { margin: 0 0 10px; color: var(--text-2); font-size: 13px; }
+/* A setting turned on or off: its name, and a switch at the end of the row. */
+.setting-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; color: var(--text); font-size: 13px; }
+.setting-switch input[role="switch"] { appearance: none; flex: none; position: relative; width: 32px; height: 18px; margin: 0; border-radius: 99px; background: var(--border-strong); cursor: pointer; transition: background 0.15s; }
+.setting-switch input[role="switch"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); transition: transform 0.15s; }
+.setting-switch input[role="switch"]:checked { background: var(--accent); }
+.setting-switch input[role="switch"]:checked::after { transform: translateX(14px); }
+.setting-switch input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The app is in beta (and says so in its About panel too). */
+.beta-tag { padding: 1px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; }
+/* The update toast (update-toast.js): centred at the bottom of the window, above everything but
+   dialogs. A spinner while a check the user asked for looks, the percentage downloaded, or Restart
+   to Update and Later. The same in SmartDoc, SmartSpec and SmartDesktop. */
+.update-toast[hidden], .update-toast [hidden] { display: none; }
+.update-toast {
+  position: fixed; left: 50%; bottom: 20px; z-index: 50; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; min-height: 48px; box-sizing: border-box; padding: 8px 10px 8px 16px;
+  border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); color: var(--text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); font-size: 13px; white-space: nowrap;
+  animation: update-toast-in 220ms ease-out;
+}
+.update-toast-text { margin-right: 6px; }
+.update-toast-percent { min-width: 36px; margin-right: 6px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.update-toast-spinner { flex: none; width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: update-toast-spin 0.8s linear infinite; }
+@keyframes update-toast-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .update-toast-spinner { animation-duration: 2.4s; } }
+@keyframes update-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+/* A row of choices, the chosen one raised, as macOS draws them. */
+.segmented { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--subtle-bg); border: 1px solid var(--border); }
+.segmented button { padding: 4px 16px; border: 0; border-radius: 6px; background: transparent; font: inherit; color: var(--text-2); cursor: pointer; }
+.segmented button:hover { color: var(--text); }
+.segmented button[aria-checked="true"] { background: light-dark(var(--bg), #46464c); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A page's text layer (read/text-layer.js, or pdf.js's TextLayer): invisible text over the drawing,
+   to select and search, each piece placed and sized from the variables the layer sets
+   (--font-height, --scale-x, --rotate, and the page's --total-scale-factor). The rules the app used
+   from pdf.js's pdf_viewer.css, so it no longer needs that stylesheet (Mozilla's, Apache License 2.0;
+   see packages/pdf/read/NOTICES.md). */
+.textLayer {
+  color-scheme: only light; position: absolute; inset: 0; overflow: clip; z-index: 0;
+  text-align: initial; line-height: 1; letter-spacing: normal; word-spacing: normal; opacity: 1;
+  text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
+.textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1; --font-height: 0; --scale-x: 1; --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent { display: contents; }
+.textLayer span[role="img"] { user-select: none; cursor: default; }
+.textLayer ::selection { background: color-mix(in srgb, AccentColor, transparent 50%); color: transparent; }
+.textLayer br::selection { background: transparent; }
+/* Below the text, so a selection dragged past the last piece doesn't jump; it covers the layer while
+   selecting (see keepSelectionSteady in app-shell.js). */
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+
+/* The text's pieces can overlap (e.g. a space between two words), and a see-through
+   selection colour then shows darker where they do. A solid colour, multiplied onto the page so
+   the text still shows through, looks the same however many pieces overlap. */
+.textLayer { mix-blend-mode: multiply; }
+.page-content .textLayer ::selection { background: color-mix(in srgb, AccentColor 45%, white); }
+/* The line breaks sit at the page's left edge: their selection is hidden. */
+.page-content .textLayer br::selection { background: transparent; }
+
+/* --- Marks on the page -------------------------------------------------------------------- */
+.page-content { position: relative; cursor: text; } /* a selection can start anywhere on the page */
+/* --- Find (see find-bar.js) ------------------------------------------------------------- */
+.find-bar[hidden], .find-history[hidden] { display: none; }
+.find-bar {
+  /* In a column of its own at the right of the document, beside the pages (see .find-docked). */
+  grid-area: 1 / 1; align-self: start; justify-self: end; position: relative; z-index: 20; margin: 16px 20px 0 0;
+  display: flex; flex-direction: column; width: calc(var(--find-column) - 36px); max-height: calc(100% - 32px); min-height: 0;
+  border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); color: var(--text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); font-size: 13px;
+}
+.find-row { display: flex; align-items: center; gap: 2px; padding: 5px 5px 5px 12px; }
+.find-row input { flex: 1; min-width: 0; padding: 4px 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
+.find-status { flex: none; margin: 0 6px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.find-bar.no-matches .find-status { color: var(--del-text); }
+.find-step:disabled { color: var(--faint); background: transparent; cursor: default; }
+.find-history { overflow-y: auto; min-height: 0; border-top: 1px solid var(--border); padding: 8px 12px 10px; }
+.find-verdict { margin: 0; font-weight: 600; }
+.find-drafts { margin: 0; padding: 0; list-style: none; }
+.find-drafts li { margin-top: 10px; }
+.find-draft-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; color: var(--muted); font-size: 12px; }
+.find-draft-name { font-weight: 600; color: var(--text-2); }
+.find-snippet, .find-more { display: block; width: calc(100% + 12px); margin: 0 -6px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; line-height: 1.4; text-align: left; cursor: pointer; }
+.find-snippet { display: flex; gap: 8px; }
+.find-snippet:hover, .find-more:hover { background: var(--hover-tint); }
+.find-snippet:focus-visible, .find-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.find-snippet-page { flex: none; color: var(--muted); }
+.find-snippet mark { background: var(--find-match); color: inherit; border-radius: 2px; }
+.find-more { color: var(--accent); }
+/* While find is open: padding makes the column, and the pages stay clear of it (see fitPage in
+   app-shell.js), with their scrollbar beside them. The review's cards, marks and comments make way
+   for the matches, and come back as they were when it closes. */
+.find-docked .document { padding-right: var(--find-column); }
+.find-docked .scrollbar { margin-right: calc(var(--find-column) + 2px); }
+.find-docked .drop-zone { left: calc(50% - var(--find-column) / 2); }
+.find-docked .margin-layer, .find-docked .marks, .find-docked .comment-offer, .find-docked .comment-composer, .find-docked .comment-draft-mark, .find-docked .page-resizer { display: none; }
+/* The chat with Claude (see chat-panel.js): docked, a column at the right that the pages make
+   room for, as find's does; floating, a window of its own (chat.html). */
+.chat-docked .document { padding-right: var(--chat-width); }
+.chat-docked #scrollbar { margin-right: calc(var(--chat-width) + 2px); }
+.chat-docked .drop-zone { left: calc(50% - var(--chat-width) / 2); }
+.chat-docked .page-resizer { display: none; } /* centred on the window, they'd sit over the pages */
+#chat-panel[hidden] { display: none; }
+/* Docked, the full height of the window, over the top and bottom bars' right ends: only the
+   server's status shows over it (.server-pill's z-index), under the MCP panel and its mask. */
+.chat-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 29;
+  display: flex; flex-direction: column; box-sizing: border-box; width: var(--chat-width); min-height: 0;
+  border-left: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px;
+}
+/* The bottom bar's sentence and actions stay clear of it. */
+.chat-docked .review-bar { padding-right: calc(var(--chat-width) + 16px); }
+/* Its left edge resizes it, from 300px to half the window; double-clicking goes back to the usual width. */
+.chat-resizer { position: absolute; top: 0; bottom: 0; left: -4px; z-index: 1; width: 8px; cursor: col-resize; -webkit-app-region: no-drag; }
+.chat-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.15s ease; }
+.chat-resizer:hover::after, .chat-resizing .chat-resizer::after { opacity: 1; transition-delay: 0.15s; }
+/* A grip in the middle of the edge says it can be dragged; the whole edge drags. */
+.chat-resizer::before {
+  content: ""; position: absolute; top: 50%; left: 1px; z-index: 1; width: 6px; height: 36px; margin-top: -18px;
+  border-radius: 3px; background: var(--border-strong); box-shadow: 0 0 0 2px var(--bg);
+}
+.chat-resizer:hover::before, .chat-resizing .chat-resizer::before { background: var(--accent); }
+.chat-resizing, .chat-resizing * { cursor: col-resize !important; user-select: none; }
+.chat-panel.windowed .chat-resizer { display: none; }
+/* In its own window (chat.html): the whole window, moved by its header. */
+body.chat-window-body { display: flex; background: var(--bg); }
+.chat-panel.windowed { position: relative; flex: 1; min-width: 0; width: auto; border-left: 0; } /* never wider than the window, whatever is in it */
+.chat-panel.windowed .chat-head { -webkit-app-region: drag; }
+.chat-panel.windowed .chat-head button { -webkit-app-region: no-drag; }
+.chat-head { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 6px 8px 6px 12px; background: var(--bg); user-select: none; }
+/* Docked: the top row is level with the top bar, as tall and as draggable; then the title's row. */
+.chat-panel:not(.windowed) .chat-head { box-sizing: border-box; height: var(--top-bar-height); min-height: 0; padding: 0 8px; -webkit-app-region: drag; }
+.chat-panel:not(.windowed) .chat-head button { -webkit-app-region: no-drag; }
+.chat-head .icon-button[hidden] { display: none; }
+.chat-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.chat-status { flex: 1; min-width: 0; } /* an empty space filling the header, pushing the AI picker to the right */
+.chat-scroll { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; }
+/* The header is on the sidebar's background with no line under it: the conversation fades out as
+   it scrolls up under it, as it does under the message box at the bottom. */
+.chat-scroll::before { content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: 20px; background: linear-gradient(to bottom, var(--bg), transparent); pointer-events: none; }
+/* Which AI the chat works with: its name, opening a small menu of the AIs and where each stands. */
+/* Under the message box: which AI and which of its models, each a small button opening a menu above it. */
+.chat-pickers { display: flex; align-items: center; gap: 2px; margin: -2px 0 -4px -4px; }
+.chat-pick { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.chat-pick[hidden] { display: none; }
+.chat-pick:hover, .chat-pick[aria-expanded="true"] { background: var(--button-hover); color: var(--text); }
+.chat-pick.chat-ai { color: var(--text); font-weight: 600; }
+.chat-ai-menu { position: absolute; z-index: 30; display: grid; gap: 2px; min-width: 220px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: 0 8px 28px rgb(0 0 0 / 0.2); }
+.chat-ai-menu[hidden] { display: none; }
+.chat-ai-option { display: grid; gap: 1px; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.chat-ai-option:hover { background: var(--hover-tint); }
+.chat-ai-option.chosen .chat-ai-option-name { color: var(--accent); }
+.chat-ai-option-name { font-weight: 600; }
+.chat-ai-option-state { color: var(--muted); font-size: 12px; }
+
+.chat-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 12px 12px calc(var(--chat-foot, 52px) + 4px); display: flex; flex-direction: column; gap: 10px; }
+.chat-scrollbar { position: absolute; top: 0; right: 0; bottom: var(--chat-foot, 52px); margin: 6px 2px; } /* the app's scrollbar (scrollbar.js), over the conversation's right edge */
+.chat-body > * { flex: none; } /* each its full height: the conversation scrolls, nothing in it is squeezed */
+.chat-empty { color: var(--muted); font-size: 12.5px; line-height: 1.45; text-align: left; }
+.chat-setup { display: grid; gap: 8px; padding: 12px; border-radius: 10px; background: var(--subtle-bg); }
+.chat-setup-text { line-height: 1.45; }
+.chat-setup-note { color: var(--muted); font-size: 12px; }
+/* Every item of the review, as rows that open it in the tray. */
+.chat-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+/* Its header row folds and unfolds it (folded at first): a chevron, what it is, how many are left. */
+.chat-list-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.chat-list-head:hover { background: var(--button-hover); }
+.chat-list.open .chat-list-head { border-bottom: 1px solid var(--border); }
+.chat-list-chevron { flex: none; color: var(--muted); transition: transform 0.15s ease; }
+.chat-list.open .chat-list-chevron { transform: rotate(90deg); }
+.chat-list-title { flex: 1; font-weight: 600; }
+.chat-list-count { color: var(--muted); font-size: 12px; }
+.chat-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.chat-list-head + .chat-row { border-top: 0; }
+.chat-row:hover { background: var(--hover-tint); }
+.chat-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.chat-row-icon { display: grid; flex: none; color: var(--item-color); }
+.chat-row-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chat-row-state { flex: none; color: var(--muted); font-size: 11.5px; }
+.chat-row.decided .chat-row-title { color: var(--muted); }
+.chat-row.decided .chat-row-state { color: var(--decided-text); }
+.chat-row.earlier .chat-row-icon { color: var(--muted); }
+/* The conversation: the user's messages on the right, Claude's on the left, its steps as quiet lines. */
+.chat-message { max-width: 92%; line-height: 1.45; user-select: text; }
+.chat-message.user { align-self: flex-end; padding: 7px 10px; border-radius: 12px 12px 4px 12px; background: var(--accent); color: #fff; }
+.chat-message.assistant { align-self: flex-start; }
+.chat-message.step { align-self: flex-start; color: var(--muted); font-size: 12px; }
+.chat-message.step::before { content: "•"; margin-right: 6px; }
+/* What the window opened, noted in the conversation: a quiet line across it. */
+.chat-message.event { align-self: stretch; display: flex; align-items: center; gap: 8px; max-width: none; color: var(--muted); font-size: 11.5px; }
+.chat-message.event::before, .chat-message.event::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.chat-message.error { align-self: stretch; padding: 7px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del-text); }
+/* The AI's session has gone: said plainly, not as a failure, with a way to start a new one. */
+.chat-message.error.session-gone { display: grid; gap: 10px; justify-items: start; padding: 10px 12px; background: var(--subtle-bg); color: var(--text-2); }
+.chat-message.error.session-gone .chat-paragraph { line-height: 1.45; }
+.chat-paragraph + .chat-paragraph { margin-top: 8px; }
+.chat-paragraph { white-space: pre-wrap; }
+.chat-list-block { margin: 0; padding-left: 20px; }
+.chat-list-block li + li { margin-top: 2px; }
+.chat-paragraph + .chat-list-block, .chat-list-block + .chat-paragraph { margin-top: 8px; }
+.chat-message code { padding: 1px 4px; border-radius: 4px; background: var(--subtle-bg); font-size: 12px; }
+.chat-working { color: var(--accent); font-size: 12px; }
+.chat-working::after { content: "…"; animation: chat-dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
+@keyframes chat-dots { from { width: 0; } to { width: 1.2em; } }
+/* An item open in the tray: its card in full, as wide as the chat. */
+/* What the user did or looked at in the window, posted to the conversation as context for their
+   next message (see chat-panel.js): a quiet line across it, as other notes are. */
+.chat-message.event.context { color: var(--muted); font-style: italic; }
+/* A question the AI suggested asking next: a shortcut like the others, in its own quieter style. */
+.chat-chip.suggested { border-style: dashed; }
+/* The message box floats over the conversation's bottom, on the sidebar's background, which
+   starts as a fade above it so the conversation fades out as it scrolls behind it. No bar, no line. */
+.chat-foot {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; display: grid; gap: 8px; box-sizing: border-box;
+  padding: 24px 12px 12px; background: linear-gradient(to bottom, transparent, var(--bg) 24px); pointer-events: none; /* the same space below the message box as at its sides */
+}
+.chat-foot > * { pointer-events: auto; }
+.chat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-chips:empty { display: none; }
+.chat-chip { padding: 5px 10px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--bg); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.chat-chip:hover { background: var(--button-hover); }
+.chat-chip.primary { border-color: var(--accent); color: var(--accent); }
+/* The message box: what's written wraps and the box grows with it (up to a third of the window,
+   then scrolls), the send button inside it, held at its bottom right corner. */
+.chat-compose { position: relative; display: flex; }
+.chat-compose textarea {
+  flex: 1; min-width: 0; box-sizing: border-box; min-height: 36px; max-height: 30vh; padding: 7px 40px 7px 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
+  font: inherit; line-height: 1.45; field-sizing: content; resize: none; overflow-wrap: anywhere;
+}
+.chat-compose textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.chat-send {
+  /* A rounded square tucked into the box's corner: its corners follow the box's, 4px in. */
+  position: absolute; right: 4px; bottom: 4px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 7px; background: var(--accent); color: #fff; cursor: pointer;
+}
+.chat-send:disabled { background: var(--border-strong); color: var(--bg); cursor: default; }
+.chat-send:not(:disabled):hover { filter: brightness(1.1); }
+.chat-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chat-send.stop { background: var(--del-text); }
+/* Multiplied onto the page so the text still shows through, on a layer of their own. */
+.find-marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; mix-blend-mode: multiply; }
+.find-mark { position: absolute; border-radius: 2px; background: #ffe35c; }
+.find-mark.current { background: #ff9d2e; }
+
+.marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.mark { position: absolute; border-radius: 2px; }
+/* While a deck is hovered, the rest of the page fades behind a white veil with its text cut out. */
+.veil { position: absolute; inset: 0; fill: rgba(255, 255, 255, 0.72); }
+/* The change open beside the pages, at its text (drawChange in overlays.js). The page is white in
+   either appearance, so these colours are fixed. */
+.change-mark.removed { background: rgba(214, 48, 49, 0.3); }
+.change-mark.changed { background: rgba(230, 150, 20, 0.34); }
+.change-cover { position: absolute; background: #fff; }
+.change-words { position: absolute; color: #1d1d1f; white-space: pre-line; overflow-wrap: break-word; }
+.change-run { background: #fff; box-decoration-break: clone; -webkit-box-decoration-break: clone; box-shadow: 0 0 0 2px #fff; }
+.change-words :is(ins, del) { border-radius: 2px; text-decoration: none; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.change-words .change-added { background: #c9efd7; color: #0f5a2f; }
+.change-words .change-changed { background: #fde3b5; color: #6b4300; }
+.change-words .change-removed { background: #fbd5d5; color: #8a1f1f; text-decoration: line-through; text-decoration-color: rgba(138, 31, 31, 0.7); }
+
+/* --- The review in the margins (see margin-review.js) ----------------------------------- */
+.margin-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.margin-layer > * { pointer-events: auto; }
+.margin-link { position: absolute; width: 2px; border-radius: 1px; pointer-events: none; }
+.margin-slot { position: absolute; z-index: 1; }
+/* An item open in a panel floating over the window (see showOpened in margin-review.js), moved by its
+   top: its kind and title along the top, what it says scrolling, its comment and decision along the
+   bottom. */
+.margin-opened { position: fixed; z-index: 35; display: flex; flex-direction: column; width: min(380px, calc(100vw - 16px)); max-height: min(70vh, 620px); border: 1px solid var(--border); border-radius: 12px; background: var(--bg); box-shadow: 0 4px 12px rgb(0 0 0 / 0.12), 0 16px 40px rgb(0 0 0 / 0.22); overflow: hidden; }
+.margin-opened[hidden] { display: none; }
+.margin-opened-head { display: grid; gap: 2px; padding: 10px 12px 10px; border-bottom: 1px solid var(--border); border-top: 3px solid var(--item-color); cursor: grab; }
+.margin-opened.moving, .margin-opened.moving .margin-opened-head { cursor: grabbing; user-select: none; }
+/* The card open in the floating panel: its tab beside the page hides while it's open. */
+.margin-slot.opened { visibility: hidden; }
+.margin-opened-top { display: flex; align-items: center; gap: 8px; }
+.margin-opened-top .margin-kind { flex: 1; }
+.margin-opened-top .margin-status { color: var(--muted); font-size: 12px; }
+.margin-opened-title { font-size: 15px; font-weight: 600; line-height: 1.35; user-select: text; }
+.margin-opened-body { flex: 1; min-height: 0; padding: 12px; overflow-y: auto; overscroll-behavior: contain; }
+.margin-opened-body .margin-card { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; user-select: text; }
+.margin-opened-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.margin-opened-foot > .decision-buttons, .margin-opened-foot > .decision-card { flex: 1; margin: 0; }
+.margin-opened-foot > .decision-comment { flex: 1 0 100%; box-sizing: border-box; max-height: 30vh; margin: 0; }
+.margin-slot.hovered { z-index: 5; }
+.margin-slot.open { z-index: 6; }
+.margin-slot.filtered-out { opacity: 0.35; }
+.margin-tab, .margin-card { box-sizing: border-box; background: var(--item-background); }
+.margin-tab, .margin-card { border-radius: 8px; }
+.margin-r .margin-tab, .margin-r .margin-card { border-left: 4px solid var(--item-color); }
+.margin-l .margin-tab, .margin-l .margin-card { border-right: 4px solid var(--item-color); }
+/* A tab: its kind's name on the top line, a short title below (TAB_HEIGHT in
+   margin-review.js). */
+.margin-tab {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: 18px 20px;
+  align-content: start;
+  width: 100%;
+  height: 48px;
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 0;
+  border-bottom: 0;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.margin-r .margin-tab { border-right: 0; }
+.margin-l .margin-tab { border-left: 0; }
+.margin-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.margin-kind { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: light-dark(var(--item-kind-color), color-mix(in srgb, var(--item-kind-color) 62%, white)); }
+.margin-title, .margin-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.margin-tab-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.margin-stack { flex: none; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--item-color); color: #fff; font-size: 10.5px; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.margin-tab-head .margin-kind { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.margin-done { flex: none; color: var(--decided-text); font-size: 11px; font-weight: 700; }
+/* In narrow gutters a card is its kind's icon alone, with how many cards the deck holds at its corner. */
+.margin-icon { display: grid; flex: none; color: light-dark(var(--item-kind-color), color-mix(in srgb, var(--item-kind-color) 62%, white)); }
+.margin-tab.icon { display: grid; grid-template-columns: none; grid-template-rows: none; place-content: center; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 8px; }
+.margin-r .margin-tab.icon, .margin-l .margin-tab.icon { border-left-width: 0; border-right-width: 0; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--item-color) 45%, transparent), 0 1px 2px rgba(0, 0, 0, 0.08); }
+.margin-count { position: absolute; top: -5px; right: -5px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--item-color); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.margin-slot.focused .margin-tab { outline: 2px solid var(--item-color); outline-offset: 1px; }.margin-title { font-size: 13px; font-weight: 600; }
+.margin-status { font-size: 11.5px; color: var(--muted); }
+.decided .margin-tab { background: var(--subtle-bg); }
+.decided .margin-title { color: var(--muted); }
+.decided .margin-status { color: var(--decided-text); }
+/* A comment needing no further action, on its own: one line, its outcome then the comment
+   (FOLDED_HEIGHT in margin-review.js). */
+.margin-tab.folded { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; grid-template-rows: none; }
+.margin-tab.folded .margin-title { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; }
+/* A comment from an earlier version, unanswered, whose text is still here: dashed and muted, to see
+   and comment again on, never counted (earlierItems in margin-review.js). */
+.earlier .margin-tab, .earlier .margin-card { border: 1.5px dashed var(--border-strong, var(--muted)); box-shadow: none; }
+.earlier .margin-tab { background: transparent; }
+.earlier .margin-card { background: var(--bg); }
+.earlier .margin-kind { color: var(--muted); }
+.earlier .margin-title, .earlier .finding-body { color: var(--muted); }
+.margin-outcome { flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--decided-text); }
+/* An open card: the same width as its tab, growing downwards over the margin. */
+.margin-card:focus { outline: none; }
+.margin-card { scroll-margin: 16px; } /* room around it when it's scrolled into view */
+.margin-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.margin-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.14);
+  user-select: none;
+}
+.margin-card-head { display: flex; align-items: center; justify-content: space-between; min-height: 26px; }
+.margin-close { display: grid; place-items: center; width: 26px; height: 26px; margin-right: -6px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.margin-close:hover { background: var(--button-hover); color: var(--text); }
+.margin-card-title { margin: 0; font-size: 13.5px; font-weight: 600; }
+.margin-card textarea, .margin-opened-foot > textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  /* Grows (and shrinks) with what's typed; each keeps its starting size as a minimum. */
+  field-sizing: content;
+  resize: none;
+  user-select: text;
+}
+.margin-card textarea:focus, .margin-opened-foot > textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.decision-comment { min-height: calc(1lh + 14px); }
+.decision-answer { min-height: calc(2lh + 14px); }
+.finding-reply { margin: 0; font-size: 11px; color: var(--accent); }
+.finding-body, .finding-proposal, .finding-question { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-2); }
+.finding-question { font-weight: 500; }
+.finding-quote {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.diff { display: grid; gap: 4px; font-size: 12px; }
+.diff del { padding: 4px 6px; border-radius: 6px; background: var(--del-bg); color: var(--del-text); }
+.diff ins { padding: 4px 6px; border-radius: 6px; background: var(--ins-bg); color: var(--ins-text); text-decoration: none; }
+/* The suggested wording being edited, in place: the same green box, as a text box. */
+.change-switch { align-self: flex-start; }
+.change-switch button { padding: 4px 12px; font-size: 12px; }
+.margin-card .change-switch + .diff-edit { width: 100%; box-sizing: border-box; }
+.margin-card .diff-edit { min-height: 0; padding: 4px 6px; border: 0; border-radius: 6px; background: var(--ins-bg); color: var(--ins-text); font: inherit; font-size: 12px; line-height: inherit; box-shadow: inset 0 0 0 1px #9fd4b4; }
+.margin-card .diff-edit:focus { outline: 2px solid #1f9d55; outline-offset: -1px; }
+.option-list { display: grid; gap: 6px; }
+.option { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; cursor: pointer; }
+.option-text { display: grid; gap: 2px; }
+.decision { display: grid; gap: 6px; margin-top: 2px; }
+.decision-buttons { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.decision textarea[hidden] { display: none; }
+/* While changing a decision, Cancel sits at the start of the button row. */
+.decision-cancel { margin-right: auto; }
+/* Stands in for the buttons once a finding is decided; clicking it brings them back. Green for
+   a yes, grey for a no. */
+.decision-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--decision-border);
+  border-radius: 7px;
+  background: var(--decision-bg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.decision-card-rejected { border-color: var(--border); background: var(--subtle-bg); }
+.decision-card:hover { border-color: var(--decision-border-hover); }
+.decision-card-rejected:hover { border-color: var(--border-strong); }
+.decision-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.decision-card-title { font-weight: 600; color: var(--ins-text); }
+.decision-card-rejected .decision-card-title { color: var(--text); }
+.decision-card-hint { color: var(--muted); font-size: 11px; }
+.decision-card:hover .decision-card-hint { color: var(--accent); }
+
+/* The actions bar under the pages, the top bar's shade so it stands out (see renderBar in
+   margin-review.js): what's being worked on over a short sentence on where it stands, on the left,
+   each one line, giving way with an ellipsis only when the window is too narrow for it, and what to
+   do about it on the right, which never does. */
+.review-bar {
+  grid-area: 2 / 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 8px 16px;
+  background: var(--top-bar-bg);
+  font-size: 13px;
+}
+.review-bar-card { display: grid; gap: 2px; flex: 1; min-width: 0; padding: 2px 0; }
+.review-bar-title { overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.review-bar-title[hidden] { display: none; }
+.review-bar-card:has(.review-bar-title:not([hidden])) .review-bar-text { color: var(--text-2, var(--muted)); }
+.review-bar-text { min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Under a title (one row), the sentence can take two lines, never more. */
+.review-bar-card:has(.review-bar-title:not([hidden])) .review-bar-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+.review-bar-end { display: flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
+/* Under a title, its buttons sit at the bar's bottom, beside its last line, not centred. */
+.review-bar:has(.review-bar-title:not([hidden])) { align-items: flex-end; }
+.review-bar-end:empty { display: none; }
+/* An AI working on what's showing: a dot breathing before the sentence that says so. */
+.review-bar.ai-at-work .review-bar-text::before {
+  content: ''; display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 1px; border-radius: 50%;
+  background: var(--accent); vertical-align: middle; animation: at-work 1.4s ease-in-out infinite;
+}
+@keyframes at-work { 50% { opacity: 0.3; transform: scale(0.75); } }
+.ask-ai-button { display: inline-flex; align-items: center; gap: 6px; }
+.copy-prompt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; } /* at the bar's right end */
+/* Document | List, a two-part switch. The two parts are the same width, and the white thumb
+   behind them slides to the chosen one. */
+.view-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; margin-right: 6px; padding: 2px; border-radius: 8px; background: light-dark(#c9c9cf, #2c2c31); -webkit-app-region: no-drag; }
+.view-switch[hidden] { display: none; }
+.view-switch::before {
+  content: '';
+  position: absolute;
+  top: 2px; bottom: 2px; left: 2px;
+  width: calc(50% - 2px);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition: transform 0.2s ease-out;
+}
+.view-switch:has(button:last-child[aria-pressed="true"])::before { transform: translateX(100%); }
+.view-switch:not(:has(button[aria-pressed="true"]))::before { opacity: 0; }
+.view-switch button { position: relative; padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: var(--text-2); cursor: pointer; transition: color 0.2s; }
+.view-switch button[aria-pressed="true"] { color: var(--text); }
+@media (prefers-reduced-motion: reduce) {
+  .view-switch::before, .view-switch button { transition: none; }
+}
+
+/* --- Windows and AI sessions -------------------------------------------------------------- */
+.take-over-note { margin: 0; color: var(--muted); font-size: 12px; }
+.focus-card .take-over-note, .variation-dialog .take-over-note { margin-top: 10px; }
+.take-over-note + .copy-prompt { margin-left: 0; }
+
+/* --- Comments on selected text (see comment-composer.js) ---------------------------------- */
+.comment-offer {
+  position: absolute;
+  z-index: 4;
+  padding: 3px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.comment-draft-mark { position: absolute; background: rgba(15, 160, 175, 0.32); mix-blend-mode: multiply; pointer-events: none; border-radius: 2px; }
+.comment-composer {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 10px 12px 12px;
+  border-left: 4px solid #0f7c8a;
+  border-radius: 8px;
+  background: light-dark(#e8f6f7, #16302f);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+.comment-composer .margin-kind { margin: 0; color: light-dark(#0f7c8a, #5fc9d4); }
+.comment-composer textarea, .comment-edit {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.comment-composer textarea:focus, .comment-edit:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.comment-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.comment-error { margin: 0; color: light-dark(#b23c3c, #ff8f8f); font-size: 12px; }
+.comment-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* The AI's reply to a comment, with how it dealt with it as a tag before it. */
+.comment-ai-reply { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--text); }
+.comment-outcome { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; background: var(--subtle-bg); color: var(--muted); font-size: 10.5px; font-weight: 600; line-height: 16px; vertical-align: 1px; }
+
+/* --- The preview beside the previous draft (see compare.js) ------------------------------- */
+.compare { grid-area: 1 / 1; display: none; overflow: auto; scrollbar-width: none; background: var(--document-bg); }
+.comparing .compare { display: block; }
+.comparing .document:not(.dragging) { visibility: hidden; }
+body:has(.document.dragging) .compare { visibility: hidden; }
+.compare-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  padding: 6px 24px;
+  background: var(--document-bg);
+  font-size: 13px;
+}
+.compare-title { font-weight: 600; text-align: center; }
+.compare-title::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; }
+.compare-title.removed::before { background: #e23c3c; }
+.compare-title.added::before { background: #28af55; }
+.compare-nav { display: flex; align-items: center; gap: 6px; }
+/* A fixed width, so the arrows and the titles either side stay put as the text changes. */
+.compare-status { width: 120px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+.compare-pages { display: grid; grid-template-columns: repeat(2, auto); justify-content: center; align-items: start; gap: 16px; padding: 8px 24px var(--card-gap); }
+/* The pages can't be selected here: this view is only for reading. */
+.compare .textLayer { pointer-events: none; user-select: none; }
+.compare .page { user-select: none; }
+.compare-mark { position: absolute; mix-blend-mode: multiply; pointer-events: none; border-radius: 2px; }
+.compare-mark.removed { background: var(--compare-removed); }
+.compare-mark.added { background: var(--compare-added); }
+.compare-mark { transition: opacity 0.15s ease; }
+.compare.stepping .compare-mark:not(.current) { opacity: 0.22; }
+.compare-mark.current { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* --- A highlights review as a list (see highlights-list.js) ------------------------------- */
+.list-view { grid-area: 1 / 1; display: none; overflow: auto; background: var(--document-bg); }
+.list-view-open .list-view { display: block; }
+.list-view-open .document, .list-view-open #scrollbar { visibility: hidden; }
+.list-page { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; user-select: text; }
+.list-head { margin-bottom: 24px; }
+.list-goal-label { margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: light-dark(var(--tool-color), color-mix(in srgb, var(--tool-color) 62%, white)); }
+.list-goal { margin: 0 0 10px; font-size: 20px; line-height: 1.3; }
+.list-summary { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); }
+.list-muted { color: var(--muted); }
+.list-section { margin-top: 28px; }
+.list-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: light-dark(var(--section-color), color-mix(in srgb, var(--section-color) 62%, white)); }
+.list-section-title::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--section-color); }
+.list-count { margin-left: auto; font-weight: 400; letter-spacing: 0; color: var(--muted); }
+.list-item { display: grid; gap: 6px; margin-bottom: 10px; padding: 14px 16px; border-left: 4px solid var(--item-color); border-radius: 0 10px 10px 0; background: var(--bg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.05); }
+.list-meta { margin: 0; font-size: 11px; color: var(--muted); }
+.list-title { margin: 0; font-size: 15px; }
+.list-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.list-quote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border); font-size: 12.5px; color: var(--text-2); }
+.list-show { justify-self: start; padding: 5px 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; }
+.list-show:hover { text-decoration: underline; }
+
+/* "Copied", above a copy button for a moment (see copied-tip.js). */
+.copied-tip {
+  position: fixed;
+  z-index: 100;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: light-dark(#1d1d1f, #f2f2f4);
+  color: light-dark(#fff, #1d1d1f);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 8px));
+  animation: copied-tip 1.5s ease both;
+}
+.copied-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: light-dark(#1d1d1f, #f2f2f4);
+}
+@keyframes copied-tip {
+  0% { opacity: 0; translate: 0 3px; }
+  10%, 80% { opacity: 1; translate: 0 0; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .copied-tip { animation: none; } }
+
+.server-off #server-retry { margin-top: 8px; }
+
+/* Dragging a tab (tab-strip.js): it fades where it was, and a line shows where it would go in the
+   top bar it's over. */
+.tab.dragging { opacity: 0.4; }
+.tabs.dragging-tab .tab:hover:not([aria-selected="true"]) { background: var(--button-hover); }
+.tab-drop-line { position: absolute; z-index: 46; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.tab-drop-line[hidden] { display: none; }
+
+/* Everything that scrolls has a thin scrollbar with no track to see, as in SmartSpec (the user's
+   choice: the system's was too wide, track and all). An element with scrollbar-width of its own
+   (none, say) keeps it: Chromium then ignores these. */
+::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border-radius: 2px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 60%, transparent); }
+::-webkit-scrollbar-corner { background: transparent; }

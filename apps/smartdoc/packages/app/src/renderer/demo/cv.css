@@ -1,0 +1,32 @@
+/* The demo's fictional CV, drawn to PDF by scripts/demo-pdfs.mjs. One column, so the PDF's text
+   reads in order and the review's quotes land where they should. */
+@page { size: A4; margin: 15mm 17mm 14mm; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 9.6pt/1.45 "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1d1d1f; }
+
+header { padding-bottom: 9pt; border-bottom: 1.5pt solid #1d1d1f; }
+h1 { margin: 0; font-size: 25pt; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+.headline { margin: 3pt 0 6pt; font-size: 11.5pt; color: #2f6fde; font-weight: 600; }
+.contact { margin: 0; color: #55555a; font-size: 9pt; }
+.contact span + span::before { content: "·"; margin: 0 5pt; color: #aeaeb4; }
+
+h2 { margin: 13pt 0 6pt; font-size: 8.6pt; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #2f6fde; }
+p { margin: 0 0 4pt; }
+.profile { font-size: 10.2pt; }
+
+.role { margin-bottom: 9pt; break-inside: avoid; }
+.role-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12pt; }
+h3 { margin: 0; font-size: 10.6pt; font-weight: 700; }
+.dates { flex: none; color: #55555a; font-size: 9pt; font-variant-numeric: tabular-nums; }
+.org { margin: 1pt 0 3pt; color: #55555a; font-size: 9.2pt; }
+.intro { margin: 0 0 3pt; }
+ul { margin: 0; padding-left: 12pt; }
+li { margin-bottom: 2pt; padding-left: 1pt; }
+li::marker { color: #8e8e93; }
+
+.skills { display: grid; grid-template-columns: 92pt 1fr; gap: 3pt 10pt; margin: 0; }
+.skills dt { font-weight: 600; }
+.skills dd { margin: 0; color: #3a3a3c; }
+
+.entry { display: flex; justify-content: space-between; align-items: baseline; gap: 12pt; margin-bottom: 3pt; }
+.entry b { font-weight: 600; }

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartDoc features</title>
+  <meta name="description" content="Everything SmartDoc does: a chat with your own Claude or ChatGPT, suggestions in the margin, options, edits and questions, every draft kept with its own chat, highlights and what's missing, and variations for each purpose.">
+  <!-- What other apps show for a link to this page (LinkedIn, Slack, Messages…): share.png is made by scripts/share-image.mjs. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SmartDoc">
+  <meta property="og:title" content="SmartDoc features">
+  <meta property="og:description" content="Everything SmartDoc does: a chat with your own Claude or ChatGPT, suggestions in the margin, options, edits and questions, every draft kept with its own chat, highlights and what's missing, and variations for each purpose.">
+  <meta property="og:url" content="https://smartdoc.tw050x.net/features.html">
+  <meta property="og:image" content="https://smartdoc.tw050x.net/share.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="SmartDoc beside the words “Your documents, reviewed by your own AI”: a CV open in the app, under review.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='2' width='24' height='28' rx='5' fill='%23ffffff' stroke='%23c7c7cf' stroke-width='2'/%3E%3Crect x='9' y='10' width='14' height='3' rx='1.5' fill='%232f6fde'/%3E%3Crect x='9' y='16' width='10' height='3' rx='1.5' fill='%23b45309'/%3E%3Crect x='9' y='22' width='12' height='3' rx='1.5' fill='%23c7c7cf'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="story.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="./">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="2" width="24" height="28" rx="5" fill="var(--card)" stroke="var(--line)" stroke-width="2"/><rect x="9" y="10" width="14" height="3" rx="1.5" fill="var(--blue)"/><rect x="9" y="16" width="10" height="3" rx="1.5" fill="var(--brown)"/><rect x="9" y="22" width="12" height="3" rx="1.5" fill="var(--line)"/></svg>
+        SmartDoc
+      </a>
+      <nav aria-label="Sections">
+        <a href="./#how">How it works</a>
+        <a href="features.html" aria-current="page">Features</a>
+        <a class="keep" href="./#install">Install</a>
+        <a class="keep" href="https://github.com/tw050x/smartdoc">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <h1>Everything SmartDoc does.</h1>
+        <p class="lede">A tour of the app, one feature at a time. Scroll to see each one at work, in the app itself.</p>
+      </div>
+    </div>
+
+    <div class="story">
+      <div class="stage">
+        <div class="camera" role="img" aria-label="The SmartDoc app, showing each of its features in turn"><iframe data-src="demo/demo.html" title="SmartDoc demo" tabindex="-1" aria-hidden="true"></iframe></div>
+        <!-- The app's chat, in a window of its own beside the app's (see placeChat in story.js). -->
+        <div class="camera chat" aria-hidden="true"><iframe data-src="demo/demo-chat.html" title="SmartDoc demo: the chat" tabindex="-1" aria-hidden="true"></iframe></div>
+        <!-- A second window, beside the first on the step that has two (see story.js). -->
+        <div class="camera second" data-scene="f-windows-right" aria-hidden="true"><iframe data-src="demo/demo.html" title="SmartDoc demo: a second window" tabindex="-1" aria-hidden="true"></iframe></div>
+        <div class="progress" data-side="left" aria-hidden="true"></div>
+        <div class="progress" data-side="right" aria-hidden="true"></div>
+        <div class="captions">
+          <div class="caption" data-scene="f-margin" data-side="left">
+            <p class="kicker">Review and draft</p>
+            <h2>Suggestions in the margin</h2>
+            <p>Each suggestion sits beside the text it’s about, marked by kind: wording, content, questions, structure and design. Click one to open it in full, in a card you can move anywhere.</p>
+          </div>
+          <div class="caption" data-scene="f-chat" data-side="right">
+            <p class="kicker">Chat</p>
+            <h2>Your own AI, beside your document</h2>
+            <p>Work with Claude or ChatGPT in SmartDesktop’s chat, signed in with your own account. It’s a window of its own: move it out of the way whenever you like.</p>
+          </div>
+          <div class="caption" data-scene="f-options" data-side="right">
+            <p class="kicker">Review and draft</p>
+            <h2>Choices, not just changes</h2>
+            <p>Where there’s more than one good answer, your AI offers options. Pick one, or none of them, and confirm.</p>
+          </div>
+          <div class="caption" data-scene="f-edit" data-side="right">
+            <p class="kicker">Review and draft</p>
+            <h2>Edit any suggestion</h2>
+            <p>Accept a change as it is, or reword it first. Add a comment and your AI takes it into account.</p>
+          </div>
+          <div class="caption" data-scene="f-talk" data-side="right">
+            <p class="kicker">Review and draft</p>
+            <h2>Talk it over</h2>
+            <p>The chat knows which suggestion you’re looking at. Say what you think, and your AI can rework it for you to decide on.</p>
+          </div>
+          <div class="caption" data-scene="f-questions" data-side="right">
+            <p class="kicker">Review and draft</p>
+            <h2>Questions only you can answer</h2>
+            <p>Your AI asks for the facts it doesn’t have, like a result or a number, and uses your answer.</p>
+          </div>
+          <div class="caption" data-scene="f-structure" data-side="left">
+            <p class="kicker">Review and draft</p>
+            <h2>Structure and design</h2>
+            <p>Moves, layout and design changes sit in the left margin, decided the same way.</p>
+          </div>
+          <div class="caption" data-scene="f-comment" data-side="top">
+            <p class="kicker">Review and draft</p>
+            <h2>Comments of your own</h2>
+            <p>Select any text and say what you want. Your AI responds in its review or carries it out in the next draft. It works on a draft preview too, so you can ask for a fix before you accept.</p>
+          </div>
+          <div class="caption" data-scene="f-todo" data-side="right">
+            <p class="kicker">Review and draft</p>
+            <h2>The chat follows along</h2>
+            <p>What you open and decide is noted in the chat, so your AI knows what you mean by “this”. The chat stays one conversation, with the decisions where they belong: beside the page.</p>
+          </div>
+          <div class="caption" data-scene="f-drafts" data-side="top">
+            <p class="kicker">Drafts</p>
+            <h2>Every draft kept</h2>
+            <p>Pick any draft from the list in the top bar. Each keeps its reviews, and the chat notes which one you opened. An older draft stays as it was: to work on one, your AI makes a variation or a new document from it.</p>
+          </div>
+          <div class="caption" data-scene="f-compare" data-side="top">
+            <p class="kicker">Drafts</p>
+            <h2>See what changed</h2>
+            <p>Put the draft preview beside the draft it came from, with removed and added text highlighted. Step through the changes one at a time before you accept.</p>
+          </div>
+          <div class="caption" data-scene="f-focus" data-side="top">
+            <p class="kicker">Focuses</p>
+            <h2>A focus for each review</h2>
+            <p>Each review has a focus: what it’s for. Ask for a new one in the chat, or write it here and copy a prompt for your own AI agent.</p>
+          </div>
+          <div class="caption highlight" data-scene="f-highlights" data-side="left">
+            <p class="kicker">Review and highlight</p>
+            <h2>The key information</h2>
+            <p>Highlights for your purpose, grouped by category and ranked by importance.</p>
+          </div>
+          <div class="caption highlight" data-scene="f-gaps" data-side="left">
+            <p class="kicker">Review and highlight</p>
+            <h2>What’s missing</h2>
+            <p>Your AI flags what you’d expect to find but the document doesn’t say.</p>
+          </div>
+          <div class="caption highlight" data-scene="f-list" data-side="left">
+            <p class="kicker">Review and highlight</p>
+            <h2>Read it as a list</h2>
+            <p>Switch to List for every highlight in one place, the most important first.</p>
+          </div>
+          <div class="caption" data-scene="f-setup" data-side="left">
+            <p class="kicker">Setup</p>
+            <h2>No Terminal needed</h2>
+            <p>SmartDesktop installs Claude Code or Codex with its maker’s own installer, showing how far it’s got, then opens the sign-in page. It never sees your sign-in.</p>
+          </div>
+          <div class="caption" data-scene="f-windows" data-side="top">
+            <p class="kicker">Your own AI agent</p>
+            <h2>Bring your own AI agent</h2>
+            <p>Claude Desktop, Claude Code and other AI agents can work in SmartDoc too, without SmartDesktop, each in a window of its own. Several can work at once, even on the same document, and can’t overwrite each other.</p>
+          </div>
+          <div class="caption" data-scene="f-home" data-side="left">
+            <p class="kicker">Home</p>
+            <h2>Documents, variations, drafts</h2>
+            <p>The home screen lists your documents, each one’s variations and every draft, with where each review stands.</p>
+          </div>
+          <div class="caption" data-scene="f-variation" data-side="right">
+            <p class="kicker">Variations</p>
+            <h2>A version for each purpose</h2>
+            <p>A variation for each job or audience, with its own drafts, sharing the ones it started from.</p>
+          </div>
+          <div class="caption" data-scene="f-document" data-side="right">
+            <p class="kicker">Documents</p>
+            <h2>A new document from any draft</h2>
+            <p>Turn an improved draft into a document of its own, ready for its own variations.</p>
+          </div>
+        </div>
+      </div>
+      <div class="steps">
+      <article class="step" data-scene="f-margin" data-side="none"></article>
+      <article class="step" data-scene="f-margin" data-side="left"></article>
+      <article class="step" data-scene="f-chat" data-side="right"></article>
+      <article class="step" data-scene="f-options" data-side="right"></article>
+      <article class="step" data-scene="f-edit" data-side="right"></article>
+      <article class="step" data-scene="f-talk" data-side="right"></article>
+      <article class="step" data-scene="f-questions" data-side="right"></article>
+      <article class="step" data-scene="f-structure" data-side="left"></article>
+      <article class="step" data-scene="f-comment" data-side="top"></article>
+      <article class="step" data-scene="f-todo" data-side="right"></article>
+      <article class="step" data-scene="f-drafts" data-side="top"></article>
+      <article class="step" data-scene="f-compare" data-side="top"></article>
+      <article class="step" data-scene="f-focus" data-side="top"></article>
+      <article class="step" data-scene="f-highlights" data-side="left"></article>
+      <article class="step" data-scene="f-gaps" data-side="left"></article>
+      <article class="step" data-scene="f-list" data-side="left"></article>
+      <article class="step" data-scene="f-setup" data-side="left"></article>
+      <article class="step" data-scene="f-windows" data-side="top" data-windows="2"></article>
+      <article class="step" data-scene="f-home" data-side="left"></article>
+      <article class="step" data-scene="f-variation" data-side="right"></article>
+      <article class="step" data-scene="f-document" data-side="right"></article>
+      <article class="step" data-scene="settle" data-side="none"></article>
+      </div>
+    </div>
+
+    <div class="closing">
+      <div class="wrap">
+        <h2>Try it on your own documents.</h2>
+        <p>Free for macOS, with SmartDesktop or your own AI agent. In beta, and still changing significantly.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="brand" href="./">
+        <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="2" width="24" height="28" rx="5" fill="var(--card)" stroke="var(--line)" stroke-width="2"/><rect x="9" y="10" width="14" height="3" rx="1.5" fill="var(--blue)"/><rect x="9" y="16" width="10" height="3" rx="1.5" fill="var(--brown)"/><rect x="9" y="22" width="12" height="3" rx="1.5" fill="var(--line)"/></svg>
+        SmartDoc
+      </a>
+      <span>Review your documents with your own AI.</span>
+      <a class="end" href="https://github.com/tw050x/smartdoc">Source on GitHub</a>
+    </div>
+  </footer>
+
+  <script type="module" src="story.js"></script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+{
+  "name": "@smartdoc/app",
+  "productName": "SmartDoc",
+  "version": "0.25.0",
+  "description": "Review and redraft documents with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "demo": "vite build --config vite.demo.config.js",
+    "dist": "vite build && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0",
+    "pdfjs-dist": "6.4.299",
+    "vite": "8.3.5"
+  },
+  "build": {
+    "appId": "com.tw050x.smartdoc",
+    "productName": "SmartDoc",
+    "directories": {
+      "output": "../../dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "src/main/**/*",
+      "build/renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../pdf",
+        "to": "pdf",
+        "filter": [
+          "index.js",
+          "lib/**/*",
+          "formats/**/*",
+          "fonts/**/*",
+          "read/**/*",
+          "package.json"
+        ]
+      },
+      {
+        "from": "../cli",
+        "to": "cli",
+        "filter": [
+          "cli.js",
+          "mcp.js",
+          "lib/**/*",
+          "package.json"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tw050x",
+        "repo": "smartdoc"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "dmg": {
+      "artifactName": "SmartDoc-mac-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    },
+    "artifactName": "smartdoc-${version}-${os}-${arch}.${ext}"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "electron-updater": "6.8.11",
+    "zod": "4.6.7"
+  }
+}

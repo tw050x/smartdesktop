@@ -1,0 +1,285 @@
+import { ICONS } from './icons.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+
+// The app's MCP server: its instructions, tools and prompts, working on the workspace (the open
+// document and its reviews) and `documents` (listing and opening documents, which needs the
+// window). Kept apart from the HTTP server (mcp-server.js) and Electron, so the tests can build it
+// too: the launcher keeps a copy of what it lists (packages/cli/lib/server.json), to answer AI
+// apps before the app is running, and a test checks the copy matches.
+
+const INSTRUCTIONS = `This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user, in one of two kinds of review, and the app shows the current review beside the document. The app has a tool for each kind: "Review and draft" (improve) and "Review and highlight" (highlights). Only the active tool's review shows, and get_review returns it; start_review switches to its kind's tool, and switch_tool switches without starting one (for example to show the user an earlier review of the other kind). A draft can have several highlights reviews, one per goal, called focuses (e.g. "Recruiter skim", "The career gap"): list_focuses shows them, with earlier drafts' goals not yet run on this draft, and switch_focus shows one. A new draft starts with none. An improvement review can have a focus too: a goal, and a short name for it (title); the user may send one from the app ("…suggest improvements, focusing on: …"). Without one it's a general review. A document with no icon of its own (get_document_info's icon is null) gets one from you with set_icon, once you know what it is. A document can have variations, one per purpose (such as a CV tailored to a job): "Original" is its own line of drafts, and each variation has its own drafts from the draft it started at. Reviews and drafts belong to the variation showing (get_document_info names it, with its purpose, which every review in it should serve); list_variations, switch_variation and create_variation manage them.
+Open: get_document_info and get_document read the document open in the app. If none is open, or the user means a different one (the user may name it with its document id), open it with open_document: by document_id from list_documents (documents the user has opened before), by path (a PDF on the user's computer, which the user confirms in the app; if they've turned on Open Word, Excel and PowerPoint files in Settings › Experimental, a Word, Excel or PowerPoint file, Markdown, text or a picture too, which SmartDoc turns into a PDF, and get_document_info then says what it was converted from and anything that didn't come out as it is), or with neither so the user picks the file in the app. When open_document reports waiting_for_user, tell the user straight away to switch to the SmartDoc app and answer there, then call get_document_info, which waits for them.
+Read: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. To see how it looks (its design and layout, rather than its words), view_pages gives pictures of its pages, of any draft or the draft preview. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything. The document opens on the draft last worked on, which may not be the newest: get_document_info then says notNewest. Reading it is fine, and so is a highlights review, but an older draft can't be improved (no improvement review, findings or apply_review): the drafts after it follow on from it. Tell the user, and ask whether they want the newest draft (switch_draft) or to fork this one, into a new variation (create_variation) or a new document (create_document_from_draft); fork it only once they agree.
+Settle the goal first: read the document, get_review and get_history, then decide with the user what the review is for before calling start_review. But when the user just wants you to make a change or do a piece of work in the document ("rewrite the summary", "cut it to one page", "just do it"), with no review or decisions of theirs needed, skip the review: write the next draft straight away with write_draft, passing what they asked as goal. It's a draft preview like any other, which they accept or discard in the app. Either they want the document improved (type "improve"), or they want to understand it: the key information in it for their purpose (type "highlights"). If it isn't clear which, or what they're after, ask. Pass the agreed goal to start_review in their terms.
+Windows: each AI session works on a document of its own, without a tab in the app until there's something for the user: committing a review, writing a draft preview, or open_document with show (when they ask to see the document) opens a tab of its own showing your work, and every call goes to it after that; opening another document reuses it. Reading, reviewing and the rest happen without one, so the user isn't shown tabs that have nothing for them yet. If the user's prompt names a window, call use_window with it first, so that window becomes yours instead. Another AI may be working on the same document in its own window: reading is always fine, but a change it has claimed (the same variation in an improvement review, the same goal in a highlights review) is refused, so tell the user. If the user moves your window to another document, your next change is refused: open_document brings it back.
+An improvement review, in rounds:
+1. Review: the current review may already hold the user's requests: text they marked to rewrite, comment on, keep, remove, add to, or ask about. The history shows what earlier reviews raised and what the user decided. Don't raise again anything the user rejected or chose to keep, unless that text has changed since or you have a new reason (say so in the finding), and don't ask questions they've already answered: use their answers. Changes they accepted that are still not in the document can be raised again. If the user asks for a fresh review, ignore the history. Decorate text with add_annotation and add findings with add_finding. Every finding offers the user a decision: a proposed change, a choice of options, a question, a structural move, a design change, or a flag to acknowledge. A comment is the user's own note on the text they selected; if the review already holds their comments and no goal, responding to them is the goal, so don't ask for one. Respond to each user request with a finding that has in_response_to set, or, for a comment that needs no decision from them, with reply_to_comment. They can add comments while you work, so read get_review again before committing: commit_review refuses while one has no response. Finish with commit_review; the user then decides in the app.
+2. Decide: the user works through the findings, and may write changes of their own or add comments on the text (requests with afterCommit set). Read their choices with get_review and decisions_only.
+3. Apply: carry out what was accepted, the user's own changes and their afterCommit comments (and use the user's answers and comments) by writing the complete updated document as HTML and calling apply_review. Wait for the user's decisions first: call it only when they ask you to, or when your wait command reports decisions-sent. Nothing pending in their decisions doesn't mean they've finished: they may still be changing decisions or adding comments. The app draws it to PDF as a draft preview of the next draft, which the user accepts or discards in the app: only they can make it a draft, so tell them to look at it there. If they want it changed, call apply_review again and the new draft preview replaces it. They can comment on the draft preview itself (requests with onPreview set, quoting its text, not the draft's): call get_draft_preview, make what they asked in its HTML, leave the rest as it is, and call apply_review. Then answer each comment you dealt with using reply_to_comment: an outcome in your own words ("Actioned", "Noted", "Not changed"…) and no_further_action when nothing more is needed. Writing a new preview doesn't answer them by itself, and a comment belongs to the preview it was written on: once you write another, the earlier one's comments no longer count, so answer them first. Comments marked no further action are left out of get_review unless you ask for all_comments: they're done. Never apply anything the user rejected, and leave text marked "keep" unchanged.
+A highlights review: you decide what's key, for the user's goal. Before starting, having read the document, ask the user what they're looking for and anything about the document that changes what matters (for example which party they are in a contract, or what decision they're making); keep it to the few questions that count. Check list_focuses first: if a focus already has this goal, carry it on or switch to it rather than starting a near-duplicate; if the user wants an earlier draft's focus run again, reuse its goal and name. Start the review with the goal, a short name for it as a focus (title, a few words in the user's terms), and what you learned (context). Then add_highlight for each piece of key information: quote its text, put it in a category you choose for this document (a handful, named in the user's terms, such as "Payment", "Deadlines", "Your obligations", "Risks"), say in the note why it matters for their goal, and rate its importance. Also add what the user would expect but the document doesn't say, as a highlight without quotes. Be selective: what matters for the goal, not a summary of everything. Finish with commit_review, with a summary that answers their goal in a few sentences. get_history shows earlier focuses, so a later review can build on them. Nothing is decided or applied, and the document doesn't change.
+Renaming and folders: rename, create_folder and move_document take effect straight away, so only use them when the user asks. Keep a .pdf ending if the name had one.
+Deleting: delete_document asks the user to delete a document for good, and they approve or decline in the app. Only ask when they've said they want it gone, never to tidy up on your own initiative, and give the real reason.
+Waiting for the user: commit_review, apply_review, and the waiting_for_user replies of open_document and delete_document give you a wait command, a shell command that ends when the user has acted. If you can run commands in the background, as Claude Code can, run it that way, so you can go on talking to the user, and tell them what you're waiting for. While it runs, the app offers them a button to confirm their decisions, or their comments on a draft preview, for you; nothing reaches you until they press it. When it ends it prints JSON saying what happened (event: decisions-sent, preview-accepted, preview-discarded, preview-comments, open-opened, open-cancelled, open-failed, delete-deleted, delete-declined or delete-failed); act on that as if they'd asked you, reading the details with get_review, get_draft_preview or get_document_info. If you can't run commands in the background, don't run it: ask the user to tell you when they're done. If they tell you first, carry on and stop the command.
+Reading a draft preview: before the user accepts it, the draft preview waiting (get_document_info's preview) can be read as text with get_document or find_text and preview: true, as the PDF the user sees, and as its HTML, with the user's comments on it, with get_draft_preview. Without preview, they read the draft.
+Text is referenced by quoting it exactly from get_document or find_text (whitespace-insensitive), with the page number.`;
+
+const quote = z.object({
+  page: z.number().int().min(1).describe('Page number, from 1'),
+  quote: z.string().min(1).describe('Exact text from that page (whitespace-insensitive)'),
+  occurrence: z.number().int().min(1).optional().describe('Which match, if the text appears more than once (default 1)'),
+});
+const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] });
+const CONTENT = Symbol('content');
+
+// Each tool's safety label, for the AI app to show the user and decide when to ask them: the
+// tools that only read, and the ones that change or remove something the user can't get back (the
+// rest change something, without loss). Every tool works only with the app, on this computer.
+export const READ_ONLY = new Set(['list_documents', 'list_folders', 'list_variations', 'get_document_info', 'get_document', 'view_pages', 'find_text', 'list_focuses', 'get_review', 'get_history', 'get_draft_preview']);
+const NAME = z.string().trim().min(1).max(200);
+const DESTRUCTIVE = new Set(['remove_item', 'delete_document']);
+const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
+
+export function buildServer(call, { version, waitCommand }) {
+  // The session's window, found for each call: this server only lives for one request.
+  let workspace = null;
+  let documents = null;
+  const server = new McpServer({ name: 'smartdoc', version }, { instructions: INSTRUCTIONS });
+  const tool = (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema, annotations: annotations(name) }, async (args) => {
+    try {
+      const result = await call(name, args ?? {}, (forWorkspace, forDocuments) => {
+        workspace = forWorkspace;
+        documents = forDocuments;
+        return run(args ?? {});
+      });
+      // A tool that answers with more than text (view_pages' pictures) gives its own content.
+      return result?.[CONTENT] ? { content: result[CONTENT] } : json(result);
+    } catch (error) {
+      return { isError: true, content: [{ type: 'text', text: error.message }] };
+    }
+  });
+
+  tool('use_window', 'Takes over a SmartDoc window, when the user\'s prompt names one: this session then works in it. Call it first, before any other tool, or SmartDoc opens a new window for this session.', {
+    window_id: z.string().describe('The window named in the prompt, such as w-7f3a'),
+  }, ({ window_id }) => documents.useWindow(window_id));
+
+  tool('list_documents', 'Documents the user has opened in the app before, newest first, with the one that is open now marked and the folder of any that are in one. Open one with open_document and its id.', {}, () => documents.list());
+
+  tool('open_document', 'Opens a document for you to work on. With document_id: one from list_documents, opened straight away, without a tab for the user unless they asked to see it (show): one opens by itself once there\'s something for them to review or approve. With path: a PDF on the user\'s computer (or, with Settings › Experimental › Open Word, Excel and PowerPoint files turned on, a .docx, .xlsx, .pptx, Markdown, text or picture file, turned into a PDF), which the user must confirm in the app first. With neither: the app asks the user to pick a file. The last two return waiting_for_user: tell the user to switch to the SmartDoc app and answer, then call get_document_info, which waits for them.', {
+    document_id: z.string().optional(),
+    path: z.string().optional().describe('Absolute path to a PDF (~ is allowed)'),
+    show: z.boolean().optional().describe('Show it to the user in a tab: only when they asked to see it'),
+  }, ({ show: _, ...a }) => documents.open(a));
+
+  tool('rename', 'Renames a document, a folder or a variation, straight away. Only the name changes: files, drafts and contents stay as they are. Original, a document\'s own variation, keeps its name.', {
+    kind: z.enum(['document', 'folder', 'variation']),
+    id: z.string().describe('The document (from list_documents), the folder (from list_folders), or a variation of the open document (from list_variations)'),
+    name: NAME.describe('The new name, as the user will see it'),
+  }, ({ kind, id, name }) => {
+    if (kind === 'document') return workspace.renameDocument(id, name);
+    if (kind === 'folder') return workspace.renameFolderForAi(id, name);
+    return workspace.renameVariation(workspace.document?.id, id, name);
+  });
+
+  tool('list_folders', 'The folders organising the user\'s documents in the app: each with its id, name, path and how many documents and folders are directly in it.', {}, () => workspace.listFolders());
+
+  tool('create_folder', 'Makes a folder in the app, at the top level or inside another. Only use it when the user asks.', {
+    name: NAME.describe('Its name'),
+    parent_folder_id: z.string().optional().describe('The folder to put it in, from list_folders (default: the top level)'),
+  }, ({ name, parent_folder_id }) => workspace.createFolderForAi(name, parent_folder_id ?? null));
+
+  tool('move_document', 'Moves a document into a folder, or back to the top level. Only its place on the list changes: its files and drafts stay as they are. Only use it when the user asks.', {
+    document_id: z.string().describe('From list_documents'),
+    folder_id: z.string().nullable().describe('The folder, from list_folders, or null for the top level'),
+  }, ({ document_id, folder_id }) => workspace.moveDocumentForAi(document_id, folder_id));
+
+  tool('delete_document', 'Asks the user to delete a document for good, with all its drafts, variations and reviews: the app shows them your reason and only their approval deletes it, every time. Only use it when the user has asked for a document to be deleted. Returns waiting_for_user: tell them to switch to the SmartDoc app and answer. Calling it again reports their answer, once; after that it asks again.', {
+    document_id: z.string().describe('From list_documents'),
+    reason: z.string().trim().min(1).max(500).describe('Why it should be deleted, in a sentence or two, for the user to read before deciding'),
+  }, (a) => documents.deleteDocument(a));
+
+  tool('list_variations', 'The open document\'s variations, the one showing marked: "Original", the document\'s own drafts, and one per purpose (such as a job a CV is tailored to), each with its purpose and number of drafts.', {}, () => workspace.listVariations());
+
+  tool('switch_variation', 'Shows one of the open document\'s variations (from list_variations), on its current draft.', {
+    variation_id: z.string(),
+  }, ({ variation_id }) => workspace.setVariation(variation_id));
+
+  tool('switch_draft', 'Shows one of the current variation\'s drafts, with its reviews: get_document_info says which is showing and whether it\'s the newest. Nothing in the document or its drafts changes.', {
+    draft: z.number().int().min(0).describe('The draft\'s number, 0 for the original'),
+  }, ({ draft }) => workspace.switchDraft(draft));
+
+  tool('create_variation', 'Makes a variation of the open document for a purpose of its own, such as a CV tailored to one job or a version for another audience, starting from one of a variation\'s drafts, and shows it on that draft. Its drafts follow on from there; the other variations are left as they are. Make one when the user asks. Then, unless they say otherwise, start an improvement review of it with the purpose as its goal (start_review, with a short title).', {
+    purpose: z.string().min(1).describe('What the variation is for, in the user\'s words (e.g. the job and its spec)'),
+    name: z.string().optional().describe('A short name for it, e.g. "Acme product lead"'),
+    variation: z.string().optional().describe('The variation to start from, by id (default: the one showing)'),
+    draft: z.number().int().min(0).optional().describe('Its draft to start from: the number, 0 for the original (default: its current draft)'),
+  }, (a) => workspace.createVariation(a));
+
+  tool('create_document_from_draft', 'Forks the open document: makes a new document from one of its drafts (by default the one showing), with a line of drafts of its own starting there, and opens it in this window. The document it came from is left as it is. Only use it when the user agrees, such as to work on an older draft, which can\'t be improved where it is.', {
+    variation: z.string().optional().describe('The variation the draft is in, by id (default: the one showing)'),
+    draft: z.number().int().min(0).optional().describe('The draft to start from: its number, 0 for the original (default: the draft showing)'),
+  }, async (a) => {
+    const made = await workspace.documentFromDraftForAi(a);
+    await documents.open({ document_id: made.id });
+    return { created: made.name, document_id: made.id, from: made.from, opened: true };
+  });
+
+  tool('set_icon', `Gives the open document an icon, shown on its tab and on the user's home screen, so they can tell it apart at a glance (a tab too narrow for its name shows only its icon). Call it once, when the document has no icon of its own yet (get_document_info and list_documents give its icon, null when it has none): choose the one that best fits what the document is. The user's own choice is never replaced.`, {
+    icon: z.enum(ICONS.map((i) => i.name)).describe(`One of: ${ICONS.map((i) => `${i.name} (${i.label})`).join(', ')}`),
+  }, ({ icon }) => documents.setIcon(icon));
+
+  tool('get_document_info','The open document\'s size and shape, to plan how to read it: page count; word, character, line and (estimated) paragraph counts; estimated tokens and whether it can be read whole; the PDF\'s own details (title, author, dates); its outline (bookmarks) with page numbers; the same counts for each page, with its first line; and the draft preview waiting for the user, if there is one (preview). If the user is still answering an open_document request, this waits for them first.', {}, async () => {
+    await documents.settle();
+    return { ...(await workspace.getDocumentInfo()), icon: documents.iconOf() };
+  });
+
+  tool('get_document', 'The text of the open document (its id, name and which draft is showing), whole or the pages asked for. Quote from this when referencing text. A document too large to read at once must be read a range of pages at a time. With preview, the draft preview waiting for the user (get_document_info says if there is one) instead of the draft: the next draft as they\'ll see it, before they accept it. If the user is still answering an open_document request, this waits for them first.', {
+    pages: z.string().optional().describe('Pages to read, e.g. "3", "5-9" or "1-3, 12". Leave out to read the whole document.'),
+    preview: z.boolean().optional().describe('Read the draft preview waiting for the user instead of the draft'),
+  }, async (a) => {
+    await documents.settle();
+    return workspace.getDocument(a);
+  });
+
+  tool('view_pages', 'Pictures of pages of the open document, as the user sees them, to look at its design: layout, type, spacing, alignment, colour, images, and what\'s printed across facing pages. Any draft of the variation showing (draft: its number, 0 for Original; by default the one showing), or the draft preview waiting (preview), without the window moving. Up to 4 pages at a time. To read or quote the text, use get_document: it\'s exact, and cheaper.', {
+    pages: z.string().optional().describe('Pages to look at, e.g. "1", "2-3" or "1, 4" (4 at most). Default: page 1.'),
+    draft: z.number().int().min(0).optional().describe('The draft\'s number, 0 for Original. Default: the draft showing.'),
+    preview: z.boolean().optional().describe('The draft preview waiting for the user instead of a draft'),
+    width: z.number().int().min(400).max(1600).optional().describe('Each picture\'s width in pixels (default 1000): wider for fine detail, narrower to save room.'),
+  }, async ({ pages = '1', draft, preview = false, width = 1000 }) => {
+    await documents.settle();
+    const pdf = await workspace.draftPdfFor({ draft, preview });
+    const { total, pictures } = await documents.pagePictures(pdf.path, pages, width);
+    return {
+      [CONTENT]: [
+        { type: 'text', text: `${pdf.name} of “${workspace.document.name}”, ${pictures.length === 1 ? `page ${pictures[0].page}` : `pages ${pictures.map((p) => p.page).join(', ')}`} of ${total}.` },
+        ...pictures.flatMap((p) => [
+          { type: 'text', text: `Page ${p.page}:` },
+          { type: 'image', data: Buffer.from(p.png).toString('base64'), mimeType: 'image/png' },
+        ]),
+      ],
+    };
+  });
+
+  tool('find_text', 'Finds a word or phrase in the open document (case and spacing ignored): each match with its page, the exact text matched (quotable as it is) and the text around it. With preview, in the draft preview waiting for the user instead.', {
+    query: z.string().min(1),
+    limit: z.number().int().min(1).max(50).optional().describe('Most matches to return (default and maximum 50)'),
+    preview: z.boolean().optional().describe('Search the draft preview waiting for the user instead of the draft'),
+  }, (a) => workspace.findText(a));
+
+  tool('list_focuses', 'The highlight tool\'s focuses on the current draft (one highlights review per goal), newest first, with the one showing marked; and the goals of earlier drafts\' focuses not yet run on this draft.', {}, () => workspace.listFocuses('highlights'));
+
+  tool('switch_focus', 'Shows one of the current draft\'s highlights reviews (a focus from list_focuses), switching the app to the highlight tool.', {
+    review_id: z.string(),
+  }, ({ review_id }) => workspace.setFocus(review_id));
+
+  tool('switch_tool', 'Switches the app to one of its two tools, showing the current draft\'s newest review of that kind (or none): "improve" (Review and draft) or "highlights" (Review and highlight). start_review switches by itself.', {
+    tool: z.enum(['improve', 'highlights']),
+  }, ({ tool: next }) => workspace.setTool(next));
+
+  tool('get_review', 'The current draft\'s review in the active tool: its type (improve or highlights), goal and status (open or committed), then for an improvement review the user\'s requests, findings with their decisions and annotations, or for a highlights review the highlights. Null if there is none yet. With decisions_only, an improvement review\'s decisions and no more, which is shorter: the user\'s decisions on the current review: each finding\'s status (pending, accepted, rejected, answered, acknowledged), chosen option, answers, edited wording and comments, plus their requests and the changes they wrote themselves (changes, and requests with afterCommit set: carry these out too). preview is the draft preview waiting for the user, if any; outdated means they changed their decisions since it was written.', {
+    decisions_only: z.boolean().optional(),
+    all_comments: z.boolean().optional().describe('Include the user\'s comments marked "No further action required" and those on earlier draft previews, left out by default'),
+  }, ({ decisions_only, all_comments }) => (decisions_only ? workspace.getDecisions({ allComments: all_comments }) : workspace.getReview({ allComments: all_comments })));
+
+  tool('reply_to_comment', 'Answers one of the user\'s comments (a request in get_review, or a comment on the draft preview), shown under it in the app. Say how you dealt with it in outcome, a word or two of your own such as "Actioned", "Noted", "Answered" or "Not changed", and set no_further_action when nothing more is needed: a comment that only needed reading is done once noted. A comment you have answered no longer needs a finding in response. The user can open it again.', {
+    comment_id: z.string().describe('The comment\'s id, from get_review or get_draft_preview'),
+    text: z.string().optional().describe('Your reply, in a sentence or two: what you changed, or why you didn\'t. Optional with an outcome'),
+    outcome: z.string().trim().min(1).max(40).optional().describe('How you dealt with it, in your own words, a word or two'),
+    no_further_action: z.boolean().optional().describe('True when nothing more is needed on it; false to leave it open'),
+  }, ({ comment_id, text, outcome, no_further_action }) => workspace.replyToComment({ id: comment_id, text, outcome, noFurtherAction: no_further_action }));
+
+  tool('get_history', 'Earlier reviews of this document, across all its drafts, oldest first, of both types: for highlights reviews, the goal and each highlight; for improvement reviews, each finding with what the user decided (status, chosen option, answer, edit, comment), their requests and their own changes, and what became of each review (applied as which draft, decided but not applied, or never committed). Leaves out the current review.', {}, () => workspace.getHistory());
+
+  tool('start_review', 'Starts a review of the current draft, once you and the user have agreed what it\'s for. type "improve" suggests changes for the user to decide on; "highlights" picks out the key information for the user\'s goal (goal required). An open review of the same type carries on (taking any new goal); one of the other type is left unfinished.', {
+    type: z.enum(['improve', 'highlights']),
+    goal: z.string().optional().describe('What the user wants from the review, in their terms. Required for highlights, where a new goal starts a new focus.'),
+    title: z.string().optional().describe('The focus\'s short name, a few words (e.g. "Recruiter skim"); give one whenever there\'s a goal'),
+    context: z.string().optional().describe('What you learned about the document from the user, e.g. which party they are (highlights)'),
+  }, (a) => workspace.startReview('ai', a));
+
+  tool('add_annotation', 'Decorates text in the document (shown on the page; hovering it in the report highlights it).', {
+    quotes: z.array(quote).min(1),
+    style: z.enum(['highlight', 'underline', 'strike']).optional(),
+    note: z.string().optional(),
+  }, (a) => workspace.addAnnotation(a));
+
+  tool('add_finding', 'Adds a finding to the open review. Each finding gives the user a decision. kind: change (proposal.before/after), options (2+ options), question (question), move or design (proposal.description), flag (no action, just to acknowledge).', {
+    kind: z.enum(['change', 'options', 'question', 'move', 'design', 'flag']),
+    title: z.string().min(1),
+    body: z.string().optional().describe('Why it matters'),
+    severity: z.enum(['high', 'medium', 'low']).optional(),
+    quotes: z.array(quote).optional().describe('The text this finding is about'),
+    in_response_to: z.string().optional().describe('The id of the user request this answers'),
+    proposal: z.object({ before: z.string().optional(), after: z.string().optional(), description: z.string().optional() }).optional(),
+    options: z.array(z.object({ label: z.string(), text: z.string() })).min(2).optional(),
+    question: z.string().optional(),
+  }, (f) => workspace.addFinding(f));
+
+  tool('add_highlight', 'Adds a piece of key information to the open highlights review. Quote the text it\'s in; leave quotes out for something the user would expect that the document doesn\'t have.', {
+    category: z.string().min(1).describe('A category you choose for this document, in the user\'s terms; reuse the same few'),
+    title: z.string().min(1).describe('The key information in a few words, e.g. "Payment due 30 days after invoice"'),
+    note: z.string().optional().describe('Why it matters for the user\'s goal'),
+    importance: z.enum(['high', 'medium', 'low']).optional(),
+    quotes: z.array(quote).optional().describe('The text it\'s in'),
+  }, (h) => workspace.addHighlight(h));
+
+  tool('revise_finding', 'Improves one finding of the current review, when the user has talked it over with you: its title, why it matters (body), its suggestion (proposal), its options or its question. Only what you pass changes. A finding the user had decided goes back to undecided for them to decide again, so only revise when it helps them.', {
+    id: z.string().describe('The finding\'s id'),
+    title: z.string().min(1).optional(),
+    body: z.string().optional(),
+    proposal: z.object({ before: z.string().optional(), after: z.string().optional(), description: z.string().optional() }).optional(),
+    options: z.array(z.object({ label: z.string(), text: z.string() })).min(2).optional(),
+    question: z.string().optional(),
+  }, (f) => workspace.reviseFinding(f));
+
+  tool('remove_item', 'Removes a finding or a highlight, by its id, from the open review.', { id: z.string() }, ({ id }) => workspace.removeItem(id).then(() => ({ removed: id })));
+
+  tool('commit_review', 'Finishes the review: nothing more can be added. For an improvement review the user can now make their decisions in the app; for a highlights review, the summary should answer their goal.', {
+    summary: z.string().optional().describe('A short overview shown at the top of the review'),
+  }, ({ summary }) => workspace.commitReview(summary).then((r) => ({ committed: r.id, ...(r.type === 'highlights' ? { highlights: r.highlights.length } : { findings: r.items.length, wait: waitCommand('decisions', '--review', r.id) }) })));
+
+  tool('get_draft_preview', 'The draft preview waiting for the user, before they accept it: its complete HTML, its summary, and the user\'s comments on it (quoting its text, which get_document shows with preview). Comments belong to the preview they were written on: those on an earlier one aren\'t included. To read it, use this or get_document with preview; to do what they asked, change that HTML and call apply_review (or write_draft, for a preview written that way).', {}, () => workspace.getDraftPreview());
+
+  tool('apply_review', 'Applies the committed review: supply the complete updated document as self-contained HTML (inline CSS, no scripts or external resources). Keep the current draft\'s look, and lay the content out in reading order without absolute positioning, so the PDF\'s text reads in the right order. It becomes a draft preview of the next draft, replacing any earlier draft preview: not a draft until the user accepts it in the app, so tell them to look at it there.', {
+    html: z.string().min(1),
+    summary: z.string().optional().describe('What changed, shown with the draft preview and the draft'),
+    applied_item_ids: z.array(z.string()).optional().describe('The findings this draft carries out'),
+  }, ({ html, summary, applied_item_ids }) => workspace.applyReview({ html, summary, appliedItemIds: applied_item_ids }).then((applied) => ({ ...applied, wait: waitCommand('preview', '--review', applied.review) })));
+
+  tool('write_draft', 'Writes the next draft straight away, without a review, when the user just wants a change made or a piece of work done in the document and needs no findings to decide on: supply the complete updated document as self-contained HTML (inline CSS, no scripts or external resources), keeping the current draft\'s look and laying the content out in reading order without absolute positioning. It becomes a draft preview of the next draft, replacing any earlier one written this way: not a draft until the user accepts it in the app, so tell them to look at it there. If they comment on it, change it (get_draft_preview) and call write_draft again. After an improvement review, use apply_review instead, to carry out their decisions.', {
+    html: z.string().min(1),
+    goal: z.string().optional().describe('What the user asked for, in their words'),
+    title: z.string().optional().describe('A short name for it, a few words'),
+    summary: z.string().optional().describe('What changed, shown with the draft preview and the draft'),
+  }, ({ html, goal, title, summary }) => workspace.writeDraft({ html, goal, title, summary }).then((written) => ({ ...written, wait: waitCommand('preview', '--review', written.review) })));
+
+  // Ready-made requests the user can start a conversation with (Claude Code lists them as slash
+  // commands): the kind of review, and optionally the file to open and what they're after.
+  const prompt = (name, title, description, text) => server.registerPrompt(name, {
+    title,
+    description,
+    argsSchema: {
+      file: z.string().optional().describe('Path to the PDF to open (leave out to use the open document)'),
+      goal: z.string().optional().describe('What you want from the review'),
+    },
+  }, ({ file, goal }) => ({
+    messages: [{ role: 'user', content: { type: 'text', text: text({ file: file?.trim(), goal: goal?.trim() }) } }],
+  }));
+
+  prompt('improve', 'Improve a document', 'Review a document in SmartDoc and suggest changes for you to decide on.', ({ file, goal }) => [
+    `Review ${file ? `the PDF at ${file}` : 'my document'} in SmartDoc and suggest improvements.`,
+    goal && `What I want: ${goal}.`,
+    file && 'Open it with open_document first.',
+    'Agree the goal with me before you start the review.',
+  ].filter(Boolean).join(' '));
+
+  prompt('highlights', 'Find the key information', 'Have the AI pick out the key information in a document for what you need.', ({ file, goal }) => [
+    `Go through ${file ? `the PDF at ${file}` : 'my document'} in SmartDoc and highlight the key information for me.`,
+    goal && `What I'm looking for: ${goal}.`,
+    file && 'Open it with open_document first.',
+    'Read it, then ask me what you need to know before you start the highlights review.',
+  ].filter(Boolean).join(' '));
+
+  return server;
+}

@@ -1,0 +1,25 @@
+{
+  "name": "smartdoc",
+  "version": "0.1.0",
+  "description": "Review and redraft documents with your own AI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/app",
+    "packages/cli",
+    "packages/pdf"
+  ],
+  "scripts": {
+    "build": "npm run build -w @smartdoc/app",
+    "start": "npm start -w @smartdoc/app",
+    "dist": "npm run dist -w @smartdoc/app",
+    "demo": "npm run demo -w @smartdoc/app",
+    "shots": "node scripts/shots.mjs",
+    "share-image": "node scripts/share-image.mjs",
+    "site": "npm run demo && npm run shots && node scripts/serve-site.mjs",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs",
+    "server-snapshot": "node scripts/server-snapshot.mjs"
+  }
+}

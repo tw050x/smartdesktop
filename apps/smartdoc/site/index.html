@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartDoc</title>
+  <meta name="description" content="Review your documents with your own AI. SmartDoc shows your document beside a chat with Claude or ChatGPT: your AI suggests changes or picks out what matters, and you decide.">
+  <!-- What other apps show for a link to this page (LinkedIn, Slack, Messages…): share.png is made by scripts/share-image.mjs. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SmartDoc">
+  <meta property="og:title" content="SmartDoc: your documents, reviewed by your own AI">
+  <meta property="og:description" content="Review your documents with your own AI. SmartDoc shows your document beside a chat with Claude or ChatGPT: your AI suggests changes or picks out what matters, and you decide.">
+  <meta property="og:url" content="https://smartdoc.tw050x.net/">
+  <meta property="og:image" content="https://smartdoc.tw050x.net/share.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="SmartDoc beside the words “Your documents, reviewed by your own AI”: a CV open in the app, under review.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='2' width='24' height='28' rx='5' fill='%23ffffff' stroke='%23c7c7cf' stroke-width='2'/%3E%3Crect x='9' y='10' width='14' height='3' rx='1.5' fill='%232f6fde'/%3E%3Crect x='9' y='16' width='10' height='3' rx='1.5' fill='%23b45309'/%3E%3Crect x='9' y='22' width='12' height='3' rx='1.5' fill='%23c7c7cf'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="story.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="2" width="24" height="28" rx="5" fill="var(--card)" stroke="var(--line)" stroke-width="2"/><rect x="9" y="10" width="14" height="3" rx="1.5" fill="var(--blue)"/><rect x="9" y="16" width="10" height="3" rx="1.5" fill="var(--brown)"/><rect x="9" y="22" width="12" height="3" rx="1.5" fill="var(--line)"/></svg>
+        SmartDoc
+      </a>
+      <nav aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="features.html">Features</a>
+        <a class="keep" href="#install">Install</a>
+        <a class="keep" href="https://github.com/tw050x/smartdoc">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow"><span class="beta">Beta</span>Use with SmartDesktop or your own AI agent</p>
+        <h1>Your documents, <span class="blue">reviewed</span> by your own <span class="brown">AI</span>.</h1>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+        <p class="beta-note">SmartDoc is in beta, so it may change significantly from one version to the next.</p>
+
+      </div>
+    </div>
+
+    <div class="story" id="how">
+      <div class="stage">
+        <div class="camera" role="img" aria-label="A SmartDoc session: a CV opened, reviewed by an AI in the chat, decided on and redrafted, then highlighted and tailored for a job"><iframe data-src="demo/demo.html" title="SmartDoc demo" tabindex="-1" aria-hidden="true"></iframe></div>
+        <!-- The app's chat, in a window of its own beside the app's (see placeChat in story.js). -->
+        <div class="camera chat" aria-hidden="true"><iframe data-src="demo/demo-chat.html" title="SmartDoc demo: the chat" tabindex="-1" aria-hidden="true"></iframe></div>
+        <!-- The hero's other tool, in a window of its own (see showHero in story.js). -->
+        <div class="camera alt" data-scene="intro-highlights" aria-hidden="true"><iframe data-src="demo/demo.html" title="SmartDoc demo: Review and highlight" tabindex="-1" aria-hidden="true"></iframe></div>
+        <div class="progress" data-side="left" aria-hidden="true"></div>
+        <div class="progress" data-side="right" aria-hidden="true"></div>
+        <div class="captions">
+          <!-- The hero's tools, under its window: choosing one changes what the window shows. -->
+          <div class="caption hero-caption" data-scene="intro" data-side="below">
+            <div class="hero-tools" id="hero-tools" role="group" aria-label="Tools">
+              <button class="hero-tool" type="button" data-tool="improve" aria-pressed="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Review and draft</button>
+              <button class="hero-tool" type="button" data-tool="highlights" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>Review and highlight</button>
+            </div>
+            <div class="ledes" aria-live="polite">
+              <p class="lede shown" data-tool="improve">Your AI suggests changes to your document, and you decide on every one: accept, reject or edit it. Then your AI writes the next draft, for you to accept.</p>
+              <p class="lede" data-tool="highlights">Your AI picks out what matters in your document for your purpose, including anything it doesn’t say. Nothing changes; you see what counts at a glance.</p>
+            </div>
+          </div>
+          <div class="caption" data-scene="upload" data-side="left">
+            <p class="kicker">Step 1 · Open</p>
+            <h2>Open your CV in SmartDoc</h2>
+            <p>Drop the PDF on SmartDoc. It shows the document exactly as it is, page for page.</p>
+            <div class="drag-file" aria-hidden="true"><span class="drag-file-icon">PDF</span><span>Alex Example CV.pdf</span></div>
+          </div>
+          <div class="caption" data-scene="ask" data-side="top">
+            <p class="kicker">Step 2 · Ask</p>
+            <h2>Ask in the chat</h2>
+            <p>Open the chat beside your document and say what you want. It’s your own Claude or ChatGPT, signed in with your own account.</p>
+          </div>
+          <div class="caption" data-scene="review" data-side="left">
+            <p class="kicker">Step 3 · Review</p>
+            <h2>Your AI reviews it</h2>
+            <p>It reads the CV and adds suggestions as it goes, each beside the text it’s about. The chat shows each step as it’s taken.</p>
+          </div>
+          <div class="caption" data-scene="decide" data-side="left">
+            <p class="kicker">Step 4 · Decide</p>
+            <h2>Decide on each suggestion</h2>
+            <p>Open a suggestion from its card beside the page. Choose a rewrite, accept a change, or edit it yourself. The chat notes what you decide, for your AI. Nothing changes until you say so.</p>
+          </div>
+          <div class="caption" data-scene="answer" data-side="left">
+            <p class="kicker">Step 4 · Decide</p>
+            <h2>Answer what only you know</h2>
+            <p>When your AI needs a fact, it asks. Your answer goes into the next draft.</p>
+          </div>
+          <div class="caption" data-scene="redraft" data-side="left">
+            <p class="kicker">Step 5 · Redraft</p>
+            <h2>Get the next draft</h2>
+            <p>Ask for it in the chat. Your AI writes a draft preview from your decisions, and it only becomes Draft 1 when you accept it. The chat carries on, noting each draft you open.</p>
+          </div>
+          <div class="caption highlight" data-scene="highlight" data-side="left">
+            <p class="kicker">Step 6 · Highlight</p>
+            <h2>Ask what matters</h2>
+            <p>Switch to Review and highlight and ask what you’re looking for. Your AI picks out the key information, including what’s missing.</p>
+          </div>
+          <div class="caption" data-scene="variation" data-side="right">
+            <p class="kicker">Step 7 · Tailor</p>
+            <h2>A version for each job</h2>
+            <p>Ask for a version for one job. Your AI makes a variation and tailors it, and the original stays as it is.</p>
+          </div>
+        </div>
+      </div>
+      <div class="steps">
+      <article class="step" data-scene="intro-improve" data-side="below" data-caption="intro"></article>
+      <article class="step" data-scene="upload" data-side="left"></article>
+      <article class="step" data-scene="ask" data-side="top"></article>
+      <article class="step" data-scene="review" data-side="left"></article>
+      <article class="step" data-scene="decide" data-side="left"></article>
+      <article class="step" data-scene="answer" data-side="left"></article>
+      <article class="step" data-scene="redraft" data-side="left"></article>
+      <article class="step" data-scene="highlight" data-side="left"></article>
+      <article class="step" data-scene="variation" data-side="right"></article>
+      <article class="step" data-scene="settle" data-side="none"></article>
+      </div>
+    </div>
+
+    <!-- Free, and the MIT licence in plain words. -->
+    <section id="free" class="free">
+      <!-- The headline beside the MIT licence in plain words: three points, each with an icon. -->
+      <div class="wrap free-layout">
+        <div class="section-head">
+          <p class="kicker">Free and open source</p>
+          <h2>SmartDoc is free. Completely.</h2>
+          <p>No account, no trial, no paid plan. SmartDoc is released under the MIT licence, which means it stays free: once it’s out, nobody can take that back.</p>
+        </div>
+        <div class="free-mit">
+          <h3 class="free-question">What’s the MIT licence?</h3>
+          <p class="free-answer">It’s one of the most common licences for free software, written at the Massachusetts Institute of Technology. In plain terms:</p>
+          <ul class="free-points">
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div>
+                <h3>Use it for anything</h3>
+                <p>At home or at work, for as long as you like. You never pay, and you never need permission.</p>
+              </div>
+            </li>
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></span>
+              <div>
+                <h3>See how it works</h3>
+                <p>All of SmartDoc’s code is public. Anyone can read it, copy it, or change it to suit them.</p>
+              </div>
+            </li>
+            <li>
+              <span class="free-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
+              <div>
+                <h3>Just one condition</h3>
+                <p>Anyone who shares a copy keeps the licence with it. It comes as it is, without a guarantee.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="install">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Install</p>
+          <h2>Use it with SmartDesktop, or bring your own AI agent.</h2>
+          <p>Two ways to work with your AI, and you can use both.</p>
+        </div>
+        <!-- The way most people set up: SmartDoc, SmartDesktop (which runs the chat), then their AI from the chat. -->
+        <div class="install-way">
+          <h3>With SmartDesktop</h3>
+          <p>SmartDesktop is the chat for SmartDoc and SmartSpec: your own Claude or ChatGPT, signed in with your own account, in one conversation across both apps. Three steps, and nothing to type in Terminal. <a href="https://smartdesktop.tw050x.net">More about SmartDesktop</a></p>
+        </div>
+        <ol class="install-steps grid">
+          <li class="card">
+            <span class="install-number" aria-hidden="true">1</span>
+            <h3>Download SmartDoc</h3>
+            <p>Open the download and drag SmartDoc into your <strong>Applications</strong> folder.</p>
+            <div class="actions">
+              <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Apple silicon</a>
+              <a class="button secondary" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">Intel Mac</a>
+            </div>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">2</span>
+            <h3>Download SmartDesktop</h3>
+            <p>SmartDesktop, the chat with your AI, is an app of its own, shared by SmartDoc and SmartSpec. Drag it into <strong>Applications</strong> too.</p>
+            <div class="actions">
+              <a class="button" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-arm64.dmg">Apple silicon</a>
+              <a class="button secondary" href="https://github.com/tw050x/smartdesktop/releases/latest/download/SmartDesktop-mac-x64.dmg">Intel Mac</a>
+            </div>
+          </li>
+          <li class="card">
+            <span class="install-number" aria-hidden="true">3</span>
+            <h3>Open the chat</h3>
+            <p>Open SmartDoc, drop a PDF on it, and choose <strong>Window › Show the Chat</strong> (⇧⌘C). Choose Claude or ChatGPT: if it isn’t set up yet, SmartDesktop installs it with its maker’s own installer and opens their sign-in page. SmartDesktop never sees your sign-in.</p>
+          </li>
+        </ol>
+        <!-- Connecting an AI agent by hand, for anyone who'd rather use their own. -->
+        <div class="install-way install-other">
+          <h3>Bring your own AI agent</h3>
+          <p>Claude Desktop, Claude Code and any AI agent that runs MCP servers can work in SmartDoc directly, without SmartDesktop. Connect yours below. After that, it opens SmartDoc by itself whenever it needs it.</p>
+          <!-- One tab per AI app, for connecting one by hand (see the tabs script below). -->
+          <div class="tabs" role="tablist" aria-label="Another AI app">
+            <button type="button" role="tab" id="tab-desktop" aria-controls="install-desktop" aria-selected="true">Claude Desktop</button>
+            <button type="button" role="tab" id="tab-code" aria-controls="install-code" aria-selected="false" tabindex="-1">Claude Code</button>
+            <button type="button" role="tab" id="tab-other" aria-controls="install-other" aria-selected="false" tabindex="-1">Other AI apps</button>
+          </div>
+          <article class="card tab-panel" role="tabpanel" id="install-desktop" aria-labelledby="tab-desktop">
+            <h3>Claude Desktop</h3>
+            <p>SmartDoc adds itself.</p>
+            <ol>
+              <li>Open SmartDoc and click its status at the top right, with the coloured dot. It usually says <strong>Ready</strong>.</li>
+              <li>Open <strong>Connect another AI app yourself</strong> and choose <strong>Add to Claude Desktop</strong>.</li>
+              <li>Quit Claude Desktop and open it again. Then start a new chat and ask Claude to review your document.</li>
+            </ol>
+            <p class="small">If the button says <strong>Not running</strong>, another copy of SmartDoc is probably open: quit SmartDoc everywhere, then open it again. Or add it yourself: in Claude Desktop, open Settings → Developer → Edit Config, and add the entry from the <a href="#install-other">Other AI apps</a> tab.</p>
+          </article>
+          <article class="card tab-panel" role="tabpanel" id="install-code" aria-labelledby="tab-code" hidden>
+            <h3>Claude Code</h3>
+            <p>Add it with one command.</p>
+            <ol>
+              <li>Run this in a terminal:
+                <div class="command">
+                  <pre><code id="claude-code-command">claude mcp add --scope user smartdoc -e ELECTRON_RUN_AS_NODE=1 -- /Applications/SmartDoc.app/Contents/MacOS/SmartDoc /Applications/SmartDoc.app/Contents/Resources/cli/mcp.js</code></pre>
+                  <button class="copy" type="button" data-copy="claude-code-command">Copy</button>
+                </div>
+              </li>
+              <li>Start a new Claude Code session and ask Claude to review your document.</li>
+            </ol>
+            <p class="small">Or, with Node.js, run <code>npx @smartdoc/cli setup</code>, which sets up Claude Code and Claude Desktop for you.</p>
+          </article>
+          <article class="card tab-panel" role="tabpanel" id="install-other" aria-labelledby="tab-other" hidden>
+            <h3>Other AI apps</h3>
+            <p>Any AI app that runs MCP servers can use SmartDoc.</p>
+            <ol>
+              <li>Add SmartDoc as an MCP server. Most AI apps take a config entry like this:
+                <div class="command">
+                  <pre><code id="mcp-config">{
+    "mcpServers": {
+      "smartdoc": {
+        "command": "/Applications/SmartDoc.app/Contents/MacOS/SmartDoc",
+        "args": [
+          "/Applications/SmartDoc.app/Contents/Resources/cli/mcp.js"
+        ],
+        "env": {
+          "ELECTRON_RUN_AS_NODE": "1"
+        }
+      }
+    }
+  }</code></pre>
+                  <button class="copy" type="button" data-copy="mcp-config">Copy</button>
+                </div>
+              </li>
+              <li>Restart your AI app and ask it to review your document.</li>
+            </ol>
+            <p class="small">SmartDoc runs its connection itself, so there’s nothing else to install.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="privacy">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Good to know</p>
+          <h2>Your files, your AI.</h2>
+        </div>
+      </div>
+      <!-- The points scroll past without end: the list runs twice (the copy added by the script below)
+           and slides left by one run, then starts again. -->
+      <div class="points">
+        <ul class="points-track">
+            <li>
+              <h3>Bring your own AI</h3>
+              <p>Chat in SmartDesktop with the Claude or ChatGPT account you already have, or connect the AI agent you already use. No new account, no new subscription.</p>
+            </li>
+            <li>
+              <h3>You have the final say</h3>
+              <p>Your AI suggests; you decide. Nothing in your document changes until you’ve said yes.</p>
+            </li>
+            <li>
+              <h3>Nothing gets lost</h3>
+              <p>Every draft is kept until you delete it, and every variation too. Step back to any version whenever you like.</p>
+            </li>
+            <li>
+              <h3>One document, many versions</h3>
+              <p>Tailor a variation for each job or reader, and keep the original just as it was.</p>
+            </li>
+            <li>
+              <h3>Point at anything</h3>
+              <p>Mark any line to rewrite, question or keep, and your AI answers each one.</p>
+            </li>
+            <li>
+              <h3>See what matters</h3>
+              <p>Ask your AI what a reader would look for, and see it highlighted on the page.</p>
+            </li>
+            <li>
+              <h3>One chat as you work</h3>
+              <p>One conversation across SmartDoc and SmartSpec, noting every document and draft you open, so you can always see what was asked for and why.</p>
+            </li>
+            <li>
+              <h3>Free to use</h3>
+              <p>No sign-up and no plan to choose. SmartDoc is free.</p>
+            </li>
+            <li>
+              <h3>Open source</h3>
+              <p>Every line of SmartDoc is on GitHub, for anyone to read.</p>
+            </li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="closing">
+      <div class="wrap">
+        <h2>Give your next draft a second pair of eyes.</h2>
+        <p>Free for macOS, with SmartDesktop or your own AI agent. In beta, and still changing significantly.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-arm64.dmg">Download for Apple silicon</a>
+          <a class="button secondary" href="https://github.com/tw050x/smartdoc/releases/latest/download/SmartDoc-mac-x64.dmg">Download for Intel Mac</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="2" width="24" height="28" rx="5" fill="var(--card)" stroke="var(--line)" stroke-width="2"/><rect x="9" y="10" width="14" height="3" rx="1.5" fill="var(--blue)"/><rect x="9" y="16" width="10" height="3" rx="1.5" fill="var(--brown)"/><rect x="9" y="22" width="12" height="3" rx="1.5" fill="var(--line)"/></svg>
+        SmartDoc
+      </a>
+      <span>Review your documents with your own AI.</span>
+      <a class="end" href="https://github.com/tw050x/smartdoc">Source on GitHub</a>
+    </div>
+  </footer>
+
+  <script type="module">
+    import './story.js';
+
+    // The hero swaps between the two tools: the showing tool's pill fills up (in CSS), and once it's
+    // full the other takes over. The fill waits while the hero isn't the scene or the page is hidden.
+    // Choosing a tool swaps at once and starts its fill from empty.
+    const { steps } = story;
+    let heroTool = 'improve';
+    const heroToolsEl = document.getElementById('hero-tools');
+    const heroTools = [...heroToolsEl.querySelectorAll('.hero-tool')];
+    const ledes = [...document.querySelectorAll('.ledes .lede')];
+    function setHeroTool(tool) {
+      heroTool = tool;
+      for (const b of heroTools) b.setAttribute('aria-pressed', 'false');
+      heroToolsEl.getBoundingClientRect(); // so the fill starts again, even on the same pill
+      for (const b of heroTools) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
+      for (const lede of ledes) lede.classList.toggle('shown', lede.dataset.tool === tool);
+      story.showHero(tool); // the windows slide past each other
+    }
+    const pauseFill = () => heroToolsEl.classList.toggle('paused', story.scene !== steps[0] || document.hidden);
+    document.addEventListener('visibilitychange', pauseFill);
+    document.addEventListener('story:scene', pauseFill);
+    heroToolsEl.addEventListener('animationend', (e) => {
+      if (e.animationName === 'hero-fill') setHeroTool(heroTool === 'improve' ? 'highlights' : 'improve');
+    });
+    for (const b of heroTools) b.addEventListener('click', () => setHeroTool(b.dataset.tool));
+
+
+    // The Good to know points: a copy of the list follows it, so the strip can slide on without a gap.
+    const track = document.querySelector('.points-track');
+    for (const li of [...track.children]) track.append(Object.assign(li.cloneNode(true), { ariaHidden: 'true' }));
+
+    // The install tabs: clicking one shows its panel; the arrow keys (and Home and End) move between
+    // them, as tabs do.
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    function selectTab(tab, focus) {
+      for (const t of tabs) {
+        const on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      }
+      if (focus) tab.focus();
+    }
+    // A link to a tab's panel (#install-code) opens that tab, with the section in view.
+    function openLinkedTab() {
+      const tab = tabs.find((t) => `#${t.getAttribute('aria-controls')}` === location.hash);
+      if (!tab) return;
+      selectTab(tab);
+      document.getElementById('install').scrollIntoView();
+    }
+    addEventListener('hashchange', openLinkedTab);
+    // On arriving, after the browser's own jump to the panel, so the section's heading is in view.
+    if (document.readyState === 'complete') openLinkedTab();
+    else addEventListener('load', () => requestAnimationFrame(openLinkedTab));
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => selectTab(tab));
+      tab.addEventListener('keydown', (e) => {
+        const i = tabs.indexOf(tab);
+        const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+        if (to === undefined) return;
+        e.preventDefault();
+        selectTab(tabs[(to + tabs.length) % tabs.length], true);
+      });
+    }
+
+    for (const button of document.querySelectorAll('[data-copy]')) {
+      button.addEventListener('click', async () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = 'Copied';
+        } catch {
+          button.textContent = 'Select and copy';
+        }
+        setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,1561 @@
+import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { access, readFile, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { resolveQuote } from './anchors.js';
+import { commentsSincePreview, currentRequests, earlierComments, isDone, notCommentedAgain, onEarlierPreview, previewComments, unansweredRequests } from './comments.js';
+import { renderHtmlToPdf } from './render-draft.js';
+import * as folders from './folders.js';
+import * as labels from './labels.js';
+import { olderDraftRefusal } from './older-drafts.js';
+import { createStore, logTo } from './store.js';
+import { MAX_READ_CHARS, estimateTokens, findText, parsePages, textStats } from './text-stats.js';
+
+const PAGE_TEXT_WAIT_MS = 15 * 1000;
+const INFO_FIRST_LINES_UP_TO = 200; // pages
+const FIND_LIMIT = 50;
+const firstLine = (text) => {
+  const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  return line.length > 80 ? `${line.slice(0, 80)}…` : line;
+};
+const REQUEST_KINDS = ['rewrite', 'comment', 'keep', 'remove', 'add', 'ask'];
+const ITEM_KINDS = ['change', 'options', 'question', 'move', 'design', 'flag'];
+const REVIEW_TYPES = ['improve', 'highlights'];
+const IMPORTANCE = ['high', 'medium', 'low'];
+const typeOf = (r) => r.type ?? 'improve'; // reviews from before types existed are improvement reviews
+// A review's name in the focus picker: its title, else its goal cut short; an improvement review
+// with neither is a general one.
+const draftLabel = (number) => (number === 0 ? 'Original' : `Draft ${number}`);
+// A variation's name from its purpose, when the AI doesn't give one.
+const shortName = (purpose) => (purpose.length > 40 ? `${purpose.slice(0, 39).trimEnd()}…` : purpose);
+const focusTitle = (r) => r.title ?? (r.goal && r.goal.length > 48 ? `${r.goal.slice(0, 47).trimEnd()}…` : r.goal) ?? (typeOf(r) === 'improve' ? (r.direct ? 'Next draft' : 'General review') : 'Highlights');
+
+// The open document, its current draft and that draft's current review, plus the list of recent
+// documents. The window, the menu and the MCP server all act through this, and it emits:
+//   'draft'       the document or draft changed (the window reloads the PDF)
+//   'review'      the current review changed
+//   'recent'      the recent documents changed
+//   'page-texts'  the current draft's page texts are known (read here, or reported by the window)
+// A draft's current review is its newest one. Reviews are single records: the user's requests, the
+// AI's findings and annotations, the user's decisions and the history all live in one file.
+// What every window shares: the documents on disk, one copy in memory of each record, and the list
+// of recent documents. Its events: 'recent' the list changed, 'review' a review was saved,
+// 'document' a document was saved.
+const MAX_NAME = 200;
+function cleanName(name, what) {
+  const clean = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+  if (!clean) throw new Error(`A ${what} needs a name.`);
+  if (clean.length > MAX_NAME) throw new Error(`That name is too long: ${MAX_NAME} characters at most.`);
+  return clean;
+}
+
+// `readText(file)`, if given, reads a PDF's page texts and details without the window (pdf-text.js).
+export function createShared(userData, { readText = null } = {}) {
+  const events = new EventEmitter();
+  events.setMaxListeners(0);
+  const store = createStore(userData, {
+    onReview: (r) => events.emit('review', r),
+    onDocument: (d) => events.emit('document', d),
+  });
+  return { store, events, recent: [], folders: folders.NO_FOLDERS, labels: labels.NO_LABELS, userData, readText };
+}
+
+export function createWorkspace(shared) {
+  const { store, userData, readText } = shared;
+  const events = new EventEmitter();
+  events.setMaxListeners(0); // waits on the page texts add listeners of their own
+  const recentFile = path.join(userData, 'recent-documents.json');
+  const foldersFile = path.join(userData, 'folders.json');
+  const labelsFile = path.join(userData, 'labels.json');
+  let homeFolder = null; // the folder this window's home screen shows: where a new document goes
+
+  let doc = null; // the open document's record
+  // The app has two tools, one per kind of review: improve ("Review and draft") and highlights
+  // ("Review and highlight"). The active one, chosen by the user or the AI and kept with the
+  // document, decides which review shows: the current draft's newest review of that kind.
+  let tool = 'improve';
+  let review = null; // the current draft's current review of the active tool's kind, or null if it has none
+  let previewing = false; // the window shows the current review's preview instead of the draft
+  let pageTexts = null; // the current draft's page texts, reported by the window once drawn
+  let pdfDetails = null; // and the PDF's own details: { info, outline }
+
+  const requireDoc = () => {
+    if (!doc) throw new Error('No document is open. Open one with open_document (list_documents shows the ones opened before).');
+    return doc;
+  };
+  const requireReview = () => {
+    if (!review) throw new Error('The current draft has no review. Start one with start_review.');
+    return review;
+  };
+  const requireOpenReview = () => {
+    const r = requireReview();
+    if (r.status !== 'open') throw new Error('The review has been committed and is waiting for the user’s decisions. Start a new review to make more changes.');
+    return r;
+  };
+  const requireCommittedReview = () => {
+    const r = requireReview();
+    if (r.status !== 'committed') throw new Error('Your own changes can be added once the AI has finished its review.');
+    return r;
+  };
+  // Findings, notes, decisions and drafts belong to improvement reviews; highlights to highlights
+  // reviews.
+  const requireType = (r, type) => {
+    if (typeOf(r) === type) return r;
+    throw new Error(type === 'improve'
+      ? 'The current review is a highlights review: it has highlights, not findings, and nothing to decide or apply. Start an improvement review (start_review with type "improve") to suggest changes.'
+      : 'The current review is an improvement review. Start a highlights review (start_review with type "highlights" and the goal) to add highlights.');
+  };
+  const requireText = (text) => {
+    const trimmed = typeof text === 'string' ? text.trim() : '';
+    if (!trimmed) throw new Error('Write the change first.');
+    return trimmed;
+  };
+  const saveReview = async () => {
+    await store.saveReview(doc.id, review);
+    events.emit('review', review);
+  };
+  const anchorsFrom = (quotes = []) => quotes.map((q) => resolveQuote(pageTexts, q));
+
+  // What the preview is compared with: the draft it was written from.
+  const writtenFromLabel = () => (doc.currentDraftId === store.ORIGINAL ? 'Original' : `Draft ${doc.line.indexOf(doc.currentDraftId)}`);
+
+  // Work has started on the draft showing, so it's no longer only being looked at.
+  const settleOnDraft = async () => {
+    if (!doc.workingDraftId) return;
+    delete doc.workingDraftId;
+    await store.saveDocument(doc);
+  };
+
+  // A new draft preview of the review showing, written by the AI here or from another window: it
+  // shows straight away, or reloads in place of the one showing, so the user sees at once what the
+  // AI added or removed (the user's choice). Only a user still deciding findings, not looking at
+  // the preview, is left where they are: the bar offers it. Each preview is followed once
+  // (`previewSeen`, its time), so a later save of the review doesn't pull the user back into it.
+  let previewSeen = null;
+  const seePreview = () => {
+    if (review?.preview) previewSeen = review.preview.at;
+  };
+  function followPreview(r) {
+    if (!r?.preview || r.id !== review?.id || r.preview.at === previewSeen) return;
+    previewSeen = r.preview.at;
+    if (!previewing && r.items.some((i) => i.decision.status === 'pending')) return;
+    previewing = true;
+    events.emit('draft');
+  }
+
+  // Back from a preview to the draft, when what's showing has moved on from it.
+  const leavePreview = () => {
+    if (!previewing) return;
+    previewing = false;
+    events.emit('draft');
+  };
+  // The user's decisions moved on since the AI wrote the preview, so it doesn't reflect them.
+  const markPreviewOutdated = (r) => {
+    delete r.decisionsSentAt; // what was sent has changed
+    if (!r.preview) return;
+    r.preview.outdated = true;
+    delete r.preview.onlyComments;
+  };
+  // A comment outdates a preview only while it stands: removing the last one puts things back,
+  // unless something else has outdated it too.
+  const markPreviewCommented = (r) => {
+    delete r.decisionsSentAt;
+    delete r.previewCommentsSentAt;
+    if (!r.preview || r.preview.outdated) return;
+    r.preview.outdated = true;
+    r.preview.onlyComments = true;
+  };
+  const refreshPreviewAfterRemoval = (r) => {
+    if (!r.preview?.onlyComments || commentsSincePreview(r).length) return;
+    delete r.preview.outdated;
+    delete r.preview.onlyComments;
+  };
+  const dropPreview = async (r) => {
+    if (!r.preview) return;
+    delete r.preview;
+    await store.removePreview(doc.id, r);
+  };
+
+  // `peek` only looks at the draft, as a find result does: the document still reopens on the draft
+  // being worked on, until the user or the AI moves on from here or starts a review of it.
+  async function showDraft(draftId, { peek = false } = {}) {
+    previewing = false;
+    if (peek) doc.workingDraftId ??= doc.currentDraftId;
+    else delete doc.workingDraftId;
+    doc.currentDraftId = draftId;
+    if (doc.workingDraftId === draftId) delete doc.workingDraftId;
+    await store.saveDocument(doc);
+    pageTexts = null;
+    pdfDetails = null;
+    readOwnText();
+    review = await newestReview();
+    events.emit('draft');
+    events.emit('review', review);
+  }
+
+  // The comments from earlier drafts that weren't dealt with, for the window to show where their
+  // text is still in this one: those of the review whose preview became this draft, and those it
+  // carried from before it in the same way, unless they were made again on it. Nothing is ever
+  // removed, so earlier drafts keep their comments as a record.
+  async function earlierCommentsOnDraft(number, draftId = doc.currentDraftId) {
+    if (number < 1) return [];
+    const before = doc.line[number - 1];
+    const madeBy = (await store.listReviews(doc.id, before)).find((r) => r.applications?.some((a) => a.draftId === draftId));
+    if (!madeBy) return [];
+    const draftLabel = (id) => (id === store.ORIGINAL ? 'Original' : `Draft ${doc.line.indexOf(id)}`);
+    const own = earlierComments({ madeBy, draftLabel, previewLabel: `Draft ${number} preview` });
+    const older = notCommentedAgain(await earlierCommentsOnDraft(number - 1, before), madeBy);
+    return [...own, ...older.filter((e) => !own.some((o) => o.id === e.id))];
+  }
+
+  // The review the active tool shows on the current draft. In the highlight tool that's the focus
+  // the user (or the AI) last chose on this draft, else its newest; a new draft has none of its own.
+  async function newestReview() {
+    const reviews = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === tool && inVariation(r));
+    if (tool === 'highlights') {
+      const chosen = reviews.find((r) => r.id === doc.focus?.[doc.currentDraftId]);
+      if (chosen) return chosen;
+    }
+    return reviews.at(-1) ?? null;
+  }
+
+  // A draft shared by variations shows all its highlights reviews, but only the improvement
+  // reviews of the variation showing: those started in it, or whose drafts are on its line.
+  const inVariation = (r, variationId = doc.variationId, line = doc.line) => typeOf(r) !== 'improve'
+    || (r.variationId ?? store.ORIGINAL) === variationId
+    || r.applications.some((a) => line.includes(a.draftId));
+
+  // The goals of reviews of a kind on the drafts before `draftId` on a line, newest first, leaving
+  // out those in `goals` (already run): a draft's earlier focuses, offered to run again.
+  async function earlierFocuses(docId, line, draftId, type, goals) {
+    const earlier = [];
+    for (let i = line.indexOf(draftId) - 1; i >= 0; i--) {
+      for (const r of (await store.listReviews(docId, line[i])).filter((x) => typeOf(x) === type).reverse()) {
+        if (!r.goal || goals.has(r.goal)) continue;
+        goals.add(r.goal);
+        earlier.push({ title: focusTitle(r), goal: r.goal, context: r.context ?? null, draft: i === 0 ? 'Original' : `Draft ${i}` });
+      }
+    }
+    return earlier;
+  }
+
+  // Remembers the focus showing on the current draft (saved with the document).
+  async function rememberFocus(reviewId) {
+    doc.focus = { ...doc.focus, [doc.currentDraftId]: reviewId };
+    await store.saveDocument(doc);
+  }
+
+  // Before documents existed the app kept a list of file paths (recent.json). The first time this
+  // version runs, those files are imported as documents so the list carries over; the old file is
+  // left untouched.
+  async function importOldRecentFiles() {
+    let paths = [];
+    try {
+      paths = JSON.parse(await readFile(path.join(userData, 'recent.json'), 'utf8')).filter((p) => typeof p === 'string');
+    } catch {
+      return [];
+    }
+    const imported = [];
+    for (const p of paths) {
+      try {
+        const d = await store.importDocument(p);
+        imported.push({ id: d.id, name: d.name, importedAt: d.importedAt });
+      } catch {} // moved or deleted since
+    }
+    return imported;
+  }
+
+  // The current draft's page texts and details, read here as soon as it shows (pdf-text.js), so the
+  // AI needn't wait for the window to draw it, nor for a window at all. The window's report, when
+  // it comes, is the one kept: its text is what its text layer (and so every anchor) is made from.
+  let reading = null;
+  function readOwnText() {
+    if (!readText || !doc) return;
+    const docId = doc.id;
+    const draftId = doc.currentDraftId;
+    const mine = readText(store.draftPdfPath(docId, draftId))
+      .then(({ texts, details }) => {
+        if (reading !== mine || pageTexts || doc?.id !== docId || doc.currentDraftId !== draftId) return;
+        pageTexts = texts;
+        pdfDetails = details;
+        events.emit('page-texts');
+      })
+      .catch(() => {}); // the window's report is still to come
+    reading = mine;
+  }
+
+  // Waits a little for a document that's just been opened to finish loading in the window.
+  async function loadedPages() {
+    requireDoc();
+    if (!pageTexts) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(done, PAGE_TEXT_WAIT_MS);
+        function done() {
+          clearTimeout(timer);
+          events.off('page-texts', done);
+          resolve();
+        }
+        events.on('page-texts', done);
+      });
+    }
+    requireDoc();
+    if (!pageTexts) throw new Error('The document is still loading in the app. Try again in a moment.');
+  }
+
+  // The improvement review whose draft preview is waiting on the current draft, whichever tool
+  // shows: the AI can read the preview before the user accepts it (the user's choice).
+  async function previewReview() {
+    requireDoc();
+    if (review?.preview && typeOf(review) === 'improve') return review;
+    const reviews = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === 'improve' && inVariation(r));
+    const newest = reviews.at(-1);
+    return newest?.preview ? newest : null;
+  }
+  const previewLabel = () => `Draft ${doc.line.indexOf(doc.currentDraftId) + 1} preview`;
+  // The waiting preview's page texts, read from its PDF as the draft's are (pdf-text.js), kept
+  // until another preview replaces it.
+  let previewText = null; // { key, texts }
+  async function previewPages() {
+    const r = await previewReview();
+    if (!r) throw new Error('No draft preview is waiting on this draft. get_document without preview reads the draft itself.');
+    const key = `${doc.id}:${r.id}:${r.preview.at}`;
+    if (previewText?.key !== key) {
+      if (!readText) throw new Error('The draft preview can’t be read as text here: get_draft_preview gives its HTML.');
+      const { texts } = await readText(store.previewPdfPath(doc.id, r));
+      previewText = { key, texts };
+    }
+    return { r, texts: previewText.texts };
+  }
+
+  const activeVariation = () => doc.variations.find((v) => v.id === doc.variationId);
+  const identity = () => {
+    const number = doc.line.indexOf(doc.currentDraftId);
+    const newest = doc.line.length - 1;
+    const variation = activeVariation();
+    return {
+      id: doc.id,
+      name: doc.name,
+      variation: { id: variation.id, name: variation.name, ...(variation.purpose && { purpose: variation.purpose }) },
+      draft: number === 0 ? 'Original' : `Draft ${number} of ${newest}`,
+      ...(number < newest && { notNewest: `Draft ${newest} is the newest draft of this variation. This older draft can be read, but not improved: to work on it, ask the user whether to fork it into a new variation or a new document.` }),
+      ...(doc.createdFrom && { createdFrom: { id: doc.createdFrom.id, name: doc.createdFrom.name, draft: doc.createdFrom.draft } }),
+      // A document SmartDoc made from another file (a Word document, say): what it was, and what
+      // didn't come out as it is. Its original is kept, but only the PDF is reviewed and redrafted.
+      ...(doc.convertedFrom && { convertedFrom: { name: doc.convertedFrom.name, kind: doc.convertedFrom.kind, ...(doc.convertedFrom.notes?.length && { notes: doc.convertedFrom.notes }), note: 'SmartDoc turned this file into the PDF shown (an experimental feature), so its layout may differ from the original in places.' } }),
+    };
+  };
+
+  // Another window saved something this one is showing. Reviews are shared, so this one's copy is
+  // already up to date: it only has to draw it, or give way if what it shows has gone.
+  async function reviewSaved(saved) {
+    if (!doc) return;
+    if (review?.id === saved.id) {
+      if (previewing && !saved.preview) leavePreview();
+      else followPreview(saved);
+      events.emit('review', saved);
+    } else if (saved.draftId === doc.currentDraftId && typeOf(saved) === tool && inVariation(saved) && (!review || tool === 'improve')) {
+      const next = await newestReview();
+      if (next?.id !== review?.id) {
+        review = next;
+        events.emit('review', review);
+      }
+    }
+  }
+  let seenLine = null;
+  function documentSaved(saved) {
+    if (!doc || saved.id !== doc.id) return;
+    const line = doc.line.join();
+    if (saved === doc) {
+      seenLine = line;
+    } else if (!doc.line.includes(doc.currentDraftId)) {
+      seenLine = line;
+      showDraft(doc.line.at(-1)); // its draft was set aside by a new draft in another window
+    } else if (seenLine !== line) {
+      seenLine = line;
+      events.emit('draft'); // the draft controls count the drafts
+    }
+  }
+  shared.events.on('review', reviewSaved);
+  shared.events.on('document', documentSaved);
+
+  // Written whole and swapped in, as losing this file would undo all the user's organising.
+  async function changeFolders(next) {
+    shared.folders = next;
+    const tmp = `${foldersFile}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next));
+    await rename(tmp, foldersFile);
+    shared.events.emit('folders');
+  }
+  async function changeLabels(next) {
+    shared.labels = next;
+    const tmp = `${labelsFile}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next));
+    await rename(tmp, labelsFile);
+    shared.events.emit('labels');
+  }
+
+  async function saveRecent() {
+    await writeFile(recentFile, JSON.stringify(shared.recent)).catch(() => {});
+    shared.events.emit('recent');
+  }
+
+  return {
+    events,
+    // The window has gone.
+    dispose() {
+      shared.events.off('review', reviewSaved);
+      shared.events.off('document', documentSaved);
+    },
+    // What an AI has to claim to make this change: one AI per line of drafts in Review and draft,
+    // and per goal in Review and highlight. Null for a change that needs no claim.
+    claimKey(name, args = {}) {
+      if (!doc) return null;
+      if (!['start_review', 'add_annotation', 'add_finding', 'add_highlight', 'remove_item', 'revise_finding', 'commit_review', 'apply_review', 'write_draft', 'reply_to_comment'].includes(name)) return null;
+      const type = name === 'start_review' ? args.type ?? 'improve' : name === 'write_draft' ? 'improve' : review ? typeOf(review) : null;
+      if (!type) return null;
+      if (type === 'improve') return `${doc.id}:improve:${doc.variationId}`;
+      const goal = args.goal?.trim() || review?.goal;
+      return goal ? `${doc.id}:highlights:${goal}` : null;
+    },
+    // An older draft can't be improved, whoever asks (see older-drafts.js).
+    refuseOnOlderDraft(name, args = {}) {
+      if (!doc) return;
+      const refusal = olderDraftRefusal({ line: doc.line, currentDraftId: doc.currentDraftId, variationName: activeVariation().name }, review ? typeOf(review) : null, name, args);
+      if (refusal) throw new Error(refusal);
+    },
+    get document() { return doc; },
+    get review() { return review; },
+    get recent() { return shared.recent; },
+    get previewing() { return previewing; },
+
+    async loadRecent() {
+      try {
+        shared.recent = JSON.parse(await readFile(recentFile, 'utf8'));
+      } catch {
+        shared.recent = await importOldRecentFiles();
+        await saveRecent();
+      }
+      // The app is the only way to reach a document, so every one in the data folder is listed,
+      // including any an older version let drop off the list.
+      const listed = new Set(shared.recent.map((r) => r.id));
+      const missing = (await store.listDocuments()).filter((d) => !listed.has(d.id));
+      if (missing.length) {
+        shared.recent = [...shared.recent, ...missing];
+        await saveRecent();
+      }
+      shared.folders = folders.readFolders(await readFile(foldersFile, 'utf8').then(JSON.parse).catch(() => null));
+      shared.events.emit('folders');
+      shared.labels = labels.readLabels(await readFile(labelsFile, 'utf8').then(JSON.parse).catch(() => null));
+      shared.events.emit('labels');
+      shared.events.emit('recent');
+    },
+
+    get folders() { return shared.folders; },
+    // Where a document is, as the AI is told: "Clients / Acme", or null at the top level.
+    folderPath(docId) {
+      return folders.pathOf(shared.folders, shared.folders.placement[docId]).map((f) => f.name).join(' / ') || null;
+    },
+    setHomeFolder(id) {
+      homeFolder = id;
+    },
+    async createFolder(name, parentId) {
+      const id = `folder-${randomUUID().slice(0, 8)}`;
+      await changeFolders(folders.createFolder(shared.folders, { id, name, parentId }));
+      return id;
+    },
+    renameFolder: (id, name) => changeFolders(folders.renameFolder(shared.folders, id, name)),
+    deleteFolder: (id) => changeFolders(folders.deleteFolder(shared.folders, id)),
+    moveFolder: (id, parentId) => changeFolders(folders.moveFolder(shared.folders, id, parentId)),
+    moveDocument: (docId, folderId) => changeFolders(folders.moveDocument(shared.folders, docId, folderId)),
+
+    get labels() { return shared.labels; },
+    addLabel: (item, name) => changeLabels(labels.addLabel(shared.labels, item, name, `label-${randomUUID().slice(0, 8)}`)),
+    removeLabel: (item, labelId) => changeLabels(labels.removeLabel(shared.labels, item, labelId)),
+    setLabelColor: (labelId, color) => changeLabels(labels.setLabelColor(shared.labels, labelId, color)),
+
+    // Renames a document, a variation (not Original, which is the document's own) or a folder.
+    async renameDocument(docId, name) {
+      if (!shared.recent.some((r) => r.id === docId)) throw new Error(`No document ${docId}. list_documents shows the ones there are.`);
+      const clean = cleanName(name, 'document');
+      await store.renameDocument(docId, clean);
+      shared.recent = shared.recent.map((r) => (r.id === docId ? { ...r, name: clean } : r));
+      await saveRecent();
+      shared.events.emit('renamed', docId);
+      return { id: docId, name: clean };
+    },
+    async renameVariation(docId, variationId, name) {
+      if (!docId) requireDoc();
+      const clean = cleanName(name, 'variation');
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = d.variations.find((v) => v.id === variationId);
+      if (!variation) throw new Error(`No variation ${variationId}. list_variations shows the ones there are.`);
+      if (variation.id === store.ORIGINAL) throw new Error('Original is the document’s own line of drafts, so it keeps its name.');
+      variation.name = clean;
+      await store.saveDocument(d);
+      shared.events.emit('recent'); // the home screen lists variations
+      shared.events.emit('renamed', docId);
+      return { id: variationId, name: clean };
+    },
+    async moveDocumentForAi(docId, folderId) {
+      const entry = shared.recent.find((r) => r.id === docId);
+      if (!entry) throw new Error(`No document ${docId}. list_documents shows the ones there are.`);
+      await changeFolders(folders.moveDocument(shared.folders, docId, folderId));
+      return { id: docId, name: entry.name, folder: this.folderPath(docId) };
+    },
+    async createFolderForAi(name, parentId) {
+      const id = await this.createFolder(name, parentId);
+      return { id, name: shared.folders.folders.find((f) => f.id === id).name, path: folders.pathOf(shared.folders, id).map((p) => p.name).join(' / ') };
+    },
+    async renameFolderForAi(id, name) {
+      await changeFolders(folders.renameFolder(shared.folders, id, name));
+      return { id, name: shared.folders.folders.find((f) => f.id === id).name };
+    },
+    // Every folder, for the AI, with the path to it and how much is in it.
+    listFolders() {
+      const state = shared.folders;
+      return state.folders.map((f) => ({
+        id: f.id,
+        name: f.name,
+        path: folders.pathOf(state, f.id).map((p) => p.name).join(' / '),
+        documents: Object.values(state.placement).filter((id) => id === f.id).length,
+        folders: state.folders.filter((c) => c.parentId === f.id).length,
+      }));
+    },
+
+    // Deletes a document for good, on the user's say only: the AI has no tool for it.
+    async deleteDocument(docId) {
+      await store.deleteDocument(docId);
+      shared.recent = shared.recent.filter((r) => r.id !== docId);
+      await changeFolders(folders.removeDocument(shared.folders, docId));
+      await changeLabels(labels.removeItem(shared.labels, [docId]));
+      await saveRecent();
+    },
+
+    // Opening a file always imports it as a new document (`converted`: the PDF made from a file
+    // that isn't one, see convert.js).
+    async importAndOpen(sourcePath, { converted = null } = {}) {
+      const imported = await store.importDocument(sourcePath, { converted });
+      if (homeFolder && shared.folders.folders.some((f) => f.id === homeFolder)) await changeFolders(folders.moveDocument(shared.folders, imported.id, homeFolder));
+      await this.openDocument(imported.id);
+      return imported;
+    },
+
+    // A new variation of the open document for a purpose (a CV tailored to one job, say), from
+    // one of a variation's drafts: by default the draft showing. It becomes the variation showing,
+    // on that draft, and its next draft follows on from there.
+    async createVariation({ purpose, name, variation: fromId, draft } = {}) {
+      requireDoc();
+      const clean = (text) => (typeof text === 'string' && text.trim() ? text.trim() : null);
+      if (!clean(purpose)) throw new Error('A variation needs a purpose: what it\'s for, such as the job it\'s tailored to.');
+      const from = doc.variations.find((v) => v.id === (fromId ?? doc.variationId));
+      if (!from) throw new Error(`No variation ${fromId}. list_variations shows them.`);
+      const line = from.id === doc.variationId ? doc.line : from.line;
+      const number = draft ?? line.indexOf(from.id === doc.variationId ? doc.currentDraftId : from.currentDraftId);
+      if (!Number.isInteger(number) || number < 0 || number >= line.length) {
+        throw new Error(`No draft ${draft} in ${from.name}: it has the original (0) and drafts 1 to ${line.length - 1}.`);
+      }
+      const variation = await store.createVariation(doc, {
+        name: clean(name) ?? shortName(clean(purpose)),
+        purpose: clean(purpose),
+        fromVariationId: from.id,
+        fromDraftId: line[number],
+      });
+      await showDraft(doc.currentDraftId);
+      shared.events.emit('recent'); // the home screen lists variations
+      return { variation: variation.id, name: variation.name, purpose: variation.purpose, from: `${draftLabel(number)} of ${from.name}`, showing: draftLabel(number) };
+    },
+
+    // The open document's variations, the one showing marked.
+    listVariations() {
+      requireDoc();
+      return doc.variations.map((v) => {
+        const line = v.id === doc.variationId ? doc.line : v.line;
+        return { id: v.id, name: v.name, purpose: v.purpose ?? null, drafts: line.length - 1, showing: v.id === doc.variationId };
+      });
+    },
+
+    // Shows one of the open document's variations, on its current draft.
+    async setVariation(variationId) {
+      requireDoc();
+      if (variationId !== doc.variationId) {
+        store.selectVariation(doc, variationId);
+        await showDraft(doc.currentDraftId);
+      }
+      return { variation: variationId, name: doc.variations.find((v) => v.id === variationId).name, showing: identity().draft };
+    },
+
+    // Opens a document on one of its variations' drafts (from the home screen), in the given tool
+    // or the one it was last used in.
+    async openDraft(docId, variationId, draftId, nextTool) {
+      // A document not open yet opens straight on what's asked for, not first on where it was
+      // last left (which showed for a moment, and was what a tab took over).
+      if (doc?.id !== docId) return this.openDocument(docId, { variationId, draftId, tool: nextTool });
+      if (variationId !== doc.variationId) store.selectVariation(doc, variationId);
+      if (!doc.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      if (REVIEW_TYPES.includes(nextTool) && nextTool !== tool) {
+        tool = nextTool;
+        doc.tool = nextTool;
+        events.emit('tool', tool);
+      }
+      await showDraft(draftId);
+    },
+
+    // An empty document, named by the user on home, in the folder showing there: one blank A4
+    // page. It goes to the top of the documents list.
+    async createDocument(name, folderId = null) {
+      const clean = cleanName(name, 'document');
+      const html = withDefaultPage('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+      const pdf = await renderHtmlToPdf(html);
+      const made = await store.createDocument(/\.pdf$/i.test(clean) ? clean : `${clean}.pdf`, { pdf, html });
+      shared.recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...shared.recent];
+      await saveRecent();
+      if (folderId && shared.folders.folders.some((f) => f.id === folderId)) await changeFolders(folders.moveDocument(shared.folders, made.id, folderId));
+      return { id: made.id, name: made.name };
+    },
+
+    // A new document from one of a document's drafts (an improved CV, say, to make variations
+    // of). It goes to the top of the documents list.
+    async documentFromDraft(docId, variationId, draftId) {
+      const source = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = source.variations.find((v) => v.id === variationId);
+      const line = variation && (variation.id === source.variationId ? source.line : variation.line);
+      const number = line?.indexOf(draftId) ?? -1;
+      if (number === -1) throw new Error(`No draft ${draftId} in that variation.`);
+      const base = source.name.replace(/\.pdf$/i, '');
+      const label = variation.id === store.ORIGINAL ? draftLabel(number) : `${variation.name}, ${draftLabel(number)}`;
+      const made = await store.documentFromDraft(source, draftId, { name: `${base} (${label})`, draft: label });
+      shared.recent = [{ id: made.id, name: made.name, importedAt: made.importedAt }, ...shared.recent];
+      await saveRecent();
+      // Beside the document it came from.
+      const beside = shared.folders.placement[docId];
+      if (beside) await changeFolders(folders.moveDocument(shared.folders, made.id, beside));
+      return { id: made.id, name: made.name };
+    },
+
+    // A new document from a draft of the open one, for an AI: by its variation (default: the one
+    // showing) and number (default: the draft showing).
+    async documentFromDraftForAi({ variation: fromId, draft } = {}) {
+      requireDoc();
+      const from = doc.variations.find((v) => v.id === (fromId ?? doc.variationId));
+      if (!from) throw new Error(`No variation ${fromId}. list_variations shows them.`);
+      const line = from.id === doc.variationId ? doc.line : from.line;
+      const number = draft ?? line.indexOf(from.id === doc.variationId ? doc.currentDraftId : from.currentDraftId);
+      if (!Number.isInteger(number) || number < 0 || number >= line.length) {
+        throw new Error(`No draft ${draft} in ${from.name}: it has the original (0) and drafts 1 to ${line.length - 1}.`);
+      }
+      const made = await this.documentFromDraft(doc.id, from.id, line[number]);
+      return { ...made, from: `${draftLabel(number)} of ${from.name}` };
+    },
+
+    // Opens a document where it was last left, or on the variation, draft and tool asked for: one
+    // that has gone since (deleted, say) leaves it where it was left, as it always opens.
+    async openDocument(docId, { variationId = null, draftId = null, tool: nextTool = null } = {}) {
+      const opened = await store.loadDocument(docId);
+      if (variationId && variationId !== opened.variationId && opened.variations.some((v) => v.id === variationId)) store.selectVariation(opened, variationId);
+      if (draftId && !opened.line.includes(draftId)) draftId = null;
+      doc = opened;
+      // A document opens in the tool asked for, else the one it was last used with; older ones in
+      // the kind of their newest review.
+      if (REVIEW_TYPES.includes(nextTool)) tool = doc.tool = nextTool;
+      else if (REVIEW_TYPES.includes(doc.tool)) tool = doc.tool;
+      else tool = typeOf((await store.listReviews(doc.id, doc.currentDraftId)).at(-1) ?? {});
+      events.emit('tool', tool);
+      shared.recent = [{ id: doc.id, name: doc.name, importedAt: doc.importedAt }, ...shared.recent.filter((r) => r.id !== doc.id)];
+      await saveRecent();
+      await showDraft(draftId ?? doc.currentDraftId);
+    },
+
+    close() {
+      doc = null;
+      review = null;
+      previewing = false;
+      pageTexts = null;
+      pdfDetails = null;
+      events.emit('draft');
+      events.emit('review', null);
+    },
+
+    isRecent: (docId) => shared.recent.some((r) => r.id === docId),
+
+    // A document's variations and each one's drafts, newest first, for the home screen. The
+    // drafts a variation shares with the one it came from are marked, and each draft says where
+    // its reviews stand: the variation's improvement review, and the highlights focus last shown
+    // (with how many others there are).
+    async variationsOf(docId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const drafts = new Map((await store.listDrafts(d.id)).map((x) => [x.id, x]));
+      const reviewsOf = async (variation, line, draftId) => {
+        const all = await store.listReviews(d.id, draftId);
+        const improve = all.filter((r) => typeOf(r) === 'improve' && inVariation(r, variation.id, line)).at(-1);
+        const focuses = all.filter((r) => typeOf(r) === 'highlights');
+        const highlights = focuses.find((r) => r.id === d.focus?.[draftId]) ?? focuses.at(-1);
+        return {
+          improve: improve && {
+            title: focusTitle(improve),
+            status: improve.status,
+            findings: improve.items.length,
+            decided: improve.items.filter((i) => i.decision.status !== 'pending').length,
+            applied: improve.applications.length > 0,
+            // A draft preview waiting: when it was written, and the AI's summary of it.
+            preview: improve.preview ? { at: improve.preview.at, summary: improve.preview.summary ?? null } : null,
+            comments: currentRequests(improve).length, // a draft preview's earlier ones aren't on it
+            // Started by the user's comments, with the AI yet to pick it up.
+            waitingForAi: improve.status === 'open' && improve.history[0]?.who === 'user' && !improve.items.length,
+          },
+          highlights: highlights && {
+            title: focusTitle(highlights),
+            status: highlights.status,
+            count: (highlights.highlights ?? []).length,
+            others: focuses.length - 1,
+          },
+        };
+      };
+      return {
+        id: d.id,
+        name: d.name,
+        createdFrom: d.createdFrom ?? null,
+        variations: await Promise.all(d.variations.map(async (v) => {
+          const line = v.id === d.variationId ? d.line : v.line;
+          const shared = v.fromDraftId ? line.indexOf(v.fromDraftId) : -1;
+          const from = d.variations.find((x) => x.id === v.fromVariationId);
+          return {
+            id: v.id,
+            name: v.name,
+            purpose: v.purpose ?? null,
+            from: from ? `${draftLabel(shared)} of ${from.name}` : null,
+            updatedAt: drafts.get(line.at(-1))?.createdAt ?? v.createdAt,
+            drafts: (await Promise.all(line.map(async (id, i) => ({
+              id,
+              label: draftLabel(i),
+              createdAt: drafts.get(id)?.createdAt ?? null,
+              summary: drafts.get(id)?.summary ?? null,
+              shared: i <= shared && Boolean(from) ? from.name : null,
+              reviews: await reviewsOf(v, line, id),
+            })))).reverse(),
+          };
+        })),
+      };
+    },
+
+    // What the window needs to show the current draft.
+    async draftView() {
+      if (!doc) return null;
+      seePreview(); // what's waiting as this shows is news no more
+      const number = doc.line.indexOf(doc.currentDraftId);
+      const shared = {
+        document: { id: doc.id, name: doc.name, importedAt: doc.importedAt },
+        variation: { id: doc.variationId, name: activeVariation().name, isOriginal: doc.variationId === store.ORIGINAL },
+      };
+      // A preview isn't a draft: its id matches none, so its page texts (see setPageTexts) don't
+      // replace the current draft's, which the AI goes on reading and quoting.
+      if (previewing && review?.preview) {
+        return {
+          ...shared,
+          draft: { id: 'preview', number: number + 1, total: doc.line.length - 1, isOriginal: false, isPreview: true, summary: review.preview.summary, setsAside: doc.line.length - 1 - number, comparesWith: writtenFromLabel() },
+          pdf: new Uint8Array(await readFile(store.previewPdfPath(doc.id, review))),
+        };
+      }
+      const draft = await store.loadDraft(doc.id, doc.currentDraftId);
+      return {
+        ...shared,
+        draft: { id: draft.id, number, total: doc.line.length - 1, isOriginal: draft.id === store.ORIGINAL, summary: draft.summary, earlierComments: await earlierCommentsOnDraft(number) },
+        pdf: new Uint8Array(await readFile(store.draftPdfPath(doc.id, doc.currentDraftId))),
+      };
+    },
+
+    currentDraftPdfPath: () => doc && store.draftPdfPath(doc.id, doc.currentDraftId),
+
+    // Steps along the active line (the draft history): -1 for the previous draft, +1 for the next.
+    async stepDraft(delta) {
+      requireDoc();
+      if (previewing) return leavePreview();
+      const to = doc.line.indexOf(doc.currentDraftId) + delta;
+      if (to < 0 || to >= doc.line.length) return;
+      await showDraft(doc.line[to]);
+    },
+
+    // Looks at a draft on the active line, for a find result.
+    async goToDraft(draftId) {
+      requireDoc();
+      if (!doc.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      if (previewing || draftId !== doc.currentDraftId) await showDraft(draftId, { peek: true });
+    },
+
+    // Shows a draft on the active line by its number, for the AI.
+    async switchDraft(number) {
+      requireDoc();
+      const draftId = doc.line[number];
+      if (!draftId) throw new Error(`There's no draft ${number}: this variation has the original (0) and ${doc.line.length - 1} draft(s) after it.`);
+      if (previewing || doc.workingDraftId || draftId !== doc.currentDraftId) await showDraft(draftId);
+      const { draft, notNewest } = identity();
+      return { showing: draft, ...(notNewest && { notNewest }) };
+    },
+
+    // The drafts on the active line, oldest first, and a draft's PDF, for searching them.
+    draftLine: () => (doc ? doc.line.map((id, i) => ({ id, label: draftLabel(i) })) : []),
+    async draftPdf(draftId) {
+      requireDoc();
+      if (!doc.line.includes(draftId)) throw new Error(`No draft ${draftId} in this variation.`);
+      return new Uint8Array(await readFile(store.draftPdfPath(doc.id, draftId)));
+    },
+
+    // The window reports each draft's page texts once it has drawn the text layer.
+    setPageTexts(docId, draftId, texts, details) {
+      if (doc?.id !== docId || doc.currentDraftId !== draftId) return;
+      pageTexts = texts;
+      pdfDetails = details ?? null;
+      events.emit('page-texts');
+    },
+
+    // --- Reading (for the AI) ------------------------------------------------------------
+
+    // The document's size and shape, so the AI can plan how to read it: counts for the whole
+    // document and each page (with its first line, often a heading), the PDF's own details and
+    // its outline (bookmarks) if it has them.
+    async getDocumentInfo() {
+      await loadedPages();
+      const pages = pageTexts.map((text, i) => ({ page: i + 1, ...textStats(text), firstLine: firstLine(text) }));
+      // Characters are the pages' own, as get_document counts them for its limit.
+      const whole = { ...textStats(pageTexts.join('\n')), characters: pages.reduce((n, p) => n + p.characters, 0) };
+      // Very long documents leave out each page's first line, to keep this short.
+      const brief = pages.length > INFO_FIRST_LINES_UP_TO;
+      return {
+        ...identity(),
+        pages: pages.length,
+        ...whole,
+        paragraphsNote: 'Paragraph counts are estimated from the layout.',
+        estimatedTokens: estimateTokens(whole.characters),
+        readWhole: whole.characters <= MAX_READ_CHARS
+          ? 'Small enough to read whole with get_document.'
+          : 'Too large to read whole: read it a range of pages at a time (get_document with pages), and use find_text to find what matters.',
+        pdf: pdfDetails?.info ?? {},
+        outline: pdfDetails?.outline ?? [],
+        perPage: brief ? pages.map(({ firstLine: _, ...p }) => p) : pages,
+        // A draft preview waiting for the user, which get_document and find_text read with preview.
+        preview: await previewReview().then((r) => r && {
+          name: previewLabel(),
+          summary: r.preview.summary ?? null,
+          writtenAt: r.preview.at,
+          ...(r.preview.outdated && { outdated: 'The user has changed their decisions since it was written.' }),
+          read: 'Read it with get_document or find_text and preview: true, or its HTML and the user\'s comments on it with get_draft_preview. It isn\'t a draft until the user accepts it.',
+        }),
+      };
+    },
+
+    // The text of the whole document, or of the pages asked for ("3", "5-9", "1-3, 12"), up to
+    // MAX_READ_CHARS at a time.
+    // With `preview`, the draft preview waiting for the user instead of the draft.
+    async getDocument({ pages: spec, preview = false } = {}) {
+      let texts;
+      if (preview) texts = (await previewPages()).texts;
+      else {
+        await loadedPages();
+        texts = pageTexts;
+      }
+      const numbers = spec ? parsePages(spec, texts.length) : texts.map((_, i) => i + 1);
+      const size = numbers.reduce((n, p) => n + texts[p - 1].length, 0);
+      if (size > MAX_READ_CHARS) {
+        throw new Error(spec
+          ? `Pages ${spec} hold about ${estimateTokens(size).toLocaleString('en')} tokens of text, more than can be read at once (about ${estimateTokens(MAX_READ_CHARS).toLocaleString('en')}). Ask for fewer pages; get_document_info shows each page's size.`
+          : `This document has ${texts.length} pages and about ${estimateTokens(size).toLocaleString('en')} tokens of text, more than can be read at once. Read it a range of pages at a time with pages, using get_document_info for its size and outline and find_text to find what matters.`);
+      }
+      return {
+        ...identity(),
+        ...(preview && { showing: `${previewLabel()}: the next draft, waiting for the user to accept or discard it` }),
+        totalPages: texts.length,
+        pages: numbers.map((page) => ({ page, text: texts[page - 1] })),
+      };
+    },
+
+    async findText({ query, limit = FIND_LIMIT, preview = false }) {
+      let texts;
+      if (preview) texts = (await previewPages()).texts;
+      else {
+        await loadedPages();
+        texts = pageTexts;
+      }
+      return findText(texts, query, Math.min(Math.max(1, limit), FIND_LIMIT));
+    },
+
+    // The user's comments marked "No further action required" are left out unless all_comments.
+    getReview({ allComments = false } = {}) {
+      requireDoc();
+      return review && { ...review, type: typeOf(review), requests: openComments(allComments ? review.requests : currentRequests(review), allComments) };
+    },
+
+    // Every earlier review of this document, across all its drafts, oldest first: what the AI
+    // raised and what the user decided, so a new review doesn't ask again. The current review
+    // (get_review) is left out. Quotes are given as text only; they refer to the draft the review
+    // was of.
+    async getHistory() {
+      requireDoc();
+      const draftName = (id, abandoned) => {
+        const number = doc.line.indexOf(id);
+        if (number === 0) return 'Original';
+        return number > 0 ? `Draft ${number}` : `Abandoned draft (${abandoned ? 'set aside' : 'not on the current line'})`;
+      };
+      const reviews = [];
+      for (const draft of await store.listDrafts(doc.id)) {
+        for (const r of await store.listReviews(doc.id, draft.id)) {
+          if (r.id === review?.id) continue;
+          const quoted = (anchors) => anchors.map((a) => a.text.replace(/\s+/g, ' '));
+          if (typeOf(r) === 'highlights') {
+            reviews.push({
+              review: r.id,
+              type: 'highlights',
+              of: draftName(draft.id, draft.abandoned),
+              startedAt: r.createdAt,
+              committedAt: r.committedAt ?? null,
+              goal: r.goal,
+              context: r.context,
+              summary: r.summary ?? null,
+              highlights: r.highlights.map((h) => ({
+                category: h.category,
+                title: h.title,
+                importance: h.importance,
+                quotes: quoted(h.anchors),
+                missing: h.missing,
+              })),
+            });
+            continue;
+          }
+          reviews.push({
+            review: r.id,
+            type: 'improve',
+            ...(r.direct && { writtenWithoutReview: true }),
+            of: draftName(draft.id, draft.abandoned),
+            startedAt: r.createdAt,
+            committedAt: r.committedAt ?? null,
+            goal: r.goal ?? null,
+            // A review that was decided but not applied may have been replaced by a later one.
+            outcome: r.applications.length ? `applied as ${r.applications.map((a) => draftName(a.draftId)).join(', ')}`
+              : r.preview ? 'draft preview waiting for the user to accept it'
+              : r.status !== 'committed' ? 'never committed'
+              : r.items.some((i) => i.decision.status !== 'pending') ? 'decided, not applied'
+              : 'committed, nothing decided',
+            summary: r.summary ?? null,
+            findings: r.items.map((i) => ({
+              kind: i.kind,
+              title: i.title,
+              quotes: quoted(i.anchors),
+              ...(i.proposal && { proposal: i.proposal }),
+              ...(i.options && { options: i.options }),
+              ...(i.question && { question: i.question }),
+              decision: i.decision,
+            })),
+            requests: r.requests.map((q) => ({ kind: q.kind, quotes: quoted(q.anchors), note: q.note })),
+            changes: (r.changes ?? []).map((c) => c.text),
+          });
+        }
+      }
+      return { document: doc.name, currentDraft: draftName(doc.currentDraftId), reviews };
+    },
+
+    // --- Reviews -------------------------------------------------------------------------
+
+    // Starts a review of the given type, with the goal agreed with the user (required for a
+    // highlights review). An open review of the same type carries on, taking any new goal; one
+    // of the other type is left as it is, unfinished, and a new review becomes current.
+    get tool() { return tool; },
+
+    // Switches the active tool, showing the current draft's newest review of its kind.
+    async setTool(next) {
+      requireDoc();
+      if (!REVIEW_TYPES.includes(next)) throw new Error(`Unknown tool: ${next}. Use "improve" or "highlights".`);
+      if (next === tool) return { tool };
+      tool = next;
+      doc.tool = next;
+      await store.saveDocument(doc);
+      review = await newestReview();
+      seePreview();
+      leavePreview();
+      events.emit('tool', tool);
+      events.emit('review', review);
+      return { tool, review: review ? { id: review.id, status: review.status } : null };
+    },
+
+    async startReview(by, { type = 'improve', goal, context, title } = {}) {
+      requireDoc();
+      if (!REVIEW_TYPES.includes(type)) throw new Error(`Unknown review type: ${type}. Use "improve" or "highlights".`);
+      // Starting a review of the other kind switches the app to that tool first.
+      if (type !== tool) await this.setTool(type);
+      const clean = (text) => (typeof text === 'string' && text.trim() ? text.trim() : null);
+      if (type === 'highlights' && !clean(goal) && !(review?.status === 'open' && typeOf(review) === type)) {
+        throw new Error('A highlights review needs a goal: what the user is looking for in the document. Ask them first.');
+      }
+      // An open review carries on, unless it's a highlights review and the goal is a new one: each
+      // goal is its own focus, and the others are kept.
+      const sameFocus = type !== 'highlights' || !clean(goal) || clean(goal) === review?.goal;
+      if (review?.status === 'open' && typeOf(review) === type && sameFocus) {
+        if (clean(goal)) review.goal = clean(goal);
+        if (clean(context)) review.context = clean(context);
+        if (clean(title)) review.title = clean(title);
+        if (clean(goal) || clean(context) || clean(title)) await saveReview();
+        return review;
+      }
+      review = await store.createReview(doc.id, doc.currentDraftId, by, { type, goal: clean(goal), context: clean(context), title: clean(title), variationId: doc.variationId });
+      await settleOnDraft();
+      if (type === 'highlights') await rememberFocus(review.id);
+      leavePreview();
+      events.emit('review', review);
+      return review;
+    },
+
+    // A tool's focuses (highlights by default). In the highlight tool: this draft's highlights
+    // reviews, newest first, the one showing marked. In the draft tool, the draft's one review that
+    // counts, its newest, with how far its decisions have got. And for either, the goals of
+    // earlier drafts' reviews of that kind that haven't been run on this one, offered to run again
+    // (a new draft shows none of them until then).
+    async listFocuses(type = 'highlights') {
+      requireDoc();
+      if (!REVIEW_TYPES.includes(type)) throw new Error(`Unknown review type: ${type}. Use "improve" or "highlights".`);
+      const summary = (r) => ({
+        id: r.id,
+        title: focusTitle(r),
+        goal: r.goal,
+        status: r.status,
+        createdAt: r.createdAt,
+        ...(type === 'highlights'
+          ? { highlights: (r.highlights ?? []).length }
+          : { findings: r.items.length, decided: r.items.filter((i) => i.decision.status !== 'pending').length, applied: r.applications.length > 0 }),
+      });
+      let here = (await store.listReviews(doc.id, doc.currentDraftId)).filter((r) => typeOf(r) === type && inVariation(r));
+      if (type === 'improve') here = here.slice(-1);
+      const showing = tool === type ? review?.id : (here.find((r) => r.id === doc.focus?.[doc.currentDraftId]) ?? here.at(-1))?.id;
+      return {
+        current: [...here].reverse().map((r) => ({ ...summary(r), showing: r.id === showing })),
+        earlier: await earlierFocuses(doc.id, doc.line, doc.currentDraftId, type, new Set(here.map((r) => r.goal))),
+      };
+    },
+
+    // The focuses to start a review of a kind on a draft the home screen lists (one with no review
+    // of that kind yet): the goals of the drafts before it on its variation's line, to run again.
+    async focusesFor(docId, variationId, draftId, type) {
+      if (!REVIEW_TYPES.includes(type)) throw new Error(`Unknown review type: ${type}. Use "improve" or "highlights".`);
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = d.variations.find((v) => v.id === variationId);
+      const line = variation && (variation.id === d.variationId ? d.line : variation.line);
+      if (!line?.includes(draftId)) throw new Error(`No draft ${draftId} in that variation.`);
+      return { current: [], earlier: await earlierFocuses(d.id, line, draftId, type, new Set()) };
+    },
+
+    // Makes a draft its document's current place (its variation, the draft and the tool) without
+    // opening it, so the agent finds it there when it opens the document: for a review started
+    // from the home screen.
+    async prepareDraft(docId, variationId, draftId, nextTool) {
+      if (doc?.id === docId) return this.openDraft(docId, variationId, draftId, nextTool);
+      const d = await store.loadDocument(docId);
+      if (variationId !== d.variationId) store.selectVariation(d, variationId);
+      if (!d.line.includes(draftId)) throw new Error(`No draft ${draftId} in that variation.`);
+      d.currentDraftId = draftId;
+      if (REVIEW_TYPES.includes(nextTool)) d.tool = nextTool;
+      await store.saveDocument(d);
+    },
+
+    // Shows one of this draft's focuses, switching to the highlight tool if need be.
+    async setFocus(reviewId) {
+      requireDoc();
+      const chosen = (await store.listReviews(doc.id, doc.currentDraftId)).find((r) => r.id === reviewId && typeOf(r) === 'highlights');
+      if (!chosen) throw new Error(`No highlights review ${reviewId} on the current draft. list_focuses shows them.`);
+      await rememberFocus(chosen.id);
+      if (tool !== 'highlights') {
+        tool = 'highlights';
+        doc.tool = tool;
+        await store.saveDocument(doc);
+        events.emit('tool', tool);
+      }
+      review = chosen;
+      leavePreview();
+      events.emit('review', review);
+      return { focus: focusTitle(chosen), review: chosen.id };
+    },
+
+    // The user's requests marked on the page. A committed review takes no more requests.
+    async addRequest(request) {
+      requireDoc();
+      if (!REQUEST_KINDS.includes(request.kind)) throw new Error(`Unknown request kind: ${request.kind}`);
+      // Only the newest draft can still change: an earlier one's next draft is already written.
+      // A draft preview can be commented on too: it's waiting to become the next one.
+      if (!previewing && (tool !== 'improve' || doc.currentDraftId !== doc.line.at(-1))) throw new Error('Comments can only be added to the newest draft or a draft preview, in Review and draft.');
+      // A review the user is deciding on takes the comment too; only one that has already become a
+      // draft (since deleted) gives way to a new one.
+      if (!previewing && (!review || review.applications.length)) await this.startReview('user');
+      const entry = { id: `request-${Date.now().toString(36)}-${review.requests.length}`, kind: request.kind, anchors: request.anchors ?? [], note: request.note ?? '', details: request.details ?? {}, createdAt: new Date().toISOString() };
+      // Made again from an earlier version's comment ("Comment again"), which then stops showing.
+      if (typeof request.from === 'string') entry.from = request.from;
+      if (review.status === 'committed') {
+        entry.afterCommit = true; // carried out with the decisions: the AI has finished responding
+        if (previewing) {
+          entry.onPreview = true; // its anchors are in the draft preview's text, not the draft's
+          entry.previewAt = review.preview.at; // and only this preview's: the AI's next is another version
+        }
+        markPreviewCommented(review);
+      }
+      review.requests.push(entry);
+      logTo(review, 'user', `added a ${entry.kind} request`);
+      await saveReview();
+      return entry;
+    },
+
+    async updateRequest(id, changes) {
+      const r = requireType(requireReview(), 'improve');
+      const entry = r.requests.find((q) => q.id === id);
+      if (!entry) throw new Error(`No request ${id}.`);
+      if (typeof changes.note === 'string') {
+        entry.note = changes.note;
+        // The user saying more on a comment opens it again for the AI.
+        entry.noFurtherAction = null;
+        delete entry.resolved;
+      }
+      if (changes.details) entry.details = { ...entry.details, ...changes.details };
+      if (r.status === 'committed' && !onEarlierPreview(entry, r)) markPreviewCommented(r); // an earlier preview's says nothing of this one
+      await saveReview();
+    },
+
+    // The AI answers one of the user's comments: a reply, an outcome in its own words ("Actioned",
+    // "Noted", "Answered"…), and whether anything more is needed. Nothing restricts the outcome.
+    async replyToComment({ id, text, outcome, noFurtherAction }) {
+      const r = requireType(requireReview(), 'improve');
+      const entry = r.requests.find((q) => q.id === id);
+      if (!entry) throw new Error(`No comment ${id} in the current review. get_review lists them.`);
+      const said = typeof text === 'string' ? text.trim() : '';
+      const label = typeof outcome === 'string' ? outcome.trim() : '';
+      if (!said && !label && noFurtherAction === undefined) throw new Error('Give a reply, an outcome, or both.');
+      const at = new Date().toISOString();
+      if (said || label) entry.replies = [...(entry.replies ?? []), { who: 'ai', at, ...(said && { text: said }), ...(label && { outcome: label }) }];
+      if (label) entry.outcome = label;
+      if (noFurtherAction !== undefined) {
+        entry.noFurtherAction = noFurtherAction ? { by: 'ai', at } : null;
+        delete entry.resolved;
+        refreshPreviewAfterRemoval(r); // a preview outdated only by this comment isn't any more
+      }
+      logTo(r, 'ai', `answered a comment${label ? ` (${label})` : ''}`);
+      await saveReview();
+      return { comment: id, outcome: entry.outcome ?? null, noFurtherAction: noFurtherAction ? true : Boolean(entry.noFurtherAction) };
+    },
+
+    // The user marks a comment as needing nothing more, or opens it again.
+    async setNoFurtherAction(id, on) {
+      const r = requireType(requireReview(), 'improve');
+      const entry = r.requests.find((q) => q.id === id);
+      if (!entry) throw new Error(`No comment ${id}.`);
+      entry.noFurtherAction = on ? { by: 'user', at: new Date().toISOString() } : null;
+      delete entry.resolved;
+      if (on) refreshPreviewAfterRemoval(r);
+      else if (r.preview && commentsSincePreview(r).some((q) => q.id === id)) markPreviewCommented(r);
+      logTo(r, 'user', on ? 'marked a comment as needing no further action' : 'opened a comment again');
+      await saveReview();
+    },
+
+    async removeRequest(id) {
+      const r = requireType(requireReview(), 'improve');
+      r.requests = r.requests.filter((q) => q.id !== id);
+      refreshPreviewAfterRemoval(r);
+      logTo(r, 'user', 'removed a request');
+      await saveReview();
+    },
+
+    async addAnnotation({ quotes, style = 'highlight', color, note }) {
+      const r = requireType(requireOpenReview(), 'improve');
+      const entry = { id: `annotation-${Date.now().toString(36)}-${r.annotations.length}`, anchors: anchorsFrom(quotes), style, color: color ?? null, note: note ?? '' };
+      r.annotations.push(entry);
+      await saveReview();
+      return entry;
+    },
+
+    async addFinding(finding) {
+      const r = requireType(requireOpenReview(), 'improve');
+      if (!ITEM_KINDS.includes(finding.kind)) throw new Error(`Unknown finding kind: ${finding.kind}`);
+      if (finding.in_response_to && !r.requests.some((q) => q.id === finding.in_response_to)) {
+        throw new Error(`No request ${finding.in_response_to} in this review.`);
+      }
+      const item = {
+        id: `item-${Date.now().toString(36)}-${r.items.length}`,
+        kind: finding.kind,
+        title: finding.title,
+        body: finding.body ?? '',
+        severity: finding.severity ?? 'medium',
+        anchors: anchorsFrom(finding.quotes),
+        inResponseTo: finding.in_response_to ?? null,
+        proposal: finding.proposal ?? null, // change: { before, after }; move/design: { description }
+        options: finding.options ?? null, // options: [{ label, text }]
+        question: finding.question ?? null,
+        decision: { status: 'pending' },
+      };
+      r.items.push(item);
+      logTo(r, 'ai', `added a ${item.kind} finding: ${item.title}`);
+      await saveReview();
+      return item;
+    },
+
+    // The AI improves one finding, after talking it over with the user in its thread in the chat:
+    // its wording, reasons, suggestion, options or question. A finding already decided goes back
+    // to undecided, as what was decided on has changed, keeping the user's comment.
+    async reviseFinding({ id, title, body, proposal, options, question }) {
+      const r = requireType(requireReview(), 'improve');
+      const item = r.items.find((i) => i.id === id);
+      if (!item) throw new Error(`No finding ${id}.`);
+      if (options && item.kind !== 'options') throw new Error('Only an options finding has options.');
+      if (options && options.length < 2) throw new Error('Give at least two options.');
+      if (title !== undefined) item.title = requireText(title);
+      if (body !== undefined) item.body = body;
+      if (proposal) item.proposal = { ...item.proposal, ...proposal };
+      if (options) item.options = options;
+      if (question !== undefined) item.question = question;
+      const wasDecided = item.decision.status !== 'pending';
+      if (wasDecided) item.decision = { status: 'pending', ...(item.decision.comment ? { comment: item.decision.comment } : {}) };
+      item.revisedAt = new Date().toISOString();
+      markPreviewOutdated(r);
+      logTo(r, 'ai', `improved the finding “${item.title}”`);
+      await saveReview();
+      return { revised: id, decision: wasDecided ? 'back to undecided, for the user to decide again' : 'undecided' };
+    },
+
+    // Removes a finding or a highlight, whichever the open review holds.
+    removeItem(id) {
+      return typeOf(requireOpenReview()) === 'highlights' ? this.removeHighlight(id) : this.removeFinding(id);
+    },
+
+    async removeFinding(id) {
+      const r = requireType(requireOpenReview(), 'improve');
+      if (!r.items.some((i) => i.id === id)) throw new Error(`No finding ${id}.`);
+      r.items = r.items.filter((i) => i.id !== id);
+      logTo(r, 'ai', 'removed a finding');
+      await saveReview();
+    },
+
+    // A piece of key information for the user's goal, quoting the text it's in. One with no text
+    // is something the user would expect that the document doesn't have.
+    async addHighlight({ category, title, note, importance = 'medium', quotes }) {
+      const r = requireType(requireOpenReview(), 'highlights');
+      if (!IMPORTANCE.includes(importance)) throw new Error(`Unknown importance: ${importance}. Use high, medium or low.`);
+      const anchors = anchorsFrom(quotes);
+      const highlight = {
+        id: `highlight-${Date.now().toString(36)}-${r.highlights.length}`,
+        category: category.trim(),
+        title: title.trim(),
+        note: note?.trim() ?? '',
+        importance,
+        anchors,
+        missing: !anchors.length,
+      };
+      r.highlights.push(highlight);
+      logTo(r, 'ai', `added a highlight: ${highlight.title}`);
+      await saveReview();
+      return highlight;
+    },
+
+    async removeHighlight(id) {
+      const r = requireType(requireOpenReview(), 'highlights');
+      if (!r.highlights.some((h) => h.id === id)) throw new Error(`No highlight ${id}.`);
+      r.highlights = r.highlights.filter((h) => h.id !== id);
+      logTo(r, 'ai', 'removed a highlight');
+      await saveReview();
+    },
+
+    async commitReview(summary) {
+      const r = requireOpenReview();
+      const unanswered = unansweredRequests(r);
+      if (unanswered.length) {
+        throw new Error(`The user has comments with no response yet. Add a finding with in_response_to for each, then commit: ${unanswered.map((q) => `${q.id} (“${q.note}”)`).join('; ')}`);
+      }
+      r.status = 'committed';
+      r.committedAt = new Date().toISOString();
+      r.summary = summary ?? null;
+      logTo(r, 'ai', 'committed the review');
+      await saveReview();
+      return r;
+    },
+
+    // The user's decision on one finding: { status, choice, answer, edited, comment }.
+    async decide(itemId, decision) {
+      const r = requireType(requireReview(), 'improve');
+      if (r.status !== 'committed') throw new Error('Decisions open once the review is committed.');
+      const item = r.items.find((i) => i.id === itemId);
+      if (!item) throw new Error(`No finding ${itemId}.`);
+      item.decision = { ...item.decision, ...decision, at: new Date().toISOString() };
+      markPreviewOutdated(r);
+      logTo(r, 'user', `${item.decision.status} “${item.title}”`);
+      await saveReview();
+    },
+
+    // Changes the user writes themselves for the AI to carry out with their decisions, once the
+    // review is committed: free text, not tied to a finding.
+    async addChange(text) {
+      const r = requireType(requireCommittedReview(), 'improve');
+      const entry = { id: `change-${Date.now().toString(36)}-${(r.changes ??= []).length}`, text: requireText(text), createdAt: new Date().toISOString() };
+      r.changes.push(entry);
+      markPreviewOutdated(r);
+      logTo(r, 'user', 'added a change of their own');
+      await saveReview();
+      return entry;
+    },
+
+    async updateChange(id, text) {
+      const r = requireCommittedReview();
+      const entry = r.changes?.find((c) => c.id === id);
+      if (!entry) throw new Error(`No change ${id}.`);
+      entry.text = requireText(text);
+      entry.updatedAt = new Date().toISOString();
+      markPreviewOutdated(r);
+      await saveReview();
+    },
+
+    async removeChange(id) {
+      const r = requireCommittedReview();
+      r.changes = (r.changes ?? []).filter((c) => c.id !== id);
+      markPreviewOutdated(r);
+      logTo(r, 'user', 'removed a change of their own');
+      await saveReview();
+    },
+
+    // Back to the start of step 1: a new, empty review of the current draft for the AI to fill,
+    // of the same type and goal. The old review stays in the draft's reviews folder; any preview
+    // it had goes.
+    async resetToReview() {
+      const old = requireReview();
+      if (old.preview) {
+        await dropPreview(old);
+        await store.saveReview(doc.id, old);
+      }
+      review = await store.createReview(doc.id, doc.currentDraftId, 'user', { type: typeOf(old), goal: old.goal ?? null, context: old.context ?? null, title: old.title ?? null, variationId: doc.variationId });
+      await settleOnDraft();
+      if (typeOf(review) === 'highlights') await rememberFocus(review.id);
+      leavePreview();
+      events.emit('review', review);
+      return review;
+    },
+
+    // Back to the start of step 2: every finding undecided again (choices, answers, edits and
+    // comments cleared) and the user's own changes removed, with any preview written from them.
+    // The AI's findings and notes stay.
+    async resetDecisions() {
+      const r = requireType(requireCommittedReview(), 'improve');
+      for (const item of r.items) item.decision = { status: 'pending' };
+      r.changes = [];
+      r.requests = r.requests.filter((q) => !q.afterCommit);
+      await dropPreview(r);
+      logTo(r, 'user', 'reset their decisions');
+      await saveReview();
+      leavePreview();
+    },
+
+    getDecisions({ allComments = false } = {}) {
+      const r = requireType(requireReview(), 'improve');
+      return {
+        status: r.status,
+        preview: r.preview ?? null,
+        requests: openComments(allComments ? r.requests : currentRequests(r), allComments),
+        changes: r.changes ?? [],
+        items: r.items.map(({ id, kind, title, inResponseTo, proposal, options, question, decision }) => ({ id, kind, title, inResponseTo, proposal, options, question, decision })),
+      };
+    },
+
+    // Applies the review as far as the AI can: it supplies the next draft as a complete HTML
+    // document, and the app draws it to PDF and keeps it as the review's preview, replacing any
+    // earlier one. Only the user makes a preview a draft (acceptPreview). The window shows it
+    // straight away unless the user is still deciding, when the review bar offers it instead.
+    async applyReview({ html, summary, appliedItemIds }) {
+      const r = requireType(requireReview(), 'improve');
+      if (r.status !== 'committed') throw new Error('Commit the review and let the user decide before applying it.');
+      // The comments on the last preview stay as they are: the AI says how it dealt with each with
+      // replyToComment, in its own words, and whether anything more is needed.
+      const page = withDefaultPage(html);
+      const pdf = await renderHtmlToPdf(page);
+      await store.savePreview(doc.id, r, { pdf, html: page });
+      r.preview = { at: new Date().toISOString(), summary: summary ?? null, appliedItemIds: appliedItemIds ?? [] };
+      // The AI has acted on what it was sent: what comes next is about this preview.
+      delete r.decisionsSentAt;
+      delete r.previewCommentsSentAt;
+      delete r.previewResult;
+      logTo(r, 'ai', 'wrote a draft preview of the next draft');
+      await store.saveReview(doc.id, r);
+      const undecided = r.items.filter((i) => i.decision.status === 'pending').length;
+      if (r === review) {
+        followPreview(r);
+        events.emit('review', r);
+      }
+      return {
+        review: r.id,
+        preview: `Draft ${doc.line.indexOf(r.draftId) + 1} preview`,
+        status: 'waiting_for_user',
+        undecidedFindings: undecided,
+        next: 'This is not a draft yet. Tell the user to switch to the SmartDoc app, look at the draft preview, and accept or discard it there. Only they can accept it.',
+      };
+    },
+
+    // The window's preview of the next draft, opened and closed by the user.
+    async openPreview() {
+      if (!requireReview().preview) throw new Error('This review has no draft preview.');
+      previewing = true;
+      events.emit('draft');
+    },
+    closePreview: () => leavePreview(),
+
+    // The PDF of one of the variation's drafts (its number, 0 for Original; by default the one
+    // showing), or of the draft preview waiting, with its name: for the AI to look at its pages
+    // (view_pages) without the window moving.
+    async draftPdfFor({ draft = null, preview = false } = {}) {
+      requireDoc();
+      if (preview) {
+        const r = await previewReview();
+        if (!r) throw new Error('No draft preview is waiting on this draft.');
+        return { path: store.previewPdfPath(doc.id, r), name: previewLabel() };
+      }
+      const number = draft ?? doc.line.indexOf(doc.currentDraftId);
+      const draftId = doc.line[number];
+      if (!draftId) throw new Error(`${activeVariation().name} has no draft ${number}: its drafts are 0 (Original) to ${doc.line.length - 1}.`);
+      return { path: store.draftPdfPath(doc.id, draftId), name: number === 0 ? 'Original' : `Draft ${number}` };
+    },
+
+    // The waiting draft preview's source and the user's comments on it, for the AI to read it or
+    // change it, whichever tool shows.
+    async getDraftPreview() {
+      const r = await previewReview();
+      if (!r) throw new Error('No draft preview is waiting on this draft.');
+      const { html } = await store.loadPreview(doc.id, r);
+      return { name: previewLabel(), html: html.toString(), summary: r.preview.summary, outdated: Boolean(r.preview.outdated), comments: previewComments(r) };
+    },
+
+    // The next draft written straight away, without a review (the user's choice: sometimes they
+    // just want the AI to do what they asked). It's kept as an improvement review of its own, its
+    // goal what they asked, committed with no findings (`direct`), so its preview is accepted,
+    // discarded, commented on and waited for as any other, and only the user makes it a draft. The
+    // draft's improvement review is used if it has no findings (one holding the user's comments, or
+    // one written this way already, whose preview this replaces); else a new one is started.
+    async writeDraft({ html, summary, goal, title }) {
+      requireDoc();
+      if (tool !== 'improve') await this.setTool('improve');
+      const clean = (text) => (typeof text === 'string' && text.trim() ? text.trim() : null);
+      let r = review && typeOf(review) === 'improve' && !review.items.length ? review : null;
+      if (!r) {
+        r = review = await store.createReview(doc.id, doc.currentDraftId, 'ai', { type: 'improve', goal: clean(goal), title: clean(title), variationId: doc.variationId });
+        await settleOnDraft();
+      } else {
+        if (clean(goal) && !r.goal) r.goal = clean(goal);
+        if (clean(title) && !r.title) r.title = clean(title);
+      }
+      if (r.status === 'open') {
+        r.status = 'committed';
+        r.committedAt = new Date().toISOString();
+        r.direct = true;
+        logTo(r, 'ai', 'wrote the next draft without a review');
+        await store.saveReview(doc.id, r);
+      }
+      return this.applyReview({ html, summary, appliedItemIds: [] });
+    },
+
+    // The preview and the draft it was written from, to show side by side.
+    async previewComparison() {
+      const r = requireReview();
+      if (!previewing || !r.preview) throw new Error('No draft preview is showing.');
+      return {
+        before: { label: writtenFromLabel(), pdf: new Uint8Array(await readFile(store.draftPdfPath(doc.id, doc.currentDraftId))) },
+        after: { label: `Draft ${doc.line.indexOf(doc.currentDraftId) + 1} preview`, pdf: new Uint8Array(await readFile(store.previewPdfPath(doc.id, r))) },
+      };
+    },
+
+    // The user accepts the preview: it becomes the next draft, which becomes current. From an
+    // earlier draft, that sets aside the drafts after it.
+    async acceptPreview() {
+      const r = requireReview();
+      if (!r.preview) throw new Error('This review has no draft preview to accept.');
+      const { summary, appliedItemIds } = r.preview;
+      const { pdf, html } = await store.loadPreview(doc.id, r);
+      const { draftId } = await store.createDraft(doc, r, { pdf, html, summary, appliedItemIds });
+      r.applications.push({ draftId, at: new Date().toISOString(), itemIds: appliedItemIds });
+      delete r.previewCommentsSentAt;
+      r.previewResult = { outcome: 'accepted', at: new Date().toISOString(), draft: `Draft ${doc.line.indexOf(draftId)}` };
+      await dropPreview(r);
+      logTo(r, 'user', 'accepted the draft preview as a new draft');
+      await store.saveReview(doc.id, r);
+      await showDraft(draftId);
+    },
+
+    // The user tells an AI waiting on this review (see waits.js) to go ahead: with their decisions,
+    // or their comments on the draft preview.
+    async sendToAi(what) {
+      const r = requireType(requireReview(), 'improve');
+      if (what === 'preview') r.previewCommentsSentAt = new Date().toISOString();
+      else r.decisionsSentAt = new Date().toISOString();
+      logTo(r, 'user', what === 'preview' ? 'sent their comments on the draft preview to the AI' : 'sent their decisions to the AI');
+      await saveReview();
+    },
+
+    // The user discards the preview; the review stays as it is, for the AI to write another.
+    async discardPreview() {
+      const r = requireReview();
+      if (!r.preview) throw new Error('This review has no draft preview to discard.');
+      delete r.previewCommentsSentAt;
+      r.previewResult = { outcome: 'discarded', at: new Date().toISOString() };
+      await dropPreview(r);
+      // Its comments stay, as a record: they belong to that preview, so nothing counts them now,
+      // and the next preview offers again those whose text is still in it.
+      logTo(r, 'user', 'discarded the draft preview');
+      await saveReview();
+      leavePreview();
+    },
+
+    // Whether a draft can be deleted from a variation (see store.whyDraftKept).
+    async canDeleteDraft(docId, variationId, draftId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      return !store.whyDraftKept(d, variationId, draftId);
+    },
+
+    // Deletes a draft for good, on the user's say only: the AI has no tool for it.
+    async deleteDraft(docId, variationId, draftId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      await store.deleteDraft(d, variationId, draftId);
+      await changeLabels(labels.removeItem(shared.labels, [docId, variationId, draftId]));
+      if (doc?.id === docId) await showDraft(doc.currentDraftId);
+      shared.events.emit('recent'); // the home screen lists drafts
+    },
+
+    // What deleting a variation deletes, to ask first: its name, how many drafts only it has, and
+    // the variations that keep drafts it shares (those it came from, or that came from it).
+    async variationToDelete(docId, variationId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      const variation = d.variations.find((v) => v.id === variationId);
+      if (!variation || variationId === store.ORIGINAL) return null;
+      const own = store.ownDrafts(d, variationId);
+      const line = variation.id === d.variationId ? d.line : variation.line;
+      const keeping = d.variations.filter((v) => v.id !== variationId && (v.id === d.variationId ? d.line : v.line).some((id) => line.includes(id) && !own.includes(id)));
+      return { name: variation.name, drafts: own.length, keeping: keeping.map((v) => v.name) };
+    },
+
+    // Deletes a variation for good, on the user's say only: the AI has no tool for it.
+    async deleteVariation(docId, variationId) {
+      const d = doc?.id === docId ? doc : await store.loadDocument(docId);
+      await store.deleteVariation(d, variationId);
+      await changeLabels(labels.removeItem(shared.labels, [docId, variationId]));
+      if (doc?.id === docId) await showDraft(doc.currentDraftId);
+      shared.events.emit('recent'); // the home screen lists variations
+    },
+
+    async saveDraftAs(target) {
+      requireDoc();
+      await writeFile(target, await readFile(store.draftPdfPath(doc.id, doc.currentDraftId)));
+    },
+
+    async exists(file) {
+      try {
+        await access(file);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+// The user's comments the AI still has to deal with: those marked "No further action required" are
+// left out unless all of them are asked for.
+const openComments = (requests, all) => (requests && !all ? requests.filter((q) => !isDone(q)) : requests);
+
+// A4 with sensible margins unless the HTML sets its own @page rules (it comes later, so it wins).
+function withDefaultPage(html) {
+  // External images can't load (drafts are drawn offline), so hide any that fail rather than
+  // leaving broken-image icons.
+  const defaults = '<style>@page { size: A4; margin: 14mm 16mm; } img:not([src^="data:"]) { display: none; }</style>';
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => `${m}${defaults}`) : `${defaults}${html}`;
+}

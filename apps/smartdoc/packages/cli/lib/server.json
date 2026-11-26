@@ -1,0 +1,1265 @@
+{
+  "protocolVersions": [
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+    "2024-10-07"
+  ],
+  "capabilities": {
+    "prompts": {
+      "listChanged": true
+    },
+    "tools": {
+      "listChanged": true
+    }
+  },
+  "instructions": "This server is SmartDoc: a desktop app showing the user's document (a PDF). You review it with the user, in one of two kinds of review, and the app shows the current review beside the document. The app has a tool for each kind: \"Review and draft\" (improve) and \"Review and highlight\" (highlights). Only the active tool's review shows, and get_review returns it; start_review switches to its kind's tool, and switch_tool switches without starting one (for example to show the user an earlier review of the other kind). A draft can have several highlights reviews, one per goal, called focuses (e.g. \"Recruiter skim\", \"The career gap\"): list_focuses shows them, with earlier drafts' goals not yet run on this draft, and switch_focus shows one. A new draft starts with none. An improvement review can have a focus too: a goal, and a short name for it (title); the user may send one from the app (\"…suggest improvements, focusing on: …\"). Without one it's a general review. A document with no icon of its own (get_document_info's icon is null) gets one from you with set_icon, once you know what it is. A document can have variations, one per purpose (such as a CV tailored to a job): \"Original\" is its own line of drafts, and each variation has its own drafts from the draft it started at. Reviews and drafts belong to the variation showing (get_document_info names it, with its purpose, which every review in it should serve); list_variations, switch_variation and create_variation manage them.\nOpen: get_document_info and get_document read the document open in the app. If none is open, or the user means a different one (the user may name it with its document id), open it with open_document: by document_id from list_documents (documents the user has opened before), by path (a PDF on the user's computer, which the user confirms in the app; if they've turned on Open Word, Excel and PowerPoint files in Settings › Experimental, a Word, Excel or PowerPoint file, Markdown, text or a picture too, which SmartDoc turns into a PDF, and get_document_info then says what it was converted from and anything that didn't come out as it is), or with neither so the user picks the file in the app. When open_document reports waiting_for_user, tell the user straight away to switch to the SmartDoc app and answer there, then call get_document_info, which waits for them.\nRead: start with get_document_info to see the document's size and outline. A small document can be read whole with get_document. To see how it looks (its design and layout, rather than its words), view_pages gives pictures of its pages, of any draft or the draft preview. A large one is read a range of pages at a time (get_document with pages), using the outline, each page's first line and find_text to go to what matters; for a highlights review, read what the goal needs rather than everything. The document opens on the draft last worked on, which may not be the newest: get_document_info then says notNewest. Reading it is fine, and so is a highlights review, but an older draft can't be improved (no improvement review, findings or apply_review): the drafts after it follow on from it. Tell the user, and ask whether they want the newest draft (switch_draft) or to fork this one, into a new variation (create_variation) or a new document (create_document_from_draft); fork it only once they agree.\nSettle the goal first: read the document, get_review and get_history, then decide with the user what the review is for before calling start_review. But when the user just wants you to make a change or do a piece of work in the document (\"rewrite the summary\", \"cut it to one page\", \"just do it\"), with no review or decisions of theirs needed, skip the review: write the next draft straight away with write_draft, passing what they asked as goal. It's a draft preview like any other, which they accept or discard in the app. Either they want the document improved (type \"improve\"), or they want to understand it: the key information in it for their purpose (type \"highlights\"). If it isn't clear which, or what they're after, ask. Pass the agreed goal to start_review in their terms.\nWindows: each AI session works on a document of its own, without a tab in the app until there's something for the user: committing a review, writing a draft preview, or open_document with show (when they ask to see the document) opens a tab of its own showing your work, and every call goes to it after that; opening another document reuses it. Reading, reviewing and the rest happen without one, so the user isn't shown tabs that have nothing for them yet. If the user's prompt names a window, call use_window with it first, so that window becomes yours instead. Another AI may be working on the same document in its own window: reading is always fine, but a change it has claimed (the same variation in an improvement review, the same goal in a highlights review) is refused, so tell the user. If the user moves your window to another document, your next change is refused: open_document brings it back.\nAn improvement review, in rounds:\n1. Review: the current review may already hold the user's requests: text they marked to rewrite, comment on, keep, remove, add to, or ask about. The history shows what earlier reviews raised and what the user decided. Don't raise again anything the user rejected or chose to keep, unless that text has changed since or you have a new reason (say so in the finding), and don't ask questions they've already answered: use their answers. Changes they accepted that are still not in the document can be raised again. If the user asks for a fresh review, ignore the history. Decorate text with add_annotation and add findings with add_finding. Every finding offers the user a decision: a proposed change, a choice of options, a question, a structural move, a design change, or a flag to acknowledge. A comment is the user's own note on the text they selected; if the review already holds their comments and no goal, responding to them is the goal, so don't ask for one. Respond to each user request with a finding that has in_response_to set, or, for a comment that needs no decision from them, with reply_to_comment. They can add comments while you work, so read get_review again before committing: commit_review refuses while one has no response. Finish with commit_review; the user then decides in the app.\n2. Decide: the user works through the findings, and may write changes of their own or add comments on the text (requests with afterCommit set). Read their choices with get_review and decisions_only.\n3. Apply: carry out what was accepted, the user's own changes and their afterCommit comments (and use the user's answers and comments) by writing the complete updated document as HTML and calling apply_review. Wait for the user's decisions first: call it only when they ask you to, or when your wait command reports decisions-sent. Nothing pending in their decisions doesn't mean they've finished: they may still be changing decisions or adding comments. The app draws it to PDF as a draft preview of the next draft, which the user accepts or discards in the app: only they can make it a draft, so tell them to look at it there. If they want it changed, call apply_review again and the new draft preview replaces it. They can comment on the draft preview itself (requests with onPreview set, quoting its text, not the draft's): call get_draft_preview, make what they asked in its HTML, leave the rest as it is, and call apply_review. Then answer each comment you dealt with using reply_to_comment: an outcome in your own words (\"Actioned\", \"Noted\", \"Not changed\"…) and no_further_action when nothing more is needed. Writing a new preview doesn't answer them by itself, and a comment belongs to the preview it was written on: once you write another, the earlier one's comments no longer count, so answer them first. Comments marked no further action are left out of get_review unless you ask for all_comments: they're done. Never apply anything the user rejected, and leave text marked \"keep\" unchanged.\nA highlights review: you decide what's key, for the user's goal. Before starting, having read the document, ask the user what they're looking for and anything about the document that changes what matters (for example which party they are in a contract, or what decision they're making); keep it to the few questions that count. Check list_focuses first: if a focus already has this goal, carry it on or switch to it rather than starting a near-duplicate; if the user wants an earlier draft's focus run again, reuse its goal and name. Start the review with the goal, a short name for it as a focus (title, a few words in the user's terms), and what you learned (context). Then add_highlight for each piece of key information: quote its text, put it in a category you choose for this document (a handful, named in the user's terms, such as \"Payment\", \"Deadlines\", \"Your obligations\", \"Risks\"), say in the note why it matters for their goal, and rate its importance. Also add what the user would expect but the document doesn't say, as a highlight without quotes. Be selective: what matters for the goal, not a summary of everything. Finish with commit_review, with a summary that answers their goal in a few sentences. get_history shows earlier focuses, so a later review can build on them. Nothing is decided or applied, and the document doesn't change.\nRenaming and folders: rename, create_folder and move_document take effect straight away, so only use them when the user asks. Keep a .pdf ending if the name had one.\nDeleting: delete_document asks the user to delete a document for good, and they approve or decline in the app. Only ask when they've said they want it gone, never to tidy up on your own initiative, and give the real reason.\nWaiting for the user: commit_review, apply_review, and the waiting_for_user replies of open_document and delete_document give you a wait command, a shell command that ends when the user has acted. If you can run commands in the background, as Claude Code can, run it that way, so you can go on talking to the user, and tell them what you're waiting for. While it runs, the app offers them a button to confirm their decisions, or their comments on a draft preview, for you; nothing reaches you until they press it. When it ends it prints JSON saying what happened (event: decisions-sent, preview-accepted, preview-discarded, preview-comments, open-opened, open-cancelled, open-failed, delete-deleted, delete-declined or delete-failed); act on that as if they'd asked you, reading the details with get_review, get_draft_preview or get_document_info. If you can't run commands in the background, don't run it: ask the user to tell you when they're done. If they tell you first, carry on and stop the command.\nReading a draft preview: before the user accepts it, the draft preview waiting (get_document_info's preview) can be read as text with get_document or find_text and preview: true, as the PDF the user sees, and as its HTML, with the user's comments on it, with get_draft_preview. Without preview, they read the draft.\nText is referenced by quoting it exactly from get_document or find_text (whitespace-insensitive), with the page number.",
+  "tools": [
+    {
+      "name": "use_window",
+      "description": "Takes over a SmartDoc window, when the user's prompt names one: this session then works in it. Call it first, before any other tool, or SmartDoc opens a new window for this session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "window_id": {
+            "type": "string",
+            "description": "The window named in the prompt, such as w-7f3a"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_documents",
+      "description": "Documents the user has opened in the app before, newest first, with the one that is open now marked and the folder of any that are in one. Open one with open_document and its id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "open_document",
+      "description": "Opens a document for you to work on. With document_id: one from list_documents, opened straight away, without a tab for the user unless they asked to see it (show): one opens by itself once there's something for them to review or approve. With path: a PDF on the user's computer (or, with Settings › Experimental › Open Word, Excel and PowerPoint files turned on, a .docx, .xlsx, .pptx, Markdown, text or picture file, turned into a PDF), which the user must confirm in the app first. With neither: the app asks the user to pick a file. The last two return waiting_for_user: tell the user to switch to the SmartDoc app and answer, then call get_document_info, which waits for them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path to a PDF (~ is allowed)",
+            "type": "string"
+          },
+          "show": {
+            "description": "Show it to the user in a tab: only when they asked to see it",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rename",
+      "description": "Renames a document, a folder or a variation, straight away. Only the name changes: files, drafts and contents stay as they are. Original, a document's own variation, keeps its name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "document",
+              "folder",
+              "variation"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "The document (from list_documents), the folder (from list_folders), or a variation of the open document (from list_variations)"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The new name, as the user will see it"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "The folders organising the user's documents in the app: each with its id, name, path and how many documents and folders are directly in it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Makes a folder in the app, at the top level or inside another. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Its name"
+          },
+          "parent_folder_id": {
+            "description": "The folder to put it in, from list_folders (default: the top level)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "move_document",
+      "description": "Moves a document into a folder, or back to the top level. Only its place on the list changes: its files and drafts stay as they are. Only use it when the user asks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "description": "From list_documents"
+          },
+          "folder_id": {
+            "description": "The folder, from list_folders, or null for the top level",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "document_id",
+          "folder_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "delete_document",
+      "description": "Asks the user to delete a document for good, with all its drafts, variations and reviews: the app shows them your reason and only their approval deletes it, every time. Only use it when the user has asked for a document to be deleted. Returns waiting_for_user: tell them to switch to the SmartDoc app and answer. Calling it again reports their answer, once; after that it asks again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "description": "From list_documents"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why it should be deleted, in a sentence or two, for the user to read before deciding"
+          }
+        },
+        "required": [
+          "document_id",
+          "reason"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_variations",
+      "description": "The open document's variations, the one showing marked: \"Original\", the document's own drafts, and one per purpose (such as a job a CV is tailored to), each with its purpose and number of drafts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "switch_variation",
+      "description": "Shows one of the open document's variations (from list_variations), on its current draft.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "variation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "variation_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "switch_draft",
+      "description": "Shows one of the current variation's drafts, with its reviews: get_document_info says which is showing and whether it's the newest. Nothing in the document or its drafts changes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The draft's number, 0 for the original"
+          }
+        },
+        "required": [
+          "draft"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "create_variation",
+      "description": "Makes a variation of the open document for a purpose of its own, such as a CV tailored to one job or a version for another audience, starting from one of a variation's drafts, and shows it on that draft. Its drafts follow on from there; the other variations are left as they are. Make one when the user asks. Then, unless they say otherwise, start an improvement review of it with the purpose as its goal (start_review, with a short title).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "purpose": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the variation is for, in the user's words (e.g. the job and its spec)"
+          },
+          "name": {
+            "description": "A short name for it, e.g. \"Acme product lead\"",
+            "type": "string"
+          },
+          "variation": {
+            "description": "The variation to start from, by id (default: the one showing)",
+            "type": "string"
+          },
+          "draft": {
+            "description": "Its draft to start from: the number, 0 for the original (default: its current draft)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "purpose"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "create_document_from_draft",
+      "description": "Forks the open document: makes a new document from one of its drafts (by default the one showing), with a line of drafts of its own starting there, and opens it in this window. The document it came from is left as it is. Only use it when the user agrees, such as to work on an older draft, which can't be improved where it is.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "variation": {
+            "description": "The variation the draft is in, by id (default: the one showing)",
+            "type": "string"
+          },
+          "draft": {
+            "description": "The draft to start from: its number, 0 for the original (default: the draft showing)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "set_icon",
+      "description": "Gives the open document an icon, shown on its tab and on the user's home screen, so they can tell it apart at a glance (a tab too narrow for its name shows only its icon). Call it once, when the document has no icon of its own yet (get_document_info and list_documents give its icon, null when it has none): choose the one that best fits what the document is. The user's own choice is never replaced.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "icon": {
+            "type": "string",
+            "enum": [
+              "file-text",
+              "contact",
+              "briefcase",
+              "graduation-cap",
+              "scale",
+              "receipt",
+              "landmark",
+              "presentation",
+              "book-open",
+              "newspaper",
+              "mail",
+              "clipboard-list",
+              "notebook-pen",
+              "server",
+              "database",
+              "cloud",
+              "network",
+              "workflow",
+              "blocks",
+              "layers",
+              "shield",
+              "key-round",
+              "lock",
+              "user",
+              "users",
+              "credit-card",
+              "shopping-cart",
+              "store",
+              "package",
+              "truck",
+              "bell",
+              "message-square",
+              "globe",
+              "smartphone",
+              "monitor",
+              "search",
+              "chart-line",
+              "calendar",
+              "clock",
+              "map-pin",
+              "settings",
+              "plug",
+              "git-branch",
+              "terminal",
+              "cpu",
+              "mail-check",
+              "building-2",
+              "heart-pulse",
+              "wallet",
+              "ticket",
+              "rocket",
+              "sparkles",
+              "flag",
+              "star",
+              "zap",
+              "file"
+            ],
+            "description": "One of: file-text (Document), contact (CV), briefcase (Work), graduation-cap (Education), scale (Legal), receipt (Invoice), landmark (Finance), presentation (Presentation), book-open (Book), newspaper (Article), mail (Letter), clipboard-list (Plan), notebook-pen (Notes), server (Service), database (Data), cloud (Cloud), network (Network), workflow (Process), blocks (Module), layers (Platform), shield (Security), key-round (Auth), lock (Privacy), user (Person), users (Team), credit-card (Payments), shopping-cart (Checkout), store (Store), package (Inventory), truck (Delivery), bell (Notifications), message-square (Messaging), globe (Web), smartphone (Mobile), monitor (Desktop), search (Search), chart-line (Analytics), calendar (Schedule), clock (Time), map-pin (Location), settings (Settings), plug (Integration), git-branch (Code), terminal (Tool), cpu (Compute), mail-check (Email), building-2 (Business), heart-pulse (Health), wallet (Wallet), ticket (Ticket), rocket (Launch), sparkles (Idea), flag (Goal), star (Favourite), zap (Events), file (File)"
+          }
+        },
+        "required": [
+          "icon"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_document_info",
+      "description": "The open document's size and shape, to plan how to read it: page count; word, character, line and (estimated) paragraph counts; estimated tokens and whether it can be read whole; the PDF's own details (title, author, dates); its outline (bookmarks) with page numbers; the same counts for each page, with its first line; and the draft preview waiting for the user, if there is one (preview). If the user is still answering an open_document request, this waits for them first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_document",
+      "description": "The text of the open document (its id, name and which draft is showing), whole or the pages asked for. Quote from this when referencing text. A document too large to read at once must be read a range of pages at a time. With preview, the draft preview waiting for the user (get_document_info says if there is one) instead of the draft: the next draft as they'll see it, before they accept it. If the user is still answering an open_document request, this waits for them first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "description": "Pages to read, e.g. \"3\", \"5-9\" or \"1-3, 12\". Leave out to read the whole document.",
+            "type": "string"
+          },
+          "preview": {
+            "description": "Read the draft preview waiting for the user instead of the draft",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "view_pages",
+      "description": "Pictures of pages of the open document, as the user sees them, to look at its design: layout, type, spacing, alignment, colour, images, and what's printed across facing pages. Any draft of the variation showing (draft: its number, 0 for Original; by default the one showing), or the draft preview waiting (preview), without the window moving. Up to 4 pages at a time. To read or quote the text, use get_document: it's exact, and cheaper.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "description": "Pages to look at, e.g. \"1\", \"2-3\" or \"1, 4\" (4 at most). Default: page 1.",
+            "type": "string"
+          },
+          "draft": {
+            "description": "The draft's number, 0 for Original. Default: the draft showing.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "preview": {
+            "description": "The draft preview waiting for the user instead of a draft",
+            "type": "boolean"
+          },
+          "width": {
+            "description": "Each picture's width in pixels (default 1000): wider for fine detail, narrower to save room.",
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 1600
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "find_text",
+      "description": "Finds a word or phrase in the open document (case and spacing ignored): each match with its page, the exact text matched (quotable as it is) and the text around it. With preview, in the draft preview waiting for the user instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "description": "Most matches to return (default and maximum 50)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "preview": {
+            "description": "Search the draft preview waiting for the user instead of the draft",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "list_focuses",
+      "description": "The highlight tool's focuses on the current draft (one highlights review per goal), newest first, with the one showing marked; and the goals of earlier drafts' focuses not yet run on this draft.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "switch_focus",
+      "description": "Shows one of the current draft's highlights reviews (a focus from list_focuses), switching the app to the highlight tool.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "review_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "switch_tool",
+      "description": "Switches the app to one of its two tools, showing the current draft's newest review of that kind (or none): \"improve\" (Review and draft) or \"highlights\" (Review and highlight). start_review switches by itself.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "enum": [
+              "improve",
+              "highlights"
+            ]
+          }
+        },
+        "required": [
+          "tool"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_review",
+      "description": "The current draft's review in the active tool: its type (improve or highlights), goal and status (open or committed), then for an improvement review the user's requests, findings with their decisions and annotations, or for a highlights review the highlights. Null if there is none yet. With decisions_only, an improvement review's decisions and no more, which is shorter: the user's decisions on the current review: each finding's status (pending, accepted, rejected, answered, acknowledged), chosen option, answers, edited wording and comments, plus their requests and the changes they wrote themselves (changes, and requests with afterCommit set: carry these out too). preview is the draft preview waiting for the user, if any; outdated means they changed their decisions since it was written.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "decisions_only": {
+            "type": "boolean"
+          },
+          "all_comments": {
+            "description": "Include the user's comments marked \"No further action required\" and those on earlier draft previews, left out by default",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "reply_to_comment",
+      "description": "Answers one of the user's comments (a request in get_review, or a comment on the draft preview), shown under it in the app. Say how you dealt with it in outcome, a word or two of your own such as \"Actioned\", \"Noted\", \"Answered\" or \"Not changed\", and set no_further_action when nothing more is needed: a comment that only needed reading is done once noted. A comment you have answered no longer needs a finding in response. The user can open it again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "string",
+            "description": "The comment's id, from get_review or get_draft_preview"
+          },
+          "text": {
+            "description": "Your reply, in a sentence or two: what you changed, or why you didn't. Optional with an outcome",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "How you dealt with it, in your own words, a word or two",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "no_further_action": {
+            "description": "True when nothing more is needed on it; false to leave it open",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "comment_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_history",
+      "description": "Earlier reviews of this document, across all its drafts, oldest first, of both types: for highlights reviews, the goal and each highlight; for improvement reviews, each finding with what the user decided (status, chosen option, answer, edit, comment), their requests and their own changes, and what became of each review (applied as which draft, decided but not applied, or never committed). Leaves out the current review.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "start_review",
+      "description": "Starts a review of the current draft, once you and the user have agreed what it's for. type \"improve\" suggests changes for the user to decide on; \"highlights\" picks out the key information for the user's goal (goal required). An open review of the same type carries on (taking any new goal); one of the other type is left unfinished.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "improve",
+              "highlights"
+            ]
+          },
+          "goal": {
+            "description": "What the user wants from the review, in their terms. Required for highlights, where a new goal starts a new focus.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The focus's short name, a few words (e.g. \"Recruiter skim\"); give one whenever there's a goal",
+            "type": "string"
+          },
+          "context": {
+            "description": "What you learned about the document from the user, e.g. which party they are (highlights)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "add_annotation",
+      "description": "Decorates text in the document (shown on the page; hovering it in the report highlights it).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "quotes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991,
+                  "description": "Page number, from 1"
+                },
+                "quote": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Exact text from that page (whitespace-insensitive)"
+                },
+                "occurrence": {
+                  "description": "Which match, if the text appears more than once (default 1)",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "page",
+                "quote"
+              ]
+            }
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "highlight",
+              "underline",
+              "strike"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "quotes"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "add_finding",
+      "description": "Adds a finding to the open review. Each finding gives the user a decision. kind: change (proposal.before/after), options (2+ options), question (question), move or design (proposal.description), flag (no action, just to acknowledge).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "change",
+              "options",
+              "question",
+              "move",
+              "design",
+              "flag"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "body": {
+            "description": "Why it matters",
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "quotes": {
+            "description": "The text this finding is about",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991,
+                  "description": "Page number, from 1"
+                },
+                "quote": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Exact text from that page (whitespace-insensitive)"
+                },
+                "occurrence": {
+                  "description": "Which match, if the text appears more than once (default 1)",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "page",
+                "quote"
+              ]
+            }
+          },
+          "in_response_to": {
+            "description": "The id of the user request this answers",
+            "type": "string"
+          },
+          "proposal": {
+            "type": "object",
+            "properties": {
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "options": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ]
+            }
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "add_highlight",
+      "description": "Adds a piece of key information to the open highlights review. Quote the text it's in; leave quotes out for something the user would expect that the document doesn't have.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A category you choose for this document, in the user's terms; reuse the same few"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The key information in a few words, e.g. \"Payment due 30 days after invoice\""
+          },
+          "note": {
+            "description": "Why it matters for the user's goal",
+            "type": "string"
+          },
+          "importance": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "quotes": {
+            "description": "The text it's in",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991,
+                  "description": "Page number, from 1"
+                },
+                "quote": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Exact text from that page (whitespace-insensitive)"
+                },
+                "occurrence": {
+                  "description": "Which match, if the text appears more than once (default 1)",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "page",
+                "quote"
+              ]
+            }
+          }
+        },
+        "required": [
+          "category",
+          "title"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "revise_finding",
+      "description": "Improves one finding of the current review, when the user has talked it over with you: its title, why it matters (body), its suggestion (proposal), its options or its question. Only what you pass changes. A finding the user had decided goes back to undecided for them to decide again, so only revise when it helps them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The finding's id"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "body": {
+            "type": "string"
+          },
+          "proposal": {
+            "type": "object",
+            "properties": {
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "options": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ]
+            }
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "remove_item",
+      "description": "Removes a finding or a highlight, by its id, from the open review.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "commit_review",
+      "description": "Finishes the review: nothing more can be added. For an improvement review the user can now make their decisions in the app; for a highlights review, the summary should answer their goal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "description": "A short overview shown at the top of the review",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_draft_preview",
+      "description": "The draft preview waiting for the user, before they accept it: its complete HTML, its summary, and the user's comments on it (quoting its text, which get_document shows with preview). Comments belong to the preview they were written on: those on an earlier one aren't included. To read it, use this or get_document with preview; to do what they asked, change that HTML and call apply_review (or write_draft, for a preview written that way).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "apply_review",
+      "description": "Applies the committed review: supply the complete updated document as self-contained HTML (inline CSS, no scripts or external resources). Keep the current draft's look, and lay the content out in reading order without absolute positioning, so the PDF's text reads in the right order. It becomes a draft preview of the next draft, replacing any earlier draft preview: not a draft until the user accepts it in the app, so tell them to look at it there.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "description": "What changed, shown with the draft preview and the draft",
+            "type": "string"
+          },
+          "applied_item_ids": {
+            "description": "The findings this draft carries out",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "html"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "write_draft",
+      "description": "Writes the next draft straight away, without a review, when the user just wants a change made or a piece of work done in the document and needs no findings to decide on: supply the complete updated document as self-contained HTML (inline CSS, no scripts or external resources), keeping the current draft's look and laying the content out in reading order without absolute positioning. It becomes a draft preview of the next draft, replacing any earlier one written this way: not a draft until the user accepts it in the app, so tell them to look at it there. If they comment on it, change it (get_draft_preview) and call write_draft again. After an improvement review, use apply_review instead, to carry out their decisions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1
+          },
+          "goal": {
+            "description": "What the user asked for, in their words",
+            "type": "string"
+          },
+          "title": {
+            "description": "A short name for it, a few words",
+            "type": "string"
+          },
+          "summary": {
+            "description": "What changed, shown with the draft preview and the draft",
+            "type": "string"
+          }
+        },
+        "required": [
+          "html"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "name": "improve",
+      "title": "Improve a document",
+      "description": "Review a document in SmartDoc and suggest changes for you to decide on.",
+      "arguments": [
+        {
+          "name": "file",
+          "description": "Path to the PDF to open (leave out to use the open document)",
+          "required": false
+        },
+        {
+          "name": "goal",
+          "description": "What you want from the review",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "highlights",
+      "title": "Find the key information",
+      "description": "Have the AI pick out the key information in a document for what you need.",
+      "arguments": [
+        {
+          "name": "file",
+          "description": "Path to the PDF to open (leave out to use the open document)",
+          "required": false
+        },
+        {
+          "name": "goal",
+          "description": "What you want from the review",
+          "required": false
+        }
+      ]
+    }
+  ]
+}
