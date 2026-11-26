@@ -119,3 +119,25 @@ test('another app’s tab dragged over this one is asked about, and shown only b
     serving.stop();
   }
 });
+
+test('a guest tab says what it shows, and comes back to its app', async () => {
+  const back = [];
+  const guests = await startGuestServer({
+    files: os.tmpdir(),
+    api: API,
+    open: (send) => ({ id: 'g-1', send }),
+    close() {},
+    call() {},
+    opening: (tab) => ({ thing: tab.id }),
+    returned: async (tab, at) => back.push([tab.id, at]),
+  });
+  try {
+    const { id } = await (await fetch(`${guests.url}/tabs`, { method: 'POST' })).json();
+    assert.deepEqual(await (await fetch(`${guests.url}/tabs/${id}/open`)).json(), { open: { thing: 'g-1' } });
+    const returned = await fetch(`${guests.url}/tabs/${id}/return`, { method: 'POST', body: JSON.stringify({ at: { x: 5, y: 6 } }) });
+    assert.deepEqual(await returned.json(), { ok: true });
+    assert.deepEqual(back, [['g-1', { x: 5, y: 6 }]]);
+  } finally {
+    guests.stop();
+  }
+});

@@ -373,18 +373,57 @@ export function createTabs({
   // Moves this app's tab to another app's window (`other`: its family entry), as a guest there
   // (`at`: where on the screen it was dropped, for its top bar): the tab here closes once it's open
   // there.
+  // A guest tab here (another app's) moves the same way: back to its own app, which takes it back as
+  // a tab of its own (and closes it here), or on to a third, as a guest of its own app's there.
   async function moveToApp(ctx, other, at = null) {
-    const open = guestOpen(ctx);
-    if (!open || !guestUrl) return;
-    const result = await post(`${other.url}/host`, { app: appId, url: guestUrl, open, at }).catch((error) => ({ ok: false, error: error.message }));
+    const fail = (error) => ({ ok: false, error: error.message });
+    let result;
+    if (ctx.hosted) {
+      const origin = ctx.hosted;
+      if (other.app === origin.app) {
+        result = await post(`${origin.url}/tabs/${origin.gid}/return`, { at }).catch(fail);
+        if (!result.ok) console.error(`Couldn’t move the tab back to ${other.name}:`, result.error);
+        return; // its app closes it here, as it takes it back
+      }
+      const { open = null } = await fetch(`${origin.url}/tabs/${origin.gid}/open`).then((res) => res.json()).catch(() => ({}));
+      if (!open) return;
+      result = await post(`${other.url}/host`, { app: origin.app, url: origin.url, open, at }).catch(fail);
+    } else {
+      const open = guestOpen(ctx);
+      if (!open || !guestUrl) return;
+      result = await post(`${other.url}/host`, { app: appId, url: guestUrl, open, at }).catch(fail);
+    }
     if (result.ok) closeTab(ctx);
     else console.error(`Couldn’t move the tab to ${other.name}:`, result.error);
   }
 
+  // A tab of this app's shown in another app's window comes back (guests.js's `return`), as a tab of
+  // its own showing what it showed there: where it was dropped (a top bar), else in the window last
+  // used, showing, the window brought forward. Its guest tab closes, and with it the other app's.
+  async function returnGuest(guest, at) {
+    const open = guestOpen(guest);
+    if (!open) throw new Error('It can’t be moved');
+    dropOver(null);
+    const target = at ? foreignTarget(at) : null;
+    const host = target?.host ?? lastFocused?.host ?? [...hosts][0] ?? createWindow().host;
+    const ctx = createTab(host);
+    if (target) {
+      host.tabs.splice(host.tabs.indexOf(ctx), 1);
+      host.tabs.splice(Math.max(1, Math.min(target.index, host.tabs.length)), 0, ctx);
+    }
+    activateTab(ctx);
+    host.win.show();
+    host.win.focus();
+    electronApp.focus({ steal: true });
+    closeTab(guest);
+    await ctx.ready;
+    guestOpened(ctx, open);
+  }
+
   // "Move to SmartPrep Window" for each other app of the family's that shows guests, for a tab of this
-  // app's that can be shown as one.
+  // app's that can be shown as one, or a guest tab here (which can go back to its own app, or on).
   function moveItems(tab) {
-    if (tab.home || tab.hosted || !guestUrl || !family || !guestOpen(tab)) return [];
+    if (tab.home || !family || (!tab.hosted && (!guestUrl || !guestOpen(tab)))) return [];
     const others = family.others(appId).filter((other) => other.hosting);
     if (!others.length) return [];
     return [...others.map((other) => ({ label: `Move to ${other.name} Window`, click: () => moveToApp(tab, other) })), { type: 'separator' }];
@@ -400,6 +439,8 @@ export function createTabs({
       api: serving ? api : null,
       open: (send, options) => createGuest(send, options),
       close: (ctx) => removeGuest(ctx),
+      opening: (ctx) => guestOpen(ctx),
+      returned: (ctx, at) => returnGuest(ctx, at),
       call: (ctx, channel, args) => run(ctx, channel, args),
       host: (request) => hostGuest(request),
       over: (point, front) => dropOver(point, front),
@@ -662,9 +703,9 @@ export function createTabs({
     // the latest point asked next. Only a tab that can be a guest is dropped in another app; any
     // other still makes a window of its own under another app's window.
     function askOthers(drag, point, front) {
-      if (!drag.others) drag.others = guestUrl && family ? family.others(appId).filter((other) => other.hosting) : [];
+      if (!drag.others) drag.others = family && (guestUrl || drag.tab.hosted) ? family.others(appId).filter((other) => other.hosting) : [];
       if (!drag.others.length) return;
-      const movable = !drag.tab.hosted && Boolean(guestOpen(drag.tab));
+      const movable = Boolean(drag.tab.hosted) || Boolean(guestOpen(drag.tab));
       drag.ask = { point, front };
       if (drag.asking) return;
       drag.asking = (async () => {
