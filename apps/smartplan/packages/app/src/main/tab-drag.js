@@ -1,33 +1,27 @@
 // Dragging a tab out of the top bar (the user's choice, as in a browser): while it's dragged, a
-// picture of it follows the pointer in a window of its own, over every window and the desktop, so it
-// can be dropped in another window's top bar, or anywhere else to make a new window of it. Over a
-// top bar the picture is the tab alone; anywhere else it's the tab with its page under it, as the
-// window it would make. The top bar the pointer is over shows where the tab would go (see
-// tab-strip.js); main.js moves it. The same in SmartDoc, SmartSpec, SmartAd and SmartPlan.
+// picture of the tab follows the pointer in a window of its own, over every window and the desktop,
+// so it can be dropped in another window's top bar, or anywhere else to make a new window of it. The
+// picture is the tab alone, wherever it is (the user's choice, 2026-11-26: it showed the tab's page
+// under it away from a top bar, which they didn't like). The top bar the pointer is over shows where
+// the tab would go (see tab-strip.js); main.js moves it. The same in SmartDoc, SmartSpec, SmartAd and SmartPlan.
 import { BrowserWindow } from 'electron';
 
 const PAD = 18; // room round the picture for its shadow
-const PAGE_WIDTH = 320; // the page's picture, under the tab, over no top bar
 const BELOW = 24; // how far below a top bar still counts as over it
 
-// `point`s are on the screen. show() takes pictures of the tab (`chip`, `chipSize` its size in the
-// top bar) and of its page (`page`, `pageSize`, or none), and `offset`, where in the tab the pointer
-// took hold of it.
+// `point`s are on the screen. show() takes a picture of the tab (`chip`, `chipSize` its size in the
+// top bar) and `offset`, where in the tab the pointer took hold of it.
 export function createTabDrag({ topBar }) {
   let win = null;
   let at = null; // { offset } while showing
-  let mode = 'tab';
 
-  async function show({ chip, chipSize, page, pageSize, offset, point, colours }) {
+  async function show({ chip, chipSize, offset, point, colours }) {
     hide();
     const chipWidth = Math.round(chipSize.width);
     const chipHeight = Math.round(chipSize.height);
-    const pageHeight = page && !page.isEmpty() && pageSize?.width ? Math.round((PAGE_WIDTH * pageSize.height) / pageSize.width) : 0;
-    const width = pageHeight ? Math.max(PAGE_WIDTH, chipWidth) : chipWidth;
-    const height = chipHeight + pageHeight;
     const shown = new BrowserWindow({
-      width: width + 2 * PAD,
-      height: height + 2 * PAD,
+      width: chipWidth + 2 * PAD,
+      height: chipHeight + 2 * PAD,
       x: Math.round(point.x - offset.x - PAD),
       y: Math.round(point.y - offset.y - PAD),
       show: false,
@@ -48,7 +42,6 @@ export function createTabDrag({ topBar }) {
     });
     win = shown;
     at = { offset };
-    mode = 'tab';
     shown.excludedFromShownWindowsMenu = true;
     shown.setIgnoreMouseEvents(true);
     shown.setAlwaysOnTop(true, 'pop-up-menu');
@@ -59,29 +52,18 @@ export function createTabDrag({ topBar }) {
   .card { position: absolute; left: ${PAD}px; top: ${PAD}px; overflow: hidden; border-radius: 8px;
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.25); background: ${colours.bar}; }
   .chip { display: block; width: ${chipWidth}px; height: ${chipHeight}px; }
-  .page { display: block; width: ${PAGE_WIDTH}px; height: ${pageHeight}px; }
-  .head { width: ${chipWidth}px; }
-  :root.window .card { border-radius: 10px; }
-  :root.window .head { width: ${width}px; }
-  :root:not(.window) .page { display: none; }
 </style></head>
-<body><div class="card"><div class="head"><img class="chip" src="${chip.toDataURL()}"></div>${pageHeight ? `<img class="page" src="${page.resize({ width: PAGE_WIDTH * 2 }).toDataURL()}">` : ''}</div></body></html>`;
+<body><div class="card"><img class="chip" src="${chip.toDataURL()}"></div></body></html>`;
     await shown.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
     if (win !== shown) return;
     shown.showInactive();
   }
 
-  // Follows the pointer; `over` is true over a top bar (the tab alone), false elsewhere (the window
-  // it would make).
-  function move(point, over) {
+  // Follows the pointer.
+  function move(point) {
     if (!win || win.isDestroyed()) return;
     const [x, y] = [Math.round(point.x - at.offset.x - PAD), Math.round(point.y - at.offset.y - PAD)];
     win.setPosition(x, y);
-    const want = over ? 'tab' : 'window';
-    if (want === mode) return;
-    mode = want;
-    // Its page has no scripts: the class is set from here (the main world), and its styles follow.
-    win.webContents.executeJavaScript(`document.documentElement.classList.toggle('window', ${want === 'window'})`).catch(() => {});
   }
 
   function hide() {
