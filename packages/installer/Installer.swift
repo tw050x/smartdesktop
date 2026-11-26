@@ -361,7 +361,6 @@ struct InstallerView: View {
       Text("\(installation.name) is installed").font(.title2).fontWeight(.semibold)
       Text("Open it to start. It opens in SmartDesktop, with your AI chat beside it.")
         .fixedSize(horizontal: false, vertical: true)
-      Text("Both are in \(installation.installDir.path), and keep themselves up to date.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
 
