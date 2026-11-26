@@ -9,11 +9,13 @@
 set -eu
 otp=${1:-}
 here=$(cd "$(dirname "$0")/.." && pwd)
+version=$(node -p "require('$here/apps/smartdesktop/packages/app/package.json').version")
 for json in "$here"/apps/*/packages/*/package.json; do
   [ "$(node -p "Boolean(require('$json').private)")" = true ] && continue
+  [ "$(node -p "require('$json').version")" = "$version" ] || continue # (a package of its own version, not released with the apps)
   name=$(node -p "require('$json').name")
   if ! npx -y npm@11 view "$name" name >/dev/null 2>&1; then
-    echo "$name isn't on npm yet: publish its first version by hand, then run this again"
+    echo "$name isn't on npm yet: publish its placeholder (sh scripts/publish-placeholders.sh), then run this again"
     continue
   fi
   if npx -y npm@11 trust list "$name" 2>/dev/null | grep -q "tw050x/smartdesktop"; then
