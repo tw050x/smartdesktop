@@ -1,4 +1,4 @@
-import { createTabStrip } from './tab-strip.js';
+import { createTabStrip } from '@smartdesktop/ui/renderer/tab-strip.js';
 import { installTooltips } from '@smartdesktop/ui/renderer/tooltips.js';
 
 // The window's own page: its top bar, above the tabs' pages (see tab-strip.js and main.js).

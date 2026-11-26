@@ -1,9 +1,10 @@
 // The top bar across a window: room for the traffic lights, back and forward (in the tab showing),
 // the window's tabs, and the app's status at its end. Home is the first tab, pinned: an icon that
-// can't be closed, and the only tab showing home; each other tab shows a board, by its name, with
+// can't be closed, and the only tab showing home; each other tab shows a document (a schematic, a
+// topic, a board…), by its name, with
 // a button to close it (shown while it's pointed at, or showing), and beside it a sparkle while an AI
 // works in it (the user's choice). The window has tabs rather than
-// opening more windows (the user's choice, as SmartDoc's; more windows are still allowed). The status pill opens
+// opening more windows (the user's choice; more windows are still allowed). The status pill opens
 // the status panel (server-status.js) in the tab showing.
 //
 // The tab showing has a blue pill under it, centred on the line between the top bar and the page
@@ -11,7 +12,7 @@
 // the app that line is where the top bar's page ends and the tab's begins, so each draws its half
 // (the tab's from `tabLines`, see main.js).
 //
-// Each tab has its document's, schematic's, ad's or board's icon (see main/icons.js) before its name: as tabs get
+// Each tab has its document's icon (see main/icons.js) before its name: as tabs get
 // narrow, the name gives way and the icon stays, so a tab can still be told apart (the user's
 // choice). Its right-click menu changes the icon.
 //
@@ -22,8 +23,9 @@
 //
 // The app draws it in the window's own page (tabs.html, see tabs.js), above the tabs' pages, from
 // what the main process sends (`onTabs`: { tabs, back, forward, status }); the website's demo draws
-// it in its page, from what its stand-in API sends.
-import { iconSvg } from '@smartdesktop/ui/main/icons.js';
+// it in its page, from what its stand-in API sends. The same in every app (@smartdesktop/ui):
+// SmartDoc's New renderer switch shows only when the state says where it stands (`reader`).
+import { iconSvg } from '../main/icons.js';
 
 const HOME_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>';
 // An AI working in the tab: a sparkle, beside its close button.
@@ -42,6 +44,9 @@ export function createTabStrip({ el, api }) {
     </div>
     <div class="tabs" role="tablist" aria-label="Tabs"></div>
     <div class="top-bar-end">
+      <button class="reader-switch" type="button" role="switch" aria-checked="false" hidden title="Experimental: draw pages with SmartDoc’s own renderer instead of pdf.js">
+        <span class="reader-switch-label">New renderer</span><span class="reader-switch-track" aria-hidden="true"><span class="reader-switch-knob"></span></span>
+      </button>
       <button class="server-pill" type="button" aria-haspopup="dialog">
         <span class="server-dot" aria-hidden="true"></span><span class="server-pill-labels"><span class="server-pill-label"></span></span>
       </button>
@@ -191,7 +196,16 @@ export function createTabStrip({ el, api }) {
   for (const button of [back, forward]) button.addEventListener('click', () => api.historyStep?.(Number(button.dataset.step)));
   pill.addEventListener('click', () => api.showStatus?.());
 
-  function render({ tabs = [], back: canBack = false, forward: canForward = false, status = null } = {}) {
+  // SmartDoc's switch between pdf.js and its own renderer (experimental; the user's choice, in the
+  // top bar so it can be flipped at will): shown when the state says where it stands.
+  const readerSwitch = el.querySelector('.reader-switch');
+  let readerOn = false;
+  readerSwitch.addEventListener('click', () => api.setExperimental?.('reader', !readerOn));
+
+  function render({ tabs = [], back: canBack = false, forward: canForward = false, status = null, reader } = {}) {
+    readerSwitch.hidden = typeof reader !== 'boolean';
+    readerOn = reader === true;
+    readerSwitch.setAttribute('aria-checked', String(readerOn));
     back.disabled = !canBack;
     forward.disabled = !canForward;
     tabsEl.replaceChildren(...tabs.map((tab) => {

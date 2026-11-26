@@ -7,7 +7,7 @@ import { createCompareView } from './compare.js';
 import { createFindBar } from './find-bar.js';
 import { createFocusPicker } from './focus-picker.js';
 import { createHistoryNav } from './history-nav.js';
-import { createTabStrip } from './tab-strip.js';
+import { createTabStrip } from '@smartdesktop/ui/renderer/tab-strip.js';
 import { createIconPicker } from './icon-picker.js';
 import { createHighlightsList } from './highlights-list.js';
 import { CARD_INSET, MIN_CARD_WIDTH, PAGE_SPACE, createMarginReview } from './margin-review.js';
