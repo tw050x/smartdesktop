@@ -3,8 +3,9 @@ import { isInternalLink, linksOf, parseLink } from '../main/cards.js';
 import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, layoutToSave, placeNew } from '@smartdesktop/ui/renderer/board.js';
 import { focusWidth, watchBoard } from '@smartdesktop/ui/renderer/board-view.js';
 import { watchPage } from '@smartdesktop/ui/renderer/page-view.js';
-import { commentCard, keyOf, onOpenCard, targetAt, watchComments } from './comments.js';
-import { closeThread, openThread, refreshThread } from './comment-overlay.js';
+import { commentCard, keyOf, onOpenCard, setupComments, targetAt, watchComments } from '@smartdesktop/ui/renderer/comments.js';
+import { closeThread, openThread, refreshThread } from '@smartdesktop/ui/renderer/comment-overlay.js';
+import { pickedAt } from './picking.js';
 import { shadeScrolling } from '@smartdesktop/ui/renderer/scroll-shade.js';
 import { watchLongPress } from '@smartdesktop/ui/renderer/long-press.js';
 import { plainText, renderMarkdown } from './markdown.js';
@@ -19,6 +20,21 @@ import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 // what it adds or changes is marked New or Updated until the user has read it. The user never edits
 // a card: a long press on words picked in one asks about them, and the AI answers with a new card,
 // the words becoming a link to it (comments.js, comment-overlay.js, long-press.js).
+
+// The board's comments, as questions about the topic: words picked SmartPrep's way (picking.js), and
+// no comments on a card's title (the card is the question).
+setupComments({
+  noun: 'question',
+  whole: 'topic',
+  on: 'About',
+  allOfIt: 'About this card',
+  titles: false,
+  pickedAt,
+  send: 'Ask',
+  add: 'Ask another question',
+  again: 'Ask again',
+  placeholder: (target) => (target?.quote ? 'What do you want to know about these words?' : 'What do you want to know?'),
+});
 
 function h(tag, props = {}, ...children) {
   const element = document.createElement(tag);

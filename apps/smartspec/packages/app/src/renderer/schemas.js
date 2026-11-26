@@ -5,8 +5,8 @@ import { bringToMiddle, cleanLayout, defaultLayout, emptyLayout, isCard, focusOf
 import { focusWidth, watchBoard } from '@smartdesktop/ui/renderer/board-view.js';
 import { watchPage } from '@smartdesktop/ui/renderer/page-view.js';
 import { drawOverview, watchOverview } from './overview-view.js';
-import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from './comments.js';
-import { closeThread, openThread, refreshThread } from './comment-overlay.js';
+import { againButton, commentCard, earlierLine, keyOf, targetAt, watchComments } from '@smartdesktop/ui/renderer/comments.js';
+import { closeThread, openThread, refreshThread } from '@smartdesktop/ui/renderer/comment-overlay.js';
 import { shadeScrolling } from '@smartdesktop/ui/renderer/scroll-shade.js';
 import { rubberBand } from '@smartdesktop/ui/renderer/rubber-band.js';
 import { watchLongPress } from '@smartdesktop/ui/renderer/long-press.js';

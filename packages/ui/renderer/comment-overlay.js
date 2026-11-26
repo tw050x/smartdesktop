@@ -1,11 +1,12 @@
-// The questions on one thing, in a box over the page by where the user pressed: what was asked, the
-// AI's replies with how it dealt with each (and the card it wrote), "No further action required",
-// and a field to ask another. Opened by a long press (to ask one) or by clicking a question marker or
-// marked words (see comments.js). One box for the window. After a change the page is drawn again,
-// and the box is drawn again from it (refreshThread), so it stays open on the same thing. As
-// SmartSpec's comment box, asking rather than commenting, and nothing in it deleted.
+// The comments on one thing, in a box over the page by where the user pressed: what was said, the
+// AI's replies with how it dealt with each, "No further action required", and a field to write
+// another. Opened by a long press (to write one) or by clicking a comment marker or commented words
+// (see comments.js). One box for the window. After a change the page is drawn again, and the box is
+// drawn again from it (refreshThread), so it stays open on the same thing. Its words are the app's
+// (commentSettings: SmartPrep's box asks questions).
 
-import { about, isOpen, noFurtherActionButton, outcomeTag, repliesOf, waitingLine } from './comments.js';
+import { about, againButton, commentSettings as words, earlierLine, isOpen, noFurtherActionButton, outcomeTag, repliesOf, waitingLine } from './comments.js';
+
 const GAP = 12;
 
 function h(tag, props = {}, ...children) {
@@ -37,14 +38,14 @@ function place(x, y) {
 }
 
 // Opens the box at (x, y) on the thing `key` names. `heading` says what it's on, `target` is what a
-// new question would be on (shown as a line saying so), `comments` are the questions already on it.
-// `send(text)` asks a new one; `flag` marks one as needing nothing more. `writing` opens it ready to
-// write.
-export function openThread({ key, x, y, heading, target = null, comments = [], send, flag, writing = false }) {
+// new comment would be on (shown as a line saying so), `comments` are those already on it (earlier
+// ones, from the draft this came from, dashed with Comment again). `send(text)` writes a new one;
+// `flag` and `again` act on one (none is deleted: comments are kept as a record). `writing` opens it ready to write.
+export function openThread({ key, x, y, heading, target = null, comments = [], send, flag, again, writing = false }) {
   closeThread();
   showing = { key, x, y };
-  const field = h('textarea', { className: 'comment-input', rows: '3', 'aria-label': 'Your question', placeholder: target?.quote ? 'What do you want to know about these words?' : 'What do you want to know?' });
-  const sendButton = h('button', { className: 'primary-button', type: 'button', disabled: '' }, 'Ask');
+  const field = h('textarea', { className: 'comment-input', rows: '3', 'aria-label': `Your ${words.noun}`, placeholder: words.placeholder(target) });
+  const sendButton = h('button', { className: 'primary-button', type: 'button', disabled: '' }, words.send);
   field.addEventListener('input', () => {
     sendButton.disabled = !field.value.trim();
   });
@@ -62,26 +63,32 @@ export function openThread({ key, x, y, heading, target = null, comments = [], s
     }
   });
   const writer = h('div', { className: 'card-comments-writer' }, field, h('span', { className: 'comment-actions' }, h('button', { className: 'secondary-button', type: 'button', onclick: closeThread }, 'Cancel'), sendButton));
-  const adder = h('button', { className: 'link-button card-comments-add', type: 'button' }, 'Ask another question');
+  const adder = h('button', { className: 'link-button card-comments-add', type: 'button' }, words.add);
   adder.addEventListener('click', () => {
     adder.replaceWith(writer);
     field.focus();
     place(x, y);
   });
-  // Ready to write only when asked (a long press) or when there's nothing to read yet: questions
-  // already asked are shown to read, with "Ask another question" to write one.
+  // Ready to write only when asked (a long press) or when there's nothing to read yet: an earlier
+  // comment is shown to read, with "Add a comment" to write one.
   const open = writing || !comments.length;
   box = h('div', { className: 'card-comments comment-thread', role: 'dialog', 'aria-label': heading },
     h('span', { className: 'card-comments-head' }, heading),
     target && (about(target) ?? null),
-    ...comments.map((comment) => entry(comment, { flag })),
+    ...comments.map((comment) => entry(comment, { flag, again })),
     open ? writer : adder);
   document.body.append(box);
   place(x, y);
   if (open) field.focus();
 }
 
-function entry(comment, { flag }) {
+function entry(comment, { flag, again }) {
+  // An earlier comment, from the draft this came from: dashed, to say again here or leave.
+  if (comment.earlier) {
+    return h('div', { className: 'card-comment earlier', 'data-comment': comment.id },
+      h('p', { className: 'comment-text' }, comment.text),
+      h('span', { className: 'comment-earlier-foot' }, earlierLine(comment), againButton(comment, again)));
+  }
   // Marked "No further action required", it's kept, faded, with how it was dealt with first.
   const done = !isOpen(comment);
   return h('div', { className: `card-comment${done ? ' done' : ''}`, 'data-comment': comment.id },
