@@ -123,7 +123,10 @@ jobs:
       # electron-builder signs with CSC_LINK and notarises when the APPLE_* variables are set.
       - name: Build the app
         working-directory: apps/${{ inputs.app }}
-        run: npm run dist
+        # (Unsigned, the signing settings go: electron-builder reads an empty CSC_LINK as this folder.)
+        run: |
+          if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; fi
+          npm run dist
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
