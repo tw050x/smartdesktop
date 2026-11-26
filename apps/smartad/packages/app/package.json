@@ -85,6 +85,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@smartdesktop/shell": "file:../../../../packages/shell",
     "electron-updater": "6.8.11",
     "zod": "4.6.7"
   }

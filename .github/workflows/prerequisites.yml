@@ -32,6 +32,22 @@ jobs:
           apps=$(grep '^apps/' <<<"$changed" | cut -d/ -f2 | sort -u | jq -R . | jq -sc .)
           echo "apps=$apps" >> "$GITHUB_OUTPUT"
 
+  packages:
+    name: Shared packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test each package
+        run: |
+          for package in packages/*/; do
+            echo "::group::$package"
+            (cd "$package" && npm test)
+            echo "::endgroup::"
+          done
+
   prerequisites:
     name: ${{ matrix.app }}
     needs: changes

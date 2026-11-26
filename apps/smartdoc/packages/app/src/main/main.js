@@ -14,7 +14,7 @@ import { iconFor } from './icons.js';
 import { createItemIcons } from './item-icons.js';
 import { firstTodo, todoOf } from './home-review-state.js';
 import { readPdfText } from './pdf-text.js';
-import { createTabDrag } from './tab-drag.js';
+import { createTabDrag } from '@smartdesktop/shell/main/tab-drag.js';
 import { READ_ONLY } from './mcp-tools.js';
 import { clientLabel, createSessions } from './sessions.js';
 import { describeStep } from './describe-step.js';

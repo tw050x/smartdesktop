@@ -1,0 +1,27 @@
+{
+  "name": "@smartdesktop/shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "What every app of the family shares: its windows of tabs, the top bar, and the pieces of interface they all have.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./main/*": "./main/*",
+    "./renderer/*": "./renderer/*"
+  },
+  "files": [
+    "main",
+    "renderer"
+  ],
+  "peerDependencies": {
+    "electron": "*"
+  },
+  "peerDependenciesMeta": {
+    "electron": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

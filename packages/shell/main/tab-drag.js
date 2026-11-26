@@ -3,7 +3,7 @@
 // so it can be dropped in another window's top bar, or anywhere else to make a new window of it. The
 // picture is the tab alone, wherever it is (the user's choice, 2026-11-26: it showed the tab's page
 // under it away from a top bar, which they didn't like). The top bar the pointer is over shows where
-// the tab would go (see tab-strip.js); main.js moves it. The same in SmartDoc, SmartSpec, SmartAd and SmartPrep.
+// the tab would go (see tab-strip.js); main.js moves it. Shared by every app (@smartdesktop/shell).
 import { BrowserWindow } from 'electron';
 
 const PAD = 18; // room round the picture for its shadow

@@ -7,7 +7,7 @@ import { createDesktop } from './desktop.js';
 import { guessIcon, isIcon } from './icons.js';
 import { createItemIcons } from './item-icons.js';
 import { createLayouts } from './layouts.js';
-import { createTabDrag } from './tab-drag.js';
+import { createTabDrag } from '@smartdesktop/shell/main/tab-drag.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';

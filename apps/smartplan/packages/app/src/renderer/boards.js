@@ -1,6 +1,6 @@
 import { iconSvg } from '../main/icons.js';
 import { renderMarkdown } from './markdown.js';
-import { rubberBand } from './rubber-band.js';
+import { rubberBand } from '@smartdesktop/shell/renderer/rubber-band.js';
 
 // The tab's content: home (the user's boards, in one column), or one board: its lists side by
 // side, each a column of cards, as Trello's are. The main process owns the boards; this asks for

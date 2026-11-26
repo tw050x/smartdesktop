@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { follow, stretched } from '../packages/app/src/renderer/rubber-band.js';
+import { follow, stretched } from '../renderer/rubber-band.js';
 
 test('pulled further, it gives less and less, never past its stretch, both ways', () => {
   const seen = [10, 50, 200, 1000, 100000].map(stretched);

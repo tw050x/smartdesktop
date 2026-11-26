@@ -1,4 +1,4 @@
-# SmartSuite
+# SmartDesktop
 
 A family of Mac apps, each worked on with your own AI.
 
@@ -13,8 +13,9 @@ A family of Mac apps, each worked on with your own AI.
 | [SmartStudio](apps/smartstudio) | Making music and video on your own generation server | |
 
 Each app is in `apps/<app>`, with its own history, brought in from the repository it used to have
-(tw050x/smartdoc, tw050x/smartspec…, kept for their earlier releases). Its tags are prefixed with
-its name (`smartspec-v0.13.0`). Code the apps share will go in `packages/`.
+(tw050x/smartdoc, tw050x/smartspec…, and the chat's, now tw050x/smartdesktop-chat, kept for their
+earlier releases). Its tags are prefixed with its name (`smartspec-v0.13.0`). Code the apps share is
+in `packages/`, such as [`@smartdesktop/shell`](packages/shell).
 
 Each app still builds, tests and runs from its own folder, as before:
 

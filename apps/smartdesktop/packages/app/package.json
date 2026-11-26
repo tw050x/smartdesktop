@@ -61,6 +61,7 @@
     "artifactName": "smartdesktop-${version}-${os}-${arch}.${ext}"
   },
   "dependencies": {
+    "@smartdesktop/shell": "file:../../../../packages/shell",
     "electron-updater": "6.8.11"
   }
 }
