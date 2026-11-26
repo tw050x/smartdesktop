@@ -34,7 +34,8 @@ export function createGenerator({ store, comfy, onProgress = () => {}, poll = PO
 
   // Follows a job on the server until it's finished, then keeps its file (or says why it failed).
   async function follow(projectId, take, promptId) {
-    following.set(take.id, { projectId, promptId, progress: null });
+    // (Sent from here, it's followed already: progress that's come meanwhile is kept.)
+    if (!following.has(take.id)) following.set(take.id, { projectId, promptId, progress: null });
     byPrompt.set(promptId, take.id);
     const started = Date.now();
     let misses = 0;
@@ -100,8 +101,13 @@ export function createGenerator({ store, comfy, onProgress = () => {}, poll = PO
       promptId = await comfy.submit(graphFor(take, await sourceFor(projectId, take)));
       // Stopped while it was being sent: it stays stopped, and the server lets it go.
       if (stopped.has(take.id)) throw new Error('Stopped.');
+      // Followed from before it's marked running, so progress the server sends at once isn't missed.
+      following.set(take.id, { projectId, promptId, progress: null });
+      byPrompt.set(promptId, take.id);
       await store.updateTake(projectId, take.id, { status: 'running', job: { server: comfy.base(), promptId } });
     } catch (error) {
+      following.delete(take.id);
+      if (promptId) byPrompt.delete(promptId);
       if (promptId) await comfy.cancel(promptId);
       if (stopped.delete(take.id)) return;
       return fail(projectId, take.id, error);
