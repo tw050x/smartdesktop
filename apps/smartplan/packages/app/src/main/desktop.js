@@ -151,7 +151,8 @@ export function createDesktop({ appData, packaged, version, mcp, onEvent = () =>
       });
     } else if (process.env.SMARTDESKTOP_DEV_DIR) {
       const dir = path.resolve(process.env.SMARTDESKTOP_DEV_DIR);
-      const child = spawn(path.join(dir, '../../node_modules/.bin/electron'), ['.'], { cwd: dir, detached: true, stdio: 'ignore' });
+      // (SMARTDESKTOP_DEV_ARGS: more for it, a debugging port for checking it, say.)
+      const child = spawn(path.join(dir, '../../node_modules/.bin/electron'), ['.', ...(process.env.SMARTDESKTOP_DEV_ARGS?.split(' ').filter(Boolean) ?? [])], { cwd: dir, detached: true, stdio: 'ignore' });
       child.unref();
       launched = true;
     } else launched = false;

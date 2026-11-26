@@ -305,6 +305,9 @@ function releaseWindow(session) {
 // working with it).
 async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
+  // Its tab goes in SmartDesktop's window: started if the app runs on with it gone (an agent's MCP
+  // server stays up whether SmartDesktop is running or not).
+  await tabs.ensureSmartDesktop();
   // The window SmartPlan opened as it started, if the AI started it: its tab on home, untouched.
   const launched = startedApp && [...hosts].find((h) => h.tabs.length === 1 && h.tabs[0].untouched && h.tabs[0].home && !h.tabs[0].session);
   // (With no windows of its own, the tab is SmartDesktop's to place: no window is made for it here.)
@@ -680,14 +683,20 @@ app.whenReady().then(async () => {
   app.setAboutPanelOptions({ credits: 'SmartPlan is in beta, so it may change significantly from one version to the next.' });
   // Served first: with SmartDesktop running, its first tab is one there, made through the server.
   await startGuests().catch((error) => console.error('Guest tabs can’t be served:', error.message));
-  if (tabs.inSmartDesktop()) app.dock?.hide();
-  const first = createWindow();
+  // Its MCP server first: SmartDesktop is told it as the app says hello (for the chat's AI's tools).
   await startMcp();
+  // Its tabs are SmartDesktop's, which it starts if it isn't running (else a window of its own).
+  await tabs.ensureSmartDesktop();
+  const first = createWindow();
   updates.start();
   await first.ready;
   offerMoveToApplications(first);
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  // Opened again (from the Finder, say): its tabs are in SmartDesktop (started if need be), the one
+  // last used brought forward, or a new one on home; without SmartDesktop, a window of its own.
+  app.on('activate', async () => {
+    if (await tabs.ensureSmartDesktop()) {
+      if (!tabs.showTabs()) createWindow();
+    } else if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 

@@ -407,6 +407,30 @@ export function createTabs({
   // A tab of this app's in SmartDesktop's window (`windowless`): a guest tab made here, which
   // SmartDesktop is asked to show (behind the one showing, with `focus` false). It's what createTab
   // gives, so everything that opens a tab (the user, an AI, a dropped file) opens one there.
+  // SmartDesktop, for an app with no windows of its own: started if it isn't running (the app's
+  // desktop.js), and waited for until it shows tabs (the user's choice, 2026-11-26: an app opens its
+  // tabs there, starting it; only if it can't be started does the app open a window of its own).
+  // The Dock icon follows: hidden while the app's tabs are SmartDesktop's, shown when they're its own.
+  async function ensureSmartDesktop() {
+    if (!windowless || !family || !guestServer) return false;
+    if (!shell()) {
+      const started = await Promise.resolve(desktop()?.start?.()).catch(() => false);
+      if (started) for (let i = 0; i < 40 && !shell(); i++) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    const there = Boolean(shell());
+    if (there) electronApp.dock?.hide();
+    else electronApp.dock?.show();
+    return there;
+  }
+  // The app opened again (from the Finder, say): one of its tabs in SmartDesktop brought forward, the
+  // one last used, if it has any there. Gives whether it had one.
+  function showTabs() {
+    const tab = lastFocused?.remote && windows.has(lastFocused.contents.id) ? lastFocused : [...windows.values()].find((one) => one.remote);
+    if (!tab) return false;
+    showRemote(tab);
+    return true;
+  }
+
   function createRemoteTab(options = {}) {
     const { home = false, focus = true } = options;
     const ctx = guestServer.open({ home, setup: options });
@@ -1055,5 +1079,5 @@ export function createTabs({
     });
   }
 
-  return { setMenu, inSmartDesktop: () => Boolean(shell()), popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
+  return { setMenu, ensureSmartDesktop, showTabs, inSmartDesktop: () => Boolean(shell()), popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
 }

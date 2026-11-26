@@ -914,6 +914,9 @@ const headless = new Set(); // the sessions' workspaces with no tab
 const taken = new Map(); // a session id → where its workspace was when the session went quiet
 async function windowForSession(session, startedApp) {
   if (session.ctx) return session.ctx;
+  // Its tab goes in SmartDesktop's window: started if the app runs on with it gone (an agent's MCP
+  // server stays up whether SmartDesktop is running or not).
+  await tabs.ensureSmartDesktop();
   if (!session.restore && taken.has(session.id)) session.restore = taken.get(session.id);
   taken.delete(session.id);
   session.startedApp ||= Boolean(startedApp);
@@ -1585,17 +1588,23 @@ app.whenReady().then(async () => {
   // own workspace), its calls run by the same handlers; and other apps' tabs shown in its windows.
   // Served first: with SmartDesktop running, its first tab is one there, made through the server.
   await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
-  if (tabs.inSmartDesktop()) app.dock?.hide();
+  // Its MCP server first: SmartDesktop is told it as the app says hello (for the chat's AI's tools).
+  await startMcp();
+  // Its tabs are SmartDesktop's, which it starts if it isn't running (else a window of its own).
+  await tabs.ensureSmartDesktop();
   const first = createWindow();
   await first.workspace.loadRecent();
   context.run(first, updateMenu);
-  await startMcp();
   if (pendingOpen) importFile(pendingOpen);
   updates.start();
   await first.ready;
   offerMoveToApplications();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  // Opened again (from the Finder, say): its tabs are in SmartDesktop (started if need be), the one
+  // last used brought forward, or a new one on home; without SmartDesktop, a window of its own.
+  app.on('activate', async () => {
+    if (await tabs.ensureSmartDesktop()) {
+      if (!tabs.showTabs()) createWindow();
+    } else if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
