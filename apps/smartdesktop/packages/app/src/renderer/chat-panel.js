@@ -18,8 +18,8 @@ import { failureText } from './ai-progress.js';
 // app does the action, `chatAction`), with the follow-up questions the AI suggested at the end of
 // its last reply: passing, each showing until it's used or the user sends something, and back only
 // once what brought it has gone and come again (`key` says which it is).
-const DEFAULT_HINT = 'Ask about what’s open in SmartDoc or SmartSpec, or ask your AI to work on it. Each step shows here as it’s done.';
-const CHATLESS_HINT = 'Open SmartDoc or SmartSpec to chat';
+const DEFAULT_HINT = 'Ask about what’s open in SmartDoc, SmartSpec, SmartAd, SmartPrep or SmartPlan, or ask your AI to work on it. Each step shows here as it’s done.';
+const CHATLESS_HINT = 'Open SmartDoc, SmartSpec, SmartAd, SmartPrep or SmartPlan to chat';
 
 // The send button's icons: an up arrow with a chevron head to send, a square to stop the AI.
 const SEND_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>';

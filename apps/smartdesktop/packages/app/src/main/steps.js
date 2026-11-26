@@ -1,9 +1,12 @@
 import { describeStep as smartdoc } from './smartdoc-steps.js';
 import { describeStep as smartspec } from './smartspec-steps.js';
+import { describeStep as smartad } from './smartad-steps.js';
+import { describeStep as smartprep } from './smartprep-steps.js';
+import { describeStep as smartplan } from './smartplan-steps.js';
 
 // Each step the chat shows, in words, by the app whose tool the AI called: Claude Code names a tool
 // `mcp__<app>__<tool>`, Codex gives the tool and its server apart.
-const BY_APP = { smartdoc, smartspec };
+const BY_APP = { smartdoc, smartspec, smartad, smartprep, smartplan };
 
 // The AI's own web tools (Claude Code's names; Codex's search is passed in as WebSearch).
 const host = (url) => { try { return new URL(url).host.replace(/^www\./, ''); } catch { return null; } };

@@ -1,4 +1,4 @@
-// Where SmartDoc and SmartSpec connect to SmartDesktop: a small HTTP server on 127.0.0.1 only. An app
+// Where SmartDoc, SmartSpec, SmartAd, SmartPrep and SmartPlan connect to SmartDesktop: a small HTTP server on 127.0.0.1 only. An app
 // says hello with its MCP server (so the chat's AI can use its tools), then tells SmartDesktop about
 // its windows (what each shows, which is in front, the lines of context for the chat) with
 // messages, and hears back over a stream (server-sent events) what the chat asks of it.
@@ -20,7 +20,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
 
-const APPS = new Set(['smartdoc', 'smartspec']);
+const APPS = new Set(['smartdoc', 'smartspec', 'smartad', 'smartprep', 'smartplan']);
 const HEARTBEAT_MS = 15 * 1000;
 
 export async function startHub({ userData, port, about, onHello = () => {}, onMessage = () => null, onGone = () => {} }) {
