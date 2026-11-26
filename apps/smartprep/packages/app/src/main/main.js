@@ -137,11 +137,15 @@ const tabs = createTabs({
   release: (ctx) => {
     if (ctx.session) ctx.session.ctx = null;
   },
-  // Guest tabs: other apps' tabs shown in SmartPrep's windows (the trial: SmartPlan's boards).
+  // Guest tabs: a topic's tab can be shown in another app's window (SmartDesktop's, say), opening the
+  // same topic there; and SmartPrep's windows show other apps' tabs.
   name: 'SmartPrep',
   family: createFamily(familyFolder(app)),
+  guestOpen: (ctx) => (topicOf(ctx) ? { topicId: topicOf(ctx), name: ctx.name } : null),
+  guestOpened: (ctx, request) => ctx.contents.send('open-topic', request),
 });
-const { createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
+// A menu or a question over a tab's window (in a guest tab, the window showing it shows them).
+const { popupMenu, messageBox, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, strips } = tabs;
 
 // Where a tab is: 'home', or the id of the topic it shows, as the tab says (chat-shows).
 const topicOf = (ctx) => (ctx.where && ctx.where !== 'home' ? ctx.where : null);
@@ -312,7 +316,7 @@ async function windowForSession(session, startedApp) {
   if (launched || fromDesktop(session)) activateTab(ctx);
   await ctx.ready;
   setSessionWindow(session, ctx);
-  if (!ctx.win.isVisible()) ctx.win.showInactive();
+  if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
   return ctx;
 }
 
@@ -365,7 +369,8 @@ const topicsFor = (session, tab) => {
     }
     const ctx = await tab();
     ctx.contents.send('open-topic', request);
-    if (!ctx.win.isVisible()) ctx.win.showInactive();
+    // (A guest tab's window is another app's.)
+    if (ctx.win && !ctx.win.isVisible()) ctx.win.showInactive();
     return ctx;
   }
   const withIcon = (topic) => ({ ...topic, icon: itemIcons.get(topic.id)?.icon ?? null });
@@ -468,7 +473,7 @@ async function showConnectAi() {
 
 async function confirmAddToClaudeDesktop(ctx) {
   const status = await claudeDesktopStatus();
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'question',
     message: status.state === 'different' ? 'Update SmartPrep in Claude Desktop?' : 'Add SmartPrep to Claude Desktop?',
     detail: 'SmartPrep adds itself to Claude Desktop’s settings file (claude_desktop_config.json), and keeps a copy of the file as it was. Then quit Claude Desktop and open it again to connect.',
@@ -552,13 +557,19 @@ async function chatWhere(where = 'home', middle = []) {
 // --- Window requests ---------------------------------------------------------------------
 
 // Whatever a window asks for, it asks about itself: each handler gets that window first.
-const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+// (Each is kept by its channel too, for a guest tab's calls: see the guest server below.)
+const handlers = new Map(); // channel → handler
+const run = async (ctx, channel, args) => {
   try {
-    return { ok: true, value: await fn(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, ...args) };
+    return { ok: true, value: await handlers.get(channel)(ctx, ...args) };
   } catch (error) {
     return { ok: false, error: error.message };
   }
-});
+};
+const handle = (channel, fn) => {
+  handlers.set(channel, fn);
+  ipcMain.handle(channel, (event, ...args) => run(windows.get(event.sender.id) ?? strips.get(event.sender.id)?.active ?? lastFocused, channel, args));
+};
 
 // Setup for each AI app, shown and copied for pasting (see connect.js).
 async function mcpSetup(target) {
@@ -576,7 +587,7 @@ async function deleteTopic(ctx, topicId) {
   const topic = (await store.list()).find((one) => one.id === topicId);
   if (!topic) return false;
   const cards = topic.cards === 1 ? 'its card' : topic.cards ? `its ${topic.cards} cards` : null;
-  const { response } = await dialog.showMessageBox(ctx?.win ?? undefined, {
+  const { response } = await messageBox(ctx, {
     type: 'warning',
     message: `Delete “${topic.name}”?`,
     detail: `${cards ? `${cards.charAt(0).toUpperCase()}${cards.slice(1)} and your questions go with it. ` : ''}This can't be undone.`,
@@ -603,12 +614,7 @@ handle('delete-topic', (ctx, id) => deleteTopic(ctx, id));
 handle('get-layout', (_ctx, id) => layouts.get(id));
 handle('save-layout', (_ctx, id, layout) => layouts.save(id, layout));
 // A right-click menu on home, as SmartDoc's: the chosen item's id, or null if none was chosen.
-handle('home-menu', (ctx, items) => new Promise((resolve) => {
-  Menu.buildFromTemplate(items.map((item) => (item.separator ? { type: 'separator' } : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) }))).popup({
-    window: ctx?.win ?? undefined,
-    callback: () => setTimeout(() => resolve(null), 100),
-  });
-}));
+handle('home-menu', (ctx, items) => popupMenu(ctx, Array.isArray(items) ? items : []));
 handle('copy-text', (_ctx, text) => clipboard.writeText(String(text)));
 // The user can always take a window back from an AI, in the MCP panel.
 handle('ai-control-release', ({ session }) => {
@@ -664,7 +670,9 @@ app.whenReady().then(async () => {
   app.setAboutPanelOptions({ credits: 'SmartPrep is in beta, so it may change significantly from one version to the next.' });
   const first = createWindow();
   await startMcp();
-  await tabs.serveGuests().catch((error) => console.error('Other apps’ tabs can’t be shown:', error.message));
+  // Its pages served to other apps' windows (SmartDesktop's), each a guest tab of its own here, its
+  // calls run by the same handlers; and other apps' tabs shown in its windows.
+  await tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run }).catch((error) => console.error('Guest tabs can’t be served:', error.message));
   updates.start();
   await first.ready;
   offerMoveToApplications(first);
