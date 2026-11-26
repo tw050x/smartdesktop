@@ -113,6 +113,25 @@ test('a take the user stops says so, and a server that refuses a take says why',
   });
 });
 
+test('a take stopped while it’s still being sent stays stopped, and the server lets it go', async () => {
+  const comfy = standIn({ held: true });
+  const submit = comfy.submit.bind(comfy);
+  comfy.submit = async (graph) => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return submit(graph);
+  };
+  await withGenerator(comfy, async ({ store, generator }) => {
+    const { project } = await store.create({});
+    const take = await generator.generate(project, { kind: 'music', prompt: 'x', seconds: 5 });
+    await generator.cancel(project, take.id);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const stopped = (await store.get(project)).takes[0];
+    assert.equal(stopped.status, 'failed');
+    assert.equal(stopped.error, 'Stopped.');
+    assert.equal(comfy.jobs.get('p-1').cancelled, true);
+  });
+});
+
 test('takes not finished when the app quit are picked up again', async () => {
   const comfy = standIn();
   await withGenerator(comfy, async ({ store, generator }) => {

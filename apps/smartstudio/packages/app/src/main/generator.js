@@ -40,7 +40,8 @@ export function createGenerator({ store, comfy, onProgress = () => {}, poll = PO
     let misses = 0;
     try {
       for (;;) {
-        if (stopped.has(take.id)) return;
+        // Stopped by the user: the server's told too (stopping it may not have known the job yet).
+        if (stopped.has(take.id)) return await comfy.cancel(promptId).catch(() => {});
         let entry = null;
         try {
           entry = await comfy.history(promptId);
@@ -97,9 +98,12 @@ export function createGenerator({ store, comfy, onProgress = () => {}, poll = PO
     let promptId;
     try {
       promptId = await comfy.submit(graphFor(take, await sourceFor(projectId, take)));
+      // Stopped while it was being sent: it stays stopped, and the server lets it go.
+      if (stopped.has(take.id)) throw new Error('Stopped.');
       await store.updateTake(projectId, take.id, { status: 'running', job: { server: comfy.base(), promptId } });
     } catch (error) {
       if (promptId) await comfy.cancel(promptId);
+      if (stopped.delete(take.id)) return;
       return fail(projectId, take.id, error);
     }
     await follow(projectId, take, promptId);
@@ -122,7 +126,8 @@ export function createGenerator({ store, comfy, onProgress = () => {}, poll = PO
       const take = project.takes.find((one) => one.id === takeId);
       if (!take) throw new Error(`No take ${takeId} in this project.`);
       if (take.status !== 'queued' && take.status !== 'running') return { take: takeId, status: take.status };
-      if (following.has(takeId)) stopped.add(takeId);
+      // Followed, or still being sent: either way, it stops (see send and follow).
+      stopped.add(takeId);
       if (take.job?.promptId) await comfy.cancel(take.job.promptId);
       await store.updateTake(projectId, takeId, { status: 'failed', error: 'Stopped.' });
       return { take: takeId, status: 'failed' };
