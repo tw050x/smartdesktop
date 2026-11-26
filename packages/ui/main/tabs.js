@@ -736,11 +736,11 @@ export function createTabs({
         (tab.hosted ? tab.view.webContents : host.active.contents).send('icon-picker', request);
       };
       Menu.buildFromTemplate([
-        // The chat that owns it, if one does; and Open Chat (only with SmartDesktop installed: the
+        // The chat that owns it, if one does; and Open in Chat (only with SmartDesktop installed: the
         // user's choice), as its chat button: this tab's chat, or a new one for it (from Home, the
         // chat last used), brought forward ready to type in.
         ...(tab.chat ? [{ label: `Chat: ${tab.chat.title}`, enabled: false }] : []),
-        ...(desktop().installed() ? [{ label: 'Open Chat', click: () => openChatFor(tab) }, { type: 'separator' }] : tab.chat ? [{ type: 'separator' }] : []),
+        ...(desktop().installed() ? [{ label: 'Open in Chat', click: () => openChatFor(tab) }, { type: 'separator' }] : tab.chat ? [{ type: 'separator' }] : []),
         // Another app of the family's running, which can show it as a guest (the trial: this app's
         // tab in that app's window).
         ...moveItems(tab),
