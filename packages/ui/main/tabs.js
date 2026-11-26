@@ -15,13 +15,56 @@
 // this fills and empties, and hears which tab has the focus (`onFocused`); everything that's the
 // app's own (what a tab shows, its title and icon, the AI working in it, the app's status) comes from
 // its options, asked for when needed, so they can name things the app sets up later.
-import { BrowserWindow, ipcMain, Menu, screen, shell, WebContentsView } from 'electron';
+import { app as electronApp, BrowserWindow, ipcMain, Menu, screen, shell, WebContentsView } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createTabDrag } from './tab-drag.js';
+import { startGuestServer } from './guests.js';
 
-// The family's preload (preload.cjs), for an app that gives its pages' API as data (`api`).
+// The family's preload (preload.cjs), for an app that gives its pages' API as data (`api`), and a
+// guest tab's (guest-preload.cjs), another app's page shown here.
 const SHARED_PRELOAD = fileURLToPath(new URL('./preload.cjs', import.meta.url));
+const GUEST_PRELOAD = fileURLToPath(new URL('./guest-preload.cjs', import.meta.url));
+// What this app sends a guest tab's page of its own: only what a window's shell sends every tab
+// (the top bar's pills and tooltips, full screen, back and forward, the status pill). Everything
+// else (this app's server status, its settings, its documents changing) is this app's, not the
+// guest's, whose own come from its app.
+const SHELL_CHANNELS = new Set(['tab-lines', 'strip-tip', 'full-screen', 'history-step', 'toggle-status']);
+
+// JSON over a guest server (guests.js).
+async function post(url, value) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value ?? {}) });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+// A guest server's events ({ channel, value }), each to `heard`, until the stream ends (resolving)
+// or `signal` aborts it.
+async function listen(url, signal, heard) {
+  const res = await fetch(url, { signal });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    text += decoder.decode(value, { stream: true });
+    let at;
+    while ((at = text.indexOf('\n\n')) >= 0) {
+      const data = text.slice(0, at).split('\n').find((line) => line.startsWith('data: '));
+      text = text.slice(at + 2);
+      if (data) heard(JSON.parse(data.slice(6)));
+    }
+  }
+}
+// A guest server's address, on this Mac: anything else is never loaded into a window.
+const localServer = (url) => {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+};
 
 export function createTabs({
   id: appId, // the app's id, in each tab's arguments (`--smartplan-window`, `--smartplan-tab`)
@@ -44,7 +87,12 @@ export function createTabs({
   setupTab = () => {}, // (ctx, options): a new tab, before its page loads, with createTab's options (SmartDoc's workspace)
   onActivate = () => {}, // (ctx): it's the tab showing in its window now (SmartDoc's represented file)
   extraState = () => ({}), // () => more for the top bar's state (SmartDoc's `reader` switch)
+  name = appId, // the app's name, as other apps' menus say it ("Move to SmartPrep Window")
+  family = null, // the other apps running (family.js), for guest tabs
+  guestOpen = () => null, // (ctx) => what another app's window is to show of this tab, as a guest (the app's own request), or null if it can't
+  guestOpened = () => {}, // (ctx, request): a guest tab of this app's is to show what guestOpen gave (sent it as the app's own tabs are)
 }) {
+  let guestUrl = null; // this app's guest server's, once it runs (setGuestServer)
   // With its API as data, every page (the top bar's and each tab's) has the family's preload, which
   // asks for it as it starts.
   if (api) {
@@ -53,6 +101,20 @@ export function createTabs({
       event.returnValue = api;
     });
   }
+  // A guest tab's page asks for its app's API as it starts, and sends its calls here, to be passed
+  // on to its app's server.
+  ipcMain.on('guest-api', (event) => {
+    event.returnValue = windows.get(event.sender.id)?.hosted?.api ?? { id: 'guest', calls: {}, events: {} };
+  });
+  ipcMain.handle('guest-call', async (event, channel, args) => {
+    const hosted = windows.get(event.sender.id)?.hosted;
+    if (!hosted) return { ok: false, error: 'Not a guest tab' };
+    try {
+      return await post(`${hosted.url}/tabs/${hosted.gid}/call`, { channel, args });
+    } catch {
+      return { ok: false, error: `${hosted.name} can’t be reached` };
+    }
+  });
   let lastFocused = null;
   const focused = (ctx) => {
     lastFocused = ctx;
@@ -183,6 +245,131 @@ export function createTabs({
     return ctx;
   }
 
+  // Another app's page, shown here as a tab of this window (a guest tab): that app (`app`, its id;
+  // `name`) serves it from its guest server (`url`), with what to show (`open`, that app's own
+  // request). Its page gets that app's API (guest-preload.cjs), its calls passed on to that app and
+  // its events passed back; this app sends it only what the window's shell sends every tab. Its
+  // title, icon and back and forward come from that app (`guest-tab`), and that app closing it
+  // (`guest-close`), or going, closes it here.
+  async function createGuestTab(host, { app: guestApp, name: guestName = guestApp, url, open = null }) {
+    const guestApi = await (await fetch(`${url}/api`)).json();
+    const { id: gid } = await post(`${url}/tabs`, { open });
+    const id = `w-${randomUUID().slice(0, 4)}`;
+    const view = new WebContentsView({
+      webPreferences: {
+        preload: GUEST_PRELOAD,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        additionalArguments: [`--${guestApi.id}-window=${id}`, `--${guestApi.id}-tab=document`],
+      },
+    });
+    view.setBackgroundColor(colours().background);
+    const page = view.webContents;
+    // Until its page has loaded, what its app sends it waits.
+    let loaded = false;
+    const waiting = [];
+    const toPage = (channel, value) => (loaded ? page.send(channel, value) : waiting.push([channel, value]));
+    const contents = { id: page.id, send: (channel, value) => SHELL_CHANNELS.has(channel) && toPage(channel, value), focus: () => page.focus(), close: () => page.close(), isDestroyed: () => page.isDestroyed() };
+    const controller = new AbortController();
+    const ctx = { id, host, home: false, view, contents, get win() { return this.host.win; }, ready: null, session: null, untouched: false, where: null, name: null, history: { back: false, forward: false },
+      hosted: { app: guestApp, name: guestName, url, gid, api: guestApi, state: null, stop: () => controller.abort() } };
+    windows.set(page.id, ctx);
+    host.tabs.push(ctx);
+    view.setVisible(false);
+    host.win.contentView.addChildView(view);
+    view.setBounds(tabBounds(host));
+    const openLink = (link) => {
+      if (/^https?:/i.test(link) && !link.startsWith(url)) shell.openExternal(link);
+    };
+    page.on('will-navigate', (event, link) => {
+      event.preventDefault();
+      openLink(link);
+    });
+    page.setWindowOpenHandler(({ url: link }) => {
+      openLink(link);
+      return { action: 'deny' };
+    });
+    ctx.ready = new Promise((resolve) => page.once('did-finish-load', resolve));
+    ctx.ready.then(() => {
+      loaded = true;
+      for (const [channel, value] of waiting.splice(0)) page.send(channel, value);
+      if (ctx.host.active === ctx) page.send('tab-lines', ctx.host.lines ?? null);
+    });
+    listen(`${url}/tabs/${gid}/events`, controller.signal, ({ channel, value }) => {
+      if (channel === 'guest-tab') {
+        ctx.hosted.state = value;
+        ctx.history = { back: Boolean(value?.back), forward: Boolean(value?.forward) };
+        return sendTabs(ctx.host);
+      }
+      if (channel === 'guest-close') return closeTab(ctx);
+      toPage(channel, value);
+    })
+      // Its app has gone (quit, say): the tab goes with it.
+      .catch(() => {})
+      .then(() => windows.has(page.id) && closeTab(ctx));
+    page.loadURL(`${url}/page/index.html`);
+    changed();
+    sendTabs(host);
+    return ctx;
+  }
+
+  // Another app asks this one to show its tab (guests.js's `host`): in the window last used, at the
+  // end of its tabs, showing, the window brought forward. Only an app of the family's that's running,
+  // from its own server on this Mac.
+  async function hostGuest({ app: guestApp, url, open = null }) {
+    const known = family?.get(guestApp);
+    if (!known?.serving || known.url !== url || !localServer(url)) throw new Error('Not an app of the family');
+    const host = lastFocused?.host ?? [...hosts][0] ?? createWindow().host;
+    const ctx = await createGuestTab(host, { app: guestApp, name: known.name, url, open });
+    activateTab(ctx);
+    host.win.show();
+    host.win.focus();
+    electronApp.focus({ steal: true });
+    return ctx;
+  }
+
+  // Moves this app's tab to another app's window (`other`: its family entry), as a guest there: the
+  // tab here closes once it's open there.
+  async function moveToApp(ctx, other) {
+    const open = guestOpen(ctx);
+    if (!open || !guestUrl) return;
+    const result = await post(`${other.url}/host`, { app: appId, url: guestUrl, open }).catch((error) => ({ ok: false, error: error.message }));
+    if (result.ok) closeTab(ctx);
+    else console.error(`Couldn’t move the tab to ${other.name}:`, result.error);
+  }
+
+  // "Move to SmartPrep Window" for each other app of the family's that shows guests, for a tab of this
+  // app's that can be shown as one.
+  function moveItems(tab) {
+    if (tab.home || tab.hosted || !guestUrl || !family || !guestOpen(tab)) return [];
+    const others = family.others(appId).filter((other) => other.hosting);
+    if (!others.length) return [];
+    return [...others.map((other) => ({ label: `Move to ${other.name} Window`, click: () => moveToApp(tab, other) })), { type: 'separator' }];
+  }
+
+  // This app's guest server (guests.js): it shows other apps' tabs (hostGuest), and with `files` (its
+  // built pages) and `run` (its handlers, by channel) serves its own as guests in theirs. It's
+  // announced to the family while it runs.
+  async function serveGuests({ files = null, run = null } = {}) {
+    const serving = Boolean(files && run && api);
+    const server = await startGuestServer({
+      files: serving ? files : null,
+      api: serving ? api : null,
+      open: (send, options) => createGuest(send, options),
+      close: (ctx) => removeGuest(ctx),
+      call: (ctx, channel, args) => run(ctx, channel, args),
+      host: (request) => hostGuest(request),
+    });
+    guestUrl = server.url;
+    family?.announce({ app: appId, name, url: server.url, hosting: true, serving });
+    electronApp.on('will-quit', () => {
+      server.stop();
+      family?.withdraw(appId);
+    });
+    return server;
+  }
+
   // Shows a tab, the others hidden behind it.
   function activateTab(ctx) {
     const { host } = ctx;
@@ -209,7 +396,7 @@ export function createTabs({
   // what this app would send its page reaches it (over the guest server's stream). Its title and
   // icon go to the window showing it (`guest-tab`), as a top bar's tabs do, and closing it asks that
   // window to (`guest-close`). An AI can't work in one yet: it has no window here.
-  function createGuest(send) {
+  function createGuest(send, { open = null } = {}) {
     const id = `g-${randomUUID().slice(0, 4)}`;
     const host = { guest: true, win: null, tabs: [], active: null };
     const contents = { id: `guest:${id}`, send, focus() {}, isDestroyed: () => false };
@@ -219,6 +406,7 @@ export function createTabs({
     windows.set(contents.id, ctx);
     setupTab(ctx, {});
     tabReady(ctx);
+    if (open) guestOpened(ctx, open);
     changed();
     return ctx;
   }
@@ -251,6 +439,7 @@ export function createTabs({
   function disposeTab(ctx) {
     if (!windows.has(ctx.contents.id)) return;
     windows.delete(ctx.contents.id);
+    ctx.hosted?.stop();
     if (lastFocused === ctx) focused(ctx.host.active !== ctx ? ctx.host.active : [...windows.values()].at(-1) ?? null);
     release(ctx);
     desktop().closed(ctx.id);
@@ -291,14 +480,14 @@ export function createTabs({
       const tab = host.active;
       if (tab) {
         const { title: name, icon, ai } = tabState(tab);
-        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null });
+        tab.contents.send('guest-tab', { title: name, icon, ai: ai ?? null, back: Boolean(tab.history.back), forward: Boolean(tab.history.forward) });
       }
       return;
     }
     if (!host || host.win.isDestroyed()) return;
     const state = {
       tabs: host.tabs.map((t) => {
-        const { title: name, icon, ai } = tabState(t);
+        const { title: name, icon, ai } = stateOf(t);
         return { id: t.id, home: t.home, title: name, icon: t.home ? null : icon, active: t === host.active, ai: ai ?? null, chat: t.chat ?? null };
       }),
       back: Boolean(host.active?.history.back),
@@ -307,6 +496,12 @@ export function createTabs({
       ...extraState(),
     };
     host.win.webContents.send('tabs', state);
+  }
+  // A tab's title, icon and AI: a guest tab's from its app (`guest-tab`), else this app's own.
+  function stateOf(t) {
+    if (!t.hosted) return tabState(t);
+    const { title: name = t.hosted.name, icon = null, ai = null } = t.hosted.state ?? {};
+    return { title: name, icon, ai };
   }
   const sendAllTabs = () => {
     for (const host of hosts) sendTabs(host);
@@ -362,6 +557,9 @@ export function createTabs({
         // chat last used), brought forward ready to type in.
         ...(tab.chat ? [{ label: `Chat: ${tab.chat.title}`, enabled: false }] : []),
         ...(desktop().installed() ? [{ label: 'Open Chat', click: () => openChatFor(tab) }, { type: 'separator' }] : tab.chat ? [{ type: 'separator' }] : []),
+        // Another app of the family's running, which can show it as a guest (the trial: this app's
+        // tab in that app's window).
+        ...moveItems(tab),
         { label: 'Change Icon…', enabled: Boolean(docId), click: () => host.active.contents.send('icon-picker', { docId, current: tabState(tab).icon, name: tab.name ?? tabState(tab).title, at: { left: box.left, top: 6 } }) },
         ...(tab.home ? [] : [{ type: 'separator' }, { label: 'Close Tab', click: () => closeTab(tab) }]),
       ]).popup({ window: host.win });
@@ -463,5 +661,5 @@ export function createTabs({
     });
   }
 
-  return { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest };
+  return { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp };
 }

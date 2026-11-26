@@ -6,15 +6,20 @@
 //
 //   GET  /<token>/api                     the pages' API as data ({ id, calls, events })
 //   GET  /<token>/page/<file>             the app's built pages (index.html, its scripts and styles)
-//   POST /<token>/tabs                    opens a guest tab: { id }
+//   POST /<token>/tabs                    opens a guest tab ({ open }: what it's to show, the app's
+//                                         own request, as its own tabs are sent it): { id }
 //   GET  /<token>/tabs/<id>/events        what this app sends the tab, as server-sent events
 //                                         ({ channel, value } each); the stream closing closes the tab
 //   POST /<token>/tabs/<id>/call          { channel, args } → { ok, value } or { ok: false, error },
 //                                         only the channels in `api.calls`
+//   POST /<token>/host                    asks this app to show another's tab in its window
+//                                         ({ app, url, open }: that app, its server, and what to
+//                                         show) → { ok } or { ok: false, error }
 //
 // What a tab is sent before its stream is open waits for it. The app makes and removes the guest
-// tabs (`open(send)` → its tab, `close(tab)`) and runs their calls (`call(tab, channel, args)`), as
-// its own handlers do for its own tabs.
+// tabs (`open(send, { open })` → its tab, `close(tab)`) and runs their calls (`call(tab, channel,
+// args)`), as its own handlers do for its own tabs; and shows others' (`host(request)`). Without
+// `api` it serves no pages (it only shows others'); without `host` it shows none.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -23,10 +28,10 @@ import path from 'node:path';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json', '.wasm': 'application/wasm' };
 const MOST_BODY = 8 * 1024 * 1024; // a call's arguments, at most
 
-export function startGuestServer({ files, api, open, close, call, port = 0 }) {
+export function startGuestServer({ files = null, api = null, open, close, call, host = null, port = 0 }) {
   const token = randomBytes(24).toString('hex');
   const tabs = new Map(); // id → { tab, stream, waiting: [] }
-  const root = path.resolve(files);
+  const root = files && path.resolve(files);
 
   const tokenOk = (given) => given.length === token.length && timingSafeEqual(Buffer.from(given), Buffer.from(token));
   const json = (res, status, value) => {
@@ -47,14 +52,14 @@ export function startGuestServer({ files, api, open, close, call, port = 0 }) {
     req.on('error', reject);
   });
 
-  function openTab() {
+  function openTab(options) {
     const entry = { tab: null, stream: null, waiting: [] };
     const send = (channel, value) => {
       const event = `data: ${JSON.stringify({ channel, value: value ?? null })}\n\n`;
       if (entry.stream) entry.stream.write(event);
       else entry.waiting.push(event);
     };
-    entry.tab = open(send);
+    entry.tab = open(send, options);
     tabs.set(entry.tab.id, entry);
     return entry.tab.id;
   }
@@ -72,6 +77,13 @@ export function startGuestServer({ files, api, open, close, call, port = 0 }) {
       const [given = '', ...rest] = url.pathname.split('/').filter(Boolean);
       if (!tokenOk(given)) return json(res, 403, { error: 'Not allowed' });
       const [kind, id, what] = rest;
+      if (req.method === 'POST' && kind === 'host' && !id) {
+        if (!host) return json(res, 200, { ok: false, error: 'This app doesn’t show other apps’ tabs' });
+        const request = JSON.parse(await body(req));
+        await host(request);
+        return json(res, 200, { ok: true });
+      }
+      if (!api) return json(res, 404, { error: 'This app serves no pages' });
       if (req.method === 'GET' && kind === 'api' && !id) return json(res, 200, api);
       if (req.method === 'GET' && kind === 'page') {
         const file = path.resolve(root, decodeURIComponent(rest.slice(1).join('/')) || 'index.html');
@@ -81,7 +93,11 @@ export function startGuestServer({ files, api, open, close, call, port = 0 }) {
         res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
         return res.end(data);
       }
-      if (req.method === 'POST' && kind === 'tabs' && !id) return json(res, 200, { id: openTab() });
+      if (req.method === 'POST' && kind === 'tabs' && !id) {
+        const text = await body(req);
+        const { open: what = null } = text ? JSON.parse(text) : {};
+        return json(res, 200, { id: openTab({ open: what }) });
+      }
       const entry = id && tabs.get(id);
       if (kind === 'tabs' && !entry) return json(res, 404, { error: 'No such tab' });
       if (req.method === 'GET' && what === 'events') {

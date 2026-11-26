@@ -7,7 +7,7 @@ import { guessIcon, isIcon } from '@smartdesktop/ui/main/icons.js';
 import { createItemIcons } from './item-icons.js';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
 import { API } from './api.js';
-import { startGuestServer } from '@smartdesktop/ui/main/guests.js';
+import { createFamily, familyFolder } from '@smartdesktop/ui/main/family.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -133,6 +133,11 @@ const tabs = createTabs({
   release: (ctx) => {
     if (ctx.session) ctx.session.ctx = null;
   },
+  // Guest tabs: a board's tab can be shown in another app's window, opening the same board there.
+  name: 'SmartPlan',
+  family: createFamily(familyFolder(app)),
+  guestOpen: (ctx) => (boardOf(ctx) ? { boardId: boardOf(ctx), name: ctx.name } : null),
+  guestOpened: (ctx, request) => ctx.contents.send('open-board', request),
 });
 const { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, strips } = tabs;
 
@@ -673,23 +678,8 @@ handle('set-appearance', (_ctx, appearance) => setAppearance(appearance));
 // --- Guest tabs ------------------------------------------------------------------------------
 // SmartPlan's pages shown in another app's window (@smartdesktop/ui's main/guests.js): served from
 // here, each a tab of its own here (tabs.createGuest), its calls run by the same handlers as a tab's
-// own. Where it can be reached is kept in guest-server.json, in the app's data, while it runs.
-let guestServer = null;
-const guestFile = path.join(app.getPath('userData'), 'guest-server.json');
-async function startGuests() {
-  guestServer = await startGuestServer({
-    files: path.join(dirname, '../../build/renderer'),
-    api: API,
-    open: (send) => tabs.createGuest(send),
-    close: (ctx) => tabs.removeGuest(ctx),
-    call: (ctx, channel, args) => run(ctx, channel, args),
-  });
-  fs.writeFileSync(guestFile, JSON.stringify({ app: API.id, url: guestServer.url, pid: process.pid }), { mode: 0o600 });
-}
-app.on('will-quit', () => {
-  guestServer?.stop();
-  fs.rmSync(guestFile, { force: true });
-});
+// own; it shows other apps' tabs too. Announced to the family while it runs (family.js).
+const startGuests = () => tabs.serveGuests({ files: path.join(dirname, '../../build/renderer'), run });
 
 // --- App lifecycle -----------------------------------------------------------------------
 

@@ -7,6 +7,7 @@ import { guessIcon, isIcon } from '@smartdesktop/ui/main/icons.js';
 import { createItemIcons } from './item-icons.js';
 import { createLayouts } from './layouts.js';
 import { createTabs } from '@smartdesktop/ui/main/tabs.js';
+import { createFamily, familyFolder } from '@smartdesktop/ui/main/family.js';
 import { createConnect } from './connect.js';
 import { MCP_PORT, portHolder, startMcpServer } from './mcp-server.js';
 import { clientLabel, createSessions } from './sessions.js';
@@ -134,6 +135,9 @@ const tabs = createTabs({
   release: (ctx) => {
     if (ctx.session) ctx.session.ctx = null;
   },
+  // Guest tabs: other apps' tabs shown in SmartPrep's windows (the trial: SmartPlan's boards).
+  name: 'SmartPrep',
+  family: createFamily(familyFolder(app)),
 });
 const { createWindow, createTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, homeOf, stepTab, openChatFor, strips } = tabs;
 
@@ -666,6 +670,7 @@ app.whenReady().then(async () => {
   app.setAboutPanelOptions({ credits: 'SmartPrep is in beta, so it may change significantly from one version to the next.' });
   const first = createWindow();
   await startMcp();
+  await tabs.serveGuests().catch((error) => console.error('Other apps’ tabs can’t be shown:', error.message));
   updates.start();
   await first.ready;
   offerMoveToApplications(first);
