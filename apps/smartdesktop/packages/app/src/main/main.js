@@ -14,6 +14,7 @@ import * as grid from './chat-layout.js';
 import * as wins from './chat-windows.js';
 import { startHub } from './hub.js';
 import { startAppWindows } from './app-windows.js';
+import { toTemplate } from '@smartdesktop/ui/main/menu-wire.js';
 import { windowNumber, windowsOnThisSpace } from './spaces.js';
 import { createDragPicture } from './drag-picture.js';
 import { createUpdates } from './updates.js';
@@ -963,9 +964,29 @@ let hub = null;
 // other apps' tabs, Edit for typing in the chat, and Window, which shows the chat. Made again as the
 // apps running change (`onChange` from the app windows).
 let appWindows = null;
+// SmartDesktop's own shortcuts, which an app's items give up in its menu bar.
+const OWN_KEYS = new Set(['CmdOrCtrl+,', 'CmdOrCtrl+N', 'Shift+CmdOrCtrl+C', 'CmdOrCtrl+Y', 'CmdOrCtrl+Q', 'Shift+CmdOrCtrl+[', 'Shift+CmdOrCtrl+]']);
+const withoutOwnKeys = (items) => items.map((item) => (item.submenu ? { ...item, submenu: withoutOwnKeys(item.submenu) } : OWN_KEYS.has(item.accelerator) ? { ...item, accelerator: null } : item));
+
 function setAppMenu() {
   const openable = appWindows?.apps() ?? [];
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
+  // The app whose tab is in front adds its menus (the user's choice: the menu bar is SmartDesktop's,
+  // the tab's app adding its items): its app menu's own items under its name, then its own menus
+  // (File first), in place of SmartDesktop's File, whose New Tab and New Window go at its File's end.
+  const theirs = appWindows?.frontMenu();
+  const template = (items) => toTemplate(withoutOwnKeys(items), theirs.choose);
+  const openApps = [
+    { label: 'New Tab', submenu: openable.length ? openable.map((entry) => ({ label: entry.name, click: () => appWindows.open(entry) })) : [{ label: 'No apps running', enabled: false }] },
+    { label: 'New Window', submenu: openable.length ? openable.map((entry) => ({ label: entry.name, click: () => appWindows.openInNewWindow(entry) })) : [{ label: 'No apps running', enabled: false }] },
+  ];
+  const appMenus = theirs
+    ? [
+      ...(theirs.app.length ? [{ label: theirs.name, submenu: template(theirs.app) }] : []),
+      ...theirs.menus.map((one) => ({ label: one.label, submenu: one.label === 'File' ? [...template(one.submenu), { type: 'separator' }, { label: 'Open an App', submenu: openApps }] : template(one.submenu) })),
+      ...(theirs.menus.some((one) => one.label === 'File') ? [] : [{ label: 'File', submenu: [...openApps, { type: 'separator' }, { role: 'close' }] }]),
+    ]
+    : null;
+  const menu = Menu.buildFromTemplate([
     { role: 'appMenu', submenu: [
       { role: 'about' },
       { label: 'Check for Updates…', icon: menuSymbol('arrow.down.circle'), click: checkForUpdates },
@@ -981,25 +1002,32 @@ function setAppMenu() {
       { type: 'separator' },
       { role: 'quit' },
     ] },
-    // A tab of each app running (the other apps' front ends, in an app window: see app-windows.js).
-    { label: 'File', submenu: [
-      { label: 'New Tab', submenu: openable.length ? openable.map((entry) => ({ label: entry.name, click: () => appWindows.open(entry) })) : [{ label: 'No apps running', enabled: false }] },
-      { label: 'New Window', submenu: openable.length ? openable.map((entry) => ({ label: entry.name, click: () => appWindows.openInNewWindow(entry) })) : [{ label: 'No apps running', enabled: false }] },
-      { type: 'separator' },
-      { role: 'close' },
-    ] },
+    // A tab of each app running (the other apps' front ends, in an app window: see app-windows.js);
+    // with an app's tab in front, that app's menus.
+    ...(appMenus ?? [{ label: 'File', submenu: [...openApps, { type: 'separator' }, { role: 'close' }] }]),
     { role: 'editMenu' },
     { label: 'Window', role: 'windowMenu', submenu: [
       { label: 'New Chat Window', accelerator: 'CmdOrCtrl+N', click: newChatWindow },
       { label: 'Show the Chat', accelerator: 'Shift+CmdOrCtrl+C', click: showHere },
       { label: 'Chat History', accelerator: 'CmdOrCtrl+Y', click: toggleHistory },
       { type: 'separator' },
+      // The app windows' tabs.
+      { label: 'Show Previous Tab', accelerator: 'Shift+CmdOrCtrl+[', click: () => appWindows?.stepTab(-1) },
+      { label: 'Show Next Tab', accelerator: 'Shift+CmdOrCtrl+]', click: () => appWindows?.stepTab(1) },
+      { type: 'separator' },
       { role: 'minimize' },
       { role: 'zoom' },
       { type: 'separator' },
       { role: 'front' },
     ] },
-  ]));
+  ]);
+  Menu.setApplicationMenu(menu);
+  // For checking it in a development copy: the menu bar's menus and the File menu's items, with the
+  // app whose they are.
+  if (!app.isPackaged && process.env.SMARTDESKTOP_LOG_MENU) {
+    const file = menu.items.find((item) => item.label === 'File');
+    console.log(`[menu] ${theirs ? `${theirs.name}'s` : 'SmartDesktop’s'}: ${menu.items.map((item) => item.label || item.role).join(' | ')} — File: ${file?.submenu.items.map((item) => item.label || '—').join(', ')}${theirs ? ` — ids: ${theirs.menus.find((one) => one.label === 'File')?.submenu.filter((one) => one.id).map((one) => `${one.id}=${one.label}`).join(', ')}` : ''}`);
+  }
 }
 
 app.whenReady().then(async () => {

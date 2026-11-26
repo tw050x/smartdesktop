@@ -235,7 +235,8 @@ async function startMcp() {
 }
 
 function updateMenu() {
-  Menu.setApplicationMenu(buildMenu({
+  // (Through the family's tabs: with no windows of its own, SmartDesktop's menu bar shows it too.)
+  tabs.setMenu(buildMenu({
     hasWindow: windows.size > 0,
     actions: {
       newWindow: () => createWindow(),

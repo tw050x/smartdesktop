@@ -18,6 +18,10 @@
 //   GET  /<token>/tabs/<id>/open          what the tab shows, as this app's own request for opening it
 //                                         ({ open }, null if it can't be moved), for moving it on
 //   POST /<token>/tabs/<id>/focused       the window showing the tab says it's the one the user is in
+//   POST /<token>/menu-click              an item of this app's menu chosen in SmartDesktop's menu bar
+//                                         ({ id }, see menu-wire.js)
+//   POST /<token>/menu                    another app's menu, for this app's menu bar while one of its
+//                                         tabs is in front ({ app, menu }: SmartDesktop's)
 //   POST /<token>/tabs/<id>/answer        the window showing the tab answers what this app asked it
 //                                         to show ({ ask, value }: a menu's choice, a message box's
 //                                         response; asked as `guest-ui` events)
@@ -54,7 +58,7 @@ import { decode, encode } from './wire.js';
 const TYPES = { '.flac': 'audio/flac', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.pdf': 'application/pdf', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json', '.wasm': 'application/wasm' };
 const MOST_BODY = 8 * 1024 * 1024; // a call's arguments, at most
 
-export function startGuestServer({ files = null, api = null, open, close, call, focused = () => {}, media = null, opening = () => null, returned = null, answered = () => {}, host = null, over = null, port = 0 }) {
+export function startGuestServer({ files = null, api = null, open, close, call, focused = () => {}, menuClick = () => {}, menu = null, media = null, opening = () => null, returned = null, answered = () => {}, host = null, over = null, port = 0 }) {
   const token = randomBytes(24).toString('hex');
   const tabs = new Map(); // id → { tab, stream, waiting: [] }
   const root = files && path.resolve(files);
@@ -113,6 +117,17 @@ export function startGuestServer({ files = null, api = null, open, close, call, 
         const { point = null, front = 0 } = JSON.parse((await body(req)) || '{}');
         const answer = host && over ? over(point, Number(front) || 0) : null;
         return json(res, 200, { over: Boolean(answer?.over), front: Boolean(answer?.front) });
+      }
+      if (req.method === 'POST' && kind === 'menu-click' && !id) {
+        const { id: item } = JSON.parse((await body(req)) || '{}');
+        await menuClick(String(item));
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && kind === 'menu' && !id) {
+        if (!menu) return json(res, 200, { ok: false, error: 'This app shows no other app’s menus' });
+        const { app: from, menu: data } = JSON.parse((await body(req)) || '{}');
+        menu(String(from), data);
+        return json(res, 200, { ok: true });
       }
       if (!api) return json(res, 404, { error: 'This app serves no pages' });
       if (req.method === 'GET' && kind === 'api' && !id) return json(res, 200, api);

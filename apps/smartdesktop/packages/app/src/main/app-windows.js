@@ -25,6 +25,10 @@ export async function startAppWindows({ dirname, title, onChange = () => {} }) {
   const hosts = new Set(); // the windows
   let lastFocused = null;
   const family = createFamily(familyFolder(app));
+  // Each app's menu (see @smartdesktop/ui's main/menu-wire.js), and the app whose tab is in front: its
+  // menus join SmartDesktop's menu bar.
+  const menus = new Map(); // app id → { name, app, menus }
+  let front = null; // the app id of the tab in front in the app window last used
   // Its tabs are other apps', whose chats are their own (each app's tab-chat): none of SmartDesktop's
   // own chat ties applies to them here.
   const desktop = { window() {}, focus() {}, blur() {}, closed() {}, installed: () => false, chat() {} };
@@ -45,6 +49,15 @@ export async function startAppWindows({ dirname, title, onChange = () => {} }) {
     desktop: () => desktop,
     onFocused: (ctx) => {
       lastFocused = ctx;
+      const now = ctx?.hosted?.app ?? null;
+      if (now !== front) {
+        front = now;
+        onChange();
+      }
+    },
+    onAppMenu: (from, data) => {
+      menus.set(from, data);
+      if (from === front) onChange();
     },
     // (Only guests: their title, icon and AI come from their app.)
     tabState: () => ({ title: '', icon: null, ai: null }),
@@ -93,6 +106,18 @@ export async function startAppWindows({ dirname, title, onChange = () => {} }) {
 
   return {
     apps,
+    // The menus of the app whose tab is in front, and choosing one of their items (it runs in that app).
+    frontMenu: () => {
+      const data = front && menus.get(front);
+      const entry = front && family.others(API.id).find((one) => one.app === front);
+      if (!data || !entry) return null;
+      return {
+        ...data,
+        choose: (id) => fetch(`${entry.url}/menu-click`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {}),
+      };
+    },
+    // The tab before or after the one showing, in the app window last used (Window › Show Previous Tab).
+    stepTab: (delta) => tabs.stepTab(delta),
     // A tab of an app's, on its home, in the window last used (or a new window).
     open: (entry) => tabs.openApp(entry, { host: lastFocused?.host }),
     // A window of its own with a tab of that app.

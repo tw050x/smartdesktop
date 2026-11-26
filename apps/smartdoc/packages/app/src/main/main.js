@@ -477,7 +477,8 @@ function updateMenu() {
   const doc = workspace.document;
   const at = doc ? doc.line.indexOf(doc.currentDraftId) : -1;
   const review = doc ? workspace.review : null;
-  Menu.setApplicationMenu(buildMenu({
+  // (Through the family's tabs: with no windows of its own, SmartDesktop's menu bar shows it too.)
+  tabs.setMenu(buildMenu({
     hasWindow: Boolean(win()),
     hasDocument: Boolean(doc),
     hasDraft: Boolean(doc) && !workspace.previewing,

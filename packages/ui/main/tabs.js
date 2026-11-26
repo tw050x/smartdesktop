@@ -24,6 +24,7 @@ import { createTabDrag } from './tab-drag.js';
 import { startGuestServer } from './guests.js';
 import { confirm } from './confirm/confirm.js';
 import { decode, encode } from './wire.js';
+import { toData } from './menu-wire.js';
 
 // The family's preload (preload.cjs), for an app that gives its pages' API as data (`api`), and a
 // guest tab's (guest-preload.cjs), another app's page shown here.
@@ -100,6 +101,7 @@ export function createTabs({
   windowless = false, // with SmartDesktop running, this app has no windows of its own: each tab it makes is a guest tab SmartDesktop shows (the user's choice, 2026-11-26)
   newTabIn = null, // (host) => a new tab in that window, for a window of guests only (SmartDesktop's: a tab of an app's); else one of this app's on home
   guestsGoHomeThere = false, // the Home button in a guest tab asks its own app to take it home (SmartDesktop's), rather than putting this app's home in its place
+  onAppMenu = null, // (app, data): another app's menu, for this one's menu bar (SmartDesktop's, see menu-wire.js)
   isHome = (ctx) => ctx.where === 'home', // (ctx) => whether a tab shows home now (SmartDoc's: no document, and not waiting for one)
   goHome = (ctx) => ctx.contents.send('go-home', null), // (ctx): the Home button, in a tab not on home (SmartDoc closes its document)
 }) {
@@ -136,7 +138,34 @@ export function createTabs({
     // Another app's tab here: that app hears it's the one the user is in (for its menus, and where its
     // AI and the chat work).
     if (ctx?.hosted) post(`${ctx.hosted.url}/tabs/${ctx.hosted.gid}/focused`, {}).catch(() => {});
+    // One of this app's tabs in SmartDesktop's window: its menu goes there again, up to date.
+    if (ctx?.remote) sendMenu(true);
   };
+
+  // The app's menu (an Electron Menu, made by the app's menu.js): its menu bar's, and with no windows
+  // of its own, SmartDesktop's while one of its tabs is in front (as data, its items run here when
+  // chosen there: see menu-wire.js).
+  let appMenu = null;
+  let menuClicks = new Map();
+  let menuSent = null;
+  function setMenu(menu) {
+    appMenu = menu;
+    Menu.setApplicationMenu(menu);
+    sendMenu();
+  }
+  function sendMenu(again = false) {
+    const desktop = shell();
+    if (!desktop || !appMenu) return;
+    const { data, clicks } = toData(appMenu);
+    menuClicks = clicks;
+    const text = JSON.stringify(data);
+    if (text === menuSent && !again) return;
+    menuSent = text;
+    post(`${desktop.url}/menu`, { app: appId, menu: { name, ...data } }).catch(() => {});
+  }
+  function menuClick(id) {
+    menuClicks.get(id)?.click?.();
+  }
   const strips = new Map(); // the top bar's webContents id → its window
 
   const tabBounds = (host) => {
@@ -541,6 +570,8 @@ export function createTabs({
       opening: (ctx) => guestOpen(ctx),
       answered: (ctx, ask, value) => answered(ctx, ask, value),
       focused: (ctx) => focused(ctx),
+      menuClick: (id) => menuClick(id),
+      menu: onAppMenu,
       returned: (ctx, at) => returnGuest(ctx, at),
       call: (ctx, channel, args) => run(ctx, channel, args),
       media: serving ? media : null,
@@ -1020,5 +1051,5 @@ export function createTabs({
     });
   }
 
-  return { inSmartDesktop: () => Boolean(shell()), popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
+  return { setMenu, inSmartDesktop: () => Boolean(shell()), popupMenu, messageBox, confirmSheet, openDialog, saveDialog, createWindow, createTab, newTab, activateTab, closeTab, moveTab, sendTabs, sendAllTabs, stepTab, openChatFor, tabBounds, handlers, strips, createGuest, removeGuest, serveGuests, hostGuest, moveToApp, openApp };
 }
