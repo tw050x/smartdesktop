@@ -1,0 +1,34 @@
+// What an AI is doing, from the SmartSpec tool it calls, as the user would say it: each step the chat
+// shows. A copy of SmartSpec's own describe-step.js (which its website's demo uses): keep the two alike.
+
+
+export function describeStep(name, input = {}) {
+  const tool = name.replace(/^mcp__smartspec__/, '');
+  const quoted = (text) => `“${String(text).length > 60 ? `${String(text).slice(0, 57)}…` : text}”`;
+  switch (tool) {
+    case 'list_schematics': return 'Looking through the schematics';
+    case 'get_schematic': return 'Reading the schematic';
+    case 'get_schematic_item': return input.item_id ? `Reading ${quoted(input.item_id)}` : 'Reading an item';
+    case 'get_proposal': return 'Reading the proposal';
+    case 'get_comments': return 'Reading your comments';
+    case 'get_test_results': return 'Reading the test results';
+    case 'run_checks': {
+      const code = input.workspace ? ' on the workspace' : input.ref ? ` on ${quoted(input.ref)}` : '';
+      return `${input.only ? `Running the checks of ${quoted(input.only)}` : input.proposal ? 'Running the proposal’s checks' : 'Running the checks'}${code}`;
+    }
+    case 'list_test_runs': return 'Looking through the test runs';
+    case 'generate_secrets': return `Making random values for ${input.names?.length ? input.names.map((name) => `“${name}”`).join(', ') : 'its secrets'}`;
+    case 'reply_to_comment': return 'Answering your comment';
+    case 'propose_schematic': return input.name ? `Proposing ${quoted(input.name)}` : 'Proposing a change';
+    case 'list_domains': return 'Looking at the domains';
+    case 'create_domain': return input.name ? `Making the domain ${quoted(input.name)}` : 'Making a domain';
+    case 'rename_domain': return 'Renaming a domain';
+    case 'move_schematic': return 'Moving a schematic';
+    case 'list_folders': return 'Looking at the folders';
+    case 'create_folder': return input.name ? `Making the folder ${quoted(input.name)}` : 'Making a folder';
+    case 'rename_folder': return 'Renaming a folder';
+    case 'move_domain': return 'Moving a domain';
+    case 'use_window': return 'Joining this window';
+    default: return tool.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  }
+}
