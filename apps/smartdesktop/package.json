@@ -13,6 +13,7 @@
     "start": "npm start -w @smartdesktop/app",
     "dist": "npm run dist -w @smartdesktop/app",
     "test": "node --test",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "share-image": "node scripts/share-image.mjs"
   }
 }
