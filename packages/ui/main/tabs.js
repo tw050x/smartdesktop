@@ -36,6 +36,9 @@ export function createTabs({
   status, // () => the app's status, for the pill at the end of the top bar
   docOf = () => null, // (ctx) => the id of what a tab shows, or null: for Change Icon…
   release = () => {}, // (ctx): it's gone (the AI working in it gets a new tab, the next time)
+  setupTab = () => {}, // (ctx, options): a new tab, before its page loads, with createTab's options (SmartDoc's workspace)
+  onActivate = () => {}, // (ctx): it's the tab showing in its window now (SmartDoc's represented file)
+  extraState = () => ({}), // () => more for the top bar's state (SmartDoc's `reader` switch)
 }) {
   let lastFocused = null;
   const focused = (ctx) => {
@@ -121,7 +124,8 @@ export function createTabs({
     return home;
   }
 
-  function createTab(host, { home = false } = {}) {
+  function createTab(host, options = {}) {
+    const { home = false } = options;
     const id = `w-${randomUUID().slice(0, 4)}`;
     const view = new WebContentsView({
       webPreferences: {
@@ -157,8 +161,9 @@ export function createTabs({
       return { action: 'deny' };
     });
     ctx.ready = new Promise((resolve) => contents.once('did-finish-load', resolve));
-    ctx.ready.then(() => ctx.host.active === ctx && ctx.contents.send('tab-lines', ctx.host.lines ?? null));
+    setupTab(ctx, options);
     ctx.ready.then(() => tabReady(ctx));
+    ctx.ready.then(() => ctx.host.active === ctx && ctx.contents.send('tab-lines', ctx.host.lines ?? null));
     contents.loadFile(pages.index);
     changed();
     sendTabs(host);
@@ -181,12 +186,15 @@ export function createTabs({
       ctx.contents.focus();
     }
     if (host.win.isFocused() || !lastFocused || lastFocused.host === host) focused(ctx);
+    onActivate(ctx);
     changed();
     sendTabs(host);
   }
 
-  // Closes a tab (Home only closes with its window). The tab beside it shows instead.
+  // Closes a tab (Home only closes with its window). The tab beside it shows instead. A workspace an
+  // AI works in with no tab (SmartDoc's `headless`) has nothing to close.
   function closeTab(ctx) {
+    if (ctx.headless) return;
     const { host } = ctx;
     if (ctx.home) return host.win.close();
     const at = host.tabs.indexOf(ctx);
@@ -246,6 +254,7 @@ export function createTabs({
       back: Boolean(host.active?.history.back),
       forward: Boolean(host.active?.history.forward),
       status: status(),
+      ...extraState(),
     };
     host.win.webContents.send('tabs', state);
   }
@@ -303,7 +312,7 @@ export function createTabs({
         // chat last used), brought forward ready to type in.
         ...(tab.chat ? [{ label: `Chat: ${tab.chat.title}`, enabled: false }] : []),
         ...(desktop().installed() ? [{ label: 'Open Chat', click: () => openChatFor(tab) }, { type: 'separator' }] : tab.chat ? [{ type: 'separator' }] : []),
-        { label: 'Change Icon…', enabled: Boolean(docId), click: () => host.active.contents.send('icon-picker', { docId, current: tabState(tab).icon, name: tab.name, at: { left: box.left, top: 6 } }) },
+        { label: 'Change Icon…', enabled: Boolean(docId), click: () => host.active.contents.send('icon-picker', { docId, current: tabState(tab).icon, name: tab.name ?? tabState(tab).title, at: { left: box.left, top: 6 } }) },
         ...(tab.home ? [] : [{ type: 'separator' }, { label: 'Close Tab', click: () => closeTab(tab) }]),
       ]).popup({ window: host.win });
     });
