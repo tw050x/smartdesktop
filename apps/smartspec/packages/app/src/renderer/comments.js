@@ -7,7 +7,6 @@
 // comments has a marker there, with how many, and clicking either opens them (comment-overlay.js).
 // The store keeps them (see store.js); schemas.js decides which comments show where.
 
-const TRASH_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
 const CHECK_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
 
 // A comment still needs something done about it until it's marked "No further action required",
@@ -141,16 +140,12 @@ const anchorAttributes = (target) => ({ 'data-part': target.part ?? null, 'data-
 // and opens again on a click to show what was said. On the board's middle it's always open (see
 // look in board-view.js), so a click there does nothing; elsewhere on the board, it says so, for the
 // board to give it its new size.
-export function commentCard(comment, { onDelete, onNoFurtherAction }) {
+// Comments are kept as a record, so there's no deleting one (the user's choice, as in SmartDoc).
+export function commentCard(comment, { onNoFurtherAction }) {
   const gone = comment.target.partMissing || comment.target.missing;
   const done = !isOpen(comment);
-  const remove = h('button', { className: 'icon-button comment-delete', type: 'button', title: 'Delete comment', 'aria-label': 'Delete comment', onclick: (event) => {
-    event.stopPropagation();
-    onDelete(comment);
-  } });
-  remove.innerHTML = TRASH_ICON;
   const card = h('div', { className: `focus-neighbour comment-card${done ? ' done' : ''}`, 'data-comment': comment.id, ...anchorAttributes(gone ? {} : comment.target), role: 'note', 'aria-label': done ? 'Comment, no further action required' : 'Comment' },
-    h('span', { className: 'comment-top' }, done && (outcomeTag(comment) || h('span', { className: 'comment-outcome' }, 'No further action')), about(comment.target) ?? h('span', { className: 'comment-about' }, 'On all of it'), noFurtherActionButton(comment, onNoFurtherAction), remove),
+    h('span', { className: 'comment-top' }, done && (outcomeTag(comment) || h('span', { className: 'comment-outcome' }, 'No further action')), about(comment.target) ?? h('span', { className: 'comment-about' }, 'On all of it'), noFurtherActionButton(comment, onNoFurtherAction)),
     gone && h('span', { className: 'comment-gone' }, comment.target.missing ? `It was on ${comment.target.item}, which has been removed.` : 'That part is no longer here.'),
     h('p', { className: 'comment-text' }, comment.text),
     !done && (outcomeTag(comment) || waitingLine(comment)),

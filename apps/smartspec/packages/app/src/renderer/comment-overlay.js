@@ -6,7 +6,6 @@
 
 import { about, againButton, earlierLine, isOpen, noFurtherActionButton, outcomeTag, repliesOf, waitingLine } from './comments.js';
 
-const TRASH_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
 const GAP = 12;
 
 function h(tag, props = {}, ...children) {
@@ -40,8 +39,8 @@ function place(x, y) {
 // Opens the box at (x, y) on the thing `key` names. `heading` says what it's on, `target` is what a
 // new comment would be on (shown as a line saying so), `comments` are those already on it (earlier
 // ones, from the draft this came from, dashed with Comment again). `send(text)` writes a new one;
-// `remove`, `flag` and `again` act on one. `writing` opens it ready to write.
-export function openThread({ key, x, y, heading, target = null, comments = [], send, remove, flag, again, writing = false }) {
+// `flag` and `again` act on one (none is deleted: comments are kept as a record). `writing` opens it ready to write.
+export function openThread({ key, x, y, heading, target = null, comments = [], send, flag, again, writing = false }) {
   closeThread();
   showing = { key, x, y };
   const field = h('textarea', { className: 'comment-input', rows: '3', 'aria-label': 'Your comment', placeholder: target?.card ? 'What should its title or description say?' : 'What should change, or what do you want to ask?' });
@@ -75,27 +74,24 @@ export function openThread({ key, x, y, heading, target = null, comments = [], s
   box = h('div', { className: 'card-comments comment-thread', role: 'dialog', 'aria-label': heading },
     h('span', { className: 'card-comments-head' }, heading),
     target && (about(target) ?? null),
-    ...comments.map((comment) => entry(comment, { remove, flag, again })),
+    ...comments.map((comment) => entry(comment, { flag, again })),
     open ? writer : adder);
   document.body.append(box);
   place(x, y);
   if (open) field.focus();
 }
 
-function entry(comment, { remove, flag, again }) {
+function entry(comment, { flag, again }) {
   // An earlier comment, from the draft this came from: dashed, to say again here or leave.
   if (comment.earlier) {
     return h('div', { className: 'card-comment earlier', 'data-comment': comment.id },
       h('p', { className: 'comment-text' }, comment.text),
       h('span', { className: 'comment-earlier-foot' }, earlierLine(comment), againButton(comment, again)));
   }
-  const bin = h('button', { className: 'icon-button comment-delete', type: 'button', title: 'Delete comment', 'aria-label': 'Delete comment' });
-  bin.innerHTML = TRASH_ICON;
-  bin.addEventListener('click', () => remove(comment));
   // Marked "No further action required", it's kept, faded, with how it was dealt with first.
   const done = !isOpen(comment);
   return h('div', { className: `card-comment${done ? ' done' : ''}`, 'data-comment': comment.id },
-    h('span', { className: 'comment-top' }, h('p', { className: 'comment-text' }, comment.text), noFurtherActionButton(comment, flag), bin),
+    h('span', { className: 'comment-top' }, h('p', { className: 'comment-text' }, comment.text), noFurtherActionButton(comment, flag)),
     outcomeTag(comment) || waitingLine(comment),
     repliesOf(comment));
 }

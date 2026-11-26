@@ -476,7 +476,7 @@ describe('comments', () => {
     assert.equal((await store.getSchema(schema)).comments, 1);
   });
 
-  test('discarding the proposal takes its comments, and leaves those on drafts', async () => {
+  test('discarding the proposal keeps its comments with it, apart from those on drafts', async () => {
     const store = newStore();
     const { schema, draft } = await accepted(store, { items: [rules] });
     await store.addComment(schema, { draftId: draft, target: { item: 'rules' }, text: 'On the draft.' });
@@ -487,7 +487,7 @@ describe('comments', () => {
     assert.deepEqual(left.map((one) => one.text), ['On the draft.']);
   });
 
-  test('a comment needs words and something to be on, and the user can take it back', async () => {
+  test('a comment needs words and something to be on, and is kept: there is no deleting one', async () => {
     const store = newStore();
     const { schema, draft } = await accepted(store, { items: [rules] });
     await assert.rejects(store.addComment(schema, { target: { item: 'rules' }, text: '  ' }), /something said/);
@@ -495,9 +495,8 @@ describe('comments', () => {
     await assert.rejects(store.addComment(schema, { proposal: true, target: { item: 'rules' }, text: 'Hm' }), /no proposal/);
     const comment = await store.addComment(schema, { target: { item: 'rules' }, text: 'Hm' });
     assert.equal(comment.on, draft);
-    await store.deleteComment(schema, comment.id);
-    assert.equal((await store.listComments(schema)).length, 0);
-    await assert.rejects(store.replyToComment(schema, comment.id, { text: 'Late' }), /no comment/);
+    assert.equal(store.deleteComment, undefined);
+    await assert.rejects(store.replyToComment(schema, 'nowhere', { text: 'Late' }), /no comment/);
   });
 
   test('a comment can be on the whole schematic, or a point in an item, as well as on a part, words or a card', async () => {
@@ -813,5 +812,76 @@ describe('approving changes', () => {
     const { draft } = await store.accept(schema);
     const record = await store.getSchema(schema, { draftId: draft });
     assert.equal(record.approved, undefined);
+  });
+});
+
+describe('the decision log', () => {
+  test('logs who proposed what, what the user approved, and what they accepted, with why and what was left unapproved', async () => {
+    const store = newStore();
+    const { schema: id } = await store.propose({ ...proposal({ items: [doc('a'), doc('b')] }), by: 'Claude Code' });
+    const { draft: first } = await store.accept(id);
+    await store.propose({ schemaId: id, items: [doc('a', '# Changed'), doc('c')], removeItems: ['b'], note: 'Tidied', goal: 'Simpler', reasons: { a: 'Clearer.', c: 'Was missing.' }, by: 'Claude Code' });
+    await store.addComment(id, { proposal: true, target: { item: 'a' }, text: 'Hm' });
+    await store.approveChange(id, 'a', true);
+    await store.approveChange(id, 'c', true);
+    await store.approveChange(id, 'c', false);
+    const { draft } = await store.accept(id, { warning: '1 of its 2 checks fail against main.' });
+    const { entries, total } = await store.decisions(id);
+    assert.equal(total, 7);
+    assert.deepEqual(entries.map((entry) => entry.type), ['accepted', 'unapproved', 'approved', 'approved', 'proposed', 'accepted', 'proposed']);
+    const [accept] = entries;
+    assert.equal(accept.draft, draft);
+    assert.equal(accept.number, 2);
+    assert.equal(accept.proposedBy, 'Claude Code');
+    assert.equal(accept.goal, 'Simpler');
+    assert.deepEqual(accept.changes, { added: [{ id: 'c', title: 'c' }], changed: [{ id: 'a', title: 'a' }], removed: [{ id: 'b', title: 'b' }] });
+    assert.deepEqual(accept.reasons, { a: 'Clearer.', c: 'Was missing.' });
+    assert.deepEqual(accept.approved, [{ key: 'a', title: 'a' }]);
+    assert.deepEqual(accept.notApproved.map((one) => one.key).sort(), ['b', 'c']);
+    assert.equal(accept.unanswered, 1);
+    assert.equal(accept.warning, '1 of its 2 checks fail against main.');
+    assert.equal(entries.at(-1).changes.first, true);
+    assert.equal(entries.at(-2).draft, first);
+    // Not kept with the draft.
+    assert.equal((await store.getSchema(id)).by, undefined);
+  });
+
+  test('a discarded proposal is kept whole, with its comments, and logged', async () => {
+    const store = newStore();
+    const { schema: id } = await accepted(store, { items: [doc('a')] });
+    const { proposal: proposalId } = await store.propose({ schemaId: id, items: [doc('a', '# No')], note: 'Try', by: 'Claude Code' });
+    await store.addComment(id, { proposal: true, target: { item: 'a' }, text: 'Not this.' });
+    await store.discard(id);
+    const [entry] = (await store.decisions(id)).entries;
+    assert.equal(entry.type, 'discarded');
+    assert.equal(entry.proposedBy, 'Claude Code');
+    assert.equal(entry.comments, 1);
+    const kept = await store.discardedProposal(id, proposalId);
+    assert.equal(kept.proposal.items[0].markdown, '# No');
+    assert.deepEqual(kept.comments.map((one) => one.text), ['Not this.']);
+    // Not counted on the drafts, nor the next proposal.
+    assert.equal((await store.getSchema(id)).comments, 0);
+  });
+
+  test('pinning a use is logged, and a schematic following another\'s latest logs each new draft of it it moves to', async () => {
+    const store = newStore();
+    const auth = await accepted(store, { name: 'Auth' });
+    const shop = await accepted(store, { name: 'Shop', uses: [{ id: 'auth', schemaId: auth.schema }] });
+    await store.propose({ schemaId: auth.schema, summary: 'Tokens, rotated.', note: 'Rotation' });
+    const { draft } = await store.accept(auth.schema);
+    const [follows] = (await store.decisions(shop.schema)).entries;
+    assert.equal(follows.type, 'follows');
+    assert.equal(follows.schematic, auth.schema);
+    assert.equal(follows.name, 'Auth');
+    assert.deepEqual(follows.uses, ['auth']);
+    assert.deepEqual(follows.from, { draft: auth.draft, number: 1 });
+    assert.deepEqual(follows.to, { draft, number: 2 });
+    const [accept] = (await store.decisions(auth.schema)).entries;
+    assert.deepEqual(accept.followers.map((one) => one.name), ['Shop']);
+
+    await store.propose({ schemaId: shop.schema, uses: [{ id: 'auth', schemaId: auth.schema, draftId: auth.draft }], note: 'Pin' });
+    await store.accept(shop.schema);
+    const [pinned] = (await store.decisions(shop.schema)).entries;
+    assert.deepEqual(pinned.changes.uses, [{ use: 'auth', schematic: auth.schema, change: 'pinned', pin: auth.draft, name: 'Auth', pinNumber: 1 }]);
   });
 });

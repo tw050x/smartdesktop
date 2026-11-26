@@ -504,6 +504,40 @@
       }
     },
     {
+      "name": "get_decision_log",
+      "description": "A schematic's decision log, newest first, kept for auditing: each proposal (who proposed it, its note and goal, what it changes, and revises when it replaced one), each change the user approved or took back, each acceptance (the draft it made, why each change was made as the proposer said, which changes were approved and which went in unapproved, comments left unanswered, what the confirmation warned of that the user accepted anyway, and the schematics following its latest draft that changed with it), each discard, and follows: when a schematic this one embeds following its latest draft got a new draft, so this one now shows it (from and to draft numbers, and what it breaks here). Changes to uses say which were added, removed, pinned to a draft, unpinned (following the latest again) or changed. Use it to answer why something is as it is, or when this came to show a new draft of what it embeds. With proposal_id, a discarded proposal as it was, with its comments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schematic_id": {
+            "type": "string"
+          },
+          "limit": {
+            "description": "At most this many, newest first (default 50)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "proposal_id": {
+            "description": "A discarded proposal to read whole",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schematic_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "run_checks",
       "description": "Runs a schematic's contract checks against its implementation, as the user would from SmartSpec's Test mode (their window shows it as it goes). The contract is a draft's (the latest unless you name one; older ones too, to check compatibility over time) or the proposal's; all of its checks, or a branch's or clause's (only, its id in the contract). For a git repository, choose the code: a branch, tag or commit (ref), or the schematic's workspace as it is (workspace: true, uncommitted changes and all: run it after changing the code there, before committing, to see the contract kept); neither, its default branch. The answer names the code it ran against and the commit it resolved to: check it's what you meant. Waits up to wait seconds (default 60, at most 300) and gives the results as get_test_results does; if it's still running then (a first clone, a long build), call get_test_results with its run_id later. If that run is already going, it waits for it. Only an implementation the user has accepted can be run: the proposal's only while it's the same as the latest draft's.",
       "inputSchema": {

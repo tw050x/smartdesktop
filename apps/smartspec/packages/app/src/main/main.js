@@ -615,6 +615,8 @@ const schemasFor = (session, tab) => ({
   listComments: (id, options) => store.listComments(id, options),
   testResults: (id, options) => testRuns.resultsFor(id, options),
   listTestRuns: (id, options) => testRuns.listFor(id, options),
+  decisionLog: (id, options) => store.decisions(id, options),
+  discardedProposal: (id, proposalId) => store.discardedProposal(id, proposalId),
   // The AI running the checks (run_checks); once the run ends, a line in the chat saying how it went.
   runChecks: (id, options) => testRuns.runAndWait(id, { ...options, onEnd: (state, record) => {
     const ctx = session.ctx;
@@ -636,7 +638,7 @@ const schemasFor = (session, tab) => ({
     }
     // A new schematic's icon (propose_schematic's icon) isn't part of it: it's kept apart, as the AI's.
     const { icon, ...rest } = proposal;
-    const made = await store.propose(rest);
+    const made = await store.propose({ ...rest, by: clientLabel(session.client) });
     sessions.claim(session, schemaClaim(made.schema));
     if (icon && !itemIcons.get(made.schema)) itemIcons.set(made.schema, icon, 'ai');
     // In the AI's tab; or, from Home (SmartDesktop's chat, the user being there), in a tab of its own.
@@ -1005,7 +1007,7 @@ async function acceptProposal(ctx, schemaId) {
     : ` ${list(followers)} ${usedBy.length === 1 ? 'embeds' : 'embed'} its latest draft, so ${usedBy.length === 1 ? 'it changes' : 'they change'} with it.${unset.length ? ` ${unset.join(' ')}` : ''}`;
   const becomes = `${draftLine}${alsoChanges}`;
   const notApproved = !unapproved.length ? ''
-    : unapproved.length === keys.length ? `You haven’t approved any of the ${keys.length === 1 ? 'change' : `${keys.length} changes`}: ${unapproved.length === 1 ? 'it is' : 'they are'} accepted as proposed. `
+    : unapproved.length === keys.length ? `You haven’t approved ${keys.length === 1 ? 'the change' : `any of the ${keys.length} changes`}: ${unapproved.length === 1 ? 'it is' : 'they are'} accepted as proposed. `
       : `You haven’t approved ${unapproved.length === 1 ? 'the change to' : `${unapproved.length} of the ${keys.length} changes:`} ${list(named)}${unapproved.length === 1 ? ', which is' : ', which are'} accepted as proposed. `;
   // How its checks stand: said, never in the way (the user's choice: a contract can be written
   // ahead of its code, so failing checks don't stop it being accepted).
@@ -1064,7 +1066,9 @@ async function acceptProposal(ctx, schemaId) {
   }
   if (choice === 'ask') return 'ask';
   if (choice !== 'accept') return 'cancel';
-  await store.accept(schemaId);
+  // What it warned of that the user accepted anyway goes in the decision log.
+  const warning = [warned && checksLine.trim(), unset.length && unset.join(' ')].filter(Boolean).join(' ') || null;
+  await store.accept(schemaId, { warning });
   sessions.release(schemaClaim(schemaId));
   return 'accepted';
 }
@@ -1145,8 +1149,9 @@ handle('get-connections', (_ctx, id, options) => store.getConnections(id, option
 handle('list-comments', (_ctx, id, options) => store.listComments(id, options));
 handle('list-earlier-comments', (_ctx, id, options) => store.listEarlierComments(id, options));
 handle('add-comment', (_ctx, id, comment) => store.addComment(id, comment));
-handle('delete-comment', (_ctx, id, commentId) => store.deleteComment(id, commentId));
 handle('approve-change', (_ctx, id, key, flag) => store.approveChange(id, key, flag));
+handle('decision-log', (_ctx, id) => store.decisions(id));
+handle('discarded-proposal', (_ctx, id, proposalId) => store.discardedProposal(id, proposalId));
 handle('set-no-further-action', (_ctx, id, commentId, flag) => store.setNoFurtherAction(id, commentId, flag));
 handle('accept-proposal', (ctx, id) => acceptProposal(ctx, id));
 handle('send-comments', (_ctx, id) => store.sendComments(id));

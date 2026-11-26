@@ -85,11 +85,12 @@ contextBridge.exposeInMainWorld('smartspec', {
   moveGroup: (groupId, folderId) => call('move-group', groupId, folderId),
   showHomeMenu: (items) => call('home-menu', items),
   addComment: (id, comment) => call('add-comment', id, comment),
-  deleteComment: (id, commentId) => call('delete-comment', id, commentId),
   setNoFurtherAction: (id, commentId, flag) => call('set-no-further-action', id, commentId, flag),
   acceptProposal: (id) => call('accept-proposal', id),
   // The user's approval of one change in the proposal (an item's id, or 'contract'), or taking it back.
   approveChange: (id, key, flag) => call('approve-change', id, key, flag),
+  decisionLog: (id) => call('decision-log', id),
+  discardedProposal: (id, proposalId) => call('discarded-proposal', id, proposalId),
   sendComments: (id) => call('send-comments', id),
   // The proposals an AI in another app is waiting on (`smartspec wait`), and when that changes.
   aiWaiting: () => call('ai-waiting'),

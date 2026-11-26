@@ -21,6 +21,7 @@ import { plainText, renderMarkdown } from './markdown.js';
 import { levelOf } from './home-level.js';
 import { contractPlain, contractStanding, renderContract } from './contract-view.js';
 import { renderImplementation, sourceLine } from './implementation-view.js';
+import { openDecisionLog } from './decision-log.js';
 import { SOURCE_LABELS, WORKSPACE_KINDS } from '../main/implementation.js';
 import { contractPartName, contractText } from '../main/contract.js';
 import { DEFAULT_TARGET, WORKSPACE_TARGET, refOf, runLine as historyLine, targetLabel, viewOf } from '../main/test-history.js';
@@ -1928,6 +1929,18 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         () => { here.proposal = false; here.draftId = draft.latest ? null : draft.id; remember(); render(); })),
     );
     if (!drafts.length && !waiting) draftCard.append(h('p', { className: 'focus-empty' }, 'No drafts yet.'));
+    // Every decision on it, for auditing (see decision-log.js).
+    draftCard.append(h('button', { className: 'link-button draft-log', type: 'button', onclick: () => {
+      closeDrafts();
+      openDecisionLog({ schemaId: here.schemaId, name: shown.name, api, onDraft: (id) => {
+        const draft = drafts.find((one) => one.id === id);
+        if (!draft) return;
+        here.proposal = false;
+        here.draftId = draft.latest ? null : id;
+        remember();
+        render();
+      } });
+    } }, 'Decision log…'));
   }
   document.addEventListener('pointerdown', (event) => {
     if (!draftCard.hidden && !draftCard.contains(event.target) && !draftButton?.contains(event.target)) closeDrafts();
@@ -3023,7 +3036,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
 
     const [comments, earlierComments] = await Promise.all([api.listComments(here.schemaId, on).catch(() => []), api.listEarlierComments(here.schemaId, on).catch(() => [])]);
     const everything = [...comments, ...earlierComments];
-    const orphans = comments.filter((comment) => comment.target.missing).map((comment) => commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render), onNoFurtherAction: flagComment(here) }));
+    const orphans = comments.filter((comment) => comment.target.missing).map((comment) => commentCard(comment, { onNoFurtherAction: flagComment(here) }));
     // Comments on the whole schematic: where they were put on the overview, else laid out with the rest.
     const onWhole = everything.filter((comment) => comment.target.schematic);
     const pinned = onWhole.filter((comment) => comment.target.at).map((comment) => ({ card: wholeCommentCard(here, on, comment), at: comment.target.at }));
@@ -3136,10 +3149,6 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         onNote({ text: `Commented on “${title}”`, detail: `Commented on “${title}”${target.quote ? ` (on the words “${target.quote}”)` : ''}: “${text}”` });
         render();
       },
-      remove: async (comment) => {
-        await api.deleteComment(here.schemaId, comment.id);
-        render();
-      },
       flag: flagComment(here),
       again: commentAgain(here, on),
     });
@@ -3184,7 +3193,7 @@ export function createSchemas({ el, bottomBar, crumbs, draftNav, modeCard, focus
         h('p', { className: 'comment-text' }, comment.text),
         h('span', { className: 'comment-earlier-foot' }, earlierLine(comment), againButton(comment, commentAgain(here, on))));
     }
-    return commentCard(comment, { onDelete: (gone) => api.deleteComment(here.schemaId, gone.id).then(render), onNoFurtherAction: flagComment(here) });
+    return commentCard(comment, { onNoFurtherAction: flagComment(here) });
   }
 
   // The user says an earlier comment again, on what's showing.

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as folders from './folders.js';
 import { brokenParts, checkContract, contractPartName, contractParts, contractText, shapeIds, shapesNamed } from './contract.js';
@@ -14,6 +14,8 @@ import { CONTRACT, IMPLEMENTATION, checkItem, checkLinks, connectionDetails, ite
 //     drafts/<draft id>.json   one accepted version; never changed once written
 //     proposal.json            the change the AI proposes, waiting for the user; not yet a draft
 //     comments.json            the user's comments, and the AI's replies (see below)
+//     decisions.jsonl          the decision log: one line for each decision on it (see below)
+//     discarded/<proposal id>.json   a proposal the user discarded, as it was
 //   proposals/<proposal id>.json   what became of each proposal, for `smartspec wait`
 //   groups.json                    the domains schemas belong to (see below)
 //   folders.json                   the folders domains are organised in (see folders.js)
@@ -42,6 +44,12 @@ import { CONTRACT, IMPLEMENTATION, checkItem, checkLinks, connectionDetails, ite
 // the draft it came from that nobody answered, where what they're on is still there, as earlier
 // comments: the user can comment again with the same words (a new comment, `from` the old one), and
 // they count for nothing on what's showing.
+//
+// The decision log is kept for auditing (the user's choice): what was proposed and by whom, what the
+// user approved, what they accepted (why each change was made, what wasn't approved, comments left
+// unanswered and what the confirmation warned of) or discarded (kept whole, with its comments), and,
+// on each schematic that follows another's latest draft, when it moved to a new one of it. Only ever
+// added to, never in a draft, and never seen by what embeds the schematic.
 
 const USE_ID = /^[a-z0-9][\w-]*$/i;
 const FILE_ID = /^[\w-]+$/;
@@ -459,6 +467,70 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
     proposal: proposal.id, schema: schemaId, outcome, ...(draftId && { draft: draftId }), at: now(),
   });
 
+  // --- The decision log (see the top) ---
+  const logFile = (schemaId) => path.join(schemaDir(schemaId), 'decisions.jsonl');
+  const discardedFile = (schemaId, proposalId) => {
+    if (!FILE_ID.test(proposalId)) throw new Error(`No proposal ${proposalId}.`);
+    return path.join(schemaDir(schemaId), 'discarded', `${proposalId}.json`);
+  };
+  async function logDecision(schemaId, entry) {
+    await mkdir(schemaDir(schemaId), { recursive: true });
+    await appendFile(logFile(schemaId), `${JSON.stringify({ at: now(), ...entry })}\n`);
+  }
+  async function readLog(schemaId) {
+    const text = await readFile(logFile(schemaId), 'utf8').catch((error) => (error.code === 'ENOENT' ? '' : Promise.reject(error)));
+    return text.split('\n').filter(Boolean).flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return []; // a line cut short by a crash
+      }
+    });
+  }
+  // What a change to a use is: added, removed, embedding another schematic, pinned to a draft,
+  // pinned to another, unpinned (following the latest again), or its parameters, what it relies on
+  // or its implementation changed.
+  function useChanges(before, after) {
+    const was = new Map(before.map((use) => [use.id, use]));
+    const out = [];
+    const terms = (use) => JSON.stringify([use.with ?? {}, use.expects ?? null, use.implementation ?? null]);
+    for (const use of after) {
+      const old = was.get(use.id);
+      const one = { use: use.id, schematic: use.schemaId };
+      if (!old) out.push({ ...one, change: 'added', ...(use.pin && { pin: use.pin }) });
+      else if (old.schemaId !== use.schemaId) out.push({ ...one, change: 'replaced', wasSchematic: old.schemaId, ...(use.pin && { pin: use.pin }) });
+      else if ((old.pin ?? null) !== (use.pin ?? null)) out.push({ ...one, change: !use.pin ? 'unpinned' : old.pin ? 'repinned' : 'pinned', ...(use.pin && { pin: use.pin }), ...(old.pin && { was: old.pin }) });
+      else if (terms(old) !== terms(use)) out.push({ ...one, change: 'changed' });
+    }
+    for (const old of before) if (!after.some((use) => use.id === old.id)) out.push({ use: old.id, schematic: old.schemaId, change: 'removed' });
+    return out;
+  }
+  // What a proposal changes from what it's based on, in brief: items by id and title, whether the
+  // contract and the implementation change, and its uses.
+  function changeSummary(before, after) {
+    const changes = itemChanges(before, after);
+    const titled = (how) => Object.entries(changes.items).filter(([, one]) => one === how).map(([id]) => ({ id, title: after.items.find((item) => item.id === id)?.title ?? id }));
+    const uses = useChanges(before?.uses ?? [], after.uses ?? []);
+    const differs = (key) => before && JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null);
+    return {
+      ...(!before && { first: true }),
+      ...(differs('name') && { renamed: { from: before.name, to: after.name } }),
+      ...(differs('summary') && { summary: true }),
+      ...(differs('parameters') && { parameters: true }),
+      ...(titled('added').length && { added: titled('added') }),
+      ...(titled('changed').length && { changed: titled('changed') }),
+      ...(changes.removed.length && { removed: changes.removed.map(({ id, title }) => ({ id, title })) }),
+      ...(changes.contract && { contract: true }),
+      ...(changes.implementation && { implementation: true }),
+      ...(uses.length && { uses }),
+    };
+  }
+  // A change's key (an item's id, `contract` or `@implementation`) with what to call it.
+  const keyed = (key, proposal, before) => ({
+    key,
+    title: key === CONTRACT ? 'The contract' : key === IMPLEMENTATION ? 'The implementation' : proposal.items.find((item) => item.id === key)?.title ?? before?.items.find((item) => item.id === key)?.title ?? key,
+  });
+
   // Each change a proposal makes, as the user approves it: an item's id, or `contract`.
   const changeKeys = (changes) => [...Object.keys(changes.items), ...changes.removed.map((one) => one.id), ...(changes.contract ? [CONTRACT] : []), ...(changes.implementation ? [IMPLEMENTATION] : [])];
   // Whether a change is as it was in the proposal replaced (an item the same, or still gone).
@@ -740,6 +812,44 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       return drafts.reverse();
     },
 
+    // A schematic's decision log, newest first (see the top): each pinned draft named by its number
+    // too, and the schematics named as they are now.
+    async decisions(schemaId, { limit = null } = {}) {
+      await requireSchema(schemaId);
+      const entries = (await readLog(schemaId)).reverse();
+      const shown = limit ? entries.slice(0, limit) : entries;
+      const schemas = new Map();
+      const schemaOf = async (id) => {
+        if (!schemas.has(id)) schemas.set(id, await readSchema(id).catch(() => null));
+        return schemas.get(id);
+      };
+      const nameOf = async (id) => {
+        const schema = await schemaOf(id);
+        return schema?.line.length ? (await latestRecord(schema))?.name ?? null : null;
+      };
+      const numberOf = async (id, draftId) => {
+        const index = (await schemaOf(id))?.line.indexOf(draftId) ?? -1;
+        return index < 0 ? null : index + 1;
+      };
+      for (const entry of shown) {
+        for (const use of entry.changes?.uses ?? []) {
+          use.name = await nameOf(use.schematic);
+          if (use.pin) use.pinNumber = await numberOf(use.schematic, use.pin);
+          if (use.was) use.wasNumber = await numberOf(use.schematic, use.was);
+        }
+        if (entry.type === 'follows') entry.name = (await nameOf(entry.schematic)) ?? entry.name;
+      }
+      return { entries: shown, total: entries.length };
+    },
+
+    // A proposal the user discarded, as it was, with the comments on it.
+    async discardedProposal(schemaId, proposalId) {
+      await requireSchema(schemaId);
+      const proposal = await readJson(discardedFile(schemaId, proposalId));
+      if (!proposal) throw new Error(`Schematic ${schemaId} has no discarded proposal ${proposalId}. get_decision_log lists them.`);
+      return { proposal, comments: await commentsOn(schemaId, `discarded:${proposalId}`) };
+    },
+
     // The focuses to show for a draft of a schema (or the proposal): its own, and the goals of the
     // drafts before it, newest first and each once, to run again.
     async listFocuses(id, { draftId, proposal = false } = {}) {
@@ -838,7 +948,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
 
     // Proposes a new schema, or a change to one (`schemaId`), for the user to accept or discard. A
     // change builds on the proposal already waiting, which it replaces, or else the latest draft.
-    propose({ schemaId, note, goal, goalTitle, groupId, ...change }) {
+    propose({ schemaId, note, goal, goalTitle, groupId, by, ...change }) {
       return serial(async () => {
         const existing = schemaId ? await requireSchema(schemaId) : null;
         if (groupId && !(await readGroups()).some((group) => group.id === groupId)) throw new Error(`There's no domain ${groupId}. list_domains shows the ones there are.`);
@@ -863,8 +973,14 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const id = existing?.id ?? `${Date.now().toString(36)}-${newId()}`;
         if (!existing) await writeSchema({ id, createdAt: now(), line: [], ...(groupId && { group: groupId }) });
         if (replaced) await recordOutcome(replaced, 'replaced', id);
-        const proposal = { ...record, id: newId(), createdAt: now(), basedOn: existing?.line.at(-1) ?? null };
+        const proposal = { ...record, id: newId(), createdAt: now(), basedOn: existing?.line.at(-1) ?? null, ...(by && { by }) };
         await writeJson(proposalFile(id), proposal);
+        const { by: _by, ...proposed } = proposal;
+        await logDecision(id, {
+          type: 'proposed', proposal: proposal.id, ...(by && { by }), ...(replaced && { revises: replaced.id }),
+          ...(note && { note }), ...(focus && { goal: focus.goal }),
+          changes: changeSummary(existing && await latestRecord(existing), proposed),
+        });
         if (existing) await writeSchema(existing);
         finished(id, replaced?.id);
         // What embeds it following its latest draft changes with it once accepted: said, so the AI
@@ -874,13 +990,14 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
       });
     },
 
-    // The user accepts the proposal: it becomes the schema's next draft.
-    accept(schemaId) {
+    // The user accepts the proposal: it becomes the schema's next draft. `warning` is what the
+    // confirmation warned of that they accepted anyway (failing checks, what it breaks), for the log.
+    accept(schemaId, { warning = null } = {}) {
       return serial(async () => {
         const schema = await requireSchema(schemaId);
         const proposal = await readProposal(schemaId);
         if (!proposal) throw new Error('There is no proposed change to accept.');
-        const { id: proposalId, basedOn, commentsSent, reasons, approved, ...record } = proposal; // (why each item changed, and what the user approved, were for the review)
+        const { id: proposalId, basedOn, commentsSent, reasons, approved, by, ...record } = proposal; // (why each item changed, what the user approved and who proposed it are for the review and the log)
         // Uses follow the latest drafts, so another schematic accepted since it was proposed may have
         // come to embed this one.
         if (await embeds(record, schemaId)) throw new Error(`${record.name} can't embed itself, directly or through another schematic: a schematic it embeds has come to embed it since this was proposed.`);
@@ -890,6 +1007,12 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
           const shown = !use.pin && (await readSchema(use.schemaId))?.line.at(-1);
           return shown ? { ...use, draftId: shown } : use;
         }));
+        // For the log, before anything moves: what it changes, and what follows it.
+        const before = await latestRecord(schema);
+        const changes = itemChanges(before, record);
+        const keys = changeKeys(changes);
+        const unanswered = (await commentsOn(schemaId, ON_PROPOSAL)).filter(forTheAi).length;
+        const followers = schema.line.length ? await followersOf(schemaId, record, before?.contract) : [];
         const draftId = newId();
         await writeJson(draftFile(schemaId, draftId), { ...record, id: draftId, parentId: schema.line.at(-1) ?? null, createdAt: now() });
         await writeSchema({ ...schema, line: [...schema.line, draftId] });
@@ -897,6 +1020,28 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const comments = await readComments(schemaId);
         if (comments.some((comment) => comment.on === ON_PROPOSAL)) await writeComments(schemaId, comments.map((comment) => (comment.on === ON_PROPOSAL ? { ...comment, on: draftId } : comment)));
         await recordOutcome(proposal, 'accepted', schemaId, draftId);
+        const kept = Object.fromEntries(Object.entries(reasons ?? {}).filter(([key]) => keys.includes(key) || (key === CONTRACT && !before)));
+        await logDecision(schemaId, {
+          type: 'accepted', by: 'user', proposal: proposalId, draft: draftId, number: schema.line.length + 1,
+          ...(by && { proposedBy: by }), ...(record.note && { note: record.note }), ...(record.focus && { goal: record.focus.goal }),
+          changes: changeSummary(before, record),
+          ...(Object.keys(kept).length && { reasons: kept }),
+          approved: keys.filter((key) => approved?.includes(key)).map((key) => keyed(key, record, before)),
+          notApproved: keys.filter((key) => !approved?.includes(key)).map((key) => keyed(key, record, before)),
+          ...(unanswered && { unanswered }),
+          ...(warning && { warning: String(warning) }),
+          ...(followers.length && { followers: followers.map(({ id, name, uses, undeclared, breaks }) => ({ id, name, uses, ...(undeclared && { undeclared }), ...(breaks && { breaks }) })) }),
+        });
+        // Each schematic following its latest draft now shows the new one: logged on that one too,
+        // as it's a change to what it embeds that it didn't propose.
+        for (const follower of followers) {
+          await logDecision(follower.id, {
+            type: 'follows', by: 'user', schematic: schemaId, name: record.name, uses: follower.uses,
+            ...(schema.line.length && { from: { draft: schema.line.at(-1), number: schema.line.length } }),
+            to: { draft: draftId, number: schema.line.length + 1 },
+            ...(follower.undeclared && { undeclared: follower.undeclared }), ...(follower.breaks && { breaks: follower.breaks }),
+          }).catch(() => {}); // one gone meanwhile
+        }
         finished(schemaId, proposalId);
         return { schema: schemaId, draft: draftId };
       });
@@ -931,6 +1076,7 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         if (flag) approved.add(key);
         else approved.delete(key);
         await writeJson(proposalFile(schemaId), { ...proposal, approved: [...approved] });
+        await logDecision(schemaId, { type: flag ? 'approved' : 'unapproved', by: 'user', proposal: proposal.id, ...keyed(key, proposal, await latestRecord(schema)) });
         events.emit('changed', schemaId);
         return { approved: [...approved] };
       });
@@ -943,9 +1089,20 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         const proposal = await readProposal(schemaId);
         if (!proposal) throw new Error('There is no proposed change to discard.');
         if (schema.line.length) {
+          // Kept whole, with its comments (on it still, so they count for nothing), for the log.
+          const { by, ...proposed } = proposal;
+          await writeJson(discardedFile(schemaId, proposal.id), proposal);
           await rm(proposalFile(schemaId), { force: true });
           const comments = await readComments(schemaId);
-          if (comments.some((comment) => comment.on === ON_PROPOSAL)) await writeComments(schemaId, comments.filter((comment) => comment.on !== ON_PROPOSAL));
+          const on = comments.filter((comment) => comment.on === ON_PROPOSAL);
+          if (on.length) await writeComments(schemaId, comments.map((comment) => (comment.on === ON_PROPOSAL ? { ...comment, on: `discarded:${proposal.id}` } : comment)));
+          await logDecision(schemaId, {
+            type: 'discarded', by: 'user', proposal: proposal.id, ...(by && { proposedBy: by }),
+            ...(proposal.note && { note: proposal.note }), ...(proposal.focus && { goal: proposal.focus.goal }),
+            changes: changeSummary(await latestRecord(schema), proposed),
+            ...(proposal.reasons && { reasons: proposal.reasons }),
+            ...(on.length && { comments: on.length }),
+          });
           await writeSchema(schema);
         } else {
           await rm(schemaDir(schemaId), { recursive: true, force: true });
@@ -1006,17 +1163,6 @@ export function createStore(root, { events = new EventEmitter() } = {}) {
         await writeComments(schemaId, [...await readComments(schemaId), comment]);
         events.emit('changed', schemaId);
         return comment;
-      });
-    },
-
-    // The user takes back one of their comments, with any replies to it.
-    deleteComment(schemaId, commentId) {
-      return serial(async () => {
-        const comments = await readComments(schemaId);
-        if (!comments.some((comment) => comment.id === commentId)) throw new Error(`There's no comment ${commentId}.`);
-        await writeComments(schemaId, comments.filter((comment) => comment.id !== commentId));
-        events.emit('changed', schemaId);
-        return { deleted: commentId };
       });
     },
 

@@ -26,7 +26,7 @@ const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value,
 // Each tool's safety label, for the AI app to show the user and decide when to ask them: the
 // tools that only read, and the ones that change or remove something the user can't get back (the
 // rest change something, without loss). Every tool works only with the app, on this computer.
-const READ_ONLY = new Set(['list_schematics', 'get_schematic', 'get_schematic_item', 'get_proposal', 'get_comments', 'get_test_results', 'list_test_runs', 'list_domains', 'list_folders']);
+const READ_ONLY = new Set(['list_schematics', 'get_schematic', 'get_schematic_item', 'get_proposal', 'get_comments', 'get_test_results', 'list_test_runs', 'get_decision_log', 'list_domains', 'list_folders']);
 const DESTRUCTIVE = new Set();
 const annotations = (name) => ({ readOnlyHint: READ_ONLY.has(name), destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false });
 
@@ -272,6 +272,12 @@ export function buildServer(call, { version }) {
     ref: z.string().optional().describe('Against this branch, tag or commit'),
     workspace: z.boolean().optional().describe('Against the workspace'),
   }, ({ schematic_id, run_id, draft_id, proposal, ref, workspace }, schemas) => schemas.testResults(schematic_id, { runId: run_id, draftId: draft_id, proposal, ref: ref ?? null, workspace: Boolean(workspace) }));
+
+  tool('get_decision_log', 'A schematic\'s decision log, newest first, kept for auditing: each proposal (who proposed it, its note and goal, what it changes, and revises when it replaced one), each change the user approved or took back, each acceptance (the draft it made, why each change was made as the proposer said, which changes were approved and which went in unapproved, comments left unanswered, what the confirmation warned of that the user accepted anyway, and the schematics following its latest draft that changed with it), each discard, and follows: when a schematic this one embeds following its latest draft got a new draft, so this one now shows it (from and to draft numbers, and what it breaks here). Changes to uses say which were added, removed, pinned to a draft, unpinned (following the latest again) or changed. Use it to answer why something is as it is, or when this came to show a new draft of what it embeds. With proposal_id, a discarded proposal as it was, with its comments.', {
+    schematic_id: z.string(),
+    limit: z.number().int().min(1).max(500).optional().describe('At most this many, newest first (default 50)'),
+    proposal_id: z.string().optional().describe('A discarded proposal to read whole'),
+  }, ({ schematic_id, limit, proposal_id }, schemas) => (proposal_id ? schemas.discardedProposal(schematic_id, proposal_id) : schemas.decisionLog(schematic_id, { limit: limit ?? 50 })));
 
   tool('run_checks', 'Runs a schematic\'s contract checks against its implementation, as the user would from SmartSpec\'s Test mode (their window shows it as it goes). The contract is a draft\'s (the latest unless you name one; older ones too, to check compatibility over time) or the proposal\'s; all of its checks, or a branch\'s or clause\'s (only, its id in the contract). For a git repository, choose the code: a branch, tag or commit (ref), or the schematic\'s workspace as it is (workspace: true, uncommitted changes and all: run it after changing the code there, before committing, to see the contract kept); neither, its default branch. The answer names the code it ran against and the commit it resolved to: check it\'s what you meant. Waits up to wait seconds (default 60, at most 300) and gives the results as get_test_results does; if it\'s still running then (a first clone, a long build), call get_test_results with its run_id later. If that run is already going, it waits for it. Only an implementation the user has accepted can be run: the proposal\'s only while it\'s the same as the latest draft\'s.', {
     schematic_id: z.string(),

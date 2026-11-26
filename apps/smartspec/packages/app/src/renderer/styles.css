@@ -831,7 +831,6 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .card-comment { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .card-comment .comment-top { align-items: flex-start; }
 .card-comment .comment-text { flex: 1; }
-.card-comment:hover .comment-delete { opacity: 1; }
 .card-comment .comment-replies { width: auto; margin: 0; padding: 6px 0 0 10px; border-top: 0; border-left: 2px solid var(--border); }
 .card-comments-writer { display: grid; gap: 8px; }
 .card-comments-add { justify-self: start; }
@@ -843,8 +842,6 @@ button.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1p
 .comment-top { display: flex; align-items: flex-start; gap: 6px; width: 100%; }
 .comment-about { display: -webkit-box; flex: 1; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
 .comment-about.quote { font-style: italic; }
-.comment-delete { flex: none; width: 22px; height: 22px; margin: -3px -5px -3px 0; opacity: 0; }
-.comment-card:hover .comment-delete, .comment-delete:focus-visible { opacity: 1; }
 /* How the AI dealt with a comment, in its words, as a small tag; or, before it has, that it's
    waiting for the AI. */
 .comment-outcome { flex: none; justify-self: start; max-width: 100%; overflow: hidden; padding: 1px 7px; border-radius: 9px; background: var(--subtle-bg); color: var(--text-2); font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; text-overflow: ellipsis; }
@@ -1778,3 +1775,35 @@ p.node-entries { margin-bottom: 0; padding-top: 4px; padding-bottom: 4px; font-s
 /* Secrets and the workspace are cards of their own in Test mode, their heads their titles. */
 .test-card > .impl-local { margin-top: 0; padding-top: 0; border-top: 0; }
 .test-card > .impl-local > .pane-subhead { display: none; }
+
+/* The decision log (decision-log.js): a panel over the right of the window, as the status panel. */
+.log-mask { position: fixed; inset: 0; z-index: 30; background: var(--mask); opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0s 0.2s; -webkit-app-region: no-drag; }
+.log-open .log-mask { opacity: 1; visibility: visible; transition: opacity 0.2s; }
+.log-card { position: fixed; z-index: 32; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); display: flex; flex-direction: column; overflow: hidden; background: var(--bg); box-shadow: -1px 0 0 rgba(0, 0, 0, 0.06), -8px 0 28px rgba(0, 0, 0, 0.12); transform: translateX(calc(100% + 28px)); visibility: hidden; transition: transform 0.2s ease, visibility 0s 0.2s; -webkit-app-region: no-drag; }
+.log-open .log-card { transform: none; visibility: visible; transition: transform 0.2s ease; }
+.log-bar { flex: none; display: flex; align-items: center; gap: 8px; height: var(--top-bar-height); padding: 0 8px 0 16px; }
+.log-title { flex: 1; min-width: 0; margin: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-body { flex: 1; overflow: hidden auto; padding: 4px 16px 24px; user-select: text; }
+.log-intro, .log-empty { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.log-day h3 { margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.log-entry { position: relative; display: grid; gap: 4px; padding: 8px 0 10px 18px; font-size: 13px; }
+.log-entry::before { content: ''; position: absolute; left: 4px; top: 22px; bottom: -8px; width: 1px; background: var(--border); }
+.log-day .log-entry:last-child::before { display: none; }
+.log-head { display: flex; align-items: baseline; gap: 8px; }
+.log-head strong { flex: 1; min-width: 0; font-weight: 600; }
+.log-head time { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.log-dot { position: absolute; left: 0; top: 13px; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.log-entry.accepted .log-dot { background: var(--decided-text); }
+.log-entry.discarded .log-dot { background: var(--removed); }
+.log-entry.follows .log-dot { background: var(--accent); }
+.log-entry.quiet { padding-top: 4px; padding-bottom: 4px; color: var(--muted); }
+.log-entry.quiet .log-head strong { font-weight: 400; }
+.log-entry.quiet .log-dot { top: 9px; width: 7px; height: 7px; left: 1px; opacity: 0.6; }
+.log-note { margin: 0; }
+.log-line { margin: 0; }
+.log-line.muted { color: var(--muted); font-size: 12px; }
+.log-line.warn { color: var(--comment); }
+.log-section { display: grid; gap: 2px; margin-top: 4px; }
+.log-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.log-show { justify-self: start; margin-top: 4px; }
+.draft-log { justify-self: start; margin: 2px 4px; }
